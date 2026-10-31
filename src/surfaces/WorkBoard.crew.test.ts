@@ -1536,6 +1536,77 @@ describe("the crew view: the Board with the crew on it", () => {
     });
   });
 
+  it("reviews again when a card stacks while Review is open", async () => {
+    const C1 = "1".repeat(40);
+    const C2 = "2".repeat(40);
+    let top = C1;
+    // The row and the sheet both read the branch: each waits.
+    const waiting: (() => void)[] = [];
+    const usual = actions.reviewCrewBatch.getMockImplementation()!;
+    actions.reviewCrewBatch.mockImplementation((async () => {
+      const to = top;
+      // The second read is slow: the sheet says what it's doing meanwhile.
+      if (to === C2)
+        await new Promise<void>((resolve) => waiting.push(resolve));
+      return {
+        diff: { files: [], additions: 0, deletions: 0, hash: `h-${to[0]}` },
+        from: "a".repeat(40),
+        to,
+        cards: [],
+      };
+    }) as never);
+    onTestFinished(() => {
+      actions.reviewCrewBatch.mockImplementation(usual);
+    });
+    const boards = await setUp((boards) => (crew) => ({
+      ...withCard(crew, {
+        ...crewCardFor(boards[3], "ready"),
+        stacked: { commit: C1, parent: "a".repeat(40) },
+      }),
+      stack: { base: "a".repeat(40) },
+    }));
+    await settle();
+    await act(async () =>
+      button(container.querySelector("[data-crew-batch]")!, "Review")!.click(),
+    );
+    await settle();
+    const applyButton = () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          ".crew-sheet-actions button",
+        ),
+      ].at(-1)!;
+    expect(applyButton().disabled).toBe(false);
+    // Another card passes and stacks while you look at "All of them".
+    top = C2;
+    await act(async () =>
+      updateCrew(PROJECT, (crew) =>
+        withCard(crew, {
+          ...crewCardFor(boards[4], "ready"),
+          stacked: { commit: C2, parent: C1 },
+        }),
+      ),
+    );
+    await settle();
+    const sheet = document.querySelector<HTMLElement>(
+      "[data-crew-batch-review]",
+    )!;
+    expect(sheet.textContent).toContain("The branch changed: reviewing again");
+    expect(applyButton().disabled).toBe(true);
+    await act(async () => {
+      for (const release of waiting) release();
+    });
+    await settle();
+    expect(sheet.textContent).not.toContain("reviewing again");
+    expect(applyButton().disabled).toBe(false);
+    await act(async () => applyButton().click());
+    expect(actions.applyCrewBatch).toHaveBeenLastCalledWith(PROJECT, {
+      to: C2,
+      hash: "h-2",
+      reviewed: true,
+    });
+  });
+
   it("doesn't open Review by itself later when the Inbox asked with nothing to review", async () => {
     await setUp(() => (crew) => crew);
     await act(async () => requestCrewReview(PROJECT));

@@ -1,4 +1,5 @@
 import {
+  cardCanGoOn,
   cardTriesAgain,
   crewStageDetail,
   crewStageLabel,
@@ -414,7 +415,10 @@ export function crewBoardInfo(
         needsYou: true,
         rounds,
         actions: [
-          retry ? { ...A.more, label: "Try again" } : A.more,
+          // A file's name the crew can't bring to you: yours to change.
+          ...(cardCanGoOn(card)
+            ? [retry ? { ...A.more, label: "Try again" } : A.more]
+            : []),
           A.takeOver,
           A.backToIdeas,
           A.throwAway,

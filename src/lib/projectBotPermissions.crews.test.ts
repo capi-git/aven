@@ -453,7 +453,12 @@ describe("paths Apply never brings into your files", () => {
         ".mcp.j\u017fon",
         ".hu\u017fky/pre-commit",
         ".\uff43laude/settings.json",
-        "caf\u00e9/notes.md",
+        ".pre-commit-con\ufb01g.yaml",
+        // A dotfile-style name that isn't plain ASCII, as a margin.
+        ".n\u00f6tes/run.sh",
+        // Ordinary names with accents apply like any other.
+        "Donn\u00e9es/notes.md",
+        "R\u00e9sum\u00e9.md",
         "src/caf\u00e9.ts",
         "src/app.ts",
       ]),
@@ -462,8 +467,8 @@ describe("paths Apply never brings into your files", () => {
       ".mcp.j\u017fon",
       ".hu\u017fky/pre-commit",
       ".\uff43laude/settings.json",
-      // Any top-level name that isn't plain ASCII is refused outright.
-      "caf\u00e9/notes.md",
+      ".pre-commit-con\ufb01g.yaml",
+      ".n\u00f6tes/run.sh",
     ]);
   });
 });

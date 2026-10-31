@@ -149,6 +149,24 @@ export function isRestackConflict(error: unknown): boolean {
   );
 }
 
+/**
+ * The file whose name reads as a settings folder on a Mac, when that's why
+ * the host refused a change (see `look_alike` in project_bots.rs).
+ */
+export function lookAlikePath(error: unknown): string | null {
+  const text = String(error instanceof Error ? error.message : error);
+  const found =
+    /reads as a settings folder on a Mac: (.+?)(?: \(card \d+ of \d+\))?$/.exec(
+      text.split("\n")[0] ?? "",
+    );
+  return found ? found[1]!.trim() : null;
+}
+
+/** Why a change with a look-alike settings name can't go on, in plain words. */
+export function lookAlikeText(path: string): string {
+  return `“${path}” reads as a settings folder on a Mac, so it can't go to your files. Take it over in a chat to rename it, or throw the card away.`;
+}
+
 /** The copy changed after a card's checks, so it wasn't stacked. */
 export function isStackChanged(error: unknown): boolean {
   return /copy changed after the card's checks/i.test(
@@ -207,6 +225,8 @@ export function botCopyError(error: unknown): string {
   const text = String(error instanceof Error ? error.message : error).trim();
   if (isFixChanged(text))
     return "The fix changed since you looked. Review it again, then apply.";
+  const lookAlike = lookAlikePath(text);
+  if (lookAlike) return lookAlikeText(lookAlike);
   if (/isn't the change its checks passed/i.test(text))
     return "A card on the crew's branch isn't the change its checks passed, so nothing was applied. Take it off the branch, or update the branch and review it again.";
   if (/name has characters Aven can't read safely/i.test(text))

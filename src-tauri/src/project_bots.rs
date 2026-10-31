@@ -275,34 +275,34 @@ fn folded(name: &str) -> String {
     name.to_uppercase().to_lowercase()
 }
 
-/// A path whose top-level name isn't plain ASCII: a case-insensitive file
-/// system may read it as a settings folder ("ſ" for "s", "ﬁ" for "fi"), so
-/// none is ever stacked or applied.
+/// A path's top-level name as a file system that ignores case reads it,
+/// with the trailing dots and spaces Windows drops trimmed off.
+fn folded_top(path: &str) -> String {
+    folded(path.replace('\\', "/").split('/').next().unwrap_or(""))
+        .trim_end_matches(['.', ' '])
+        .to_string()
+}
+
+/// A path whose top-level name isn't plain ASCII yet reads as a settings
+/// name ("ſ" is "s", "ﬁ" is "fi" on a Mac), or is a dotfile-style name, as
+/// a margin: never stacked or applied. Ordinary names with accents
+/// ("Données", "Résumé.md") are like any other.
 fn look_alike(path: &str) -> bool {
-    !path
-        .replace('\\', "/")
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .is_ascii()
+    let top = path.replace('\\', "/");
+    let top = top.split('/').next().unwrap_or("");
+    !top.is_ascii() && (top.starts_with('.') || PROTECTED.contains(&folded_top(path).as_str()))
 }
 
 /// The protected paths among a fix's files (see `PROTECTED`): matched as a
-/// file system that ignores case reads them, with any top-level name that
-/// isn't plain ASCII refused outright.
+/// file system that ignores case reads them, and look-alikes with them.
 fn protected_paths(paths: &[&str]) -> Vec<String> {
     paths
         .iter()
         .filter(|path| {
-            let lower = folded(&path.replace('\\', "/"));
-            // Windows reads "name." and "name " as "name".
-            let first = lower
-                .split('/')
-                .next()
-                .unwrap_or("")
-                .trim_end_matches(['.', ' ']);
             // A name git would have to quote is never applied either.
-            path.starts_with('"') || look_alike(path) || PROTECTED.contains(&first)
+            path.starts_with('"')
+                || look_alike(path)
+                || PROTECTED.contains(&folded_top(path).as_str())
         })
         .map(|path| (*path).to_string())
         .collect()
@@ -709,8 +709,8 @@ pub fn stack(
     // The commit is made but not yet on the branch: it goes there only as
     // the change that was checked, and with no look-alike settings name.
     let changes = race::range_diff(&copy, parent, &sha)?;
-    if first_look_alike(changes.files.iter().map(|file| file.path.as_str())).is_some() {
-        return Err(LOOK_ALIKE.into());
+    if let Some(path) = first_look_alike(changes.files.iter().map(|file| file.path.as_str())) {
+        return Err(format!("{LOOK_ALIKE}: {path}"));
     }
     if patch_hash(&race::range_patch(&copy, parent, &sha)?) != hash {
         return Err(STACK_CHANGED.into());
@@ -749,10 +749,9 @@ const STACK_MOVED: &str = "The crew's copy moved since its last card.";
 /// Said when the copy no longer holds the change a card's checks passed.
 const STACK_CHANGED: &str = "The copy changed after the card's checks.";
 
-/// Said when a change has a top-level name that isn't plain ASCII: a case-
-/// insensitive file system may read it as a settings folder.
-const LOOK_ALIKE: &str =
-    "A changed file's top-level name isn't plain ASCII, so it could stand for a settings folder";
+/// The start of a refusal of a change with a look-alike name (see
+/// `look_alike`), followed by the file's name.
+const LOOK_ALIKE: &str = "A file's name reads as a settings folder on a Mac";
 
 /// Said when a card on the branch isn't the change its checks passed.
 const CARD_CHANGED: &str = "A card on the crew's branch isn't the change its checks passed.";
@@ -1969,10 +1968,8 @@ mod tests {
         let error = apply(&root, &bots, &copy.path, &base, &fix.hash).unwrap_err();
         assert!(error.starts_with(PROTECTED_FIX), "{error}");
         // Never stacked either.
-        assert_eq!(
-            stack(&bots, &copy.path, BRANCH, &base, "Look-alike", &fix.hash).unwrap_err(),
-            LOOK_ALIKE
-        );
+        let error = stack(&bots, &copy.path, BRANCH, &base, "Look-alike", &fix.hash).unwrap_err();
+        assert!(error.starts_with(LOOK_ALIKE), "{error}");
         assert_eq!(head(&copy_path).unwrap(), base);
         // A commit made some other way (an older Aven) is refused at Apply
         // and at a restack.
@@ -2001,6 +1998,57 @@ mod tests {
         assert!(!root.join(".vscode").exists());
         assert!(!root.join(".mcp.json").exists());
         assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Ordinary names with accents apply like any other file, for a crew's
+    // card and for the Fixer; a dotfile-style name that isn't plain ASCII
+    // is kept out, as a margin.
+    #[cfg(not(windows))]
+    #[test]
+    fn applies_accented_names_but_not_accented_dotfiles() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::create_dir_all(copy_path.join("Donn\u{e9}es")).unwrap();
+        std::fs::write(copy_path.join("Donn\u{e9}es/notes.md"), "notes\n").unwrap();
+        std::fs::write(copy_path.join("R\u{e9}sum\u{e9}.md"), "cv\n").unwrap();
+        // The Fixer's own Apply.
+        let fix = diff(&bots, &copy.path, &base).unwrap();
+        apply(&root, &bots, &copy.path, &base, &fix.hash).unwrap();
+        assert_eq!(read(&root.join("Donn\u{e9}es/notes.md")), "notes\n");
+        assert_eq!(read(&root.join("R\u{e9}sum\u{e9}.md")), "cv\n");
+        // A crew card: stacked and applied from the branch.
+        std::fs::write(copy_path.join("Donn\u{e9}es/notes.md"), "more notes\n").unwrap();
+        let card = stack_checked(&bots, &copy.path, &base, "Notes");
+        let reviewed = range(&bots, &copy.path, &base, &card.commit).unwrap();
+        std::fs::remove_dir_all(root.join("Donn\u{e9}es")).unwrap();
+        std::fs::remove_file(root.join("R\u{e9}sum\u{e9}.md")).unwrap();
+        apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &base,
+            &card.commit,
+            &reviewed.hash,
+            &cards(&[&card]),
+        )
+        .unwrap();
+        assert_eq!(read(&root.join("Donn\u{e9}es/notes.md")), "more notes\n");
+        // A dotfile-style name with an accent: never stacked or applied.
+        std::fs::create_dir_all(copy_path.join(".n\u{f6}tes")).unwrap();
+        std::fs::write(copy_path.join(".n\u{f6}tes/run.sh"), "x\n").unwrap();
+        let fix = diff(&bots, &copy.path, &card.commit).unwrap();
+        let error = stack(&bots, &copy.path, BRANCH, &card.commit, "Dot", &fix.hash).unwrap_err();
+        assert!(error.starts_with(LOOK_ALIKE), "{error}");
+        assert!(error.contains(".n\u{f6}tes/run.sh"), "{error}");
+        let error = apply(&root, &bots, &copy.path, &card.commit, &fix.hash).unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
         remove(&root, &bots, &copy.path, BRANCH).unwrap();
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&bots);

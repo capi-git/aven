@@ -263,19 +263,20 @@ export function foldedName(name: string): string {
 
 /**
  * The protected paths among a fix's files. A name git would have to quote
- * (a quote or a control character in it) is never applied either, nor one
- * whose top-level name isn't plain ASCII (a case-insensitive file system
- * may read it as a settings folder). Each part is matched folded, and
- * Windows' reading of "name." or "name " as "name" never disguises one.
+ * (a quote or a control character in it) is never applied either. The
+ * top-level name is matched folded ("ſ" is "s" on a Mac), without the
+ * trailing dots and spaces Windows drops; and, as a margin, a dotfile-style
+ * name that isn't plain ASCII is kept out too. Ordinary names with accents
+ * ("Données", "Résumé.md") are like any other.
  */
 export function protectedFixPaths(paths: readonly string[]): string[] {
   return paths.filter((path) => {
     // oxlint-disable-next-line no-control-regex -- control characters are what this refuses.
     if (path.startsWith('"') || /[\u0000-\u001f\u007f]/.test(path)) return true;
-    const parts = path.replace(/\\/g, "/").split("/");
+    const top = path.replace(/\\/g, "/").split("/")[0]!;
     // oxlint-disable-next-line no-control-regex -- ASCII is what this keeps.
-    if (/[^\u0000-\u007f]/.test(parts[0]!)) return true;
-    const first = foldedName(parts[0]!).replace(/[. ]+$/, "");
+    if (top.startsWith(".") && /[^\u0000-\u007f]/.test(top)) return true;
+    const first = foldedName(top).replace(/[. ]+$/, "");
     return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
   });
 }

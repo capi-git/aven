@@ -48,6 +48,7 @@ import {
 } from "./featureCards";
 import { localDay, resetProjectBotsCache } from "./projectBots";
 import { crewCardMenu } from "./crewView";
+import { botCopyError } from "./projectBotCopy";
 import { nextCardToStart } from "./crewLimits";
 
 const host = vi.hoisted(() => ({
@@ -843,6 +844,39 @@ describe("a nudge with cards waiting on the branch", () => {
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
       "2 cards wait for you on the crew's branch: review them to keep going.",
     );
+  });
+});
+
+describe("a card whose file name reads as a settings folder", () => {
+  it("says which file, in plain words, and a nudge doesn't try it again", async () => {
+    const text = botCopyError(
+      new Error(
+        "A file's name reads as a settings folder on a Mac: .v\u017fcode/tasks.json (card 1 of 2)",
+      ),
+    );
+    expect(text).toBe(
+      "“.v\u017fcode/tasks.json” reads as a settings folder on a Mac, so it can't go to your files. Take it over in a chat to rename it, or throw the card away.",
+    );
+    updateCrew(PATH, (crew) =>
+      withCard(
+        { ...crew, on: true },
+        {
+          ...queueCard(
+            { id: "c", title: "Tasks", brief: "x", from: "you", maxRounds: 3 },
+            NOON,
+          ),
+          stage: "stuck",
+          round: 1,
+          holder: "checker",
+          base: "a".repeat(40),
+          stuck: { reason: "unsafe-name", text },
+        },
+      ),
+    );
+    expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(crewCard(crew, "c")!.stage).toBe("stuck");
+    expect(crew.feed.at(-1)?.text).toBe(text);
   });
 });
 

@@ -31,7 +31,7 @@ import {
   turnOffCrew,
   updateCrewMember,
 } from "./crewActions";
-import { crewStatus } from "./crewView";
+import { crewBoardInfo, crewStatus } from "./crewView";
 import { localDay, resetProjectBotsCache } from "./projectBots";
 import type { BotDiff } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
@@ -829,6 +829,47 @@ describe("stacking only what was checked", () => {
     expect(card().stuck?.text).toContain("wasn't stacked");
     expect(card().stacked).toBeUndefined();
     expect(getCrew(PATH)!.stack).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("stops a card whose file name reads as a settings folder, with no Try again", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/a.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ members: NO_SCOUT });
+    give();
+    h.copy.stack.mockRejectedValueOnce(
+      new Error(
+        "A file's name reads as a settings folder on a Mac: .v\u017fcode/tasks.json",
+      ),
+    );
+    h.runner.start();
+    await h.advance(10 * MINUTE);
+    const stuck = card();
+    expect(stuck).toMatchObject({
+      stage: "stuck",
+      stuck: { reason: "unsafe-name" },
+    });
+    expect(stuck.stuck!.text).toBe(
+      "“.v\u017fcode/tasks.json” reads as a settings folder on a Mac, so it can't go to your files. Take it over in a chat to rename it, or throw the card away.",
+    );
+    // No Try again: it would only stop the same way, run after run.
+    const actions = crewBoardInfo(stuck, {
+      builder: "Beetle",
+      checker: "Owl",
+    }).actions.map((action) => action.label);
+    expect(actions).not.toContain("Try again");
+    expect(actions).not.toContain("One more round");
+    expect(actions).toContain("Take over in a chat");
+    const runs = getCrew(PATH)!.runs;
+    resumeCrewCard(PATH, "card-1", undefined, h.now);
+    expect(card().stage).toBe("stuck");
+    await h.advance(30 * MINUTE);
+    expect(getCrew(PATH)!.runs).toEqual(runs);
     h.runner.stop();
   });
 

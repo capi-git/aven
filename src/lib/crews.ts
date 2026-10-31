@@ -279,7 +279,9 @@ export type CrewStuckReason =
   | "no-verdict"
   | "failed"
   | "timeout"
-  | "stopped";
+  | "stopped"
+  /** A file's name reads as a settings folder on a Mac: it can't go on. */
+  | "unsafe-name";
 
 export type CrewRan = {
   /** The command, or what was checked. */
@@ -715,6 +717,7 @@ const STUCK = new Set<CrewStuckReason>([
   "failed",
   "timeout",
   "stopped",
+  "unsafe-name",
 ]);
 const SIZES = new Set<CrewIdeaSize>(["small", "medium", "large"]);
 const FEED_KINDS = new Set<CrewFeedKind>([

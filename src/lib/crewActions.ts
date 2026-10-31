@@ -3,6 +3,7 @@ import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import { claudeCheckerModel } from "./crewModels";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
 import {
+  cardCanGoOn,
   cardTriesAgain,
   changedAfterCheck,
   markApplied,
@@ -441,7 +442,11 @@ function nudgeCrew(path: string, words: string, now: number) {
     );
     return;
   }
-  if (card?.stage === "stuck" && card.stuck?.reason !== "question") {
+  if (
+    card?.stage === "stuck" &&
+    card.stuck?.reason !== "question" &&
+    cardCanGoOn(card)
+  ) {
     resumeCrewCard(path, card.id, undefined, now);
     return;
   }
@@ -461,7 +466,9 @@ function nudgeCrew(path: string, words: string, now: number) {
       ? `${onBranch}: ${waiting === 1 ? "review it to apply it" : "review them to apply them"}.`
       : CREW_NOTHING_TO_BUILD
     : next.stage === "stuck"
-      ? `“${next.title}” waits for your answer on its card.`
+      ? cardCanGoOn(next)
+        ? `“${next.title}” waits for your answer on its card.`
+        : (next.stuck?.text ?? `“${next.title}” waits for you.`)
       : next.stage === "ready"
         ? `“${next.title}” is Ready: apply it or send it back from its card.`
         : next.stage === "queued" && waitsForReview(crew)

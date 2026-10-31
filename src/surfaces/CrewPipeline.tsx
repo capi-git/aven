@@ -971,15 +971,22 @@ export function CrewBatchSheet({
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const copy = crew.copy?.path;
+  // The branch's top: a card stacked while this is open is read again.
+  const top = stackedCards(crew).at(-1)?.stacked?.commit;
+  const readTop = useRef(top);
+  const [rereading, setRereading] = useState(false);
   useEffect(() => {
     let live = true;
-    // A new selection: nothing is shown, so nothing can be applied, until
-    // its own change has been read.
+    // A new selection, or the branch moved: nothing is shown, so nothing
+    // can be applied, until its own change has been read.
+    setRereading(!upTo && readTop.current !== top);
+    readTop.current = top;
     setReview(null);
     setFiles(null);
     void reviewCrewBatch(project, upTo)
       .then(async (found) => {
         if (!live) return;
+        setRereading(false);
         if ("error" in found) {
           setProblem(found.error);
           setReview(null);
@@ -1026,7 +1033,7 @@ export function CrewBatchSheet({
     return () => {
       live = false;
     };
-  }, [project, upTo, copy]);
+  }, [project, upTo, copy, top]);
   const ordered = review?.cards ?? [];
   const last = stackedCards(crew).at(-1);
   // The commit the selection ends at: Apply lands only a review of exactly it.
@@ -1162,7 +1169,11 @@ export function CrewBatchSheet({
             <p className="crew-sheet-note">Couldn't read the change.</p>
           )
         ) : (
-          <p className="crew-sheet-note">Reading the change…</p>
+          <p className="crew-sheet-note" role="status">
+            {rereading
+              ? "The branch changed: reviewing again"
+              : "Reading the change…"}
+          </p>
         )}
         {problem ? (
           <p className="crew-sheet-problem" role="alert">

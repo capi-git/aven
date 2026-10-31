@@ -105,7 +105,12 @@ import type {
 import type { ControlOutcome } from "./orchestration";
 import { projectKey } from "./paths";
 import type { BotCopyInfo, BotDiff, BotSyncResult } from "./projectBotCopy";
-import { botCopyError, isStackChanged } from "./projectBotCopy";
+import {
+  botCopyError,
+  isStackChanged,
+  lookAlikePath,
+  lookAlikeText,
+} from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
 import { botBranch, jobIsLive } from "./projectBots";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
@@ -1560,6 +1565,23 @@ export class CrewRunner {
       };
     } catch (error) {
       logError("Crew stack", error);
+      // A file's name reads as a settings folder on a Mac: it stops for
+      // good, with which file, rather than fail the same way run after run.
+      const lookAlike = lookAlikePath(error);
+      if (lookAlike) {
+        const text = lookAlikeText(lookAlike);
+        return {
+          card: {
+            ...card,
+            stage: "stuck",
+            stuck: { reason: "unsafe-name", text },
+            turn: undefined,
+            endedAt: now,
+            updatedAt: now,
+          },
+          event: { kind: "stuck", reason: "unsafe-name", text },
+        };
+      }
       // The copy changed after its checks: it's checked again, never
       // stacked as something that wasn't checked.
       if (isStackChanged(error)) {
