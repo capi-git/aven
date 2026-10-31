@@ -1,8 +1,9 @@
 /* Aven's marks (DotMark.tsx): a 5×5 grid of round dots in the theme's text
-   colour, the lit ones the sigil. Only the small status dot in the corner
-   has colour, from the theme's status tokens. Motion is opacity and
-   transform only, and none of it repeats unless the mark is idle, working
-   or needs you.
+   colour, the lit ones the sigil, in its project's colour (a mark colour
+   token; Grey is the text colour). The small status dot in the corner has
+   its status's colour, from the theme's status tokens. Motion is opacity,
+   transform and the lit dots' colour, and none of it repeats unless the
+   mark is idle, working or needs you.
 
    Each dot is a zero-length round-capped stroke, so a dot's size is the
    stroke's width (in the mark's 100-unit box, cells 20 apart). A small
@@ -64,9 +65,56 @@ html.theme-light .dot-mark[data-frame="square"] {
   --dot-mark-unlit: 0.16;
 }
 
+/* A project's colour, from the theme's mark tokens: its lit dots take it,
+   in full, and its peak (a little brighter) lights the sweep's highlight
+   and the tick's flash. Plain colours, as an animated stroke drawn from a
+   color-mix() turns black in Chromium. No tone is Grey, the text colour. */
+.dot-mark[data-tone] {
+  --dot-mark-lit: 1;
+}
+.dot-mark[data-tone="blue"] {
+  --dot-mark-tint: var(--aven-mark-blue);
+  --dot-mark-peak: var(--aven-mark-blue-peak);
+}
+.dot-mark[data-tone="red"] {
+  --dot-mark-tint: var(--aven-mark-red);
+  --dot-mark-peak: var(--aven-mark-red-peak);
+}
+.dot-mark[data-tone="yellow"] {
+  --dot-mark-tint: var(--aven-mark-yellow);
+  --dot-mark-peak: var(--aven-mark-yellow-peak);
+}
+.dot-mark[data-tone="green"] {
+  --dot-mark-tint: var(--aven-mark-green);
+  --dot-mark-peak: var(--aven-mark-green-peak);
+}
+.dot-mark[data-tone="pink"] {
+  --dot-mark-tint: var(--aven-mark-pink);
+  --dot-mark-peak: var(--aven-mark-pink-peak);
+}
+.dot-mark[data-tone="purple"] {
+  --dot-mark-tint: var(--aven-mark-purple);
+  --dot-mark-peak: var(--aven-mark-purple-peak);
+}
+.dot-mark[data-tone="teal"] {
+  --dot-mark-tint: var(--aven-mark-teal);
+  --dot-mark-peak: var(--aven-mark-teal-peak);
+}
+.dot-mark[data-tone="orange"] {
+  --dot-mark-tint: var(--aven-mark-orange);
+  --dot-mark-peak: var(--aven-mark-orange-peak);
+}
+
 .dot-mark-grid,
 .dot-mark-grid-d {
   opacity: var(--dot-mark-unlit);
+}
+
+/* Only the lit dots take the colour; the grid stays the text colour. */
+.dot-mark-lit,
+.dot-mark-lit-d,
+.dot-mark-was {
+  stroke: var(--dot-mark-tint, currentColor);
 }
 
 .dot-mark-lit,
@@ -74,9 +122,11 @@ html.theme-light .dot-mark[data-frame="square"] {
   opacity: var(--dot-mark-lit);
 }
 
-/* A stuck agent's cross is quieter than a sigil. */
+/* A stuck agent's cross is quieter than a sigil, and grey: the red dot
+   says what happened, not the project's colour. */
 .dot-mark[data-state="error"] .dot-mark-lit {
   opacity: 0.55;
+  stroke: currentColor;
 }
 
 .dot-mark-was {
@@ -145,9 +195,16 @@ html.theme-light .dot-mark[data-frame="square"] {
     animation: dot-mark-out 360ms ease-out both;
   }
 
-  .dot-mark[data-state="done"] .dot-mark-lit,
   .dot-mark[data-state="error"] .dot-mark-lit {
     animation: dot-mark-in 360ms ease-out both;
+  }
+
+  /* The tick lands in the project's colour, flashes brighter once, and
+     settles. */
+  .dot-mark[data-state="done"] .dot-mark-lit {
+    animation:
+      dot-mark-in 360ms ease-out both,
+      dot-mark-flash 900ms ease-out 1;
   }
 
   .dot-mark-status {
@@ -184,6 +241,7 @@ html.theme-light .dot-mark[data-frame="square"] {
   }
 }
 
+/* The highlight runs in the mark's colour, brightest at its peak. */
 @keyframes dot-mark-sweep {
   0%,
   100% {
@@ -191,6 +249,7 @@ html.theme-light .dot-mark[data-frame="square"] {
   }
   30% {
     opacity: 1;
+    stroke: var(--dot-mark-peak, currentColor);
   }
 }
 
@@ -226,6 +285,13 @@ html.theme-light .dot-mark[data-frame="square"] {
   }
   to {
     opacity: 0;
+  }
+}
+
+/* Lands in its colour, brightens once as it settles in, and settles. */
+@keyframes dot-mark-flash {
+  45% {
+    stroke: var(--dot-mark-peak, currentColor);
   }
 }
 

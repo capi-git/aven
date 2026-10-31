@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -26,8 +27,8 @@ import {
   HELM_HOVER_CLOSE_MS,
   HELM_HOVER_OPEN_MS,
   markHelmHintSeen,
-  moveGridCursor,
   moveHelmCursor,
+  moveMarkCursor,
   OPEN_USAGE_EVENT,
   roomBar,
   saveHelmCritter,
@@ -49,6 +50,14 @@ import {
   appearanceSigil,
   projectSigil,
 } from "../lib/dotSigils";
+import {
+  MARK_TONES,
+  appearanceTone,
+  markTone,
+  markToneColor,
+  markToneIndex,
+  saveProjectTone,
+} from "../lib/markTones";
 import { MOD } from "../lib/platform";
 import { hasProjectAppearance } from "../lib/projectAppearance";
 import {
@@ -246,8 +255,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const [cursor, setCursor] = useState(0);
   const [panel, setPanel] = useState<AgentPanelFocus | null>(null);
   const [hop, setHop] = useState(0);
-  // The mark under the picker's cursor, previewed above the grid.
-  const [previewCritter, setPreviewCritter] = useState<string | null>(null);
+  // The mark or colour under the picker's cursor (its place on the page:
+  // the sigils, then the colours), previewed above the grid.
+  const [preview, setPreview] = useState<number | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The mark: the project's, or your own outside a project. Both are kept
@@ -263,6 +273,10 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const mark = inProject
     ? appearanceSigil(appearance)
     : projectSigil(personal.mascot, critterKey);
+  // Its colour: the project's (picked, or its own from its name), or the
+  // one you picked outside projects, Grey until you do.
+  const toneIndex = markToneIndex(inProject ? appearance : personal);
+  const tone = inProject ? appearanceTone(appearance) : markTone(personal);
 
   // What the agent is.
   const agent = useAgentSummary({
@@ -390,7 +404,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       clearTimer();
       setOpened(null);
       setPage("main");
-      setPreviewCritter(null);
+      setPreview(null);
       if (returnFocus) onReturnFocus();
     },
     [onReturnFocus],
@@ -511,7 +525,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
               )
             : 0,
         );
-        setPreviewCritter(null);
+        setPreview(null);
         setOpened((current) => (current === "hover" ? "pinned" : current));
         return;
     }
@@ -546,7 +560,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
 
   const backToMain = (from: Page) => {
     setPage("main");
-    setPreviewCritter(null);
+    setPreview(null);
     setCursor(Math.max(0, rows.indexOf(from as HelmRowId)));
   };
 
@@ -558,13 +572,19 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     else saveHelmCritter({ ...personal, mascot: name });
     setHop((value) => value + 1);
   };
+  // The project's colour, or your own outside a project.
+  const pickTone = (index: number) => {
+    if (inProject) saveProjectTone(appearance, index);
+    else saveHelmCritter({ mascot: personal.mascot, colorIndex: index });
+    setHop((value) => value + 1);
+  };
   const itemCount =
     page === "modes"
       ? modes.length
       : page === "skills"
         ? recentSkills.length
         : page === "critter"
-          ? PROJECT_SIGILS.length
+          ? PROJECT_SIGILS.length + MARK_TONES.length
           : 0;
 
   const onDialogKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -618,12 +638,18 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     }
     const next =
       page === "critter"
-        ? moveGridCursor(event.key, cursor, itemCount, CRITTER_COLUMNS)
+        ? moveMarkCursor(
+            event.key,
+            cursor,
+            PROJECT_SIGILS.length,
+            CRITTER_COLUMNS,
+            MARK_TONES.length,
+          )
         : moveHelmCursor(event.key, cursor, itemCount);
     if (next !== null) {
       event.preventDefault();
       setCursor(next);
-      if (page === "critter") setPreviewCritter(PROJECT_SIGILS[next].key);
+      if (page === "critter") setPreview(next);
     }
   };
 
@@ -769,7 +795,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       case "critter":
         value = (
           <>
-            <DotMark sigil={mark} className="helm-mini-critter" />
+            <DotMark sigil={mark} tone={tone} className="helm-mini-critter" />
             {mark.label}
           </>
         );
@@ -862,17 +888,41 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         </div>
       );
     if (page === "critter") {
-      const shown = projectSigil(previewCritter ?? mark.key);
+      const sigilCount = PROJECT_SIGILS.length;
+      const shown =
+        preview !== null && preview < sigilCount
+          ? PROJECT_SIGILS[preview]
+          : mark;
+      const shownTone =
+        MARK_TONES[
+          preview !== null && preview >= sigilCount
+            ? preview - sigilCount
+            : toneIndex
+        ];
+      // Each row is one stop for Tab: the cell under the cursor, or the
+      // chosen one in the row the cursor is not in.
+      const sigilStop =
+        cursor < sigilCount
+          ? cursor
+          : Math.max(
+              0,
+              PROJECT_SIGILS.findIndex((item) => item.key === mark.key),
+            );
+      const colourStop = cursor >= sigilCount ? cursor : sigilCount + toneIndex;
       return (
         <div className="helm-critter-page">
           <BackRow label="Mark" onBack={() => backToMain("critter")} />
           <div className="helm-critter-stage" aria-hidden>
             <DotMark
               sigil={shown}
+              tone={shownTone.tone}
               state="idle"
               className="helm-critter-preview"
             />
-            <span>{shown.label}</span>
+            <span>
+              {shown.label}
+              <span className="helm-critter-stage-tone">{shownTone.label}</span>
+            </span>
           </div>
           <div
             className="helm-critter-grid"
@@ -893,16 +943,65 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
                   data-critter-choice={SIGIL_CRITTERS[item.key]}
                   data-mark-choice={item.key}
                   data-active={index === cursor || undefined}
-                  tabIndex={index === cursor ? 0 : -1}
+                  tabIndex={index === sigilStop ? 0 : -1}
                   onMouseEnter={() => {
                     setCursor(index);
-                    setPreviewCritter(item.key);
+                    setPreview(index);
                   }}
-                  onMouseLeave={() => setPreviewCritter(null)}
-                  onFocus={() => setPreviewCritter(item.key)}
+                  onMouseLeave={() => setPreview(null)}
+                  onFocus={() => {
+                    setCursor(index);
+                    setPreview(index);
+                  }}
                   onClick={() => pickCritter(item.key)}
                 >
-                  <DotMark sigil={item} className="helm-critter-cell-art" />
+                  <DotMark
+                    sigil={item}
+                    tone={tone}
+                    className="helm-critter-cell-art"
+                  />
+                </button>
+              );
+            })}
+          </div>
+          <div
+            className="helm-colour-row"
+            role="radiogroup"
+            aria-label="Colour"
+          >
+            {MARK_TONES.map((item, colour) => {
+              const index = sigilCount + colour;
+              return (
+                <button
+                  key={item.tone}
+                  type="button"
+                  role="radio"
+                  aria-checked={colour === toneIndex}
+                  aria-label={item.label}
+                  className="helm-colour-cell"
+                  data-helm-item-index={index}
+                  data-mark-tone={item.tone}
+                  data-active={index === cursor || undefined}
+                  tabIndex={index === colourStop ? 0 : -1}
+                  onMouseEnter={() => {
+                    setCursor(index);
+                    setPreview(index);
+                  }}
+                  onMouseLeave={() => setPreview(null)}
+                  onFocus={() => {
+                    setCursor(index);
+                    setPreview(index);
+                  }}
+                  onClick={() => pickTone(colour)}
+                >
+                  <span
+                    className="helm-colour-swatch"
+                    style={
+                      {
+                        "--helm-swatch": markToneColor(item.tone),
+                      } as CSSProperties
+                    }
+                  />
                 </button>
               );
             })}
@@ -1015,6 +1114,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
           <DotMark
             key={hop}
             sigil={mark}
+            tone={tone}
             state={POSE_STATE[pose]}
             frame="square"
             className={`helm-critter${hop ? " helm-critter-hop" : ""}`}

@@ -11,6 +11,13 @@ import {
   appearanceSigil,
 } from "../lib/dotSigils";
 import {
+  MARK_TONES,
+  appearanceTone,
+  markToneColor,
+  markToneIndex,
+  saveProjectTone,
+} from "../lib/markTones";
+import {
   clearTabGroupSettings,
   saveTabGroupLabel,
   saveTabGroupMascot,
@@ -29,9 +36,9 @@ type Props = {
 };
 
 /**
- * Name, mark and logo for one project. Changes apply as they are made and
- * reach every window; Reset returns to the folder name and the automatic
- * mark. Project memory opens its own editor from here,
+ * Name, mark, colour and logo for one project. Changes apply as they are
+ * made and reach every window; Reset returns to the folder name and the
+ * automatic mark and colour. Project memory opens its own editor from here,
  * so every place that customizes a project also reaches its memory.
  */
 export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
@@ -105,12 +112,15 @@ function ProjectAppearancePopover({
     clearTabGroupSettings(key);
   };
 
-  // A colour saved before marks is kept, unseen: marks have none.
   const customized =
     appearance.customLabel != null ||
     appearance.mascotOverride != null ||
+    appearance.colorIndex != null ||
+    appearance.customColor != null ||
     appearance.logoPath != null;
   const shown = appearanceSigil(appearance).key;
+  const tone = appearanceTone(appearance);
+  const toneIndex = markToneIndex(appearance);
 
   return (
     <Popover
@@ -177,7 +187,43 @@ function ProjectAppearancePopover({
                   : "hover:bg-content/8"
               }`}
             >
-              <DotMark sigil={sigil} className="size-5" />
+              <DotMark sigil={sigil} tone={tone} className="size-5" />
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Colour</p>
+      {/* The mark colours, Grey first; a project that never picked one
+          has its own, worked out from its name. */}
+      <div
+        className="grid grid-cols-9 gap-0.5"
+        role="radiogroup"
+        aria-label="Colour"
+      >
+        {MARK_TONES.map((item, index) => {
+          const selected = index === toneIndex;
+          return (
+            <button
+              key={item.tone}
+              type="button"
+              role="radio"
+              title={item.label}
+              aria-label={item.label}
+              aria-checked={selected}
+              data-mark-tone={item.tone}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => saveProjectTone(appearance, index)}
+              className={`grid h-7 min-w-0 place-items-center rounded-md ${
+                selected
+                  ? "bg-content/12 ring-1 ring-content/40"
+                  : "hover:bg-content/8"
+              }`}
+            >
+              <span
+                className="size-3 rounded-full"
+                style={{ background: markToneColor(item.tone) }}
+              />
             </button>
           );
         })}

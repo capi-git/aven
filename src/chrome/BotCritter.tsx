@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import { appearanceTone } from "../lib/markTones";
 import {
   BOT_STATUS_LABEL,
   BOT_STATUS_STAGE,
@@ -10,8 +11,9 @@ import "./ChatStatusPill.css";
 import "./BotCritter.css";
 
 /**
- * A project's bot, drawn as the Fixer's mark: the bot is its project's
- * crew's Fixer wherever it shows (the sidebar, its tab and chat, Home).
+ * A project's bot, drawn as the Fixer's mark in its project's colour: the
+ * bot is its project's crew's Fixer wherever it shows (the sidebar, its tab
+ * and chat, Home).
  */
 export const BotCritter = memo(function BotCritter({
   path,
@@ -31,6 +33,7 @@ export const BotCritter = memo(function BotCritter({
   return (
     <DotMark
       sigil="fixer"
+      tone={appearanceTone(appearance)}
       state={state ?? (active ? "working" : "still")}
       className={className}
     />

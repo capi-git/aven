@@ -140,9 +140,10 @@ export function projectSigil(
 /**
  * The sigil a project shows. One it picked is its own. One it never picked
  * was told apart before by its critter and its colour, both worked out from
- * its name; marks have no colour, so the colour moves its critter's sigil
- * along the twelve instead, and two projects with the same automatic critter
- * in different colours still look different.
+ * its name; its colour also moves its critter's sigil along the twelve, so
+ * two projects with the same automatic critter in different colours look
+ * different in Grey too. Picking a colour keeps the sigil shown first
+ * (`saveProjectTone`), so a shape never jumps.
  */
 export function appearanceSigil(
   appearance: Pick<

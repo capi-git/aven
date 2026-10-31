@@ -15,6 +15,7 @@ import {
   MASCOT_REACTION_MS,
   type MascotReactionKind,
 } from "../lib/mascotReactions";
+import type { MarkTone } from "../lib/markTones";
 import "./DotMark.css";
 
 /**
@@ -46,6 +47,11 @@ type Props = {
    * message box's corner). Elsewhere a mark is its sigil.
    */
   frame?: "square";
+  /**
+   * The colour its lit dots take: its project's (`appearanceTone`). Grey,
+   * or none, is the plain mark in the text colour. Unlit dots stay grey.
+   */
+  tone?: MarkTone | null;
   /** Sizes the mark (15px when not set). */
   className?: string;
   style?: CSSProperties;
@@ -61,9 +67,10 @@ const FALLBACK: DotSigil = { key: "custom", label: "Mark", rows: [] };
 
 /**
  * One of Aven's marks: a 5×5 grid of round dots in the theme's text colour,
- * its sigil lit (a small mark draws only the sigil). One small SVG; every
- * state is CSS on its paths (opacity and transform only), so nothing runs
- * per frame in script, and a still mark draws two paths.
+ * its sigil lit in its project's colour (a small mark draws only the
+ * sigil). One small SVG; every state is CSS on its paths (opacity,
+ * transform and stroke colour), so nothing runs per frame in script, and a
+ * still mark draws two paths.
  */
 export const DotMark = memo(function DotMark({
   sigil,
@@ -71,6 +78,7 @@ export const DotMark = memo(function DotMark({
   reaction = null,
   reactionId,
   frame,
+  tone,
   className = "",
   style,
 }: Props) {
@@ -90,6 +98,7 @@ export const DotMark = memo(function DotMark({
       data-sigil={drawn.key}
       data-reaction={reaction ?? undefined}
       data-frame={frame}
+      data-tone={tone && tone !== "grey" ? tone : undefined}
       style={
         reaction
           ? ({

@@ -43,7 +43,7 @@ import {
   type MascotReaction,
 } from "../lib/mascotReactions";
 import { projectKey } from "../lib/paths";
-import { projectSigilAt } from "../lib/projectAppearance";
+import { projectSigilAt, projectToneAt } from "../lib/projectAppearance";
 import { DotMark } from "./DotMark";
 
 type Props = {
@@ -100,6 +100,7 @@ export function ComposerRunner({
   const reactionRef = useRef<MascotReaction | null>(ownReaction);
   reactionRef.current = ownReaction;
   const sigil = useMemo(() => projectSigilAt(cwd), [cwd]);
+  const tone = useMemo(() => projectToneAt(cwd), [cwd]);
 
   useLayoutEffect(() => {
     const layer = layerRef.current;
@@ -550,6 +551,7 @@ export function ComposerRunner({
       >
         <DotMark
           sigil={sigil}
+          tone={tone}
           className="size-[18px]"
           state={ownReaction ? "still" : "working"}
           reaction={ownReaction?.kind}
