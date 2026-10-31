@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useProjectTone } from "../hooks/useProjectTone";
 import type { CrewRole } from "../lib/crews";
 import {
   CREW_STATUS_LABEL,
@@ -13,17 +14,18 @@ import "./CrewCritter.css";
 /**
  * A crew member drawn as its mark: its role's sigil (the Builder's two
  * blocks, the Checker's ring, Security's shield, the Scout's diamond, the
- * Fixer's plus), or the one you chose for it. The sigil says the role, so
- * there is no badge.
+ * Fixer's plus), or the one you chose for it, in its crew's project colour.
+ * The sigil says the role, so there is no badge.
  */
 export const CrewCritter = memo(function CrewCritter({
+  path,
   role,
   critter,
   active = false,
   state,
   className = "crew-critter",
 }: {
-  /** The crew's project; its members' marks are their own. */
+  /** The crew's project: its members' marks take its colour. */
   path?: string;
   role: CrewRole;
   /** The mark you chose for this member (or a critter from before marks). */
@@ -34,10 +36,12 @@ export const CrewCritter = memo(function CrewCritter({
   state?: DotMarkState;
   className?: string;
 }) {
+  const tone = useProjectTone(path);
   return (
     <span className="crew-critter-wrap" data-crew-critter={role}>
       <DotMark
         sigil={crewMemberSigil(role, critter)}
+        tone={tone}
         state={state ?? (active ? "working" : "still")}
         className={className}
       />
@@ -62,11 +66,13 @@ export type CrewFace =
 
 /** A crew's marks side by side, the most a row shows, then "+2". */
 export function CrewCritters({
+  path,
   roles,
   active,
   max = 3,
   className,
 }: {
+  /** The crew's project, whose colour its marks take. */
   path?: string;
   roles: readonly CrewFace[];
   /** The one that works: its role, or its member id. */
@@ -84,6 +90,7 @@ export function CrewCritters({
       {shown.map((face) => (
         <CrewCritter
           key={face.id}
+          path={path}
           role={face.role}
           {...("critter" in face && face.critter
             ? { critter: face.critter }

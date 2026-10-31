@@ -3,7 +3,15 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PROJECT_SIGILS, SIGIL_CRITTERS } from "../lib/dotSigils";
-import { loadTabGroupMascots } from "../lib/tabGroups";
+import { MARK_TONES } from "../lib/markTones";
+import { projectKey } from "../lib/paths";
+import {
+  TAB_GROUP_COLORS,
+  loadTabGroupColors,
+  loadTabGroupMascots,
+  saveTabGroupColor,
+  tabGroupColor,
+} from "../lib/tabGroups";
 import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 
 const PATH = "/Users/me/Developer/app";
@@ -102,13 +110,58 @@ describe("mark picker", () => {
 });
 
 describe("colour", () => {
-  it("offers no colour: marks have none", async () => {
+  const colours = () => [
+    ...document.body.querySelectorAll<HTMLButtonElement>(
+      '[role="radiogroup"][aria-label="Colour"] [role="radio"]',
+    ),
+  ];
+  const checked = () =>
+    colours()
+      .filter((button) => button.getAttribute("aria-checked") === "true")
+      .map((button) => button.title);
+  const shownSigil = () =>
+    marks().find((button) => button.getAttribute("aria-checked") === "true")!
+      .dataset.markChoice;
+
+  it("offers Grey and the eight mark colours under the marks", async () => {
     await open();
-    expect(
-      document.body.querySelectorAll(
-        'button[aria-label^="Color "], button[aria-label="Custom color"]',
-      ),
-    ).toHaveLength(0);
+    expect(colours().map((button) => button.title)).toEqual(
+      MARK_TONES.map((item) => item.label),
+    );
+    // Unpicked: the colour worked out from its name is the one marked.
+    const automatic = (TAB_GROUP_COLORS as readonly string[]).indexOf(
+      tabGroupColor("app"),
+    );
+    expect(checked()).toEqual([MARK_TONES[automatic].label]);
+    // The marks are drawn in it.
+    for (const button of marks())
+      expect(button.querySelector<HTMLElement>(".dot-mark")!.dataset.tone).toBe(
+        MARK_TONES[automatic].tone,
+      );
+  });
+
+  it("shows a colour saved before marks", async () => {
+    saveTabGroupColor(projectKey(PATH), 7);
+    await open();
+    expect(checked()).toEqual(["Teal"]);
+  });
+
+  it("saves a picked colour where colours are kept, keeping the mark", async () => {
+    await open();
+    const before = shownSigil();
+    const pink = colours().find((button) => button.title === "Pink")!;
+    await act(async () => pink.click());
+    expect(checked()).toEqual(["Pink"]);
+    expect(loadTabGroupColors()).toEqual({ [projectKey(PATH)]: 5 });
+    expect(shownSigil()).toBe(before);
+    const grey = colours().find((button) => button.title === "Grey")!;
+    await act(async () => grey.click());
+    expect(checked()).toEqual(["Grey"]);
+    expect(loadTabGroupColors()).toEqual({ [projectKey(PATH)]: 0 });
+    for (const button of marks())
+      expect(button.querySelector(".dot-mark")!.hasAttribute("data-tone")).toBe(
+        false,
+      );
   });
 });
 

@@ -24,6 +24,9 @@ const { ComposerHelm } = await import("./ComposerHelm");
 const { HelmRunContext } = await import("./HelmRun");
 const { CLAUDE_OPUS_5_5_MODEL } = await import("../lib/models");
 const { PROJECT_SIGILS, SIGIL_CRITTERS } = await import("../lib/dotSigils");
+const { MARK_TONES } = await import("../lib/markTones");
+const { TAB_GROUP_COLORS, tabGroupColor } = await import("../lib/tabGroups");
+const { projectKey } = await import("../lib/paths");
 const { HELM_CRITTER_EVENT, HELM_CRITTER_KEY, HELM_DONE_MS } =
   await import("../lib/composerHelm");
 type HelmRun = import("./HelmRun").HelmRun;
@@ -921,6 +924,13 @@ describe("choosing the mark", () => {
     PROJECT_SIGILS.findIndex((sigil) => sigil.key === mark().dataset.sigil);
   const stage = () =>
     document.body.querySelector(".helm-critter-stage")!.textContent;
+  const colourCells = () => [
+    ...document.body.querySelectorAll<HTMLButtonElement>("[data-mark-tone]"),
+  ];
+  const checkedColour = () =>
+    colourCells()
+      .filter((cell) => cell.getAttribute("aria-checked") === "true")
+      .map((cell) => cell.getAttribute("aria-label"));
 
   it("labels its row Mark, in plain words", async () => {
     await render();
@@ -950,11 +960,73 @@ describe("choosing the mark", () => {
     await key("ArrowRight");
     const next = (at + 1) % PROJECT_SIGILS.length;
     expect(document.activeElement).toBe(cells()[next]);
+    // Into the top row, where Down stays among the marks.
+    await key("Home");
+    await key("ArrowRight");
     await key("ArrowDown");
-    const below = next + 6 < PROJECT_SIGILS.length ? next + 6 : next % 6;
-    expect(document.activeElement).toBe(cells()[below]);
+    expect(document.activeElement).toBe(cells()[7]);
     // The one under the cursor is previewed.
-    expect(stage()).toContain(PROJECT_SIGILS[below].label);
+    expect(stage()).toContain(PROJECT_SIGILS[7].label);
+  });
+
+  it("puts the colours in a row under the marks, reached with the arrow keys", async () => {
+    await render();
+    await openPicker();
+    expect(
+      colourCells().map((cell) => cell.getAttribute("aria-label")),
+    ).toEqual(MARK_TONES.map((item) => item.label));
+    // Down from the marks' last row: the colour under it, previewed.
+    await key("Home");
+    await key("ArrowDown");
+    await key("ArrowDown");
+    expect(document.activeElement).toBe(colourCells()[0]);
+    expect(stage()).toContain("Grey");
+    await key("ArrowRight");
+    expect(document.activeElement).toBe(colourCells()[1]);
+    expect(stage()).toContain("Blue");
+    // And back up to the marks.
+    await key("ArrowUp");
+    expect(
+      (document.activeElement as HTMLElement).dataset.markChoice,
+    ).toBeDefined();
+  });
+
+  it("draws the mark at the corner in the project's own colour until one is picked", async () => {
+    await render();
+    const automatic = (TAB_GROUP_COLORS as readonly string[]).indexOf(
+      tabGroupColor("site"),
+    );
+    expect(automatic).toBeGreaterThan(0);
+    expect(mark().dataset.tone).toBe(MARK_TONES[automatic].tone);
+    expect(mark().dataset.frame).toBe("square");
+    await openPicker();
+    expect(checkedColour()).toEqual([MARK_TONES[automatic].label]);
+  });
+
+  it("saves a project's colour where the project keeps it, keeping its mark", async () => {
+    await render();
+    const sigil = mark().dataset.sigil;
+    await openPicker();
+    await act(async () =>
+      colourCells()
+        .find((cell) => cell.dataset.markTone === "orange")!
+        .click(),
+    );
+    expect(
+      JSON.parse(storage.get("monocode:tab-group:colors") ?? "{}"),
+    ).toEqual({ [projectKey(PROJECT)]: "8" });
+    expect(mark().dataset.tone).toBe("orange");
+    expect(mark().dataset.sigil).toBe(sigil);
+    expect(checkedColour()).toEqual(["Orange"]);
+    // Grey: the plain mark.
+    await act(async () =>
+      colourCells()
+        .find((cell) => cell.dataset.markTone === "grey")!
+        .click(),
+    );
+    expect(mark().hasAttribute("data-tone")).toBe(false);
+    expect(mark().dataset.sigil).toBe(sigil);
+    expect(storage.get(HELM_CRITTER_KEY)).toBeUndefined();
   });
 
   it("forgets the preview on leaving the picker", async () => {
@@ -984,7 +1056,7 @@ describe("choosing the mark", () => {
     expect(critter().querySelector(".helm-critter-hop")).not.toBeNull();
   });
 
-  it("keeps your own mark for chats outside a project, and any colour saved before", async () => {
+  it("keeps your own mark and colour for chats outside a project, Yellow as saved before", async () => {
     props.critterPath = "~";
     storage.set(
       HELM_CRITTER_KEY,
@@ -995,11 +1067,11 @@ describe("choosing the mark", () => {
     await act(async () => {
       window.dispatchEvent(new Event(HELM_CRITTER_EVENT));
     });
-    // The owl picked before marks reads as the Eye.
+    // The owl picked before marks reads as the Eye, in the colour saved then.
     expect(mark().dataset.sigil).toBe("eye");
+    expect(mark().dataset.tone).toBe("yellow");
     await openPicker();
-    // Marks have no colour, so the picker offers none.
-    expect(document.body.querySelector(".helm-critter-colors")).toBeNull();
+    expect(checkedColour()).toEqual(["Yellow"]);
     await act(async () =>
       cells()
         .find((cell) => cell.dataset.markChoice === "flag")!
@@ -1010,7 +1082,27 @@ describe("choosing the mark", () => {
       colorIndex: 3,
     });
     expect(mark().dataset.sigil).toBe("flag");
+    await act(async () =>
+      colourCells()
+        .find((cell) => cell.dataset.markTone === "teal")!
+        .click(),
+    );
+    expect(JSON.parse(storage.get(HELM_CRITTER_KEY)!)).toEqual({
+      mascot: "fox",
+      colorIndex: 7,
+    });
+    expect(mark().dataset.tone).toBe("teal");
     expect(storage.get("monocode:tab-group:mascots")).toBeUndefined();
+    expect(storage.get("monocode:tab-group:colors")).toBeUndefined();
+  });
+
+  it("is Grey outside a project until you pick a colour", async () => {
+    props.critterPath = "~";
+    await render();
+    await act(async () => {
+      window.dispatchEvent(new Event(HELM_CRITTER_EVENT));
+    });
+    expect(mark().hasAttribute("data-tone")).toBe(false);
   });
 });
 
@@ -1128,8 +1220,16 @@ describe("the keyboard around the critter", () => {
     await act(async () => row("critter")!.click());
     const cell = document.activeElement!;
     expect(cell.hasAttribute("data-critter-choice")).toBe(true);
-    // The marks are the picker's last stop: there are no colours after them.
+    // Tab goes on to the colours (the browser moves it), one stop per row.
+    const colourStops = [
+      ...document.body.querySelectorAll<HTMLElement>("[data-mark-tone]"),
+    ].filter((element) => element.tabIndex === 0);
+    expect(colourStops).toHaveLength(1);
     await key("Tab", cell);
+    expect(dialog()).not.toBeNull();
+    // The colours are the picker's last stop.
+    await act(async () => colourStops[0].focus());
+    await key("Tab", colourStops[0]);
     expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(field);
   });
