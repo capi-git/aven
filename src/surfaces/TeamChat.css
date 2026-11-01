@@ -479,20 +479,19 @@
 
 /* What Aven said, or something you did: a quiet line. */
 .team-event {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 8px;
-  margin: 6px auto;
   max-width: 78%;
+  margin: 6px auto;
   color: var(--team-faint);
   font-size: var(--text-ui-label);
+  line-height: 1.45;
   text-align: center;
+  text-wrap: balance;
 }
 
 .team-event time {
-  flex: none;
+  margin-left: 4px;
   font-size: 11.5px;
+  white-space: nowrap;
 }
 
 .team-event[data-needs-you] {
@@ -500,12 +499,13 @@
 }
 
 .team-event-dot {
+  display: inline-block;
   width: 6px;
   height: 6px;
-  flex: none;
-  align-self: center;
+  margin-right: 7px;
   border-radius: 50%;
   background: var(--aven-needs-you);
+  vertical-align: 1px;
 }
 
 .team-thread-new {

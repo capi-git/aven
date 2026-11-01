@@ -139,6 +139,7 @@ export function Segmented<T extends string>({
   options,
   onChange,
   className,
+  columns,
 }: {
   label: string;
   value: T;
@@ -146,6 +147,8 @@ export function Segmented<T extends string>({
   options: { value: T; label: string; disabled?: boolean; title?: string }[];
   onChange: (value: T) => void;
   className?: string;
+  /** At most this many in a row; more wrap onto the next. */
+  columns?: number;
 }) {
   const descriptionId = useContext(RowDescription);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
@@ -168,7 +171,7 @@ export function Segmented<T extends string>({
       aria-label={label}
       aria-describedby={descriptionId}
       style={{
-        gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`,
+        gridTemplateColumns: `repeat(${Math.min(options.length, columns ?? options.length)}, minmax(0, 1fr))`,
       }}
     >
       {options.map((option, index) => (

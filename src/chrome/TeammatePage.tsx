@@ -157,7 +157,11 @@ function JobField({
       </Field>
     );
   return (
-    <Field label="Job" hint="One line: what it's for" htmlFor={id}>
+    <Field
+      label="Job"
+      hint="Its title, and one line on what it's for"
+      htmlFor={id}
+    >
       <div className="teammate-pair">
         <input
           key={`title:${member.id}`}
@@ -402,6 +406,8 @@ function RunsOn({
           <Segmented
             label="Effort"
             className="teammate-segmented teammate-segmented-small"
+            // Many efforts (Opus has eight) wrap into rows of four.
+            {...(effort.options.length >= 5 ? { columns: 4 } : {})}
             value={
               effort.options.some((option) => option.value === member.effort)
                 ? member.effort!

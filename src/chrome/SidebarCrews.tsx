@@ -130,7 +130,7 @@ export function SidebarCrewRows({
               <button
                 type="button"
                 className="personal-other-task personal-task-card personal-bot-row personal-crew-open"
-                title={`${crew.project} crew · ${crew.runsLine}`}
+                title={`${crew.project} team · ${crew.runsLine}`}
                 onClick={() => onOpenCrew?.(crew.path)}
               >
                 <CrewCritters path={crew.path} roles={roles} active={working} />

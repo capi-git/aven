@@ -52,7 +52,7 @@ export const CrewChatHeader = memo(function CrewChatHeader({
       />
       <div className="bot-chat-heading">
         <span className="bot-chat-whose">
-          {`${project} crew · ${label} · ${job.toLowerCase()}`}
+          {`${project} team · ${label} · ${job.toLowerCase()}`}
         </span>
       </div>
       <div className="bot-chat-actions">

@@ -424,9 +424,11 @@ export function crewPipeline(input: {
   else if (working) {
     focus = working.title;
     const rounds = `round ${working.round} of ${roundLimit(working)}`;
-    if (working.stage === "stuck")
-      sentence = `${working.title} needs you: ${working.stuck?.text ?? "it stopped"}.`;
-    else if (working.paused) sentence = `${working.title} is paused.`;
+    if (working.stage === "stuck") {
+      const why = working.stuck?.text ?? "it stopped";
+      // A question keeps its own mark: "…fill up?", never "…fill up?."
+      sentence = `${working.title} needs you: ${why}${/[.!?…]$/.test(why) ? "" : "."}`;
+    } else if (working.paused) sentence = `${working.title} is paused.`;
     else if (working.holder === "security")
       sentence = `${name("security")} is reviewing ${working.title} for security, ${rounds}.`;
     else if (working.holder === "checker" || working.stage === "checking")

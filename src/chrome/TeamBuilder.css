@@ -4,7 +4,7 @@
   display: grid;
   align-items: stretch;
   gap: 24px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 330px);
   padding: 8px 18px 18px;
   color: var(--color-content);
   font-size: var(--text-ui-body);
@@ -166,12 +166,15 @@
   font-weight: 600;
 }
 
+/* A job reads whole: two lines at most. */
 .team-build-role-job {
+  display: -webkit-box;
   overflow: hidden;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .team-build-in {
@@ -287,7 +290,6 @@
   font-weight: 600;
 }
 
-.team-build-mate-job,
 .team-build-mate-app {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -295,8 +297,13 @@
 }
 
 .team-build-mate-job {
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .team-build-mate-app {

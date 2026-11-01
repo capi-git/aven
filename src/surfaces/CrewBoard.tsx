@@ -851,7 +851,7 @@ export function CrewReadySheet({
             data-crew-throw-confirm
           >
             <p className="crew-sheet-small">
-              The crew's work on “{card.title}” is thrown away and the card
+              The team's work on “{card.title}” is thrown away and the card
               leaves the board. Your files stay as they are.
             </p>
             <div className="work-board-edit-actions">

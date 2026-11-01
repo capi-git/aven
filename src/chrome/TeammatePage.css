@@ -35,6 +35,26 @@
   gap: 14px;
 }
 
+/* Over the header's rule for its 28px close button. */
+.modal-panel[role="dialog"] > header .teammate-head-actions .team-card-button {
+  width: auto;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--aven-radius-sm);
+  background: var(
+    --aven-control-bg,
+    color-mix(in srgb, var(--color-content) 7%, transparent)
+  );
+  color: var(--color-content);
+}
+
+.modal-panel[role="dialog"]
+  > header
+  .teammate-head-actions
+  .team-card-button:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+
 .teammate-on {
   display: flex;
   align-items: center;
@@ -55,7 +75,7 @@
   display: grid;
   align-items: start;
   gap: 32px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 400px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
 }
 
 .teammate-main {
@@ -88,11 +108,9 @@
   font-size: var(--text-ui-label);
 }
 
+/* A role's own job: words, not a field. */
 .teammate-job {
   margin: 0;
-  padding: 9px 12px;
-  border: 1px solid var(--aven-line);
-  border-radius: var(--aven-radius-md);
   color: color-mix(in srgb, var(--color-content) 78%, transparent);
   font-size: 13.5px;
 }

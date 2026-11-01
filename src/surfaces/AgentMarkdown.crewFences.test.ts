@@ -163,7 +163,7 @@ describe("Give to team from an ideas block", () => {
       title: "Timer screen",
       column: "building",
     });
-    await act(async () => button("Give all to crew")!.click());
+    await act(async () => button("Give all to team")!.click());
     await act(async () => {
       for (let n = 0; n < 10; n += 1)
         await new Promise((r) => setTimeout(r, 0));

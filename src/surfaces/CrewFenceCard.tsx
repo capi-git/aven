@@ -97,7 +97,7 @@ export function CrewFenceCard({
             className="crew-fence-button"
             onClick={() => give(open.map((item) => item.title))}
           >
-            Give all to crew
+            Give all to team
           </button>
         ) : null}
       </header>

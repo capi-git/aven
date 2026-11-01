@@ -271,6 +271,20 @@ describe("the Pipeline", () => {
     expect(view.sentence).toBe(
       "Timer screen needs you: Beetle's turn didn't finish: boom.",
     );
+    // A question keeps its own mark, with no full stop after it.
+    const asked = crewOf([
+      {
+        ...stuck,
+        stuck: {
+          reason: "question",
+          text: "Should the ring count down or fill up?",
+        },
+      },
+    ]);
+    expect(
+      crewPipeline({ crew: asked, cards: board(asked), now: NOW, name })
+        .sentence,
+    ).toBe("Timer screen needs you: Should the ring count down or fill up?");
   });
 
   it("says nothing to build when idle, and offers a Scout when there's none", () => {

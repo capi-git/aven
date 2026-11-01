@@ -11,7 +11,7 @@ import {
 import { CrewCritter, crewMarkState } from "../chrome/CrewCritter";
 import { DotMark } from "../chrome/DotMark";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
-import { ArrowRight, ArrowUp, ChevronDown, X } from "../chrome/icons";
+import { ArrowRight, ChevronDown, MoveUp, X } from "../chrome/icons";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
@@ -26,6 +26,7 @@ import type { Pipeline, PipelineRow } from "../lib/crewPipeline";
 import {
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
+  CREW_ROLE_INFO,
   crewMemberById,
   memberCritter,
   stackedCards,
@@ -34,6 +35,7 @@ import {
 } from "../lib/crews";
 import {
   crewMemberViews,
+  titleBeside,
   type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
@@ -324,6 +326,8 @@ function Roster({
                 : member.status === "working"
                   ? "Working"
                   : "Free");
+          // Its line, said once: "Needs you · Settings page".
+          const said = needs && member.line ? `Needs you · ${line}` : line;
           const when =
             member.status === "working"
               ? "now"
@@ -340,7 +344,7 @@ function Roster({
                 type="button"
                 className="team-roster-row"
                 aria-pressed={isSelected}
-                aria-label={`${member.name}: ${needs ? `Needs you · ${line}` : line}`}
+                aria-label={`${member.name}: ${said}`}
                 onClick={() => onSelect(isSelected ? null : member.id)}
               >
                 <CrewCritter
@@ -361,9 +365,9 @@ function Roster({
                     data-live={
                       member.status === "working" || needs || undefined
                     }
-                    title={line}
+                    title={said}
                   >
-                    {needs && member.line ? `Needs you · ${line}` : line}
+                    {said}
                   </span>
                 </span>
                 {when ? (
@@ -759,7 +763,7 @@ function PostView({
         data-needs-you={post.needsYou || undefined}
       >
         {post.needsYou ? <i className="team-event-dot" aria-hidden /> : null}
-        <span>{post.text}</span>
+        {post.text}{" "}
         <time dateTime={new Date(post.at).toISOString()}>{clock(post.at)}</time>
       </li>
     );
@@ -990,13 +994,14 @@ function Composer({
                 <ProjectMark path={project} className="team-mention-mark" />
               )}
               <span className="team-mention-name">{option.name}</span>
-              {option.role ? (
-                <span className="team-mention-role">
-                  {option.role.roleLabel}
-                </span>
-              ) : (
-                <span className="team-mention-role">The whole team</span>
-              )}
+              <span className="team-mention-role">
+                {option.role
+                  ? titleBeside(
+                      option.name,
+                      CREW_ROLE_INFO[option.role.role].label,
+                    )
+                  : "The whole team"}
+              </span>
             </li>
           ))}
         </ul>
@@ -1087,7 +1092,7 @@ function Composer({
           aria-label={toName ? `Send to ${toName}` : "Send to the team"}
           disabled={!text.trim() || sending}
         >
-          <ArrowUp className="size-3.5" />
+          <MoveUp className="size-3.5" />
         </button>
       </form>
       {problem ? (
