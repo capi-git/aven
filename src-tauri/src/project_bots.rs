@@ -651,7 +651,7 @@ fn head(copy: &Path) -> Result<String, String> {
     if race::is_sha(&head) {
         Ok(head)
     } else {
-        Err("The crew's copy has no commit to build on.".into())
+        Err("The team's copy has no commit to build on.".into())
     }
 }
 
@@ -744,7 +744,7 @@ pub fn unstack(
 }
 
 /// Said when the crew's copy is not on the commit Aven left it at.
-const STACK_MOVED: &str = "The crew's copy moved since its last card.";
+const STACK_MOVED: &str = "The team's copy moved since its last card.";
 
 /// Said when the copy no longer holds the change a card's checks passed.
 const STACK_CHANGED: &str = "The copy changed after the card's checks.";
@@ -754,7 +754,7 @@ const STACK_CHANGED: &str = "The copy changed after the card's checks.";
 const LOOK_ALIKE: &str = "A file's name reads as a settings folder on a Mac";
 
 /// Said when a card on the branch isn't the change its checks passed.
-const CARD_CHANGED: &str = "A card on the crew's branch isn't the change its checks passed.";
+const CARD_CHANGED: &str = "A card on the team's branch isn't the change its checks passed.";
 
 /// A card on the crew's branch: its commit, and the fingerprint of its own
 /// change that its checks passed (or that a restack replayed).
@@ -829,7 +829,7 @@ pub fn apply_range(
     }
     let changes = race::range_diff(&worktree, from, to)?;
     if changes.files.is_empty() {
-        return Err("The crew's branch has no changes to apply.".into());
+        return Err("The team's branch has no changes to apply.".into());
     }
     let patch = race::range_patch(&worktree, from, to)?;
     if patch_hash(&patch) != hash {
@@ -912,7 +912,7 @@ pub fn restack(
         return Err(STACK_MOVED.into());
     }
     if !race::diff(&worktree, &old)?.files.is_empty() {
-        return Err("The crew is working in its copy. Restack once its card is done.".into());
+        return Err("The team is working in its copy. Restack once its card is done.".into());
     }
     let mut previous = from.to_string();
     let mut cards = Vec::with_capacity(commits.len());
@@ -978,7 +978,7 @@ pub fn restack(
 }
 
 /// The start of a restack's refusal when a card no longer fits.
-const RESTACK_CONFLICT: &str = "Your files changed where the crew worked";
+const RESTACK_CONFLICT: &str = "Your files changed where the team worked";
 
 /// Remove the copy and its branch.
 pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), String> {

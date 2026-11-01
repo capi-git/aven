@@ -16,6 +16,7 @@ import { ProjectMark } from "../chrome/ProjectMark";
 import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
+  TOO_LONG_FOR_EVERYONE,
   subscribeCrewTell,
   takeCrewTell,
   tellTeam,
@@ -28,6 +29,7 @@ import {
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
   crewMemberById,
+  isTime,
   memberCritter,
   stackedCards,
   type Crew,
@@ -50,6 +52,7 @@ import {
 import type { BotStatus } from "../lib/projectBots";
 import {
   latestPosts,
+  postIsMember,
   teamPosts,
   teamThread,
   type TeamAuthor,
@@ -71,6 +74,7 @@ import "./TeamChat.css";
 const SHOWN = 60;
 
 function clock(at: number): string {
+  if (!isTime(at)) return "";
   try {
     return new Date(at).toLocaleTimeString(undefined, {
       hour: "numeric",
@@ -83,7 +87,7 @@ function clock(at: number): string {
 
 /** A roster time: "now" while it works, its last post's time today, else its day. */
 function rosterWhen(at: number | undefined, now: number): string {
-  if (!at) return "";
+  if (!at || !isTime(at)) return "";
   const date = new Date(at);
   if (date.toDateString() === new Date(now).toDateString())
     return clock(at).replace(/\s?[AP]\.?M\.?$/i, "");
@@ -94,6 +98,11 @@ function rosterWhen(at: number | undefined, now: number): string {
   }
 }
 
+/** A time for a <time> element; none for one a Date can't show. */
+function isoTime(at: number): string | undefined {
+  return isTime(at) ? new Date(at).toISOString() : undefined;
+}
+
 /** What a message to everyone became, in a few words. */
 const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   card: "a card",
@@ -102,6 +111,9 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
 };
 
 type Mode = CrewMessageKind;
+
+/** The teammate the box writes to: its id, and its name when you picked it. */
+type Addressee = { id: string; name: string };
 
 const MODES: readonly { id: Mode; label: string; word: string }[] = [
   { id: "card", label: "Build it", word: "Card" },
@@ -163,16 +175,18 @@ export function TeamChat({
   const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
   const latest = useMemo(() => latestPosts(posts), [posts]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [to, setTo] = useState<string | null>(null);
+  // Who the box writes to, as you picked them: kept even if they leave the
+  // team, so a message for them never goes to everyone instead.
+  const [to, setTo] = useState<Addressee | null>(null);
   const [mode, setMode] = useState<Mode>("card");
   const input = useRef<HTMLTextAreaElement>(null);
-  const known = (id: string | null) =>
-    id && members.some((member) => member.id === id) ? id : null;
-  const filter = known(selected);
-  const address = known(to);
+  const filter =
+    selected && members.some((member) => member.id === selected)
+      ? selected
+      : null;
   const select = (id: string | null) => {
     setSelected(id);
-    setTo(id);
+    setTo(id ? { id, name: name(id) } : null);
   };
   useEffect(() => {
     // Tell the team… from the sidebar: the cursor goes in the box.
@@ -260,7 +274,7 @@ export function TeamChat({
         <Composer
           project={project}
           members={members}
-          to={address}
+          to={to}
           mode={mode}
           input={input}
           onTo={setTo}
@@ -568,11 +582,16 @@ function Thread({
   const followRef = useRef(follow);
   followRef.current = follow;
   const keepFromBottom = useRef<number | null>(null);
-  const thread = useMemo(
-    () => teamThread(posts, { now, member: filter, shown }),
-    [posts, now, filter, shown],
+  // Only what this view shows counts as new: one teammate's posts, or all.
+  const kept = useMemo(
+    () => (filter ? posts.filter((post) => postIsMember(post, filter)) : posts),
+    [posts, filter],
   );
-  const newest = posts.at(-1)?.id;
+  const thread = useMemo(
+    () => teamThread(kept, { now, shown }),
+    [kept, now, shown],
+  );
+  const newest = kept.at(-1)?.id;
   const seenNewest = useRef(newest);
   const liveKey = working.map((member) => member.id).join(",");
   const toBottom = () => {
@@ -587,10 +606,17 @@ function Thread({
   useLayoutEffect(() => {
     if (newest === seenNewest.current) return;
     const at = seenNewest.current
-      ? posts.findIndex((post) => post.id === seenNewest.current)
+      ? kept.findIndex((post) => post.id === seenNewest.current)
       : -1;
-    const added = at >= 0 ? posts.length - 1 - at : 1;
+    const added = at >= 0 ? kept.length - 1 - at : 1;
     seenNewest.current = newest;
+    // What you just wrote is always shown, wherever you were reading.
+    if (kept.at(-1)?.kind === "you") {
+      setShown((count) => count + added);
+      setFollow(FEED_FOLLOW_START);
+      toBottom();
+      return;
+    }
     const step = feedGrew(followRef.current, added);
     if (step.scrollToBottom) toBottom();
     else {
@@ -598,7 +624,7 @@ function Thread({
       // Nothing above what you're reading drops off while you read.
       setShown((count) => count + added);
     }
-  }, [newest, posts]);
+  }, [newest, kept]);
   // Someone starts or stops working: the live line stays in view.
   useLayoutEffect(() => {
     if (followRef.current.following) toBottom();
@@ -744,9 +770,7 @@ function PostView({
       <li className="team-you" data-team-post="you">
         <p className="team-you-bubble">{post.text}</p>
         <p className="team-you-meta">
-          <time dateTime={new Date(post.at).toISOString()}>
-            {clock(post.at)}
-          </time>
+          <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
           {post.to
             ? ` · to ${post.to.name}`
             : post.as
@@ -763,8 +787,7 @@ function PostView({
         data-needs-you={post.needsYou || undefined}
       >
         {post.needsYou ? <i className="team-event-dot" aria-hidden /> : null}
-        {post.text}{" "}
-        <time dateTime={new Date(post.at).toISOString()}>{clock(post.at)}</time>
+        {post.text} <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
       </li>
     );
   return (
@@ -781,9 +804,7 @@ function PostView({
       <div className="team-post-body">
         <p className="team-post-head">
           <b>{post.author.name}</b>
-          <time dateTime={new Date(post.at).toISOString()}>
-            {clock(post.at)}
-          </time>
+          <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
           {post.card ? (
             <span className="team-post-card">{post.card}</span>
           ) : null}
@@ -843,11 +864,11 @@ function Composer({
 }: {
   project: string;
   members: readonly CrewMemberView[];
-  /** The teammate it writes to; none for everyone. */
-  to: string | null;
+  /** The teammate it writes to, as you picked them; none for everyone. */
+  to: Addressee | null;
   mode: Mode;
   input: RefObject<HTMLTextAreaElement | null>;
-  onTo: (id: string | null) => void;
+  onTo: (to: Addressee | null) => void;
   onMode: (mode: Mode) => void;
 }) {
   const listId = useId();
@@ -861,7 +882,11 @@ function Composer({
     query: string;
     active: number;
   } | null>(null);
-  const toName = to ? members.find((member) => member.id === to)?.name : null;
+  // Its name as the team has it now, or as you picked it if it has left.
+  const toName = to
+    ? (members.find((member) => member.id === to.id)?.name ?? to.name)
+    : null;
+  const toGone = !!to && !members.some((member) => member.id === to.id);
   const options = picker
     ? [
         { id: null as string | null, name: "Everyone", role: undefined },
@@ -884,38 +909,80 @@ function Composer({
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 132)}px`;
   }, [text, input]);
-  const pick = (id: string | null) => {
+  /** The typed "@word" the list is for, if the caret is still in it. */
+  const mentionStill = (value: string, caret: number) => {
+    if (!picker || picker.start < 0) return null;
+    const found = mentionAt(value, caret);
+    return found?.start === picker.start ? found : null;
+  };
+  /** The caret moved: the list follows the "@word" it's in, or closes. */
+  const follow = (element: HTMLTextAreaElement) => {
+    const value = element.value;
+    const caret = element.selectionStart ?? 0;
+    setPicker((current) => {
+      if (!current || current.start < 0) return current;
+      const found = mentionAt(value, caret);
+      if (found?.start !== current.start) return null;
+      return found.query === current.query
+        ? current
+        : { ...current, query: found.query, active: 0 };
+    });
+  };
+  const pick = (option: { id: string | null; name: string }) => {
     const element = input.current;
-    if (picker && picker.start >= 0 && element) {
-      const caret = element.selectionStart ?? text.length;
-      const next = `${text.slice(0, picker.start)}${text.slice(caret)}`
+    if (picker && picker.start >= 0) {
+      // Exactly the "@word" typed: from its @ to the end of the word.
+      const end = picker.start + 1 + picker.query.length;
+      const next = `${text.slice(0, picker.start)}${text.slice(end)}`
         .replace(/ {2,}/g, " ")
         .replace(/^ /, "");
       setText(next);
     }
     setPicker(null);
-    onTo(id);
+    onTo(option.id ? { id: option.id, name: option.name } : null);
     requestAnimationFrame(() => element?.focus());
   };
   const send = async () => {
     const words = text.trim();
     if (!words || sending) return;
+    // Never to everyone instead: a teammate who left is said, and you
+    // choose again.
+    if (to && toGone) {
+      setProblem(
+        `${toName} isn't in the team any more. Pick someone else or write to everyone.`,
+      );
+      return;
+    }
+    if (!to && words.length > CREW_NOTE_MAX) {
+      setProblem(TOO_LONG_FOR_EVERYONE);
+      return;
+    }
     setSending(true);
     setProblem(null);
+    // The box is free at once: what you start typing now stays.
+    setText("");
     const why = to
-      ? await tellTeammate(project, to, words)
+      ? await tellTeammate(project, to.id, words)
       : await tellTeam(project, words, mode);
     setSending(false);
     if (why) {
       setProblem(why);
+      // Back in the box, unless you've started something else.
+      setText((current) => (current ? current : words));
       return;
     }
-    setText("");
     onMode("card");
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(event.nativeEvent)) return;
-    if (picker && options.length) {
+    // A caret that left the "@word" (arrow keys, a click) ends the list.
+    const element = event.currentTarget;
+    const stale =
+      !!picker &&
+      picker.start >= 0 &&
+      !mentionStill(element.value, element.selectionStart ?? 0);
+    if (stale) setPicker(null);
+    if (picker && !stale && options.length) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         const by = event.key === "ArrowDown" ? 1 : -1;
@@ -927,7 +994,7 @@ function Composer({
       }
       if (event.key === "Enter" || event.key === "Tab") {
         event.preventDefault();
-        pick(options[active]!.id);
+        pick(options[active]!);
         return;
       }
     }
@@ -979,7 +1046,7 @@ function Composer({
               className="team-mention-option"
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => setPicker({ ...picker, active: index })}
-              onClick={() => pick(option.id)}
+              onClick={() => pick(option)}
             >
               {option.role ? (
                 <CrewCritter
@@ -1055,6 +1122,8 @@ function Composer({
             setPicker(found ? { ...found, active: 0 } : null);
           }}
           onBlur={() => setPicker(null)}
+          onSelect={(event) => follow(event.currentTarget)}
+          onClick={(event) => follow(event.currentTarget)}
           onKeyDown={onKeyDown}
         />
         {!to ? (

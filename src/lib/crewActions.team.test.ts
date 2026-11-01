@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  TOO_LONG_FOR_EVERYONE,
   installCrewWorkspace,
   pickCrewModels,
   startTeamFrom,
@@ -11,7 +12,9 @@ import {
 } from "./crewActions";
 import { CREW_TEAM_PRESETS } from "./crewPresets";
 import {
+  CREW_NOTE_MAX,
   crewCard,
+  crewMemberName,
   ensureCrewSaved,
   getCrew,
   readCrew,
@@ -26,6 +29,7 @@ import {
   setFeatureCardBackend,
 } from "./featureCards";
 import { resetProjectBotsCache } from "./projectBots";
+import { teamPosts } from "./teamThread";
 
 vi.mock("./fs", () => ({ notifyGitChanged: vi.fn() }));
 
@@ -60,8 +64,16 @@ describe("writing to the team", () => {
     const words = "Build a timer screen: start, pause, and a ring.";
     expect(await tellTeam(PATH, words, "card", NOON)).toBeNull();
     const crew = getCrew(PATH)!;
+    // It stands for the Feed's own line, "You gave the team …".
+    const echo = crew.feed.find((entry) => entry.text.startsWith("You gave"));
     expect(crew.messages).toEqual([
-      { id: expect.any(String), at: NOON, text: words, as: "card" },
+      {
+        id: expect.any(String),
+        at: NOON,
+        text: words,
+        as: "card",
+        echo: echo!.id,
+      },
     ]);
     const [board] = featureBoardState(PATH).cards;
     expect(crewCard(crew, board!.id)).toMatchObject({
@@ -83,6 +95,40 @@ describe("writing to the team", () => {
       "rule",
       "goal",
     ]);
+    expect(featureBoardState(PATH).cards).toEqual([]);
+  });
+
+  it("a nudge starts what waits: it isn't called a card, and what it did stays in the thread", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      on: true,
+      onAt: NOON - 1,
+      paused: true,
+    }));
+    expect(await tellTeam(PATH, "keep going", "card", NOON)).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(featureBoardState(PATH).cards).toEqual([]);
+    const [message] = crew.messages!;
+    expect(message).not.toHaveProperty("as");
+    const posts = teamPosts(crew, (who) => crewMemberName(crew, who));
+    expect(
+      posts.map((post) => [post.kind, post.text, "as" in post ? post.as : ""]),
+    ).toEqual([
+      // Your words, not called a card.
+      ["you", "keep going", ""],
+      // Only the Feed's own copy of your words is left out.
+      ["event", "You resumed the team", ""],
+      ["event", "Tell the team what to build, or add an idea.", ""],
+    ]);
+  });
+
+  it("refuses words too long for a card rather than cutting them", async () => {
+    on();
+    const words = "x".repeat(CREW_NOTE_MAX + 1);
+    expect(await tellTeam(PATH, words, "card", NOON)).toBe(
+      TOO_LONG_FOR_EVERYONE,
+    );
+    expect(getCrew(PATH)?.messages).toBeUndefined();
     expect(featureBoardState(PATH).cards).toEqual([]);
   });
 

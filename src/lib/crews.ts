@@ -572,8 +572,13 @@ export type CrewMessage = {
   text: string;
   /** The teammate it went to (its member id); none for everyone. */
   to?: string;
-  /** What a message to everyone became: a card, a rule or the goal. */
+  /**
+   * What a message to everyone became: a card, a rule or the goal. None
+   * for a nudge ("keep going"), which only starts what waits.
+   */
   as?: CrewMessageKind;
+  /** The Feed's own line for it ("You gave the team …"), which it stands for. */
+  echo?: string;
 };
 
 export type CrewMessageKind = "card" | "rule" | "goal";
@@ -672,6 +677,18 @@ function strings(value: unknown, keep: number, max = TEXT_MAX): string[] {
         .filter((item): item is string => !!item)
         .slice(0, keep)
     : [];
+}
+
+/** The furthest a Date reaches either side of 1970, in milliseconds. */
+const LATEST_TIME = 8.64e15;
+
+/** A moment a Date can show: a finite number of milliseconds within its range. */
+export function isTime(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Math.abs(value) <= LATEST_TIME
+  );
 }
 
 /** A full git commit id. */
@@ -1201,7 +1218,7 @@ export function readCrew(value: unknown): Crew | null {
           if (
             !entry ||
             typeof entry.id !== "string" ||
-            typeof entry.at !== "number" ||
+            !isTime(entry.at) ||
             !FEED_KINDS.has(entry.kind as CrewFeedKind) ||
             body === undefined
           )
@@ -1349,20 +1366,16 @@ function readMessages(value: unknown): CrewMessage[] {
     .map((item): CrewMessage | null => {
       const entry = item as Partial<CrewMessage> | null;
       const body = text(entry?.text, CREW_MESSAGE_MAX);
-      if (
-        !entry ||
-        typeof entry.id !== "string" ||
-        typeof entry.at !== "number" ||
-        !Number.isFinite(entry.at) ||
-        !body
-      )
+      if (!entry || typeof entry.id !== "string" || !isTime(entry.at) || !body)
         return null;
       const to = text(entry.to, 60);
+      const echo = text(entry.echo, 60);
       return {
         id: entry.id.slice(0, 60),
         at: entry.at,
         text: body,
         ...(to ? { to } : {}),
+        ...(echo ? { echo } : {}),
         ...(MESSAGE_KINDS.has(entry.as as CrewMessageKind)
           ? { as: entry.as as CrewMessageKind }
           : {}),
@@ -2279,6 +2292,7 @@ export function withMessage(
     text: body,
     ...(message.to ? { to: message.to } : {}),
     ...(message.as ? { as: message.as } : {}),
+    ...(message.echo ? { echo: message.echo } : {}),
   };
   return {
     ...crew,

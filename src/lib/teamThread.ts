@@ -5,6 +5,7 @@ import {
   crewCard,
   crewMember,
   crewMemberById,
+  isTime,
   memberCritter,
   type Crew,
   type CrewFeedEntry,
@@ -169,6 +170,8 @@ function postOf(
   entry: CrewFeedEntry,
   name: (who: string) => string,
   rules: ReadonlySet<string>,
+  /** Whether this stuck line still waits on you. */
+  waiting: (entry: CrewFeedEntry) => boolean,
 ): TeamPost | null {
   if (entry.who === "you") {
     if (yourWords(entry))
@@ -197,7 +200,7 @@ function postOf(
       at: entry.at,
       text: plain(entry.text),
       ...(entry.member ? { about: entry.member } : {}),
-      ...(entry.kind === "stuck" ? { needsYou: true } : {}),
+      ...(entry.kind === "stuck" && waiting(entry) ? { needsYou: true } : {}),
     };
   const base = {
     kind: "post" as const,
@@ -253,7 +256,11 @@ function postOf(
       };
     }
     case "stuck":
-      return { ...base, text: plain(entry.text), needsYou: true };
+      return {
+        ...base,
+        text: plain(entry.text),
+        ...(waiting(entry) ? { needsYou: true } : {}),
+      };
     default:
       return { ...base, text: plain(withoutName(entry.text, by.name)) };
   }
@@ -262,16 +269,29 @@ function postOf(
 /**
  * Every post, oldest first: the Feed's entries and your messages, by time
  * (your message first when they share a moment, as you wrote it first).
- * The Feed's own line for something you wrote ("You gave the team …") is
- * left out: your message says it.
+ * The Feed's own line for a message ("You gave the team …", its `echo`) is
+ * left out: your message says it. Everything else stays.
  */
 export function teamPosts(
   crew: Crew,
   name: (who: string) => string,
 ): TeamPost[] {
   const messages = crew.messages ?? [];
-  const said = new Set(messages.map((message) => message.at));
+  // The Feed's own line for each message: the message says it.
+  const said = new Set(
+    messages.flatMap((message) => (message.echo ? [message.echo] : [])),
+  );
   const rules = new Set(crew.notes.map((note) => `${note.at}\n${note.text}`));
+  // A card waits on you only while it is stuck, and only its latest stuck
+  // line says so: an answered question is history.
+  const lastStuck = new Map<string, string>();
+  for (const entry of crew.feed)
+    if (entry.kind === "stuck" && entry.cardId)
+      lastStuck.set(entry.cardId, entry.id);
+  const waiting = (entry: CrewFeedEntry) =>
+    !!entry.cardId &&
+    lastStuck.get(entry.cardId) === entry.id &&
+    crewCard(crew, entry.cardId)?.stage === "stuck";
   const posts: TeamPost[] = [];
   for (const message of messages) {
     const to = message.to ? crewMemberById(crew, message.to) : undefined;
@@ -290,20 +310,24 @@ export function teamPosts(
   }
   for (const entry of crew.feed) {
     // What you wrote, said once: your message.
-    if (entry.who === "you" && said.has(entry.at)) continue;
-    const post = postOf(crew, entry, name, rules);
+    if (said.has(entry.id)) continue;
+    const post = postOf(crew, entry, name, rules, waiting);
     if (post) posts.push(post);
   }
   const order = (post: TeamPost) => (post.kind === "you" ? 0 : 1);
-  return posts
-    .map((post, index) => ({ post, index }))
-    .sort(
-      (a, b) =>
-        a.post.at - b.post.at ||
-        order(a.post) - order(b.post) ||
-        a.index - b.index,
-    )
-    .map((item) => item.post);
+  return (
+    posts
+      // A moment no Date can show is left out, never drawn.
+      .filter((post) => isTime(post.at))
+      .map((post, index) => ({ post, index }))
+      .sort(
+        (a, b) =>
+          a.post.at - b.post.at ||
+          order(a.post) - order(b.post) ||
+          a.index - b.index,
+      )
+      .map((item) => item.post)
+  );
 }
 
 /** Whether a post is a teammate's: its own, your message to it, or Aven's about it. */
@@ -328,14 +352,20 @@ export function latestPosts(
 }
 
 function dayKey(at: number): string {
+  if (!isTime(at)) return "";
   const date = new Date(at);
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
 /** "Today", "Yesterday", or the date. */
 export function dayLabel(at: number, now: number): string {
+  if (!isTime(at) || !isTime(now)) return "";
   if (dayKey(at) === dayKey(now)) return "Today";
-  if (dayKey(at) === dayKey(now - 24 * 60 * 60_000)) return "Yesterday";
+  // The calendar day before, not 24 hours before: a day can be 23 or 25
+  // hours long when the clocks change.
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (dayKey(at) === dayKey(yesterday.getTime())) return "Yesterday";
   try {
     return new Date(at).toLocaleDateString(undefined, {
       weekday: "long",

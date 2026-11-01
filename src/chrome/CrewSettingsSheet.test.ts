@@ -284,6 +284,25 @@ describe("Build a team", () => {
     expect(onStarted).toHaveBeenCalledWith(PATH);
   });
 
+  it("is one stop in the tab order, and arrow keys move between the suggested teams", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
+    await open("add");
+    const radios = () => [
+      ...sheet().querySelectorAll<HTMLButtonElement>("[data-crew-team]"),
+    ];
+    expect(radios().map((radio) => radio.tabIndex)).toEqual([0, -1, -1]);
+    await act(async () =>
+      radios()[0]!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    );
+    expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
+      ["false", "true", "false"],
+    );
+    expect(radios().map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
+    expect(document.activeElement).toBe(radios()[1]);
+  });
+
   it("says why Start team couldn't, and starts nothing", async () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
     const onStarted = vi.fn();

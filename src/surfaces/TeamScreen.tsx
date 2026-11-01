@@ -93,7 +93,17 @@ export function TeamScreen({
     name,
   });
   const labels = useProjectLabels();
-  const [mode, setMode] = useTeamView(project);
+  const [saved, save] = useTeamView(project);
+  // Answer on its card shows the Cards for now; how this team opens stays
+  // what you chose with the switch.
+  const [peek, setPeek] = useState<{ project: string; view: TeamView } | null>(
+    null,
+  );
+  const mode = peek?.project === project ? peek.view : saved;
+  const setMode = (view: TeamView) => {
+    setPeek(null);
+    save(view);
+  };
   const [reviewing, setReviewing] = useState(false);
   useEffect(() => {
     // Review from the Inbox: the batch's Review opens here.
@@ -146,7 +156,7 @@ export function TeamScreen({
           problems={problems}
           onCrewAction={onCrewAction}
           onReview={() => setReviewing(true)}
-          onCards={() => setMode("cards")}
+          onCards={() => setPeek({ project, view: "cards" })}
           control={goal}
         />
       ) : (

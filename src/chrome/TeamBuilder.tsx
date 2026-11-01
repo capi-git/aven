@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import {
   addCrewMember,
   addCrewPreset,
@@ -95,6 +95,11 @@ export function TeamBuilder({
   const [busy, setBusy] = useState(false);
   const path = crew.path;
   const unstarted = teamUnstarted(crew);
+  const starts = useRef<(HTMLButtonElement | null)[]>([]);
+  const focusable = Math.max(
+    0,
+    CREW_TEAM_PRESETS.findIndex((team) => teamIsPreset(crew, team)),
+  );
   const members = crewMembers(crew).filter(
     (member) => member.role !== "fixer" || !!fixerName,
   );
@@ -131,7 +136,7 @@ export function TeamBuilder({
               role="radiogroup"
               aria-label="Start from"
             >
-              {CREW_TEAM_PRESETS.map((team) => {
+              {CREW_TEAM_PRESETS.map((team, index) => {
                 const chosen = teamIsPreset(crew, team);
                 const marks = team.members
                   .map((key) =>
@@ -146,7 +151,32 @@ export function TeamBuilder({
                     aria-checked={chosen}
                     className="team-build-start"
                     data-crew-team={team.key}
+                    ref={(node) => {
+                      starts.current[index] = node;
+                    }}
+                    // One stop in the tab order: the chosen team (else the
+                    // first); arrow keys move between them, choosing.
+                    tabIndex={index === focusable ? 0 : -1}
                     onClick={() => setProblem(startTeamFrom(path, team.key))}
+                    onKeyDown={(event) => {
+                      const count = CREW_TEAM_PRESETS.length;
+                      const next =
+                        event.key === "ArrowRight" || event.key === "ArrowDown"
+                          ? (index + 1) % count
+                          : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                            ? (index - 1 + count) % count
+                            : event.key === "Home"
+                              ? 0
+                              : event.key === "End"
+                                ? count - 1
+                                : null;
+                      if (next === null) return;
+                      event.preventDefault();
+                      setProblem(
+                        startTeamFrom(path, CREW_TEAM_PRESETS[next]!.key),
+                      );
+                      starts.current[next]?.focus();
+                    }}
                   >
                     <span className="team-build-start-marks" aria-hidden>
                       {marks.map((preset) => (

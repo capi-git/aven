@@ -406,8 +406,9 @@ describe("updating the branch onto your files", () => {
 
   it("keeps the branch as it was when a card no longer fits", async () => {
     const [timer] = await crewWithBatch();
+    // As the host sends it (RESTACK_CONFLICT in project_bots.rs).
     host.restack.mockRejectedValue(
-      new Error("Your files changed where the team worked (card 1 of 2): a.ts"),
+      "Your files changed where the team worked (card 1 of 2): error: patch failed: a.ts:1",
     );
     const why = await restackCrew(PATH, NOW);
     expect(why).toContain(

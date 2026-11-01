@@ -432,18 +432,38 @@ export async function tellTeam(
   as: CrewMessageKind = "card",
   now = Date.now(),
 ): Promise<string | null> {
-  const words = text.trim().slice(0, CREW_NOTE_MAX);
+  const words = text.trim();
   if (!words) return null;
-  if (!getCrew(path)?.on) return "Turn the team on first.";
+  if (words.length > CREW_NOTE_MAX) return TOO_LONG_FOR_EVERYONE;
+  const crew = getCrew(path);
+  if (!crew?.on) return "Turn the team on first.";
+  // "keep going" starts what waits: no card, so it isn't called one.
+  const nudge = as === "card" && crewNudge(words, path);
+  const before = new Set(crew.feed.map((entry) => entry.id));
   if (as === "rule") tellCrew(path, words, now);
   else if (as === "goal") setCrewGoal(path, words, now);
   else {
     const problem = await tellCrewWork(path, words, now);
     if (problem) return problem;
   }
-  updateCrew(path, (crew) => withMessage(crew, { at: now, text: words, as }));
+  // The Feed's own line for what you wrote: your message stands for it.
+  // Anything else it led to ("You resumed the team") stays as it is.
+  const echo = getCrew(path)?.feed.find(
+    (entry) => !before.has(entry.id) && entry.who === "you" && entry.at === now,
+  )?.id;
+  updateCrew(path, (current) =>
+    withMessage(current, {
+      at: now,
+      text: words,
+      ...(nudge ? {} : { as }),
+      ...(echo ? { echo } : {}),
+    }),
+  );
   return null;
 }
+
+/** Said when a message to everyone is longer than a card's note can be. */
+export const TOO_LONG_FOR_EVERYONE = `That's too long for the whole team: keep it under ${CREW_NOTE_MAX} characters, or write to one teammate.`;
 
 /**
  * Write to one teammate: your words go to its own chat as a message you

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   crewMemberName,
   newCrew,
@@ -7,6 +7,7 @@ import {
   type CrewFeedEntry,
 } from "./crews";
 import {
+  dayLabel,
   latestPosts,
   postIsMember,
   teamPosts,
@@ -173,6 +174,7 @@ describe("the team thread", () => {
             at: DAY,
             text: "Build a timer screen: start, pause and a ring.",
             as: "card",
+            echo: "f0",
           },
           {
             id: "m2",
@@ -300,5 +302,105 @@ describe("your messages to the team in storage", () => {
       text: "Message 6",
       as: "card",
     });
+  });
+});
+
+describe("what still waits on you", () => {
+  const card = (stage: "stuck" | "applied") => ({
+    id: "c1",
+    title: "Timer",
+    brief: "Timer",
+    from: "you" as const,
+    stage,
+    round: 1,
+    maxRounds: 3,
+    rounds: [],
+    later: [],
+    runs: 1,
+    queuedAt: 1,
+    updatedAt: 1,
+  });
+  const asked = (at: number, text: string) => ({
+    at,
+    kind: "stuck" as const,
+    who: "builder" as const,
+    member: "builder",
+    cardId: "c1",
+    title: "Timer",
+    text,
+  });
+
+  it("is a stuck card's latest question, only while the card is stuck", () => {
+    const stuck = crewWith(
+      [asked(DAY, "Which ring colour?"), asked(DAY + MIN, "Count down?")],
+      { cards: [card("stuck")] },
+    );
+    expect(
+      teamPosts(stuck, nameOf(stuck)).map((post) =>
+        post.kind === "post" ? !!post.needsYou : null,
+      ),
+    ).toEqual([false, true]);
+    // Answered and applied long ago: history, not a question for you.
+    const done = crewWith(
+      [asked(DAY, "Which ring colour?"), asked(DAY + MIN, "Count down?")],
+      { cards: [card("applied")] },
+    );
+    expect(
+      teamPosts(done, nameOf(done)).some(
+        (post) => post.kind !== "you" && post.needsYou,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("moments a Date can't show", () => {
+  it("are dropped on reading, and never drawn if they get in some other way", () => {
+    const stored = JSON.stringify({
+      ...newCrew(PATH, 1),
+      feed: [
+        { id: "ok", at: DAY, kind: "note", who: "aven", text: "fine" },
+        { id: "inf", at: 1, kind: "note", who: "aven", text: "x" },
+      ],
+      messages: [
+        { id: "far", at: 1e16, text: "hi" },
+        { id: "near", at: DAY, text: "hello" },
+      ],
+    }).replace('"at":1,"kind"', '"at":1e999,"kind"');
+    const crew = readCrew(JSON.parse(stored))!;
+    expect(crew.feed.map((entry) => entry.id)).toEqual(["ok"]);
+    expect(crew.messages?.map((message) => message.id)).toEqual(["near"]);
+    const raw = crewWith([{ at: 1e16, kind: "note", who: "aven", text: "x" }]);
+    expect(teamPosts(raw, nameOf(raw))).toEqual([]);
+    expect(dayLabel(Infinity, DAY)).toBe("");
+  });
+});
+
+describe("Yesterday", () => {
+  const zone = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = zone;
+  });
+
+  it("is the calendar day before, even across a clock change", () => {
+    process.env.TZ = "America/New_York";
+    // The clocks went forward on Sun 8 Mar 2026: Monday at 00:30 is only
+    // 23½ hours after Sunday began.
+    const now = new Date(2026, 2, 9, 0, 30).getTime();
+    expect(dayLabel(new Date(2026, 2, 8, 0, 15).getTime(), now)).toBe(
+      "Yesterday",
+    );
+    expect(dayLabel(new Date(2026, 2, 8, 15, 0).getTime(), now)).toBe(
+      "Yesterday",
+    );
+    expect(dayLabel(new Date(2026, 2, 7, 23, 45).getTime(), now)).not.toBe(
+      "Yesterday",
+    );
+    // And back on Sun 1 Nov 2026: Saturday is Yesterday all of Sunday.
+    expect(
+      dayLabel(
+        new Date(2026, 9, 31, 0, 10).getTime(),
+        new Date(2026, 10, 1, 23, 30).getTime(),
+      ),
+    ).toBe("Yesterday");
   });
 });

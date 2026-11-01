@@ -179,7 +179,7 @@
   flex: none;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
 .team-ready {
@@ -272,12 +272,17 @@
   flex-direction: column;
 }
 
+/* Posts scrolled up under Ready for you fade out over a few pixels rather
+   than stop at a hard edge; the padding keeps the first post clear of the
+   fade when the thread is at its top. A mask, so no colour is drawn. */
 .team-thread-scroll {
   min-height: 0;
   flex: 1 1 auto;
-  padding: 4px 0 10px;
+  padding: 20px 0 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px);
+  mask-image: linear-gradient(to bottom, transparent, #000 22px);
 }
 
 .team-thread-earlier {

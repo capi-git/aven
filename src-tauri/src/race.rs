@@ -596,7 +596,7 @@ pub(crate) fn snapshot_tree(worktree: &Path) -> Result<String, String> {
     run_staged(worktree, &index, &["add", "-A"])?;
     let tree = text(run_staged(worktree, &index, &["write-tree"])?);
     if !is_sha(&tree) {
-        return Err("Could not record the crew's work".into());
+        return Err("Could not record the team's work".into());
     }
     Ok(tree)
 }
@@ -627,7 +627,7 @@ pub(crate) fn commit_tree(
         Some(message.as_bytes()),
     )?);
     if !is_sha(&sha) {
-        return Err("Could not record the crew's work".into());
+        return Err("Could not record the team's work".into());
     }
     Ok(sha)
 }

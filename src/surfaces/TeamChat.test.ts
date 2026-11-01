@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,11 +7,13 @@ import { offersRestack } from "../hooks/useTeamPipeline";
 import { afterBuild, afterCheck, queueCard, startCard } from "../lib/crewLoop";
 import { installCrewWorkspace } from "../lib/crewActions";
 import {
+  getCrew,
   resetCrewsCache,
   updateCrew,
   withCard,
   withFeed,
   withMessage,
+  withoutMember,
   type Crew,
   type CrewCard,
 } from "../lib/crews";
@@ -23,6 +26,7 @@ import {
 } from "../lib/featureCards";
 import { localDay, resetProjectBotsCache } from "../lib/projectBots";
 import { TEAM_VIEW_KEY, resetTeamViewCache, teamView } from "../lib/teamView";
+import { TOO_LONG_FOR_EVERYONE } from "../lib/crewActions";
 import {
   installWorkBoardActions,
   publishWorkBoardFeed,
@@ -189,8 +193,10 @@ async function setUp(
       at: NOW - 20 * 60_000,
       text: "Build a timer screen: start, pause, and a ring.",
       as: "card",
+      echo: "gave-timer",
     });
     next = withFeed(next, {
+      id: "gave-timer",
       at: NOW - 20 * 60_000,
       kind: "note",
       who: "you",
@@ -249,6 +255,38 @@ async function type(text: string) {
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+
+/** A scroller you've scrolled up in: 1000px of posts, 200px tall, at its top. */
+function scrolledUp(element: HTMLElement) {
+  let top = 0;
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    get: () => 1000,
+  });
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    get: () => 200,
+  });
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      top = value;
+    },
+  });
+  element.dispatchEvent(new Event("scroll"));
+  return () => top;
+}
+
+const thread = () => chat().querySelector<HTMLElement>("[data-team-thread]")!;
+const pick = (id: string) =>
+  act(async () =>
+    chat()
+      .querySelector<HTMLButtonElement>(
+        `[data-team-member="${id}"] .team-roster-row`,
+      )!
+      .click(),
+  );
 
 async function press(key: string) {
   await act(async () => {
@@ -526,5 +564,203 @@ describe("the team chat", () => {
     expect(shown()).toBe(60);
     await act(async () => button(chat(), "Show earlier")!.click());
     expect(shown()).toBe(120);
+  });
+
+  it("never sends to everyone a message meant for a teammate who left", async () => {
+    await setUp();
+    await pick("designer");
+    await type("Can the ring use the project's colour?");
+    // Designer leaves (from its page, or another window) while you write.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => withoutMember(crew, "designer")),
+    );
+    await press("Enter");
+    expect(actions.tellTeam).not.toHaveBeenCalled();
+    expect(actions.tellTeammate).not.toHaveBeenCalled();
+    expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
+      "Designer isn't in the team any more. Pick someone else or write to everyone.",
+    );
+    expect(box().value).toBe("Can the ring use the project's colour?");
+    expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
+      "@Designer",
+    );
+    // Only you take it back to everyone.
+    await act(async () =>
+      chat().querySelector<HTMLButtonElement>(".team-compose-to")!.click(),
+    );
+    await press("Enter");
+    expect(actions.tellTeam).toHaveBeenCalledWith(
+      PROJECT,
+      "Can the ring use the project's colour?",
+      "card",
+    );
+  });
+
+  it("asks you to answer only a card that still waits, and shows Cards without saving it", async () => {
+    await setUp((crew, boards) => {
+      const stuck = (id: string, stage: "stuck" | "applied") => ({
+        ...crew.cards.find((card) => card.id === boards[0]!.id)!,
+        id,
+        stage,
+        turn: undefined,
+        holder: "builder" as const,
+        stuck: { reason: "question" as const, text: "Count down?" },
+      });
+      let next = withCard(
+        withCard(crew, stuck(boards[0]!.id, "stuck")),
+        stuck("long-done", "applied"),
+      );
+      for (const [cardId, at] of [
+        ["long-done", NOW - 50 * 60_000],
+        [boards[0]!.id, NOW - 60_000],
+      ] as const)
+        next = withFeed(next, {
+          at,
+          kind: "stuck",
+          who: "builder",
+          member: "builder",
+          cardId,
+          title: "Timer screen",
+          text: "Count down?",
+        });
+      return next;
+    });
+    const asks = [
+      ...chat().querySelectorAll<HTMLElement>('[data-team-post="builder"]'),
+    ].filter((post) => post.textContent?.includes("Count down?"));
+    expect(asks.map((post) => post.hasAttribute("data-needs-you"))).toEqual([
+      false,
+      true,
+    ]);
+    expect(button(asks[0]!, "Answer on its card")).toBeUndefined();
+    await act(async () => button(asks[1]!, "Answer on its card")!.click());
+    expect(container.querySelector("[data-crew-pipeline]")).not.toBeNull();
+    // How the team opens stays your choice: Chat.
+    expect(teamView(PROJECT)).toBe("chat");
+  });
+
+  it("counts as new only the posts the view shows", async () => {
+    await setUp();
+    await pick("checker");
+    scrolledUp(thread());
+    const post = (who: "builder" | "checker", text: string) =>
+      act(async () =>
+        updateCrew(PROJECT, (crew) =>
+          withFeed(crew, {
+            at: NOW,
+            kind: "note",
+            who,
+            member: who,
+            text,
+          }),
+        ),
+      );
+    await post("builder", "Builder here");
+    expect(chat().querySelector(".team-thread-new")).toBeNull();
+    await post("checker", "Checker here");
+    expect(chat().querySelector(".team-thread-new")?.textContent).toBe(
+      "1 new ↓",
+    );
+  });
+
+  it("shows what you just wrote, even while you read further up", async () => {
+    await setUp();
+    const top = scrolledUp(thread());
+    await act(async () =>
+      updateCrew(PROJECT, (crew) =>
+        withMessage(crew, { at: NOW, text: "One more thing", as: "rule" }),
+      ),
+    );
+    expect(top()).toBe(1000);
+    expect(chat().querySelector(".team-thread-new")).toBeNull();
+  });
+
+  it("keeps what you type while a message sends, and gives a failed one back", async () => {
+    await setUp();
+    let finish = (_why: string | null) => {};
+    actions.tellTeam.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await type("First");
+    await press("Enter");
+    // The box is free at once.
+    expect(box().value).toBe("");
+    await type("Second");
+    await act(async () => finish(null));
+    expect(box().value).toBe("Second");
+    // A message that doesn't go comes back, if the box is empty.
+    actions.tellTeam.mockResolvedValueOnce("Turn the team on first.");
+    await press("Enter");
+    expect(box().value).toBe("Second");
+    expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
+      "Turn the team on first.",
+    );
+  });
+
+  it("closes the @ list once the caret leaves the @word, and takes out exactly that word", async () => {
+    await setUp();
+    await type("@Bu");
+    expect(chat().querySelector("[data-team-mention]")).not.toBeNull();
+    // The caret moves back, before the @: Enter sends, it doesn't pick.
+    await act(async () => box().setSelectionRange(0, 0));
+    await press("Enter");
+    expect(actions.tellTeammate).not.toHaveBeenCalled();
+    expect(actions.tellTeam).toHaveBeenCalledWith(PROJECT, "@Bu", "card");
+    // Picked with the mouse after the caret moved: the @word goes, once.
+    await type("Hi @Bu");
+    await act(async () => box().setSelectionRange(0, 0));
+    await act(async () =>
+      chat()
+        .querySelector<HTMLElement>('[data-team-mention] [role="option"]')!
+        .click(),
+    );
+    expect(box().value).toBe("Hi ");
+    expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
+      "@Builder",
+    );
+  });
+
+  it("won't cut a long message to fit a card: it asks you to shorten it", async () => {
+    await setUp();
+    await pick("checker");
+    const long = "y".repeat(600);
+    await type(long);
+    await act(async () =>
+      chat().querySelector<HTMLButtonElement>(".team-compose-to")!.click(),
+    );
+    await press("Enter");
+    expect(actions.tellTeam).not.toHaveBeenCalled();
+    expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
+      TOO_LONG_FOR_EVERYONE,
+    );
+    expect(box().value).toBe(long);
+  });
+
+  it("draws a thread with a moment no Date can show", async () => {
+    await setUp((crew) => ({
+      ...crew,
+      feed: [
+        ...crew.feed,
+        { id: "far", at: 1e16, kind: "note", who: "aven", text: "Far off" },
+      ],
+    }));
+    expect(chat()).not.toBeNull();
+    expect(thread().textContent).not.toContain("Far off");
+    expect(getCrew(PROJECT)).toBeDefined();
+  });
+
+  it("fades posts that scroll up under Ready for you, with no colour of its own", () => {
+    const css = readFileSync("src/surfaces/TeamChat.css", "utf8");
+    const at = css.indexOf(".team-thread-scroll {");
+    const rule = css.slice(at, css.indexOf("}", at));
+    expect(rule).toContain(
+      "mask-image: linear-gradient(to bottom, transparent, #000 22px)",
+    );
+    expect(rule).toContain("-webkit-mask-image");
+    // The first post starts below the fade.
+    expect(rule).toContain("padding: 20px 0 10px");
   });
 });

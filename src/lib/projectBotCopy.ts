@@ -142,10 +142,14 @@ export const botCopyHost = {
     ),
 };
 
-/** The host refused a restack: the user's files changed where the crew worked. */
+/**
+ * The host refused a restack: the user's files changed where the team
+ * worked (`RESTACK_CONFLICT` in project_bots.rs; a host from before teams
+ * said "crew").
+ */
 export function isRestackConflict(error: unknown): boolean {
-  return String(error instanceof Error ? error.message : error).startsWith(
-    "Your files changed where the team worked",
+  return /^Your files changed where the (?:crew|team) worked/.test(
+    String(error instanceof Error ? error.message : error),
   );
 }
 
