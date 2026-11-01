@@ -1053,7 +1053,7 @@ describe("a pane that goes off screen", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("closes the dialog while the window is hidden", async () => {
+  it("keeps the dialog while the window is hidden for a moment", async () => {
     let state: DocumentVisibilityState = "visible";
     vi.spyOn(document, "visibilityState", "get").mockImplementation(
       () => state,
@@ -1061,11 +1061,16 @@ describe("a pane that goes off screen", () => {
     await render();
     await openByClick();
     expect(dialog()).not.toBeNull();
+    // macOS reports a covered window as hidden; the menu is still there after.
     state = "hidden";
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    expect(dialog()).toBeNull();
+    state = "visible";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(dialog()).not.toBeNull();
   });
 });
 

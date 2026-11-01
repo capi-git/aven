@@ -395,14 +395,15 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     },
     [onReturnFocus],
   );
-  // The dialog and the agent panel live in portals, so a parked pane or a
-  // hidden window takes them away; left open, they would float over the
-  // chat on screen now and change this one.
+  // The dialog and the agent panel live in portals, so a parked pane takes
+  // them away; left open, they would float over the chat on screen now and
+  // change this one. A hidden window keeps them: macOS reports a covered or
+  // briefly occluded window as hidden, and the menu should be there on return.
   useEffect(() => {
-    if (!paused) return;
+    if (enabled) return;
     close(false);
     setPanel(null);
-  }, [paused, close]);
+  }, [enabled, close]);
   // With the agent panel open, Cmd+., Switch Model… and the mark close
   // it and hand the keyboard back, as the old agent pill's did.
   const closePanel = useCallback(() => {
