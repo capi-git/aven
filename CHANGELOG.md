@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.1.163] - 2026-10-31
+
+### Added
+
+- **Marks in colour.** Each project's mark lights its dots in the project's colour, and the unlit dots stay grey.
+  - Choose from eight muted colours or Grey in the message box menu or Customize project. Projects that never picked get a colour from their name, and colours you chose before marks come back.
+  - The working sweep, the done tick and the idle breathe move in the colour. With reduced motion on, marks stay still.
+  - Crew members and a project's bot use the project's colour. Status dots keep their meaning, and panels and backgrounds never take the colour.
+- **Crews can keep going on a goal.** Give the crew a goal and it plans one card at a time towards it, within its limits. It stops when a card is stuck, when planning adds nothing new, or when the goal is met.
+- **Passed work stacks on the crew's own branch.** Every card that passes Check and Security waits there, up to 5 by default. **Ready for you** shows them as one batch: review every file, then **Apply all** or **Apply up to here**. **Update onto your files** replays them after your own edits, and those replayed cards need a fresh review.
+- **Ask a crew member for work in its chat** and it offers **Queue these** or **Set as goal**. Nothing is queued until you choose.
+
+### Changed
+
+- **The crew screen is a pipeline.**
+  - The top says what the crew is doing and what needs you.
+  - One box takes a card, a rule or a goal.
+  - Work is grouped Ready for you, In progress, Up next and Ideas, and each card shows its Build, Check, Security and You steps.
+  - Shipped work, the activity feed and the limits sit at the bottom.
+- **Simpler crew and member settings.**
+- **Tell the crew…** now gives it work. Pin a message to keep it as a standing rule instead.
+- Crew messages show as cards in chats, never as raw code.
+
+### Fixed
+
+- The message box menu no longer closes when another window briefly covers Aven.
+- **Crew safety**
+  - A crew can't change protected settings files through a name that only looks like one, such as one spelled with a lookalike letter. Ordinary accented file names still apply.
+  - File names with quotes or hidden control characters are refused.
+  - A crew member or bot that writes files can't run on Codex.
+
 ## [0.1.162] - 2026-10-30
 
 ### Changed
