@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
   installCrewWorkspace,
   pickCrewModels,
@@ -12,6 +13,7 @@ import {
 } from "./crewActions";
 import { CREW_TEAM_PRESETS } from "./crewPresets";
 import {
+  CREW_GOAL_MAX,
   CREW_NOTE_MAX,
   crewCard,
   crewMemberName,
@@ -130,6 +132,15 @@ describe("writing to the team", () => {
     );
     expect(getCrew(PATH)?.messages).toBeUndefined();
     expect(featureBoardState(PATH).cards).toEqual([]);
+  });
+
+  it("refuses a goal too long to keep, rather than cutting it", async () => {
+    on();
+    const words = `Ship the timer. ${"a".repeat(CREW_GOAL_MAX + 100)}`;
+    expect(await tellTeam(PATH, words, "goal", NOON)).toBe(TOO_LONG_FOR_A_GOAL);
+    const crew = getCrew(PATH)!;
+    expect(crew.goal).toBeUndefined();
+    expect(crew.messages).toBeUndefined();
   });
 
   it("keeps nothing when the team is off", async () => {

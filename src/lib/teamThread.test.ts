@@ -201,6 +201,29 @@ describe("the team thread", () => {
     expect(posts[4]).toMatchObject({ to: { id: "designer" } });
   });
 
+  it("shows a message saved before it named its Feed line once", () => {
+    const crew = crewWith(
+      [
+        {
+          at: DAY,
+          kind: "note",
+          who: "you",
+          cardId: "c1",
+          title: "Build a timer",
+          text: "You gave the team “Build a timer”",
+        },
+        { at: DAY, kind: "note", who: "you", text: "You resumed the team" },
+      ],
+      { messages: [{ id: "m1", at: DAY, text: "Build a timer", as: "card" }] },
+    );
+    expect(
+      teamPosts(crew, nameOf(crew)).map((post) => [post.kind, post.text]),
+    ).toEqual([
+      ["you", "Build a timer"],
+      ["event", "You resumed the team"],
+    ]);
+  });
+
   it("keeps every post to the Feed's plain words, on one line", () => {
     const crew = crewWith([
       {

@@ -14,6 +14,7 @@ import {
 } from "./crewLoop";
 import {
   CREW_EXTRA_RUNS,
+  CREW_GOAL_MAX,
   CREW_NOTE_MAX,
   bumpToday,
   cardInCopy,
@@ -435,6 +436,7 @@ export async function tellTeam(
   const words = text.trim();
   if (!words) return null;
   if (words.length > CREW_NOTE_MAX) return TOO_LONG_FOR_EVERYONE;
+  if (as === "goal" && words.length > CREW_GOAL_MAX) return TOO_LONG_FOR_A_GOAL;
   const crew = getCrew(path);
   if (!crew?.on) return "Turn the team on first.";
   // "keep going" starts what waits: no card, so it isn't called one.
@@ -461,6 +463,9 @@ export async function tellTeam(
   );
   return null;
 }
+
+/** Said when a goal is longer than a goal can be: it's never cut. */
+export const TOO_LONG_FOR_A_GOAL = `A goal has to fit in ${CREW_GOAL_MAX} characters. Shorten it, or send it as a card.`;
 
 /** Said when a message to everyone is longer than a card's note can be. */
 export const TOO_LONG_FOR_EVERYONE = `That's too long for the whole team: keep it under ${CREW_NOTE_MAX} characters, or write to one teammate.`;

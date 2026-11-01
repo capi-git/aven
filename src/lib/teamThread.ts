@@ -277,10 +277,20 @@ export function teamPosts(
   name: (who: string) => string,
 ): TeamPost[] {
   const messages = crew.messages ?? [];
-  // The Feed's own line for each message: the message says it.
+  // The Feed's own line for each message: the message says it. A message
+  // saved before it named its line stands for the first line of yours at
+  // its moment.
   const said = new Set(
     messages.flatMap((message) => (message.echo ? [message.echo] : [])),
   );
+  for (const message of messages) {
+    if (message.echo || message.to) continue;
+    const line = crew.feed.find(
+      (entry) =>
+        entry.who === "you" && entry.at === message.at && !said.has(entry.id),
+    );
+    if (line) said.add(line.id);
+  }
   const rules = new Set(crew.notes.map((note) => `${note.at}\n${note.text}`));
   // A card waits on you only while it is stuck, and only its latest stuck
   // line says so: an answered question is history.

@@ -26,7 +26,7 @@ import {
 } from "../lib/featureCards";
 import { localDay, resetProjectBotsCache } from "../lib/projectBots";
 import { TEAM_VIEW_KEY, resetTeamViewCache, teamView } from "../lib/teamView";
-import { TOO_LONG_FOR_EVERYONE } from "../lib/crewActions";
+import { TOO_LONG_FOR_A_GOAL, TOO_LONG_FOR_EVERYONE } from "../lib/crewActions";
 import {
   installWorkBoardActions,
   publishWorkBoardFeed,
@@ -276,6 +276,33 @@ function scrolledUp(element: HTMLElement) {
   });
   element.dispatchEvent(new Event("scroll"));
   return () => top;
+}
+
+/**
+ * A scroller laid out as posts 50px tall in a 200px window, scrolled to its
+ * top. Like WebKit, it doesn't keep your place when posts are added above.
+ */
+function layout(element: HTMLElement) {
+  let top = 0;
+  const height = () =>
+    40 + 50 * element.querySelectorAll("[data-team-post]").length;
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    get: height,
+  });
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    get: () => 200,
+  });
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      top = Math.max(0, Math.min(value, height() - 200));
+    },
+  });
+  element.dispatchEvent(new Event("scroll"));
+  return { top: () => top, bottom: () => height() - 200 };
 }
 
 const thread = () => chat().querySelector<HTMLElement>("[data-team-thread]")!;
@@ -762,5 +789,143 @@ describe("the team chat", () => {
     expect(rule).toContain("-webkit-mask-image");
     // The first post starts below the fade.
     expect(rule).toContain("padding: 20px 0 10px");
+  });
+
+  it("brings a nudge you send into view, with what it led to, and counts none of it as unseen", async () => {
+    await setUp();
+    const view = layout(thread());
+    // A nudge: its Feed lines land first ("keep going", then what it did),
+    // then your message, which stands for the first of them.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) =>
+        withFeed(
+          withFeed(crew, {
+            id: "nudge-words",
+            at: NOW,
+            kind: "note",
+            who: "you",
+            text: "keep going",
+          }),
+          { at: NOW, kind: "note", who: "you", text: "You resumed the team" },
+        ),
+      ),
+    );
+    await act(async () =>
+      updateCrew(PROJECT, (crew) =>
+        withMessage(crew, { at: NOW, text: "keep going", echo: "nudge-words" }),
+      ),
+    );
+    expect(view.top()).toBe(view.bottom());
+    expect(chat().querySelector(".team-thread-new")).toBeNull();
+    const last = [...thread().querySelectorAll("[data-team-post]")]
+      .slice(-2)
+      .map((post) => post.textContent);
+    expect(last[0]).toContain("keep going");
+    expect(last[1]).toContain("You resumed the team");
+  });
+
+  it("stays at the very bottom when you write in a thread longer than it shows", async () => {
+    await setUp((crew) => {
+      let next = crew;
+      for (let index = 0; index < 80; index += 1)
+        next = withFeed(next, {
+          at: NOW - 90 * 60_000 + index,
+          kind: "note",
+          who: "scout",
+          member: "scout",
+          text: `Old ${index}`,
+        });
+      return next;
+    });
+    const view = layout(thread());
+    await act(async () =>
+      updateCrew(PROJECT, (crew) =>
+        withMessage(crew, { at: NOW, text: "One more thing", as: "rule" }),
+      ),
+    );
+    // The window slid to it: no older post was added above.
+    expect(thread().querySelectorAll("[data-team-post]")).toHaveLength(60);
+    expect(view.top()).toBe(view.bottom());
+  });
+
+  it("picks from the whole @word, wherever the caret is in it", async () => {
+    await setUp();
+    await type("hello @Bu");
+    await act(async () => box().setSelectionRange(8, 8));
+    await press("Enter");
+    expect(box().value).toBe("hello ");
+    expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
+      "@Builder",
+    );
+    await act(async () =>
+      chat().querySelector<HTMLButtonElement>(".team-compose-to")!.click(),
+    );
+    // Right after the @: still the word you typed, not Everyone.
+    await type("@Che");
+    await act(async () => box().setSelectionRange(1, 1));
+    await act(async () =>
+      box().dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(
+      [
+        ...chat().querySelectorAll(
+          '[data-team-mention] [role="option"] .team-mention-name',
+        ),
+      ].map((option) => option.textContent),
+    ).toEqual(["Checker"]);
+    await press("Enter");
+    expect(box().value).toBe("");
+    expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
+      "@Checker",
+    );
+  });
+
+  it("keeps who a message is for while it's on its way, and gives both back if it fails", async () => {
+    await setUp();
+    let finish = (_why: string | null) => {};
+    actions.tellTeammate.mockImplementationOnce(
+      () =>
+        new Promise<string | null>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await pick("designer");
+    await type("Only review the ring, change nothing");
+    await press("Enter");
+    expect(box().value).toBe("");
+    // Backspace in the emptied box doesn't drop Designer mid-send.
+    await press("Backspace");
+    expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
+      "@Designer",
+    );
+    await act(async () => finish("Couldn't reach Designer's chat"));
+    expect(box().value).toBe("Only review the ring, change nothing");
+    expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
+      "@Designer",
+    );
+    await press("Enter");
+    expect(actions.tellTeammate).toHaveBeenLastCalledWith(
+      PROJECT,
+      "designer",
+      "Only review the ring, change nothing",
+    );
+    expect(actions.tellTeam).not.toHaveBeenCalled();
+  });
+
+  it("won't cut a goal to fit: it asks you to shorten it", async () => {
+    await setUp();
+    await act(async () =>
+      chat().querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
+    );
+    await act(async () => button(document.body, "Make it a goal")!.click());
+    expect(box().maxLength).toBe(300);
+    const goal = "g".repeat(400);
+    await type(goal);
+    await press("Enter");
+    expect(actions.tellTeam).not.toHaveBeenCalled();
+    expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
+      TOO_LONG_FOR_A_GOAL,
+    );
+    expect(box().value).toBe(goal);
   });
 });

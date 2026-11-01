@@ -16,6 +16,7 @@ import { ProjectMark } from "../chrome/ProjectMark";
 import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
+  TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
   subscribeCrewTell,
   takeCrewTell,
@@ -25,6 +26,7 @@ import {
 } from "../lib/crewActions";
 import type { Pipeline, PipelineRow } from "../lib/crewPipeline";
 import {
+  CREW_GOAL_MAX,
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
@@ -592,7 +594,10 @@ function Thread({
     [kept, now, shown],
   );
   const newest = kept.at(-1)?.id;
-  const seenNewest = useRef(newest);
+  // Your newest message: it can land before lines it led to ("You resumed
+  // the team" shares its moment), so it is watched apart from the newest.
+  const newestYou = kept.findLast((post) => post.kind === "you")?.id;
+  const seen = useRef({ newest, newestYou });
   const liveKey = working.map((member) => member.id).join(",");
   const toBottom = () => {
     const element = scroller.current;
@@ -604,19 +609,22 @@ function Thread({
   }, []);
   // New posts: followed at the bottom, counted while you read further up.
   useLayoutEffect(() => {
-    if (newest === seenNewest.current) return;
-    const at = seenNewest.current
-      ? kept.findIndex((post) => post.id === seenNewest.current)
-      : -1;
-    const added = at >= 0 ? kept.length - 1 - at : 1;
-    seenNewest.current = newest;
-    // What you just wrote is always shown, wherever you were reading.
-    if (kept.at(-1)?.kind === "you") {
-      setShown((count) => count + added);
+    const before = seen.current;
+    if (before.newest === newest && before.newestYou === newestYou) return;
+    seen.current = { newest, newestYou };
+    // What you just wrote is always shown, wherever you were reading. The
+    // window slides to it (no older post is added above, which would push
+    // the bottom out of view), and nothing counts as unseen.
+    if (newestYou && newestYou !== before.newestYou) {
       setFollow(FEED_FOLLOW_START);
       toBottom();
       return;
     }
+    if (newest === before.newest) return;
+    const at = before.newest
+      ? kept.findIndex((post) => post.id === before.newest)
+      : -1;
+    const added = at >= 0 ? kept.length - 1 - at : 1;
     const step = feedGrew(followRef.current, added);
     if (step.scrollToBottom) toBottom();
     else {
@@ -624,7 +632,7 @@ function Thread({
       // Nothing above what you're reading drops off while you read.
       setShown((count) => count + added);
     }
-  }, [newest, kept]);
+  }, [newest, newestYou, kept]);
   // Someone starts or stops working: the live line stays in view.
   useLayoutEffect(() => {
     if (followRef.current.following) toBottom();
@@ -844,13 +852,21 @@ function PostView({
 // The box
 
 /** The "@word" being typed just before the cursor, if any. */
-function mentionAt(
+/**
+ * The "@word" the caret is in, if any: where its @ is, and the whole word
+ * after it (also the part after the caret, when the caret is mid-word).
+ */
+export function mentionAt(
   text: string,
   caret: number,
 ): { start: number; query: string } | null {
   const match = /(^|\s)@([\p{L}\p{N}_-]*)$/u.exec(text.slice(0, caret));
   if (!match) return null;
-  return { start: caret - match[2]!.length - 1, query: match[2]! };
+  const rest = /^[\p{L}\p{N}_-]*/u.exec(text.slice(caret))?.[0] ?? "";
+  return {
+    start: caret - match[2]!.length - 1,
+    query: `${match[2]!}${rest}`,
+  };
 }
 
 function Composer({
@@ -873,6 +889,9 @@ function Composer({
 }) {
   const listId = useId();
   const [text, setText] = useState("");
+  // What the box holds now, for a send that ends after you typed more.
+  const typed = useRef(text);
+  typed.current = text;
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [menu, setMenu] = useState<HTMLElement | null>(null);
@@ -931,7 +950,8 @@ function Composer({
   const pick = (option: { id: string | null; name: string }) => {
     const element = input.current;
     if (picker && picker.start >= 0) {
-      // Exactly the "@word" typed: from its @ to the end of the word.
+      // Exactly the "@word": from its @ to the end of the word, wherever
+      // the caret is in it.
       const end = picker.start + 1 + picker.query.length;
       const next = `${text.slice(0, picker.start)}${text.slice(end)}`
         .replace(/ {2,}/g, " ")
@@ -942,6 +962,12 @@ function Composer({
     onTo(option.id ? { id: option.id, name: option.name } : null);
     requestAnimationFrame(() => element?.focus());
   };
+  // How long it may be: a chat message, a goal, or a card's words.
+  const limit = to
+    ? CREW_MESSAGE_MAX
+    : mode === "goal"
+      ? CREW_GOAL_MAX
+      : CREW_NOTE_MAX;
   const send = async () => {
     const words = text.trim();
     if (!words || sending) return;
@@ -953,22 +979,28 @@ function Composer({
       );
       return;
     }
-    if (!to && words.length > CREW_NOTE_MAX) {
-      setProblem(TOO_LONG_FOR_EVERYONE);
+    if (!to && words.length > limit) {
+      setProblem(mode === "goal" ? TOO_LONG_FOR_A_GOAL : TOO_LONG_FOR_EVERYONE);
       return;
     }
+    // Who it went to, so a message that fails comes back to them.
+    const sentTo = to;
     setSending(true);
     setProblem(null);
     // The box is free at once: what you start typing now stays.
     setText("");
-    const why = to
-      ? await tellTeammate(project, to.id, words)
+    const why = sentTo
+      ? await tellTeammate(project, sentTo.id, words)
       : await tellTeam(project, words, mode);
     setSending(false);
     if (why) {
       setProblem(why);
-      // Back in the box, unless you've started something else.
-      setText((current) => (current ? current : words));
+      // Back in the box with whoever it was for, unless you've started
+      // something else.
+      if (!typed.current) {
+        setText(words);
+        onTo(sentTo);
+      }
       return;
     }
     onMode("card");
@@ -1007,6 +1039,7 @@ function Composer({
     if (
       event.key === "Backspace" &&
       to &&
+      !sending &&
       !text &&
       event.currentTarget.selectionStart === 0
     ) {
@@ -1085,6 +1118,8 @@ function Composer({
           <button
             type="button"
             className="team-compose-to"
+            // Kept while a message is on its way to them.
+            disabled={sending}
             aria-label={`Writing to ${toName}. Write to everyone instead`}
             title="Write to everyone instead"
             onClick={() => {
@@ -1110,7 +1145,7 @@ function Composer({
           }
           placeholder={placeholder}
           value={text}
-          maxLength={to ? CREW_MESSAGE_MAX : CREW_NOTE_MAX}
+          maxLength={limit}
           onChange={(event) => {
             const value = event.target.value;
             setText(value);
