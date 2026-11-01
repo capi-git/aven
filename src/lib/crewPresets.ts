@@ -43,7 +43,7 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
     key: "builder",
     role: "builder",
     mark: "builder",
-    job: "Builds the cards you give the crew",
+    job: "Builds the cards you give the team",
     instructions:
       "Keep each change small and to the card. Match the code around it, and run the tests before you hand over.",
   },
@@ -112,4 +112,30 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
     job: "Reviews each passed build for security",
     instructions: SECURITY_INSTRUCTIONS,
   },
+];
+
+/**
+ * Suggested teams to start from: each is ready-made teammates by their
+ * keys above. Every team has a Builder and a Checker, so each one can
+ * build and check a card as it starts.
+ */
+export type CrewTeamPreset = {
+  key: string;
+  title: string;
+  /** Its teammates, as `CREW_PRESETS` keys. */
+  members: readonly string[];
+};
+
+export const CREW_TEAM_PRESETS: readonly CrewTeamPreset[] = [
+  {
+    key: "ship",
+    title: "Ship features",
+    members: ["builder", "checker", "security"],
+  },
+  {
+    key: "polish",
+    title: "Polish",
+    members: ["designer", "tester", "checker"],
+  },
+  { key: "small", title: "Start small", members: ["builder", "checker"] },
 ];

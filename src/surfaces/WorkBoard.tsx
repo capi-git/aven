@@ -61,7 +61,7 @@ import { BoardIssueImport } from "./BoardIssueImport";
 import { CrewCritters } from "../chrome/CrewCritter";
 import { findModel } from "../lib/models";
 import { CrewGiveChooser } from "./CrewGiveChooser";
-import { CrewPipeline } from "./CrewPipeline";
+import { TeamScreen } from "./TeamScreen";
 import {
   applyCrewCard,
   crewDeleteNote,
@@ -455,7 +455,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       data-work-board={project}
       data-crew={crew ? "" : undefined}
       aria-busy={loading || undefined}
-      aria-label={`${projectDisplayName(project, labels)} ${crew ? "crew" : "board"}`}
+      aria-label={`${projectDisplayName(project, labels)} ${crew ? "team" : "board"}`}
     >
       {crew ? null : <WorkBoardHeading project={project} line={today} />}
       {error ? (
@@ -467,12 +467,20 @@ export const WorkBoardView = memo(function WorkBoardView({
         <OutsideLine project={project} outside={outside} />
       ) : null}
       {crew ? (
-        <CrewPipeline
+        <TeamScreen
           project={project}
           crew={crew}
+          {...(fixer
+            ? {
+                fixer: {
+                  status: fixer.status,
+                  runs: fixer.runs,
+                  ...(fixer.sessionId ? { sessionId: fixer.sessionId } : {}),
+                },
+              }
+            : {})}
           columns={columns}
           now={now}
-          fixerRuns={fixer?.runs ?? 0}
           name={crewName}
           answering={answering}
           onAnswerDone={() => setAnswering(null)}
@@ -640,7 +648,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       {throwing ? (
         <ConfirmDialog
           title="Throw this card away?"
-          body={`The crew's work on “${throwing.title}” is thrown away and the card leaves the board. Your files stay as they are.`}
+          body={`The team's work on “${throwing.title}” is thrown away and the card leaves the board. Your files stay as they are.`}
           confirmLabel="Throw away"
           danger
           onConfirm={() => {

@@ -861,7 +861,7 @@ export class CrewRunner {
         ...(at ? [at] : []),
       );
     } catch (error) {
-      throw new Error(`Couldn't make the crew's copy: ${botCopyError(error)}`);
+      throw new Error(`Couldn't make the team's copy: ${botCopyError(error)}`);
     }
     const sources = await this.deps.copy
       .sources(copy.path)
@@ -895,7 +895,7 @@ export class CrewRunner {
     } catch (error) {
       logError("Crew copy sync", error);
       throw new Error(
-        `Couldn't update the crew's copy: ${botCopyError(error)}`,
+        `Couldn't update the team's copy: ${botCopyError(error)}`,
       );
     }
   }
@@ -908,7 +908,7 @@ export class CrewRunner {
         at: now,
         kind: "hold",
         who: "aven",
-        text: `Aven removed ${files.join(", ")} from the crew's copy: settings there could run commands as you.`,
+        text: `Aven removed ${files.join(", ")} from the team's copy: settings there could run commands as you.`,
       }),
     );
   }
@@ -1069,7 +1069,7 @@ export class CrewRunner {
       const planted = await this.deps.copy.planted(crew.copy!.path, true);
       if (planted.length)
         throw new Error(
-          `Aven found ${planted.join(", ")} in the crew's copy and removed ${
+          `Aven found ${planted.join(", ")} in the team's copy and removed ${
             planted.length === 1 ? "it" : "them"
           }: settings there could run commands as you. Look over the card before you try again.`,
         );
@@ -1598,7 +1598,7 @@ export class CrewRunner {
       }
       return turnFailed(card, {
         role,
-        error: `its work couldn't be stacked on the crew's branch: ${errorText(error)}`,
+        error: `its work couldn't be stacked on the team's branch: ${errorText(error)}`,
         now,
         name: this.deps.name(crew, memberId),
       });
@@ -2079,7 +2079,7 @@ export class CrewRunner {
             at: now,
             kind: "hold",
             who: "aven",
-            text: `Aven undid what ${who} changed in the crew's copy while planning: planning only reads.`,
+            text: `Aven undid what ${who} changed in the team's copy while planning: planning only reads.`,
           }),
         );
       }
@@ -2099,7 +2099,7 @@ export class CrewRunner {
       return this.stopGoal(
         crew,
         turn.timedOut
-          ? `${who}'s planning ran past ${crew.limits.turnMinutes} minutes, so the crew stopped. Keep going to try again.`
+          ? `${who}'s planning ran past ${crew.limits.turnMinutes} minutes, so the team stopped. Keep going to try again.`
           : `${who}'s planning didn't finish${outcome?.error ? `: ${outcome.error}` : ""}. Keep going to try again.`,
         now,
       );
@@ -2111,7 +2111,7 @@ export class CrewRunner {
     if (!answer)
       return this.stopGoal(
         crew,
-        `${who}'s planning ended without an answer, so the crew stopped. Keep going to try again.`,
+        `${who}'s planning ended without an answer, so the team stopped. Keep going to try again.`,
         now,
       );
     if (answer.met)
@@ -2119,7 +2119,7 @@ export class CrewRunner {
     if (!answer.next.length)
       return this.stopGoal(
         crew,
-        `Nothing left to plan for the goal${answer.summary ? `: ${answer.summary.replace(/[.!]+$/, "")}` : ""}. The crew stops here.`,
+        `Nothing left to plan for the goal${answer.summary ? `: ${answer.summary.replace(/[.!]+$/, "")}` : ""}. The team stops here.`,
         now,
       );
     // A card you threw away is never planned again.
@@ -2129,7 +2129,7 @@ export class CrewRunner {
         crew,
         `${who} planned only cards you threw away (${answer.next
           .map((task) => task.title)
-          .join(" · ")}), so the crew stopped. Keep going to plan again.`,
+          .join(" · ")}), so the team stopped. Keep going to plan again.`,
         now,
       );
     answer.next = fresh;
@@ -2148,7 +2148,7 @@ export class CrewRunner {
     if (!added.length)
       return this.stopGoal(
         crew,
-        `Aven couldn't add the card ${who} planned for the goal to the Board, so the crew stopped. Keep going to try again.`,
+        `Aven couldn't add the card ${who} planned for the goal to the Board, so the team stopped. Keep going to try again.`,
         now,
       );
     updateCrew(path, (current) => {

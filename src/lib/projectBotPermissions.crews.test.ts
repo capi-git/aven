@@ -96,7 +96,7 @@ const NEVER = [
   "Bash(docker push *)",
 ];
 
-describe("no push, no publish, for every crew member", () => {
+describe("no push, no publish, for every teammate", () => {
   it("denies pushing, pull requests, publishing and deploying to each role", () => {
     for (const role of ["builder", "checker", "scout"] as const) {
       const { deny = [], ask = [] } = crewPermissionRules(crew, role);
@@ -170,7 +170,7 @@ describe("crew chats launch with their rules from any window", () => {
     expect(sessionPermissions("someone-else")).toBeUndefined();
     // Off: still its rules, and refused outright.
     updateCrew(PROJECT, (current) => ({ ...current, on: false }));
-    expect(sessionPermissions("c-chat")?.refuse).toMatch(/crew is off/);
+    expect(sessionPermissions("c-chat")?.refuse).toMatch(/team is off/);
     expect(sessionPermissions("c-chat")?.readOnly).toBe(true);
     stop();
   });
@@ -214,7 +214,7 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
     expect(crewPermissionRules(crew, "builder").deny).not.toContain("WebFetch");
   });
 
-  it("launches every crew chat, and the Fixer's, with no MCP servers", () => {
+  it("launches every team chat, and the Fixer's, with no MCP servers", () => {
     const stop = installBotPermissions();
     updateCrew(PROJECT, (current) => ({
       ...current,
@@ -268,7 +268,7 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
     ).toBeUndefined();
   });
 
-  it("keeps every crew member and bot out of the copy's settings and git internals", () => {
+  it("keeps every teammate and bot out of the copy's settings and git internals", () => {
     const bot = { path: PROJECT, copy: crew.copy! };
     for (const sandbox of [
       crewSandbox(crew, "builder", undefined),
@@ -344,7 +344,7 @@ describe("no MCP servers, and no web for the Checker and Scout", () => {
   });
 });
 
-describe("a crew's or bot's chat stays on its own app", () => {
+describe("a team's or bot's chat stays on its own app", () => {
   it("refuses Compact (or any start) on another app, outside its copy, or while off", () => {
     const stop = installBotPermissions();
     updateCrew(PROJECT, (current) => ({
@@ -380,7 +380,7 @@ describe("a crew's or bot's chat stays on its own app", () => {
     );
     updateCrew(PROJECT, (current) => ({ ...current, on: false }));
     expect(teammateChatRefusal(chat("b-chat", "claude"))).toMatch(
-      /crew is off/,
+      /team is off/,
     );
     // An ordinary chat is never held back.
     expect(

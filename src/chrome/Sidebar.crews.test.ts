@@ -204,7 +204,7 @@ const button = (label: string) =>
       item.textContent === label || item.getAttribute("aria-label") === label,
   );
 
-it("lists a crew per project in Crews, with its critters and one word", async () => {
+it("lists a team per project in Crews, with its critters and one word", async () => {
   const onOpenCrew = vi.fn();
   await act(async () =>
     root.render(
@@ -219,7 +219,7 @@ it("lists a crew per project in Crews, with its critters and one word", async ()
   );
   expect(
     section().querySelector(".personal-projects-heading")?.textContent,
-  ).toBe("Crews");
+  ).toBe("Teams");
   const chats = [
     ...container.querySelectorAll(
       ".personal-project-group [data-session-card] .personal-task-title",
@@ -261,7 +261,7 @@ it("says a role once when a member goes by it, and shows a Fixer's project", asy
       }),
     ),
   );
-  await act(async () => button("Show aven-site's crew")!.click());
+  await act(async () => button("Show aven-site's team")!.click());
   const members = [
     ...section().querySelectorAll<HTMLElement>("[data-crew-member]"),
   ];
@@ -291,7 +291,7 @@ it("unfolds into each bot with its role, its word and what it's doing", async ()
     ),
   );
   expect(section().querySelector("[data-crew-member]")).toBeNull();
-  await act(async () => button("Show aven-site's crew")!.click());
+  await act(async () => button("Show aven-site's team")!.click());
   const members = [
     ...section().querySelectorAll<HTMLElement>("[data-crew-member]"),
   ];
@@ -329,7 +329,7 @@ it("unfolds into each bot with its role, its word and what it's doing", async ()
   );
 });
 
-it("offers Open crew, Tell the crew, Pause and Settings on right-click, with today's runs", async () => {
+it("offers Open team, Tell the team, Pause and Settings on right-click, with today's runs", async () => {
   const onCrewAction = vi.fn();
   await act(async () =>
     root.render(
@@ -346,9 +346,9 @@ it("offers Open crew, Tell the crew, Pause and Settings on right-click, with tod
     ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
   ];
   expect(items.map((item) => item.textContent)).toEqual([
-    "Open crew",
-    "Tell the crew…",
-    "Pause crew",
+    "Open team",
+    "Tell the team…",
+    "Pause team",
     "Settings…",
     "7 of 20 runs today",
   ]);
@@ -357,20 +357,20 @@ it("offers Open crew, Tell the crew, Pause and Settings on right-click, with tod
   expect(onCrewAction).toHaveBeenCalledWith(site, "pause");
   expect(
     crewMenuItems({ ...crew, paused: true }).some(
-      (item) => item.kind === "item" && item.label === "Resume crew",
+      (item) => item.kind === "item" && item.label === "Resume team",
     ),
   ).toBe(true);
 });
 
-it("New crew lists the projects without one, and picking one adds it", async () => {
+it("New team lists the projects without one, and picking one adds it", async () => {
   const onAddCrew = vi.fn();
   await act(async () =>
     root.render(createElement(Sidebar, { ...props, crews: [crew], onAddCrew })),
   );
-  await act(async () => button("New crew")!.click());
+  await act(async () => button("New team")!.click());
   expect(copy.botProjectStates).toHaveBeenCalledWith([notes, docs]);
   expect(
-    document.querySelector('[role="dialog"][aria-label="Add a crew to"]'),
+    document.querySelector('[role="dialog"][aria-label="Add a team to"]'),
   ).toBeTruthy();
   await act(async () => button("notes-app")!.click());
   expect(onAddCrew).toHaveBeenCalledWith(notes);
@@ -383,5 +383,5 @@ it("offers no crews where bots can't run", async () => {
       createElement(Sidebar, { ...props, crews: [], onAddCrew: vi.fn() }),
     ),
   );
-  expect(button("New crew")).toBeUndefined();
+  expect(button("New team")).toBeUndefined();
 });

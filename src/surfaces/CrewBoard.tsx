@@ -446,7 +446,7 @@ function FeedRow({
       </>
     ) : entry.kind === "note" && entry.who === "you" && !entry.cardId ? (
       <>
-        <strong>You</strong> told the crew
+        <strong>You</strong> told the team
         {pinned ? <span className="crew-feed-meta"> · standing</span> : null}
       </>
     ) : (
@@ -496,7 +496,7 @@ function FeedRow({
           ) : null}
           {onUnpin ? (
             <button type="button" className="crew-feed-unpin" onClick={onUnpin}>
-              Stop telling the crew this
+              Stop telling the team this
             </button>
           ) : null}
         </div>

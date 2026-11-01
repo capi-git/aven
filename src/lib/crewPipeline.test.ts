@@ -124,7 +124,7 @@ const B = "2".repeat(40);
 const BASE = "a".repeat(40);
 
 describe("the Pipeline", () => {
-  it("says what the crew is doing and what needs you, in one sentence", () => {
+  it("says what the team is doing and what needs you, in one sentence", () => {
     const crew = crewOf(
       [
         stacked("settings", "Settings page", BASE, A),
@@ -163,7 +163,7 @@ describe("the Pipeline", () => {
           actions: [],
           crew: {
             roles: [],
-            actions: [{ id: "give", label: "Give to crew", primary: true }],
+            actions: [{ id: "give", label: "Give to team", primary: true }],
           },
         },
         {
@@ -191,7 +191,7 @@ describe("the Pipeline", () => {
     });
     // The branch's cards are one batch row.
     expect(view.batch).toMatchObject({
-      title: "2 cards ready on the crew's branch",
+      title: "2 cards ready on the team's branch",
       status:
         "Settings page · Home screen widget · 3 files · checked and secured",
       cards: [
@@ -241,7 +241,7 @@ describe("the Pipeline", () => {
       expect.objectContaining({
         id: "haptics",
         status: "Idea · not given yet",
-        actions: [{ id: "give", label: "Give to crew", primary: true }],
+        actions: [{ id: "give", label: "Give to team", primary: true }],
       }),
     ]);
     expect(view.shipped).toEqual(["Old", "Sign-up form"]);
@@ -278,7 +278,7 @@ describe("the Pipeline", () => {
     const view = crewPipeline({ crew, cards: [], now: NOW, name });
     expect(view.idle).toBe(true);
     expect(view.sentence).toBe(
-      "Nothing to build. Tell the crew what to do, or add an idea.",
+      "Nothing to build. Tell the team what to do, or add an idea.",
     );
     expect(view.offerScout).toBe(true);
     const withScout = crewOf([], {
@@ -289,7 +289,7 @@ describe("the Pipeline", () => {
     ).toBe(false);
   });
 
-  it("shows the goal, and a crew planning towards it isn't idle", () => {
+  it("shows the goal, and a team planning towards it isn't idle", () => {
     const crew = crewOf([], {
       goal: { text: "Build the whole Pom app", at: NOW },
     });
@@ -327,7 +327,7 @@ describe("the Pipeline", () => {
     );
   });
 
-  it("marks Security skipped when the crew has none", () => {
+  it("marks Security skipped when the team has none", () => {
     const crew = crewOf([fixing("timer", "Timer screen")], {
       members: [
         { id: "builder", role: "builder" },

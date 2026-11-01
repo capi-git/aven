@@ -652,7 +652,7 @@ describe("the loop with stand-in agents", () => {
     h.runner.stop();
   });
 
-  it("stops a turn that runs past the crew's turn limit", async () => {
+  it("stops a turn that runs past the team's turn limit", async () => {
     const h = harness({ builder: () => ({ text: "", asks: true }) });
     onCrew();
     give();
@@ -792,13 +792,13 @@ describe("one card at a time, stacked", () => {
     onCrew({ members: NO_SCOUT });
     give();
     h.copy.stack.mockRejectedValueOnce(
-      new Error("The crew's copy moved since its last card."),
+      new Error("The team's copy moved since its last card."),
     );
     h.runner.start();
     await h.advance(10 * MINUTE);
     expect(card()).toMatchObject({ stage: "stuck" });
     expect(card().stuck?.text).toContain(
-      "its work couldn't be stacked on the crew's branch",
+      "its work couldn't be stacked on the team's branch",
     );
     expect(card().stacked).toBeUndefined();
     h.runner.stop();
@@ -1039,7 +1039,7 @@ describe("budgets in the runner", () => {
     const crew = getCrew(PATH)!;
     expect(crew.hold?.reason).toBe("daily-cap");
     expect(crew.feed.at(-1)?.text).toBe(
-      "Today's 20 runs are used. The crew picks up again tomorrow.",
+      "Today's 20 runs are used. The team picks up again tomorrow.",
     );
     h.runner.stop();
   });
@@ -1460,7 +1460,7 @@ describe("members you set up", () => {
     expect(h.sent).toEqual([]);
     expect(getCrew(PATH)!.hold?.reason).toBe("no-member");
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "No Builder is on. Turn one on, or add one, in the crew's settings. The card waits.",
+      "No Builder is on. Turn one on, or add one, in the team's settings. The card waits.",
     );
     h.runner.stop();
   });
@@ -1656,7 +1656,7 @@ describe("what an agent leaves in the copy", () => {
     expect(h.sent).toEqual([]);
     expect(card().stuck?.reason).toBe("failed");
     expect(card().stuck?.text).toContain(
-      "Aven found .claude/settings.local.json in the crew's copy and removed it",
+      "Aven found .claude/settings.local.json in the team's copy and removed it",
     );
     // Removed: Try again goes ahead.
     resumeCrewCard(PATH, card().id);
@@ -1816,7 +1816,7 @@ describe("a member's line ends with its turn", () => {
     h.runner.stop();
   });
 
-  it("turning the crew off leaves nobody Working", async () => {
+  it("turning the team off leaves nobody Working", async () => {
     const h = harness({ builder: () => ({ text: "", asks: true }) });
     onCrew();
     give();
@@ -1904,7 +1904,7 @@ describe("the Scout's look", () => {
   });
 });
 
-describe("a goal: the crew keeps going", () => {
+describe("a goal: the team keeps going", () => {
   const goalReply = (body: object) => ({ text: fence("aven-goal", body) });
   const builds = (
     _text: string,
@@ -1981,7 +1981,7 @@ describe("a goal: the crew keeps going", () => {
     expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
     expect(crew.goal?.done).toMatchObject({ met: false });
     expect(crew.goal?.done?.text).toBe(
-      "Nothing left to plan for the goal: Needs a design decision. The crew stops here.",
+      "Nothing left to plan for the goal: Needs a design decision. The team stops here.",
     );
     h.runner.stop();
   });
@@ -2006,7 +2006,7 @@ describe("a goal: the crew keeps going", () => {
     h.runner.stop();
   });
 
-  it("holds within the crew's limits", async () => {
+  it("holds within the team's limits", async () => {
     const h = harness({
       scout: () => goalReply({ met: false, next: [{ title: "Timer screen" }] }),
     });
@@ -2048,7 +2048,7 @@ describe("a goal: the crew keeps going", () => {
     const crew = getCrew(PATH)!;
     expect(crew.goal?.done?.met).toBe(true);
     expect(crew.feed.map((entry) => entry.text)).toContain(
-      "Aven undid what Beetle changed in the crew's copy while planning: planning only reads.",
+      "Aven undid what Beetle changed in the team's copy while planning: planning only reads.",
     );
     h.runner.stop();
   });

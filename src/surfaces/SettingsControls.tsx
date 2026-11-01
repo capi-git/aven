@@ -138,11 +138,14 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  className,
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  /** `disabled` options can't be chosen; `title` says why, on hover. */
+  options: { value: T; label: string; disabled?: boolean; title?: string }[];
   onChange: (value: T) => void;
+  className?: string;
 }) {
   const descriptionId = useContext(RowDescription);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
@@ -150,9 +153,17 @@ export function Segmented<T extends string>({
     0,
     options.findIndex((option) => option.value === value),
   );
+  /** The next option that can be chosen, `step` at a time from `from`. */
+  const step = (from: number, by: number) => {
+    for (let moved = 1; moved <= options.length; moved += 1) {
+      const at = (from + by * moved + options.length * moved) % options.length;
+      if (!options[at]!.disabled) return at;
+    }
+    return from;
+  };
   return (
     <div
-      className="settings-segmented"
+      className={`settings-segmented ${className ?? ""}`}
       role="radiogroup"
       aria-label={label}
       aria-describedby={descriptionId}
@@ -169,18 +180,23 @@ export function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === option.value}
+          aria-disabled={option.disabled || undefined}
+          title={option.title}
           tabIndex={selectedIndex === index ? 0 : -1}
-          onClick={() => onChange(option.value)}
+          onClick={() => {
+            if (!option.disabled) onChange(option.value);
+          }}
           onKeyDown={(event) => {
             let next: number;
             if (event.key === "ArrowRight" || event.key === "ArrowDown")
-              next = (index + 1) % options.length;
+              next = step(index, 1);
             else if (event.key === "ArrowLeft" || event.key === "ArrowUp")
-              next = (index - 1 + options.length) % options.length;
-            else if (event.key === "Home") next = 0;
-            else if (event.key === "End") next = options.length - 1;
+              next = step(index, -1);
+            else if (event.key === "Home") next = step(-1, 1);
+            else if (event.key === "End") next = step(options.length, -1);
             else return;
             event.preventDefault();
+            if (next === index) return;
             onChange(options[next]!.value);
             buttons.current[next]?.focus();
           }}

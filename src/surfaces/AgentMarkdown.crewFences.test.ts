@@ -36,7 +36,7 @@ const IDEAS = fenced("aven-ideas", {
   ],
 });
 
-describe("a crew block's card", () => {
+describe("a team block's card", () => {
   it("reads each kind of block in Aven's words", () => {
     expect(
       crewFenceView(
@@ -73,7 +73,7 @@ describe("a crew block's card", () => {
     expect(crewFenceView("aven-ideas", "{not json")).toBeNull();
   });
 
-  it("never shows a crew block as raw JSON in a chat", () => {
+  it("never shows a team block as raw JSON in a chat", () => {
     for (const text of [
       IDEAS,
       fenced("aven-verdict", {
@@ -104,19 +104,19 @@ describe("a crew block's card", () => {
     expect(ideas).toContain("small · The core of Pom");
   });
 
-  it("shows a quiet line while a crew block is still being written", () => {
+  it("shows a quiet line while a team block is still being written", () => {
     const markup = renderToStaticMarkup(
       createElement(AgentMarkdown, {
         text: '```aven-ideas\n{"ideas": [{"title": "Tim',
         streaming: true,
       }),
     );
-    expect(markup).toContain("Writing a note for the crew…");
+    expect(markup).toContain("Writing a note for the team…");
     expect(markup).not.toContain("Tim");
   });
 });
 
-describe("Give to crew from an ideas block", () => {
+describe("Give to team from an ideas block", () => {
   const PROJECT = "/Users/me/pom";
   let root: Root;
   let container: HTMLElement;
@@ -144,7 +144,7 @@ describe("Give to crew from an ideas block", () => {
       (item) => item.textContent === name,
     );
 
-  it("gives one idea, or all of them, to the crew while it's on", async () => {
+  it("gives one idea, or all of them, to the team while it's on", async () => {
     updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
     await act(async () =>
       root.render(createElement(AgentMarkdown, { text: IDEAS, cwd: PROJECT })),
@@ -175,7 +175,7 @@ describe("Give to crew from an ideas block", () => {
     ]);
   });
 
-  it("offers no buttons while the crew is off", async () => {
+  it("offers no buttons while the team is off", async () => {
     await act(async () =>
       root.render(createElement(AgentMarkdown, { text: IDEAS, cwd: PROJECT })),
     );

@@ -111,8 +111,8 @@ export function crewFenceView(
     return {
       kind: "tasks",
       label: asked.tasks.length
-        ? `${plural(asked.tasks.length, "card")} for the crew`
-        : "A goal for the crew",
+        ? `${plural(asked.tasks.length, "card")} for the team`
+        : "A goal for the team",
       ...(asked.goal ? { line: `Goal: ${asked.goal}` } : {}),
       items: asked.tasks.map((task) => ({
         title: task.title,

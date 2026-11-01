@@ -421,11 +421,11 @@ export function crewChatPermissions(
   const role = found.member.role;
   const readOnly = !CREW_ROLE_INFO[role].edits;
   const refuse = found.retired
-    ? "This chat's crew member was removed, so it didn't start."
+    ? "This chat's teammate was removed, so it didn't start."
     : !crew.on
-      ? "This crew is off, so its chat didn't start. Turn the crew on to use it."
+      ? "This team is off, so its chat didn't start. Turn the team on to use it."
       : !crew.copy
-        ? "The crew's copy isn't ready yet, so its chat didn't start."
+        ? "The team's copy isn't ready yet, so its chat didn't start."
         : undefined;
   return {
     mode: "auto",

@@ -75,7 +75,7 @@ describe("budgets", () => {
     ).toMatchObject({ reason: "daily-cap", title: "Today's 30 runs are used" });
   });
 
-  it("holds when every crew together has used the day's ceiling", () => {
+  it("holds when every team together has used the day's ceiling", () => {
     expect(gate({ allRuns: CREW_ALL_RUNS_PER_DAY })).toMatchObject({
       ok: false,
       reason: "all-crews-cap",
@@ -106,7 +106,7 @@ describe("budgets", () => {
       ok: false,
       reason: "usage",
       title: "Claude is 81% used for the week",
-      detail: "Crews pause at 80% so your own chats keep working.",
+      detail: "Teams pause at 80% so your own chats keep working.",
     });
     // Unknown usage doesn't hold the crew.
     expect(gate({ weeklyUsed: null }).ok).toBe(true);
@@ -157,7 +157,7 @@ describe("Scout ideas start themselves, within limits", () => {
   });
   const allInIdeas = () => true;
 
-  it("starts the oldest small idea while the crew is idle", () => {
+  it("starts the oldest small idea while the team is idle", () => {
     let current = withIdea(crew(), "late", idea(20));
     current = withIdea(current, "early", idea(10));
     expect(nextAutoStart(current, NOON, allInIdeas)).toBe("early");
@@ -229,7 +229,7 @@ describe("Scout ideas start themselves, within limits", () => {
   });
 });
 
-describe("why the Board says the crew holds", () => {
+describe("why the Board says the team holds", () => {
   const queued = queueCard(
     { id: "c", title: "Dark mode", brief: "x", from: "you", maxRounds: 3 },
     1,
@@ -276,7 +276,7 @@ describe("why the Board says the crew holds", () => {
   it("names the all-crews ceiling while a card waits", () => {
     expect(hold({ cards: [queued] }, { allRuns: 30 })?.gate).toMatchObject({
       reason: "all-crews-cap",
-      title: "All crews' 30 runs today are used",
+      title: "All teams' 30 runs today are used",
     });
     expect(hold({ cards: [queued] }, { allRuns: 29 })).toBeNull();
   });

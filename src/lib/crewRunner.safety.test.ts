@@ -184,8 +184,8 @@ function seedChecking() {
   );
 }
 
-describe("nothing prepared goes once the crew is off or the card is stopped", () => {
-  it("turning the crew off while a Checker turn is prepared sends nothing", async () => {
+describe("nothing prepared goes once the team is off or the card is stopped", () => {
+  it("turning the team off while a Checker turn is prepared sends nothing", async () => {
     seedChecking();
     expect(crewChatPermissions("s-checker")?.readOnly).toBe(true);
     const { runner, release, sent } = gatedRunner();
@@ -233,7 +233,7 @@ describe("nothing prepared goes once the crew is off or the card is stopped", ()
     runner.stop();
   });
 
-  it("turning the crew off stops its running turn, and the runner stopping stops it too", async () => {
+  it("turning the team off stops its running turn, and the runner stopping stops it too", async () => {
     seedChecking();
     const { runner, release, stopped } = gatedRunner();
     release();
@@ -245,8 +245,8 @@ describe("nothing prepared goes once the crew is off or the card is stopped", ()
   });
 });
 
-describe("a crew's chat never launches without its rules or outside its copy", () => {
-  it("resolves rules for a crew's chat whether the crew is on or off, and refuses while off", () => {
+describe("a team's chat never launches without its rules or outside its copy", () => {
+  it("resolves rules for a team's chat whether the team is on or off, and refuses while off", () => {
     const stop = installBotPermissions();
     seedChecking();
     const on = sessionPermissions("s-checker")!;
@@ -268,11 +268,11 @@ describe("a crew's chat never launches without its rules or outside its copy", (
     expect(off.sandbox?.enabled).toBe(true);
     expect(off.readOnly).toBe(true);
     // …and refused outright.
-    expect(launchRefusal("s-checker", COPY)).toMatch(/crew is off/);
+    expect(launchRefusal("s-checker", COPY)).toMatch(/team is off/);
     stop();
   });
 
-  it("refuses a crew's chat whose rules can't be read at all", () => {
+  it("refuses a team's chat whose rules can't be read at all", () => {
     seedChecking();
     // No resolver installed (a window that never set them up).
     expect(sessionPermissions("s-checker")).toBeUndefined();
@@ -285,7 +285,7 @@ describe("a crew's chat never launches without its rules or outside its copy", (
     expect(launchRefusal("someone-else", PATH)).toBeNull();
   });
 
-  it("refuses a crew's chat before its copy exists", () => {
+  it("refuses a team's chat before its copy exists", () => {
     const stop = installBotPermissions();
     updateCrew(PATH, (crew) =>
       withMember({ ...crew, on: true, onAt: 1 }, "builder", (member) => ({
@@ -297,7 +297,7 @@ describe("a crew's chat never launches without its rules or outside its copy", (
     stop();
   });
 
-  it("every crew chat, on or off, resolves to rules that are never empty", () => {
+  it("every team chat, on or off, resolves to rules that are never empty", () => {
     const stop = installBotPermissions();
     seedChecking();
     for (const on of [true, false]) {

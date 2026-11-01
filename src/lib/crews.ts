@@ -58,7 +58,7 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
   builder: {
     role: "builder",
     label: "Builder",
-    job: "Builds the cards you give the crew",
+    job: "Builds the cards you give the team",
     edits: true,
   },
   checker: {
@@ -558,7 +558,25 @@ export type Crew = {
   goal?: CrewGoal;
   /** Replies in member chats already turned into cards: each is read once. */
   asks?: string[];
+  /**
+   * What you wrote to the team, as you wrote it, the newest last: the team
+   * chat shows these as your messages. Older builds drop them on reading.
+   */
+  messages?: CrewMessage[];
 };
+
+/** A message you wrote to the team: to everyone, or to one teammate. */
+export type CrewMessage = {
+  id: string;
+  at: number;
+  text: string;
+  /** The teammate it went to (its member id); none for everyone. */
+  to?: string;
+  /** What a message to everyone became: a card, a rule or the goal. */
+  as?: CrewMessageKind;
+};
+
+export type CrewMessageKind = "card" | "rule" | "goal";
 
 /**
  * The crew's goal: it plans its own cards towards it and builds them one
@@ -592,6 +610,9 @@ const IDEAS_KEPT = 60;
 export const CREW_NOTE_MAX = 500;
 export const CREW_GOAL_MAX = 300;
 const ASKS_KEPT = 50;
+/** Your messages to the team kept: the chat shows these and the Feed's posts. */
+export const CREW_MESSAGES_KEPT = 50;
+export const CREW_MESSAGE_MAX = 2_000;
 export const CREW_BRIEF_MAX = 4_000;
 const TEXT_MAX = 600;
 const FINDINGS_KEPT = 5;
@@ -1232,6 +1253,7 @@ export function readCrew(value: unknown): Crew | null {
   const stack = raw.stack as Crew["stack"] | undefined;
   const goal = readGoal(raw.goal);
   const asks = strings(raw.asks, ASKS_KEPT, 200);
+  const messages = readMessages(raw.messages);
   return {
     ...base,
     on: raw.on === true,
@@ -1295,6 +1317,7 @@ export function readCrew(value: unknown): Crew | null {
       : {}),
     ...(goal ? { goal } : {}),
     ...(asks.length ? { asks } : {}),
+    ...(messages.length ? { messages } : {}),
     cards,
     feed,
     notes,
@@ -1315,6 +1338,38 @@ export function readCrew(value: unknown): Crew | null {
       ? { lastError: { at: lastError.at, text: lastError.text.slice(0, 300) } }
       : {}),
   };
+}
+
+const MESSAGE_KINDS = new Set<CrewMessageKind>(["card", "rule", "goal"]);
+
+/** Your messages as stored: each needs an id, a time and words; the newest kept. */
+function readMessages(value: unknown): CrewMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): CrewMessage | null => {
+      const entry = item as Partial<CrewMessage> | null;
+      const body = text(entry?.text, CREW_MESSAGE_MAX);
+      if (
+        !entry ||
+        typeof entry.id !== "string" ||
+        typeof entry.at !== "number" ||
+        !Number.isFinite(entry.at) ||
+        !body
+      )
+        return null;
+      const to = text(entry.to, 60);
+      return {
+        id: entry.id.slice(0, 60),
+        at: entry.at,
+        text: body,
+        ...(to ? { to } : {}),
+        ...(MESSAGE_KINDS.has(entry.as as CrewMessageKind)
+          ? { as: entry.as as CrewMessageKind }
+          : {}),
+      };
+    })
+    .filter((entry): entry is CrewMessage => !!entry)
+    .slice(-CREW_MESSAGES_KEPT);
 }
 
 /**
@@ -1627,6 +1682,21 @@ export function updateCrew(path: string, update: (crew: Crew) => Crew): Crew {
   if (next === current) return current;
   write({ ...store, crews: { ...store.crews, [key]: next } });
   return next;
+}
+
+/**
+ * The project's crew, saved: off, with its default teammates (and the
+ * project bot as its Fixer), when it had none stored yet. Building a team
+ * starts from here.
+ */
+export function ensureCrewSaved(path: string): Crew {
+  const store = read();
+  const key = projectKey(normalizeProjectPath(path));
+  const known = store.crews[key];
+  if (known) return known;
+  const crew = getCrew(path) ?? newCrew(path);
+  write({ ...store, crews: { ...store.crews, [key]: crew } });
+  return crew;
 }
 
 /** Every crew's runs a day together, Fixers included. */
@@ -2196,6 +2266,26 @@ export function withNote(crew: Crew, body: string, now: number): Crew {
   );
 }
 
+/** A message you wrote to the team, kept as you wrote it (the newest few). */
+export function withMessage(
+  crew: Crew,
+  message: Omit<CrewMessage, "id"> & { id?: string },
+): Crew {
+  const body = message.text.trim().slice(0, CREW_MESSAGE_MAX);
+  if (!body) return crew;
+  const next: CrewMessage = {
+    id: message.id ?? crypto.randomUUID(),
+    at: message.at,
+    text: body,
+    ...(message.to ? { to: message.to } : {}),
+    ...(message.as ? { as: message.as } : {}),
+  };
+  return {
+    ...crew,
+    messages: [...(crew.messages ?? []), next].slice(-CREW_MESSAGES_KEPT),
+  };
+}
+
 export function withoutNote(crew: Crew, id: string): Crew {
   if (!crew.notes.some((note) => note.id === id)) return crew;
   return { ...crew, notes: crew.notes.filter((note) => note.id !== id) };
@@ -2285,8 +2375,8 @@ export function withGoal(
       who: by ? "aven" : "you",
       ...(by ? { member: by } : {}),
       text: by
-        ? `${byName ?? crewMemberName(crew, by)} set the crew's goal: ${goal}`
-        : `You set the crew's goal: ${goal}`,
+        ? `${byName ?? crewMemberName(crew, by)} set the team's goal: ${goal}`
+        : `You set the team's goal: ${goal}`,
     },
   );
 }

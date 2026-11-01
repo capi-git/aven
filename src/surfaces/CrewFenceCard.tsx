@@ -52,14 +52,14 @@ export function CrewFenceCard({
   if (incomplete)
     return (
       <p className="crew-fence-quiet" data-crew-fence={language}>
-        Writing a note for the crew…
+        Writing a note for the team…
       </p>
     );
   const view = crewFenceView(language, code);
   if (!view)
     return (
       <p className="crew-fence-quiet" data-crew-fence={language}>
-        A note for the crew
+        A note for the team
       </p>
     );
   if (view.kind === "tasks")
@@ -121,7 +121,7 @@ export function CrewFenceCard({
                     className="crew-fence-button"
                     onClick={() => give([item.title])}
                   >
-                    Give to crew
+                    Give to team
                   </button>
                 )
               ) : null}

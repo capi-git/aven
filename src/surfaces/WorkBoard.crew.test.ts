@@ -41,6 +41,7 @@ import {
   publishWorkBoardFeed,
   resetWorkBoardFeed,
 } from "../lib/workBoardFeed";
+import { resetTeamViewCache, setTeamView } from "../lib/teamView";
 import { WorkBoard, cardMenuItems } from "./WorkBoard";
 
 const actions = vi.hoisted(() => ({
@@ -277,6 +278,9 @@ beforeEach(() => {
   });
   resetProjectBotsCache();
   resetCrewsCache();
+  // These are the team's Cards (its Pipeline); the chat has its own tests.
+  resetTeamViewCache();
+  setTeamView(PROJECT, "cards");
   setFeatureCardBackend(memoryFeatureCardBackend());
   resetWorkBoardFeed();
   installWorkBoardActions({
@@ -307,8 +311,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("the crew view: the Board with the crew on it", () => {
-  it("has one header: marks, one sentence, Pause and ⋯; the limits and Activity in the footer", async () => {
+describe("the team view: the Board with the team on it", () => {
+  it("has one header: its name, one sentence, Chat | Cards, Pause and ⋯; the limits and Activity in the footer", async () => {
     await setUp(
       () => (crew) =>
         withFeed(crew, {
@@ -322,9 +326,9 @@ describe("the crew view: the Board with the crew on it", () => {
         }),
     );
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
-    expect(header.querySelector("h1")?.textContent).toBe("aven-site crew");
+    expect(header.querySelector("h1")?.textContent).toBe("aven-site team");
     expect(header.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "Nothing to build. Tell the crew what to do, or add an idea.",
+      "Nothing to build. Tell the team what to do, or add an idea.",
     );
     expect(button(header, "Pause")).toBeTruthy();
     // One header: no board title above it, no strip, no columns, no Feed box.
@@ -332,12 +336,16 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(container.querySelector(".crew-strip")).toBeNull();
     expect(container.querySelector("[data-board-column]")).toBeNull();
     expect(container.querySelector("[data-crew-feed]")).toBeNull();
-    // The members are its marks.
+    // Chat or Cards, in the same header: Cards is what this shows.
+    const switcher = header.querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Show the team as"]',
+    )!;
     expect(
-      [...header.querySelectorAll<HTMLElement>("[data-crew-tile]")].map(
-        (tile) => tile.dataset.crewTile,
+      [...switcher.querySelectorAll<HTMLElement>('[role="radio"]')].map(
+        (item) => `${item.textContent}:${item.getAttribute("aria-checked")}`,
       ),
-    ).toEqual(["builder", "checker", "security"]);
+    ).toEqual(["Chat:false", "Cards · 4:true"]);
+    expect(container.querySelectorAll("header")).toHaveLength(1);
     expect(
       container.querySelector("[data-crew-foot] [data-crew-limits]")
         ?.textContent,
@@ -390,7 +398,7 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(group("Ideas")!.querySelector(".work-board-add")).toBeTruthy();
   });
 
-  it("Give to crew and Not now on ideas; a Scout idea says where it came from", async () => {
+  it("Give to team and Not now on ideas; a Scout idea says where it came from", async () => {
     const boards = await setUp(
       (boards) => (crew) =>
         withIdea(crew, boards[1].id, { at: 1, size: "small" }),
@@ -402,7 +410,7 @@ describe("the crew view: the Board with the crew on it", () => {
           ".crew-pipe-row-actions button:not([data-crew-give-more]):not(.crew-pipe-more)",
         ),
       ].map((item) => item.textContent),
-    ).toEqual(["Give to crew"]);
+    ).toEqual(["Give to team"]);
     // ▾ beside it chooses who builds and checks it.
     expect(
       mine.querySelector("[data-crew-give-more]")?.getAttribute("aria-label"),
@@ -412,7 +420,7 @@ describe("the crew view: the Board with the crew on it", () => {
       "From Scout · small",
     );
     expect(button(scouted, "Not now")).toBeTruthy();
-    await act(async () => button(mine, "Give to crew")!.click());
+    await act(async () => button(mine, "Give to team")!.click());
     expect(actions.giveCardToCrew).toHaveBeenCalledWith(PROJECT, {
       id: boards[0].id,
       title: "Pricing page",
@@ -421,7 +429,7 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(actions.notNowIdea).toHaveBeenCalledWith(PROJECT, boards[1].id);
   });
 
-  it("Give to crew ▾ chooses who builds and checks a card, and the card says so", async () => {
+  it("Give to team ▾ chooses who builds and checks a card, and the card says so", async () => {
     const boards = await setUp((boards) => (crew) => ({
       ...withCard(
         crew,
@@ -473,7 +481,7 @@ describe("the crew view: the Board with the crew on it", () => {
       rounds.value = "4";
       rounds.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    await act(async () => button(chooser, "Give to crew")!.click());
+    await act(async () => button(chooser, "Give to team")!.click());
     expect(actions.giveCardToCrew).toHaveBeenCalledWith(
       PROJECT,
       { id: boards[0].id, title: "Pricing page" },
@@ -806,7 +814,7 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(actions.stopCrewCard).toHaveBeenCalledWith(PROJECT, boards[2].id);
   });
 
-  it("says why a limit holds the crew, with a way on", async () => {
+  it("says why a limit holds the team, with a way on", async () => {
     await setUp(
       (boards) => (crew) =>
         withCard(
@@ -819,7 +827,7 @@ describe("the crew view: the Board with the crew on it", () => {
     );
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="More for the crew"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="More for the team"]')!
         .click(),
     );
     await act(async () =>
@@ -834,7 +842,7 @@ describe("the crew view: the Board with the crew on it", () => {
   /** Type in Tell the crew… and send it. */
   const tell = async (text: string) => {
     const input = container.querySelector<HTMLInputElement>(
-      'input[aria-label="Tell the crew"]',
+      'input[aria-label="Tell the team"]',
     )!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(
@@ -873,7 +881,7 @@ describe("the crew view: the Board with the crew on it", () => {
     );
   };
 
-  it("keeps what you tell the crew as standing guidance with Remember for every card", async () => {
+  it("keeps what you tell the team as standing guidance with Remember for every card", async () => {
     await setUp(() => (crew) => crew);
     const word = () =>
       container.querySelector<HTMLElement>(".crew-pipe-ask-mode")!.dataset.mode;
@@ -887,10 +895,10 @@ describe("the crew view: the Board with the crew on it", () => {
     // No card for a rule, and the next message is a card again.
     expect(getCrew(PROJECT)!.cards).toEqual([]);
     expect(word()).toBe("card");
-    expect(await feedText()).toContain("You told the crew · standing");
+    expect(await feedText()).toContain("You told the team · standing");
   });
 
-  it("makes a goal the crew keeps going towards, from the box or ⋯", async () => {
+  it("makes a goal the team keeps going towards, from the box or ⋯", async () => {
     await setUp(() => (crew) => crew);
     await mode("Make it a goal");
     await tell("Build the whole Pom app");
@@ -901,7 +909,7 @@ describe("the crew view: the Board with the crew on it", () => {
     const goal = container.querySelector<HTMLElement>("[data-crew-goal]")!;
     expect(goal.dataset.crewGoal).toBe("on");
     expect(goal.textContent).toBe(
-      "Goal Build the whole Pom app · the crew keeps going",
+      "Goal Build the whole Pom app · the team keeps going",
     );
     expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
       "Planning the next card for the goal.",
@@ -926,7 +934,7 @@ describe("the crew view: the Board with the crew on it", () => {
     // ⋯ → Clear the goal.
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="More for the crew"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="More for the team"]')!
         .click(),
     );
     await act(async () =>
@@ -938,7 +946,7 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(getCrew(PROJECT)!.goal).toBeUndefined();
   });
 
-  it("gives the crew what you tell it as a card to build", async () => {
+  it("gives the team what you tell it as a card to build", async () => {
     await setUp(() => (crew) => crew);
     await tell("build a timer screen");
     const crew = getCrew(PROJECT)!;
@@ -961,7 +969,7 @@ describe("the crew view: the Board with the crew on it", () => {
       "Starting Build a timer screen.",
     );
     expect(await feedText()).toContain(
-      "You gave the crew “Build a timer screen”",
+      "You gave the team “Build a timer screen”",
     );
   });
 
@@ -974,7 +982,7 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(crew.notes.map((note) => note.text)).toEqual(["go"]);
     expect(crew.feed.at(-1)).toMatchObject({
       who: "aven",
-      text: "Tell the crew what to build, or add an idea.",
+      text: "Tell the team what to build, or add an idea.",
     });
     // Only the note you kept is standing, not the "go" you just sent.
     expect((await feedText()).match(/· standing/g)).toHaveLength(1);
@@ -982,7 +990,7 @@ describe("the crew view: the Board with the crew on it", () => {
       [...document.querySelectorAll(".crew-feed-unpin")].map(
         (item) => item.textContent,
       ),
-    ).toEqual(["Stop telling the crew this"]);
+    ).toEqual(["Stop telling the team this"]);
   });
 
   it("a nudge tries a stopped card again", async () => {
@@ -1000,7 +1008,7 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(crew.feed.at(-1)?.text).toBe(`Trying “${boards[4].title}” again`);
   });
 
-  it("says when the crew has nothing to build, with a Scout to add", async () => {
+  it("says when the team has nothing to build, with a Scout to add", async () => {
     const openSettings = vi.fn();
     const uninstall = installCrewWorkspace({
       openChat: vi.fn(),
@@ -1013,19 +1021,12 @@ describe("the crew view: the Board with the crew on it", () => {
       const sentence = () =>
         container.querySelector<HTMLElement>("[data-crew-sentence]")!;
       expect(sentence().textContent).toBe(
-        "Nothing to build. Tell the crew what to do, or add an idea. Add a Scout to suggest ideas",
+        "Nothing to build. Tell the team what to do, or add an idea. Add a Scout to suggest ideas",
       );
       await act(async () =>
         button(sentence(), "Add a Scout to suggest ideas")!.click(),
       );
       expect(openSettings).toHaveBeenCalledWith(PROJECT, "add");
-      // A member's mark opens its settings.
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>('[data-crew-tile="checker"]')!
-          .click(),
-      );
-      expect(openSettings).toHaveBeenLastCalledWith(PROJECT, "checker");
       // With a Scout, no link; with work, another sentence.
       await act(async () =>
         updateCrew(PROJECT, (crew) => ({
@@ -1034,7 +1035,7 @@ describe("the crew view: the Board with the crew on it", () => {
         })),
       );
       expect(sentence().textContent).toBe(
-        "Nothing to build. Tell the crew what to do, or add an idea.",
+        "Nothing to build. Tell the team what to do, or add an idea.",
       );
       await act(async () =>
         updateCrew(PROJECT, (crew) =>
@@ -1072,7 +1073,7 @@ describe("the crew view: the Board with the crew on it", () => {
     );
   });
 
-  it("Delete on a card the crew has throws its crew card away too", async () => {
+  it("Delete on a card the team has throws its crew card away too", async () => {
     const boards = await setUp(
       (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
     );
@@ -1087,7 +1088,7 @@ describe("the crew view: the Board with the crew on it", () => {
     const dialog = document.querySelector<HTMLElement>(
       '[data-confirm-dialog="Delete this card?"]',
     )!;
-    expect(dialog.textContent).toContain("It leaves the crew's queue too.");
+    expect(dialog.textContent).toContain("It leaves the team's queue too.");
     await act(async () => button(dialog, "Confirm")!.click());
     await settle();
     expect(crewCard(getCrew(PROJECT)!, boards[5].id)?.stage).toBe("discarded");
@@ -1096,7 +1097,7 @@ describe("the crew view: the Board with the crew on it", () => {
     ).toBeNull();
   });
 
-  it("offers no Move to… for a card the crew places by its stage", () => {
+  it("offers no Move to… for a card the team places by its stage", () => {
     const board = {
       id: "b1",
       title: "Dark mode toggle",
@@ -1119,7 +1120,7 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(labels()).toContain("Move to Ideas");
   });
 
-  it("never lifts a crew's row when you drag it", async () => {
+  it("never lifts a team's row when you drag it", async () => {
     const boards = await setUp(
       (boards) => (crew) => withCard(crew, crewCardFor(boards[2], "fixing")),
     );
@@ -1143,13 +1144,13 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(row.hasAttribute("data-dragging")).toBe(false);
   });
 
-  it("says when the all-crews ceiling holds the crew", async () => {
+  it("says when the all-crews ceiling holds the team", async () => {
     setCrewsAllRunsPerDay(5);
     await setUp(
       (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
     );
     expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "All crews' 5 runs today are used: Empty state for notes waits.",
+      "All teams' 5 runs today are used: Empty state for notes waits.",
     );
   });
 
@@ -1206,30 +1207,30 @@ describe("the crew view: the Board with the crew on it", () => {
     );
   });
 
-  it("asks before turning the crew off from its header", async () => {
+  it("asks before turning the team off from its header", async () => {
     await setUp(() => (crew) => crew);
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
     await act(async () =>
       header
-        .querySelector<HTMLButtonElement>('[aria-label="More for the crew"]')!
+        .querySelector<HTMLButtonElement>('[aria-label="More for the team"]')!
         .click(),
     );
     await act(async () =>
       button(
         header.querySelector("[data-menu]")!,
-        "Turn the crew off",
+        "Turn the team off",
       )!.click(),
     );
     expect(getCrew(PROJECT)!.on).toBe(true);
     const dialog = document.querySelector<HTMLElement>(
-      '[data-confirm-dialog="Turn the crew off?"]',
+      '[data-confirm-dialog="Turn the team off?"]',
     )!;
     await act(async () => button(dialog, "Confirm")!.click());
     await settle();
     expect(getCrew(PROJECT)!.on).toBe(false);
   });
 
-  it("puts the cursor in Tell the crew when asked from elsewhere", async () => {
+  it("puts the cursor in Tell the team when asked from elsewhere", async () => {
     await setUp(() => (crew) => crew);
     await act(async () => focusCrewTell(PROJECT));
     await act(
@@ -1237,11 +1238,11 @@ describe("the crew view: the Board with the crew on it", () => {
         new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     );
     expect(document.activeElement).toBe(
-      container.querySelector('input[aria-label="Tell the crew"]'),
+      container.querySelector('input[aria-label="Tell the team"]'),
     );
   });
 
-  it("warns that Delete throws away the crew's Ready change, even while the crew is off", async () => {
+  it("warns that Delete throws away the team's Ready change, even while the team is off", async () => {
     const boards = await setUp((boards) => (crew) => ({
       ...withCard(crew, crewCardFor(boards[3], "ready")),
       on: false,
@@ -1260,7 +1261,7 @@ describe("the crew view: the Board with the crew on it", () => {
       '[data-confirm-dialog="Delete this card?"]',
     )!;
     expect(dialog.textContent).toContain(
-      "The crew's Ready change is thrown away too.",
+      "The team's Ready change is thrown away too.",
     );
     // An ordinary card's Delete says nothing about the crew.
     await act(async () =>
@@ -1277,7 +1278,7 @@ describe("the crew view: the Board with the crew on it", () => {
     ).not.toContain("crew");
   });
 
-  it("shows the crew's branch as one batch: Review, Apply all, and a way past a conflict", async () => {
+  it("shows the team's branch as one batch: Review, Apply all, and a way past a conflict", async () => {
     const boards = await setUp((boards) => (crew) => {
       const stack = (board: FeatureCard, parent: string, commit: string) => ({
         ...crewCardFor(board, "ready"),
@@ -1295,7 +1296,7 @@ describe("the crew view: the Board with the crew on it", () => {
       container.querySelector('[aria-label="Ready for you"]')!.contains(batch),
     ).toBe(true);
     expect(batch.querySelector(".crew-pipe-row-title")?.textContent).toBe(
-      "2 cards ready on the crew's branch",
+      "2 cards ready on the team's branch",
     );
     expect(batch.querySelector(".crew-pipe-row-status")?.textContent).toBe(
       `${boards[3].title} · ${boards[4].title} · 1 file · checked`,
@@ -1320,7 +1321,7 @@ describe("the crew view: the Board with the crew on it", () => {
         stack: {
           ...crew.stack!,
           conflict:
-            "Your files changed where the crew worked, so nothing was applied. Update the crew's branch onto your files, then Apply again.",
+            "Your files changed where the team worked, so nothing was applied. Update the team's branch onto your files, then Apply again.",
         },
       })),
     );
@@ -1652,10 +1653,10 @@ describe("the crew view: the Board with the crew on it", () => {
     expect(document.querySelector("[data-crew-batch-review]")).not.toBeNull();
   });
 
-  it("is a plain board while the crew is off", async () => {
+  it("is a plain board while the team is off", async () => {
     await setUp(() => (crew) => ({ ...crew, on: false }));
     expect(container.querySelector("[data-crew-header]")).toBeNull();
     expect(container.querySelector("[data-crew-feed]")).toBeNull();
-    expect(container.textContent).not.toContain("Give to crew");
+    expect(container.textContent).not.toContain("Give to team");
   });
 });

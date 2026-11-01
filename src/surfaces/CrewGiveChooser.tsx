@@ -63,7 +63,7 @@ export function CrewGiveChooser({
       autoFocus
       onDismiss={onClose}
       role="dialog"
-      aria-label={`Give “${card.title}” to the crew`}
+      aria-label={`Give “${card.title}” to the team`}
       className="crew-give-chooser"
       data-crew-give-chooser
     >
@@ -188,7 +188,7 @@ export function CrewGiveChooser({
             Cancel
           </TeamCardButton>
           <TeamCardButton size="compact" variant="primary" type="submit">
-            Give to crew
+            Give to team
           </TeamCardButton>
         </div>
       </form>

@@ -157,7 +157,7 @@ describe("routing a card to a Builder", () => {
     expect(cardMentions("c++ (x)", "c++")).toBe(true);
   });
 
-  it("keeps only rules for the crew's own Builders, with tidy words", () => {
+  it("keeps only rules for the team's own Builders, with tidy words", () => {
     const crew = crewWith({
       members: [
         { id: "builder", role: "builder" },
@@ -210,7 +210,7 @@ describe("adding and removing members", () => {
   it("keeps one Scout, and a custom member needs a title and builds or checks", () => {
     crewWith();
     expect(addCrewMember(PATH, "scout")).toEqual({
-      error: "This crew already has a Scout.",
+      error: "This team already has a Scout.",
     });
     expect(addCrewMember(PATH, "custom", { label: " " })).toEqual({
       error: "Give your member a title, like Designer.",
@@ -288,14 +288,14 @@ describe("adding and removing members", () => {
         { id: "fixer", role: "fixer" },
       ],
     });
-    expect(removeCrewMember(PATH, "checker")).toBe("A crew needs a Checker.");
+    expect(removeCrewMember(PATH, "checker")).toBe("A team needs a Checker.");
     expect(removeCrewMember(PATH, "builder-2")).toBe(
       "It's working on a card. Stop the card first.",
     );
     expect(removeCrewMember(PATH, "fixer")).toMatch(/project's bot/);
     expect(removeCrewMember(PATH, "builder")).toBeNull();
     // Now the last Builder: it stays either way.
-    expect(removeCrewMember(PATH, "builder-2")).toBe("A crew needs a Builder.");
+    expect(removeCrewMember(PATH, "builder-2")).toBe("A team needs a Builder.");
   });
 });
 
@@ -390,7 +390,7 @@ describe("changing a member", () => {
     expect(crewScopeList(["a/../b"])).toHaveProperty("error");
   });
 
-  it("keeps your app and model when the crew turns on again", () => {
+  it("keeps your app and model when the team turns on again", () => {
     crewWith({
       on: false,
       members: [
@@ -421,7 +421,7 @@ describe("changing a member", () => {
 });
 
 describe("a card's own Builder, Checker, model, effort and rounds", () => {
-  it("keeps a choice to the crew's own members and rounds in range", () => {
+  it("keeps a choice to the team's own members and rounds in range", () => {
     const crew = crewWith({
       members: [
         { id: "builder", role: "builder" },
@@ -477,7 +477,7 @@ describe("a card's own Builder, Checker, model, effort and rounds", () => {
       maxRounds: 2,
     });
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "You gave the crew “Hero” for Juno",
+      "You gave the team “Hero” for Juno",
     );
     await giveCardToCrew(PATH, { id: "c2", title: "Plain" }, NOW);
     const plain = crewCard(getCrew(PATH)!, "c2")!;
@@ -532,7 +532,7 @@ describe("limits you set", () => {
     expect(getCrew(PATH)!.limits.runsPerDay).toBe(200);
   });
 
-  it("caps every crew together at your number", () => {
+  it("caps every team together at your number", () => {
     expect(crewsAllRunsPerDay()).toBe(CREW_ALL_RUNS_PER_DAY);
     setCrewsAllRunsPerDay(0);
     expect(crewsAllRunsPerDay()).toBe(1);
@@ -551,7 +551,7 @@ describe("limits you set", () => {
     expect(gate).toMatchObject({
       ok: false,
       reason: "all-crews-cap",
-      title: "All crews' 25 runs today are used",
+      title: "All teams' 25 runs today are used",
     });
   });
 });

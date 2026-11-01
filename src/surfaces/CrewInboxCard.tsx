@@ -107,7 +107,7 @@ export function InboxCrewCard({
       data-utility-card
       data-crew-inbox-card={item.key}
       aria-current={active ? "true" : undefined}
-      aria-label={`${crewInboxHeading(item.card)}: ${item.review.title}, from ${projectName(item.project)}'s crew`}
+      aria-label={`${crewInboxHeading(item.card)}: ${item.review.title}, from ${projectName(item.project)}'s team`}
       onClick={onSelect}
       className={`flex w-full flex-col rounded-md border border-transparent px-2.5 py-2 text-left ${
         active

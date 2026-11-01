@@ -365,14 +365,14 @@ describe("Apply lands exactly the reviewed change", () => {
     expect(crewCard(getCrew(PATH)!, next.id)!.base).toBe("b2");
   });
 
-  it("won't apply while the crew is still working", async () => {
+  it("won't apply while the team is still working", async () => {
     const id = await crewWithReadyCard();
     updateCrew(PATH, (crew) => ({
       ...crew,
       job: { owner: "other", since: NOON, heartbeat: NOON },
     }));
     expect(await applyCrewCard(PATH, id, NOON + 1_000)).toBe(
-      "The crew is still working. Apply once it finishes.",
+      "The team is still working. Apply once it finishes.",
     );
     expect(host.apply).not.toHaveBeenCalled();
   });
@@ -401,7 +401,7 @@ describe("Apply lands exactly the reviewed change", () => {
 });
 
 describe("card actions", () => {
-  it("gives a card to the crew: Queued in Building", async () => {
+  it("gives a card to the team: Queued in Building", async () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: true }));
     const [board] = await addFeatureCards(PATH, [
       { title: "Pricing page", note: "Three tiers." },
@@ -417,9 +417,9 @@ describe("card actions", () => {
     expect(featureBoardState(PATH).cards[0].column).toBe("building");
   });
 
-  it("asks you to turn the crew on first", async () => {
+  it("asks you to turn the team on first", async () => {
     expect(await giveCardToCrew(PATH, { id: "x", title: "X" }, NOON)).toBe(
-      "Turn the crew on first.",
+      "Turn the team on first.",
     );
   });
 
@@ -459,8 +459,8 @@ describe("card actions", () => {
   });
 });
 
-describe("a card the crew has, gone from the Board", () => {
-  it("Delete throws a queued card away so the crew never builds it", async () => {
+describe("a card the team has, gone from the Board", () => {
+  it("Delete throws a queued card away so the team never builds it", async () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: true }));
     const [board] = await addFeatureCards(PATH, [{ title: "Pricing page" }]);
     await giveCardToCrew(PATH, board, NOON);
@@ -570,7 +570,7 @@ describe("stopping and trying again", () => {
   });
 });
 
-describe("Tell the crew… from elsewhere", () => {
+describe("Tell the team… from elsewhere", () => {
   it("is taken once, by that crew's Feed", () => {
     focusCrewTell(`${PATH}/`);
     expect(takeCrewTell("/Users/me/other")).toBe(false);
@@ -586,8 +586,8 @@ describe("crew controls", () => {
     setCrewPaused(PATH, false, NOON);
     expect(getCrew(PATH)!.paused).toBeUndefined();
     expect(getCrew(PATH)!.feed.map((entry) => entry.text)).toEqual([
-      "You paused the crew",
-      "You resumed the crew",
+      "You paused the team",
+      "You resumed the team",
     ]);
   });
 
@@ -603,7 +603,7 @@ describe("crew controls", () => {
     expect(getCrew(PATH)!.extra).toEqual({ day: localDay(NOON), count: 20 });
   });
 
-  it("keeps what you tell the crew as a standing note", () => {
+  it("keeps what you tell the team as a standing note", () => {
     tellCrew(PATH, "Use pnpm, not npm.", NOON);
     expect(getCrew(PATH)!.notes.map((note) => note.text)).toEqual([
       "Use pnpm, not npm.",
@@ -719,7 +719,7 @@ describe("a check that failed because Codex couldn't be locked down", () => {
   });
 });
 
-describe("Tell the crew… gives it work", () => {
+describe("Tell the team… gives it work", () => {
   it("knows a nudge with no task in it from a task", () => {
     for (const nudge of [
       "go",
@@ -754,7 +754,7 @@ describe("Tell the crew… gives it work", () => {
     expect(long.startsWith("Make the very long thing")).toBe(true);
   });
 
-  it("makes a Board card and gives it to the crew, keeping your words as its note", async () => {
+  it("makes a Board card and gives it to the team, keeping your words as its note", async () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: true }));
     const words =
       "Add a timer screen\nWith start, pause and reset, and a sound at zero.";
@@ -772,13 +772,13 @@ describe("Tell the crew… gives it work", () => {
     });
     expect(crew.notes).toEqual([]);
     expect(crew.feed.at(-1)?.text).toBe(
-      "You gave the crew “Add a timer screen”",
+      "You gave the team “Add a timer screen”",
     );
   });
 
-  it("asks you to turn the crew on first, and adds nothing", async () => {
+  it("asks you to turn the team on first, and adds nothing", async () => {
     expect(await tellCrewWork(PATH, "build a timer", NOON)).toBe(
-      "Turn the crew on first.",
+      "Turn the team on first.",
     );
     expect(featureBoardState(PATH).cards).toEqual([]);
   });
@@ -791,8 +791,8 @@ describe("Tell the crew… gives it work", () => {
     expect(featureBoardState(PATH).cards).toEqual([]);
     // Nothing waits, so it says what it needs.
     expect(crew.feed.map((entry) => entry.text).slice(-2)).toEqual([
-      "You resumed the crew",
-      "Tell the crew what to build, or add an idea.",
+      "You resumed the team",
+      "Tell the team what to build, or add an idea.",
     ]);
   });
 });
@@ -818,7 +818,7 @@ describe("a nudge with cards waiting on the branch", () => {
     }));
     expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "2 cards wait for you on the crew's branch: review them to apply them.",
+      "2 cards wait for you on the team's branch: review them to apply them.",
     );
   });
 
@@ -842,7 +842,7 @@ describe("a nudge with cards waiting on the branch", () => {
     });
     expect(await tellCrewWork(PATH, "keep going", NOON)).toBeNull();
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "2 cards wait for you on the crew's branch: review them to keep going.",
+      "2 cards wait for you on the team's branch: review them to keep going.",
     );
   });
 });
@@ -898,7 +898,7 @@ describe("a goal a member took down", () => {
     expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
     expect(
       setMemberGoal(PATH, "scout", "r1", "Build the whole Pom app", {}, NOON),
-    ).toBe("The crew already has your goal. Replace it to use this one.");
+    ).toBe("The team already has your goal. Replace it to use this one.");
     expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
     expect(
       setMemberGoal(
@@ -917,7 +917,7 @@ describe("a goal a member took down", () => {
   });
 });
 
-describe("a goal from Tell the crew…", () => {
+describe("a goal from Tell the team…", () => {
   it("sets, keeps going after a stop, and clears", () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: true }));
     setCrewGoal(PATH, "  Build the whole   Pom app ", NOON);
@@ -926,7 +926,7 @@ describe("a goal from Tell the crew…", () => {
       at: NOON,
     });
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "You set the crew's goal: Build the whole Pom app",
+      "You set the team's goal: Build the whole Pom app",
     );
     updateCrew(PATH, (crew) => ({
       ...crew,

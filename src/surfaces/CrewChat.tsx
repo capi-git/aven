@@ -94,12 +94,12 @@ export function CrewIntro({
   const name = crewMemberName(crew, memberId ?? role);
   const line =
     role === "builder"
-      ? "I build the cards the crew gives me, in the crew's own copy. A Checker looks at each round before you see it."
+      ? "I build the cards the team gives me, in the team's own copy. A Checker looks at each round before you see it."
       : role === "checker"
         ? "I check every build with fresh eyes before you see it. I can't change the files; I pass a card or send it back."
         : role === "security"
           ? "Once the Checker passes a build, I review the same change for security before you see it. I only read; I pass it or send it back."
-          : "I look over the project once a day and suggest small ideas. Small ones start by themselves, within the crew's limits.";
+          : "I look over the project once a day and suggest small ideas. Small ones start by themselves, within the team's limits.";
   return (
     <div className="bot-chat-intro" data-crew-intro={role}>
       <CrewCritter

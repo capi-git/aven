@@ -248,16 +248,16 @@ describe("a member's settings never weaken its rules", () => {
       noMcp: true,
       noEscalation: true,
       workFolder: COPY,
-      refuse: "This chat's crew member was removed, so it didn't start.",
+      refuse: "This chat's teammate was removed, so it didn't start.",
     });
     expect(launchRefusal("b2-chat", COPY)).toBe(
-      "This chat's crew member was removed, so it didn't start.",
+      "This chat's teammate was removed, so it didn't start.",
     );
     expect(launchRefusal("b2-chat", PROJECT)).toBeTruthy();
   });
 });
 
-describe("Codex keeps a crew member in its sandbox", () => {
+describe("Codex keeps a teammate in its sandbox", () => {
   it("runs a Codex Builder with approvals off, writing only in its copy, and a Checker read-only", () => {
     updateCrewMember(PROJECT, "builder", { harness: "codex" });
     updateCrewMember(PROJECT, "checker", { harness: "codex" });

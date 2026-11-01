@@ -1,0 +1,110 @@
+/* A project's team: one header (mark, name, one sentence, Chat | Cards,
+   Pause and ⋯), then its Chat or its Cards. Dark and grey; colour only on
+   the marks' lit dots and small status dots. */
+.team-screen {
+  --team-faint: color-mix(in srgb, var(--color-content) 40%, transparent);
+  --team-line-strong: color-mix(in srgb, var(--color-content) 15%, transparent);
+  display: flex;
+  width: 100%;
+  max-width: 1160px;
+  flex-direction: column;
+  margin: 0 auto;
+}
+
+/* The chat fills the pane: its thread scrolls, its box stays in view. */
+.work-board > .team-screen[data-team-view="chat"] {
+  min-height: 440px;
+  flex: 1 1 0;
+}
+
+.team-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 10px 16px;
+  border-bottom: 1px solid var(--aven-line);
+}
+
+.project-mark.team-head-mark {
+  width: 30px;
+  height: 30px;
+}
+
+.team-head-heading {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.team-head-heading h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-head-sentence {
+  margin: 1px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body, 13px);
+}
+
+.team-head-sentence b {
+  color: var(--color-content);
+  font-weight: 600;
+}
+
+.team-head-goal {
+  margin: 3px 0 0;
+  color: var(--team-faint);
+  font-size: var(--text-ui-label);
+}
+
+.team-head-goal-word {
+  color: var(--aven-muted);
+  font-weight: 600;
+}
+
+.team-head-goal .crew-pipe-link {
+  margin-left: 8px;
+}
+
+.team-head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-segmented.team-head-switch {
+  min-width: 156px;
+}
+
+.settings-segmented.team-head-switch button {
+  min-height: 24px;
+  white-space: nowrap;
+}
+
+/* Cards: the Pipeline under the same header. */
+.team-screen[data-team-view="cards"] > .crew-pipe {
+  max-width: none;
+  padding-top: 0;
+}
+
+@container (max-width: 720px) {
+  .team-head {
+    flex-wrap: wrap;
+  }
+
+  .team-head-heading {
+    flex-basis: calc(100% - 50px);
+  }
+
+  .team-head-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

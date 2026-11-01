@@ -89,7 +89,7 @@ export function crewGate(input: CrewGateInput): CrewGate {
       ok: false,
       reason: "paused",
       title: "Paused",
-      detail: "You paused the crew. Nothing new starts until you resume it.",
+      detail: "You paused the team. Nothing new starts until you resume it.",
     };
   if (inQuietHours(crew.limits.quiet, now))
     return {
@@ -106,7 +106,7 @@ export function crewGate(input: CrewGateInput): CrewGate {
       ok: false,
       reason: "usage",
       title: `Claude is ${Math.round(input.weeklyUsed)}% used for the week`,
-      detail: `Crews pause at ${crew.limits.pauseAtPercent}% so your own chats keep working.`,
+      detail: `Teams pause at ${crew.limits.pauseAtPercent}% so your own chats keep working.`,
     };
   const used = crewRunsUsed(crew, now, input.fixerRuns);
   const allowed = crewRunsAllowed(crew, now);
@@ -115,15 +115,15 @@ export function crewGate(input: CrewGateInput): CrewGate {
       ok: false,
       reason: "daily-cap",
       title: `Today's ${allowed} runs are used`,
-      detail: "The crew picks up again tomorrow.",
+      detail: "The team picks up again tomorrow.",
     };
   const cap = input.allRunsCap ?? CREW_ALL_RUNS_PER_DAY;
   if (input.allRuns >= cap)
     return {
       ok: false,
       reason: "all-crews-cap",
-      title: `All crews' ${cap} runs today are used`,
-      detail: "Crews pick up again tomorrow.",
+      title: `All teams' ${cap} runs today are used`,
+      detail: "Teams pick up again tomorrow.",
     };
   return { ok: true };
 }
@@ -185,7 +185,7 @@ export function crewNoMemberGate(
     ok: false,
     reason: "no-member",
     title: `No ${label} is on`,
-    detail: `Turn one on, or add one, in the crew's settings. The card waits.`,
+    detail: `Turn one on, or add one, in the team's settings. The card waits.`,
   };
 }
 
@@ -202,7 +202,7 @@ export function crewReviewGate(
     reason: "review",
     title: `${waiting} cards wait for you: review them to keep going`,
     detail:
-      "Nothing new starts until you apply them or take some off the crew's branch.",
+      "Nothing new starts until you apply them or take some off the team's branch.",
   };
 }
 
@@ -339,12 +339,12 @@ export function crewLimitRows(
       detail: "Then it stops and asks you",
     },
     {
-      title: `${crew.limits.runsPerDay} runs a day per crew · ${allRunsCap} for all crews`,
+      title: `${crew.limits.runsPerDay} runs a day per team · ${allRunsCap} for all teams`,
       detail: `One run is one bot turn. ${builder} + ${checker} × ${crew.limits.roundsPerCard} rounds = ${crew.limits.roundsPerCard * 2}`,
     },
     {
       title: "One card at a time",
-      detail: `${builder} and ${checker} take turns in the crew's copy`,
+      detail: `${builder} and ${checker} take turns in the team's copy`,
     },
     {
       title: `${crew.limits.autoStartsPerDay} ideas start by themselves a day`,

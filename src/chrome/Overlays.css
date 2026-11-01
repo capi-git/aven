@@ -31,6 +31,15 @@
   padding: 14px 12px 10px 18px;
   gap: 12px;
 }
+.modal-panel[role="dialog"][data-size="lg"] {
+  max-height: min(88vh, 900px);
+}
+/* A way back, above the title row (a teammate's page back to its team). */
+.modal-panel[role="dialog"] > .modal-panel-above {
+  display: flex;
+  flex: none;
+  padding: 12px 18px 0;
+}
 .modal-panel[role="dialog"] > header h2 {
   font-size: var(--text-ui-sheet);
   font-weight: 600;
