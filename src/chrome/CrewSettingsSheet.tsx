@@ -1075,6 +1075,8 @@ function MemberFields({ crew, member }: { crew: Crew; member: CrewMember }) {
           <ModelPicker
             harness={harness}
             model={model}
+            // Above the sheet it opens from.
+            layer={LAYER.dialog + 1}
             onChange={(nextHarness, nextModel) => {
               if (nextHarness === harness) return set({ model: nextModel });
               const why = agentProblem(nextHarness, member.role);

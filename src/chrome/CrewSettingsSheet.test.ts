@@ -241,6 +241,20 @@ describe("the crew's settings", () => {
     expect(model.closest(".crew-settings-limit")!.textContent).toContain(
       "Model",
     );
+    // The model menu opens above the sheet too, so the sheet can't cover it.
+    await act(async () =>
+      model.querySelector<HTMLButtonElement>("button[aria-haspopup]")!.click(),
+    );
+    const models = document
+      .querySelector("[data-model-picker]")!
+      .closest<HTMLElement>("[style*='z-index']")!;
+    expect(Number(models.style.zIndex)).toBeGreaterThan(90);
+    await act(async () =>
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(document.querySelector("[data-model-picker]")).toBeNull();
     await act(async () =>
       document
         .querySelector<HTMLButtonElement>("[data-crew-mark-button]")!

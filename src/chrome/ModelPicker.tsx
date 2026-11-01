@@ -59,6 +59,8 @@ type Props = {
   hotkeys?: boolean;
   onChange: (harness: HarnessId, model: string) => void;
   onClose?: () => void;
+  /** Its menu's layer: a picker inside a dialog opens above the dialog. */
+  layer?: number;
 };
 
 const MENU_WIDTH = 300;
@@ -147,6 +149,7 @@ export function ModelPicker({
   hotkeys = false,
   onChange,
   onClose,
+  layer,
 }: Props) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -205,6 +208,7 @@ export function ModelPicker({
           width={MENU_WIDTH}
           minHeight={MENU_MIN_HEIGHT}
           maxHeight={MENU_MAX_HEIGHT}
+          layer={layer}
           autoFocus
           initialFocus={MODEL_SEARCH_FIELD}
           onDismiss={(reason) => dismiss(reason === "escape")}
