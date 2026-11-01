@@ -21,6 +21,18 @@ import { cleanUntrusted } from "./memoryKeeperSafety";
 export const HANDOFF_FENCE = "aven-handoff";
 export const VERDICT_FENCE = "aven-verdict";
 export const IDEAS_FENCE = "aven-ideas";
+/** A goal turn's answer: is the goal met, and the next card towards it. */
+export const GOAL_FENCE = "aven-goal";
+/** Work a member queues from its own chat, through Aven: cards, or a goal. */
+export const TASKS_FENCE = "aven-tasks";
+/** Every fence a crew's bot ends a reply with. */
+export const CREW_FENCES = [
+  HANDOFF_FENCE,
+  VERDICT_FENCE,
+  IDEAS_FENCE,
+  GOAL_FENCE,
+  TASKS_FENCE,
+] as const;
 
 /** At most this many must-fix items count; more read as notes for later. */
 export const MUST_FIX_MAX = 5;
@@ -322,4 +334,69 @@ export function parseIdeas(text: string): ScoutIdea[] {
     if (ideas.length >= IDEAS_PER_TURN) break;
   }
   return ideas;
+}
+
+/** A card a bot proposes: its title and why, in the bot's words (data). */
+export type CrewTask = { title: string; why?: string };
+
+function tasksFrom(value: unknown, keep: number): CrewTask[] {
+  if (!Array.isArray(value)) return [];
+  const tasks: CrewTask[] = [];
+  for (const item of value) {
+    const raw =
+      typeof item === "string"
+        ? { title: item }
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+    if (!raw) continue;
+    const title = botLine(raw.title, 120);
+    if (!title) continue;
+    if (tasks.some((task) => task.title.toLowerCase() === title.toLowerCase()))
+      continue;
+    const why = botLine(raw.why, 300);
+    tasks.push({ title, ...(why ? { why } : {}) });
+    if (tasks.length >= keep) break;
+  }
+  return tasks;
+}
+
+/** At most this many cards a goal turn plans at once: the next one. */
+export const GOAL_CARDS_PER_TURN = 1;
+
+/**
+ * A goal turn's answer: whether the goal is met (with why), and the next
+ * card towards it. Null when the reply ends without its block.
+ */
+export function parseGoal(
+  text: string,
+): { met: boolean; summary: string; next: CrewTask[] } | null {
+  const block = finalFencedBlock(text, GOAL_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const met = fields.met === true;
+  return {
+    met,
+    summary: botLine(fields.summary, 300),
+    next: met ? [] : tasksFrom(fields.next, GOAL_CARDS_PER_TURN),
+  };
+}
+
+/** At most this many cards a member queues from its chat at once. */
+export const TASKS_PER_REPLY = 5;
+
+/**
+ * Work a member queues from its own chat when you ask it for some: cards
+ * for the crew, and a goal to keep going towards. Null without its block.
+ */
+export function parseTasks(
+  text: string,
+): { tasks: CrewTask[]; goal?: string } | null {
+  const block = finalFencedBlock(text, TASKS_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const goal = botLine(fields.goal, 300);
+  const tasks = tasksFrom(fields.tasks, TASKS_PER_REPLY);
+  if (!goal && !tasks.length) return null;
+  return { tasks, ...(goal ? { goal } : {}) };
 }

@@ -110,10 +110,6 @@
   flex-shrink: 0;
 }
 
-.work-board-column[data-board-column="building"] {
-  --work-board-tone: var(--color-accent);
-}
-
 .work-board-column[data-board-column="review"] {
   --work-board-tone: var(--aven-review, var(--color-emerald-400, #34d399));
 }

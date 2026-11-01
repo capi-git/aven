@@ -43,8 +43,11 @@ const COPY = "/data/bots/site-crew";
 let refuse: string | undefined;
 let uninstall: () => void;
 
-function rules(): SessionPermissions {
+function rules(id = ""): SessionPermissions {
   return {
+    // A crew chat on Codex only reads (a Checker); one that writes runs on
+    // Claude Code alone.
+    ...(id.includes("codex") ? { readOnly: true } : {}),
     mode: "auto",
     rules: { deny: ["Bash(git push)"] },
     sandbox: {
@@ -74,7 +77,7 @@ beforeEach(() => {
   refuse = undefined;
   hooks.midStart = () => {};
   uninstall = installSessionPermissions((id) =>
-    id.startsWith("crew-") ? rules() : undefined,
+    id.startsWith("crew-") ? rules(id) : undefined,
   );
 });
 afterEach(() => {
@@ -100,6 +103,17 @@ describe("a launch is refused at the last moment before its process starts", () 
     await expect(
       sendCodexTurn({ ...input("crew-codex"), model: "codex:gpt-5.6" }),
     ).rejects.toThrow(/crew is off/);
+    expect(spawned).toEqual([]);
+  });
+
+  it("Codex never starts a crew chat that writes", async () => {
+    uninstall();
+    uninstall = installSessionPermissions((id) =>
+      id.startsWith("crew-") ? rules() : undefined,
+    );
+    await expect(
+      sendCodexTurn({ ...input("crew-codex"), model: "codex:gpt-5.6" }),
+    ).rejects.toThrow(/runs only on Claude Code/);
     expect(spawned).toEqual([]);
   });
 

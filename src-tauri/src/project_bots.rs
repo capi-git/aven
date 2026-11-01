@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::race::{self, RaceDiff, RaceFileDiff, RaceLane};
@@ -268,17 +268,49 @@ const PROTECTED: &[&str] = &[
     ".pre-commit-config.yaml",
 ];
 
-/// The protected paths among a fix's files (see `PROTECTED`).
+/// A name as a file system that ignores case reads it: folded fully, so
+/// "ſ" is "s", "ﬁ" is "fi" and "K" (Kelvin) is "k", as APFS reads them, not
+/// just its ASCII letters.
+fn folded(name: &str) -> String {
+    name.to_uppercase().to_lowercase()
+}
+
+/// A path's top-level name as a file system that ignores case reads it,
+/// with the trailing dots and spaces Windows drops trimmed off.
+fn folded_top(path: &str) -> String {
+    folded(path.replace('\\', "/").split('/').next().unwrap_or(""))
+        .trim_end_matches(['.', ' '])
+        .to_string()
+}
+
+/// A path whose top-level name isn't plain ASCII yet reads as a settings
+/// name ("ſ" is "s", "ﬁ" is "fi" on a Mac), or is a dotfile-style name, as
+/// a margin: never stacked or applied. Ordinary names with accents
+/// ("Données", "Résumé.md") are like any other.
+fn look_alike(path: &str) -> bool {
+    let top = path.replace('\\', "/");
+    let top = top.split('/').next().unwrap_or("");
+    !top.is_ascii() && (top.starts_with('.') || PROTECTED.contains(&folded_top(path).as_str()))
+}
+
+/// The protected paths among a fix's files (see `PROTECTED`): matched as a
+/// file system that ignores case reads them, and look-alikes with them.
 fn protected_paths(paths: &[&str]) -> Vec<String> {
     paths
         .iter()
         .filter(|path| {
-            let lower = path.replace('\\', "/").to_lowercase();
-            let first = lower.split('/').next().unwrap_or("");
-            PROTECTED.contains(&first)
+            // A name git would have to quote is never applied either.
+            path.starts_with('"')
+                || look_alike(path)
+                || PROTECTED.contains(&folded_top(path).as_str())
         })
         .map(|path| (*path).to_string())
         .collect()
+}
+
+/// The first of `paths` with a look-alike top-level name (see `look_alike`).
+fn first_look_alike<'a>(paths: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    paths.into_iter().find(|path| look_alike(path))
 }
 
 /// A settings folder or file at the top of the copy that is a link.
@@ -286,7 +318,7 @@ fn linked_settings(copy: &Path) -> Option<String> {
     let entries = std::fs::read_dir(copy).ok()?;
     entries.flatten().find_map(|entry| {
         let name = entry.file_name().to_string_lossy().to_string();
-        let settings = SETTINGS_ROOTS.contains(&name.to_lowercase().as_str());
+        let settings = SETTINGS_ROOTS.contains(&folded(&name).as_str());
         let link = entry.file_type().is_ok_and(|kind| kind.is_symlink());
         (settings && link).then_some(name)
     })
@@ -339,7 +371,62 @@ fn clear_planted(copy: &Path, remove: bool) -> Result<Vec<String>, String> {
         }
         found.push(path);
     }
+    // `:(icase)` folds ASCII only: a name APFS reads as a settings file
+    // ("ſettings.json", ".mcp.jſon") is found by walking the copy, and is
+    // never the project's own.
+    for path in look_alike_settings(copy) {
+        if found.contains(&path) {
+            continue;
+        }
+        if remove {
+            let _ = std::fs::remove_file(copy.join(&path));
+        }
+        found.push(path);
+    }
     Ok(found)
+}
+
+/// Settings files in the copy (see `PLANTED`) under a name that only folds
+/// to one: anything but its plain ASCII spelling.
+fn look_alike_settings(copy: &Path) -> Vec<String> {
+    let names = |dir: &Path| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut found = Vec::new();
+    for planted in PLANTED {
+        let (first, rest) = match planted.split_once('/') {
+            Some((first, rest)) => (first, Some(rest)),
+            None => (*planted, None),
+        };
+        for top in names(copy).into_iter().filter(|name| folded(name) == first) {
+            match rest {
+                None => {
+                    if !top.is_ascii() && copy.join(&top).is_file() {
+                        found.push(top);
+                    }
+                }
+                Some(rest) => {
+                    for inner in names(&copy.join(&top))
+                        .into_iter()
+                        .filter(|name| folded(name) == rest)
+                    {
+                        let path = format!("{top}/{inner}");
+                        if !path.is_ascii() && copy.join(&path).is_file() {
+                            found.push(path);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    found
 }
 
 fn repo_root(cwd: &Path) -> Result<PathBuf, String> {
@@ -355,8 +442,18 @@ fn repo_root(cwd: &Path) -> Result<PathBuf, String> {
 
 /// The bot's copy of the project at `cwd`, made when missing (or when git
 /// no longer knows the folder). An existing copy is left exactly as it is.
-pub fn ensure_copy(cwd: &Path, bots: &Path, key: &str, branch: &str) -> Result<BotCopy, String> {
-    if key.trim().is_empty() || key.len() > 4096 || !valid_branch(branch) {
+pub fn ensure_copy(
+    cwd: &Path,
+    bots: &Path,
+    key: &str,
+    branch: &str,
+    at: Option<&str>,
+) -> Result<BotCopy, String> {
+    if key.trim().is_empty()
+        || key.len() > 4096
+        || !valid_branch(branch)
+        || at.is_some_and(|sha| !race::is_sha(sha))
+    {
         return Err("Invalid bot request".into());
     }
     let root = repo_root(cwd)?;
@@ -392,10 +489,15 @@ pub fn ensure_copy(cwd: &Path, bots: &Path, key: &str, branch: &str) -> Result<B
     }
     let _ = race::run(&root, &["worktree", "prune"]);
     std::fs::create_dir_all(bots).map_err(|e| format!("Could not create the bot's copy: {e}"))?;
+    // A crew's copy made again starts where its stack is (`at`), so the
+    // cards waiting there stay on its branch; otherwise at the user's HEAD.
+    let start = at
+        .filter(|sha| race::run(&root, &["cat-file", "-e", &format!("{sha}^{{commit}}")]).is_ok())
+        .unwrap_or("HEAD");
     race::run(
         &root,
         &[
-            "worktree", "add", "--quiet", "-B", branch, &path_text, "HEAD",
+            "worktree", "add", "--quiet", "-B", branch, &path_text, start,
         ],
     )
     .map_err(|e| format!("Could not create the bot's copy: {e}"))?;
@@ -450,12 +552,26 @@ fn reset_to(copy: &Path, base: &str, branch: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Throw the bot's changes away: the copy goes back to `base`.
-pub fn discard(bots: &Path, copy: &str, base: &str, branch: &str) -> Result<(), String> {
-    if !valid_branch(branch) {
+/// Throw the bot's changes away: the copy goes back to `base`. With
+/// `expect`, only while the branch is still at that commit (a crew's card
+/// recorded it), so work stacked since is never thrown away with it.
+pub fn discard(
+    bots: &Path,
+    copy: &str,
+    base: &str,
+    branch: &str,
+    expect: Option<&str>,
+) -> Result<(), String> {
+    if !valid_branch(branch) || expect.is_some_and(|sha| !race::is_sha(sha)) {
         return Err("Invalid bot request".into());
     }
-    reset_to(&checked_copy(bots, copy)?, base, branch)
+    let copy = checked_copy(bots, copy)?;
+    if let Some(expected) = expect {
+        if head(&copy)? != expected {
+            return Err(STACK_MOVED.into());
+        }
+    }
+    reset_to(&copy, base, branch)
 }
 
 fn patch_hash(patch: &[u8]) -> String {
@@ -525,6 +641,345 @@ const PROTECTED_FIX: &str =
 /// Said when the copy no longer holds the fix the user reviewed.
 const FIX_CHANGED: &str = "The fix changed since you looked.";
 
+// ---------------------------------------------------------------------------
+// A crew's stack: each card that passed its checks is a commit on the crew's
+// branch in its copy, and the next card builds on top. The user's folder
+// changes only through `apply_range`, by exactly the reviewed range.
+
+fn head(copy: &Path) -> Result<String, String> {
+    let head = race::text(race::run(copy, &["rev-parse", "--verify", "HEAD"])?);
+    if race::is_sha(&head) {
+        Ok(head)
+    } else {
+        Err("The crew's copy has no commit to build on.".into())
+    }
+}
+
+/// Make `sha` the branch's commit, with the copy's index to match. The files
+/// in the copy are left as they are (they are what `sha` holds).
+fn move_branch(copy: &Path, branch: &str, sha: &str, old: &str) -> Result<(), String> {
+    race::run(
+        copy,
+        &["update-ref", &format!("refs/heads/{branch}"), sha, old],
+    )?;
+    race::run(copy, &["reset", "--quiet"])?;
+    Ok(())
+}
+
+/// The commit's first parent.
+fn parent_of(copy: &Path, sha: &str) -> Option<String> {
+    let parent = race::text(race::run(copy, &["rev-parse", "--verify", &format!("{sha}^")]).ok()?);
+    race::is_sha(&parent).then_some(parent)
+}
+
+/// Stack what the copy holds now as a commit on the branch, on top of
+/// `parent`, which must be the branch's commit (the card's starting point),
+/// only when it is exactly the change the card's checks passed (`hash`, its
+/// fingerprint): the copy may have changed since. A card already stacked
+/// (Aven stopped before it saved that) is found again rather than refused.
+/// Returns the card's commit.
+pub fn stack(
+    bots: &Path,
+    copy: &str,
+    branch: &str,
+    parent: &str,
+    message: &str,
+    hash: &str,
+) -> Result<String, String> {
+    if !valid_branch(branch) || !race::is_sha(parent) || hash.is_empty() {
+        return Err("Invalid bot request".into());
+    }
+    let copy = checked_copy(bots, copy)?;
+    let current = head(&copy)?;
+    if current != parent {
+        let stacked = parent_of(&copy, &current).as_deref() == Some(parent)
+            && race::text(race::run(
+                &copy,
+                &["rev-parse", &format!("{current}^{{tree}}")],
+            )?) == race::snapshot_tree(&copy)?
+            && patch_hash(&race::range_patch(&copy, parent, &current)?) == hash;
+        return if stacked {
+            Ok(current)
+        } else {
+            Err(STACK_MOVED.into())
+        };
+    }
+    let message: String = message.chars().take(200).collect();
+    let sha = race::snapshot(&copy, parent, &format!("Crew: {message}"))?;
+    // The commit is made but not yet on the branch: it goes there only as
+    // the change that was checked, and with no look-alike settings name.
+    let changes = race::range_diff(&copy, parent, &sha)?;
+    if let Some(path) = first_look_alike(changes.files.iter().map(|file| file.path.as_str())) {
+        return Err(format!("{LOOK_ALIKE}: {path}"));
+    }
+    if patch_hash(&race::range_patch(&copy, parent, &sha)?) != hash {
+        return Err(STACK_CHANGED.into());
+    }
+    move_branch(&copy, branch, &sha, &current)?;
+    Ok(sha)
+}
+
+/// Take a card's commit back off the branch (`commit` → `parent`), keeping
+/// its files in the copy as they are: its card was stopped or thrown away
+/// while it was being stacked. Nothing to do once the branch is at `parent`.
+pub fn unstack(
+    bots: &Path,
+    copy: &str,
+    branch: &str,
+    commit: &str,
+    parent: &str,
+) -> Result<(), String> {
+    if !valid_branch(branch) || !race::is_sha(commit) || !race::is_sha(parent) {
+        return Err("Invalid bot request".into());
+    }
+    let copy = checked_copy(bots, copy)?;
+    let current = head(&copy)?;
+    if current == parent {
+        return Ok(());
+    }
+    if current != commit || parent_of(&copy, commit).as_deref() != Some(parent) {
+        return Err(STACK_MOVED.into());
+    }
+    move_branch(&copy, branch, parent, commit)
+}
+
+/// Said when the crew's copy is not on the commit Aven left it at.
+const STACK_MOVED: &str = "The crew's copy moved since its last card.";
+
+/// Said when the copy no longer holds the change a card's checks passed.
+const STACK_CHANGED: &str = "The copy changed after the card's checks.";
+
+/// The start of a refusal of a change with a look-alike name (see
+/// `look_alike`), followed by the file's name.
+const LOOK_ALIKE: &str = "A file's name reads as a settings folder on a Mac";
+
+/// Said when a card on the branch isn't the change its checks passed.
+const CARD_CHANGED: &str = "A card on the crew's branch isn't the change its checks passed.";
+
+/// A card on the crew's branch: its commit, and the fingerprint of its own
+/// change that its checks passed (or that a restack replayed).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StackedCard {
+    pub commit: String,
+    pub hash: String,
+}
+
+/// Whether `from` is `to` or an ancestor of it.
+fn reaches(copy: &Path, from: &str, to: &str) -> bool {
+    from == to || race::run(copy, &["merge-base", "--is-ancestor", from, to]).is_ok()
+}
+
+/// What changed between two of the copy's commits, and its fingerprint.
+pub fn range(bots: &Path, copy: &str, from: &str, to: &str) -> Result<BotDiff, String> {
+    let copy = checked_copy(bots, copy)?;
+    if !race::is_sha(from) || !race::is_sha(to) || !reaches(&copy, from, to) {
+        return Err("Invalid bot range".into());
+    }
+    let changes = race::range_diff(&copy, from, to)?;
+    let hash = patch_hash(&race::range_patch(&copy, from, to)?);
+    Ok(BotDiff { changes, hash })
+}
+
+pub fn range_file_diff(
+    bots: &Path,
+    copy: &str,
+    from: &str,
+    to: &str,
+    path: &str,
+) -> Result<RaceFileDiff, String> {
+    race::range_file_diff(&checked_copy(bots, copy)?, from, to, path)
+}
+
+/// Apply the stacked range `from..to` onto the user's working tree, only
+/// when it is exactly the change the user reviewed (`hash`, from `range`),
+/// never touching protected paths, and checked first so a conflict changes
+/// nothing. The copy and its branch are left as they are.
+pub fn apply_range(
+    cwd: &Path,
+    bots: &Path,
+    copy: &str,
+    from: &str,
+    to: &str,
+    hash: &str,
+    cards: &[StackedCard],
+) -> Result<RaceDiff, String> {
+    let root = repo_root(cwd)?;
+    let worktree = checked_copy(bots, copy)?;
+    if !race::is_sha(from)
+        || !race::is_sha(to)
+        || cards.is_empty()
+        || cards.len() > 200
+        || cards.last().map(|card| card.commit.as_str()) != Some(to)
+        || !reaches(&worktree, from, to)
+    {
+        return Err("Invalid bot range".into());
+    }
+    // Card by card: each commit sits right on the one before, and is the
+    // very change that card's checks passed.
+    let mut parent = from.to_string();
+    for card in cards {
+        if !race::is_sha(&card.commit)
+            || parent_of(&worktree, &card.commit).as_deref() != Some(parent.as_str())
+            || patch_hash(&race::range_patch(&worktree, &parent, &card.commit)?) != card.hash
+        {
+            return Err(CARD_CHANGED.into());
+        }
+        parent = card.commit.clone();
+    }
+    let changes = race::range_diff(&worktree, from, to)?;
+    if changes.files.is_empty() {
+        return Err("The crew's branch has no changes to apply.".into());
+    }
+    let patch = race::range_patch(&worktree, from, to)?;
+    if patch_hash(&patch) != hash {
+        return Err(FIX_CHANGED.into());
+    }
+    let paths: Vec<&str> = changes
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    let protected = protected_paths(&paths);
+    if !protected.is_empty() {
+        return Err(format!(
+            "{PROTECTED_FIX} {}. Take it over in a chat to apply that part yourself.",
+            protected.join(", ")
+        ));
+    }
+    race::apply_patch(&root, &patch)?;
+    Ok(changes)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BotRestack {
+    /// The user's state the stack now starts from.
+    pub base: String,
+    /// Each stacked card's commit, replayed on top of `base`, in order.
+    pub commits: Vec<String>,
+    /// Each replayed card's own fingerprint, for its Apply.
+    pub hashes: Vec<String>,
+}
+
+/// What a card changed, to compare a replay with: each file, how, its new
+/// mode and its lines (a replay applies the same lines, wherever they are).
+fn change_shape(changes: &RaceDiff) -> Vec<(String, String, String, bool, u32, u32)> {
+    let mut shape: Vec<_> = changes
+        .files
+        .iter()
+        .map(|file| {
+            (
+                file.path.clone(),
+                file.status.clone(),
+                file.new_mode.clone(),
+                file.binary,
+                file.additions,
+                file.deletions,
+            )
+        })
+        .collect();
+    shape.sort();
+    shape
+}
+
+/// Replay the stacked cards (`commits`, in order, the first on top of
+/// `from`) onto the user's current state, one card at a time, each its own
+/// commit again, made in a scratch index so the copy's files and the user's
+/// ignore rules play no part. Each replay must change what the card
+/// changed. Nothing else may be in the copy (a card at work there stops
+/// this). The branch and copy move only once every card replayed: if any
+/// no longer fits, nothing changed and nothing is lost.
+pub fn restack(
+    cwd: &Path,
+    bots: &Path,
+    copy: &str,
+    branch: &str,
+    from: &str,
+    commits: &[String],
+) -> Result<BotRestack, String> {
+    if !valid_branch(branch)
+        || !race::is_sha(from)
+        || commits.is_empty()
+        || commits.len() > 200
+        || !commits.iter().all(|sha| race::is_sha(sha))
+    {
+        return Err("Invalid bot request".into());
+    }
+    let worktree = checked_copy(bots, copy)?;
+    let old = head(&worktree)?;
+    if commits.last() != Some(&old) {
+        return Err(STACK_MOVED.into());
+    }
+    if !race::diff(&worktree, &old)?.files.is_empty() {
+        return Err("The crew is working in its copy. Restack once its card is done.".into());
+    }
+    let mut previous = from.to_string();
+    let mut cards = Vec::with_capacity(commits.len());
+    for sha in commits {
+        if parent_of(&worktree, sha).as_deref() != Some(previous.as_str()) {
+            return Err("Invalid bot range".into());
+        }
+        let patch = race::range_patch(&worktree, &previous, sha)?;
+        let changes = race::range_diff(&worktree, &previous, sha)?;
+        if let Some(path) = first_look_alike(changes.files.iter().map(|file| file.path.as_str())) {
+            return Err(format!(
+                "{LOOK_ALIKE}: {path} (card {} of {})",
+                cards.len() + 1,
+                commits.len()
+            ));
+        }
+        let shape = change_shape(&changes);
+        let message = race::text(
+            race::run(&worktree, &["log", "-1", "--format=%B", sha]).unwrap_or_default(),
+        );
+        cards.push((patch, shape, message));
+        previous = sha.clone();
+    }
+    let base = race::prepare_for(cwd, WHO)?.base;
+    let mut replayed = Vec::with_capacity(commits.len());
+    let mut hashes = Vec::with_capacity(commits.len());
+    let mut parent = base.clone();
+    for (index, (patch, shape, message)) in cards.iter().enumerate() {
+        let step = (|| {
+            let message = if message.is_empty() {
+                "Crew: a card"
+            } else {
+                message.as_str()
+            };
+            let sha = race::replay(&worktree, &parent, patch, message)?;
+            if change_shape(&race::range_diff(&worktree, &parent, &sha)?) != *shape {
+                return Err("it doesn't replay as the change that was checked".to_string());
+            }
+            Ok::<String, String>(sha)
+        })();
+        match step {
+            Ok(sha) => {
+                hashes.push(patch_hash(&race::range_patch(&worktree, &parent, &sha)?));
+                parent = sha.clone();
+                replayed.push(sha);
+            }
+            Err(error) => {
+                return Err(format!(
+                    "{RESTACK_CONFLICT} (card {} of {}): {error}",
+                    index + 1,
+                    commits.len()
+                ));
+            }
+        }
+    }
+    // Every card replayed: the branch and the copy's files move together.
+    reset_to(&worktree, &parent, branch)?;
+    Ok(BotRestack {
+        base,
+        commits: replayed,
+        hashes,
+    })
+}
+
+/// The start of a restack's refusal when a card no longer fits.
+const RESTACK_CONFLICT: &str = "Your files changed where the crew worked";
+
 /// Remove the copy and its branch.
 pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), String> {
     if !valid_branch(branch) {
@@ -590,9 +1045,19 @@ pub async fn bot_copy_prepare(
     cwd: String,
     key: String,
     branch: String,
+    at: Option<String>,
 ) -> Result<BotCopy, String> {
     let bots = bots_dir(&app)?;
-    blocking(move || ensure_copy(&crate::fs::expand_home(&cwd), &bots, &key, &branch)).await
+    blocking(move || {
+        ensure_copy(
+            &crate::fs::expand_home(&cwd),
+            &bots,
+            &key,
+            &branch,
+            at.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -653,9 +1118,106 @@ pub async fn bot_copy_discard(
     copy: String,
     base: String,
     branch: String,
+    expect: Option<String>,
 ) -> Result<(), String> {
     let bots = bots_dir(&app)?;
-    blocking(move || discard(&bots, &copy, &base, &branch)).await
+    blocking(move || discard(&bots, &copy, &base, &branch, expect.as_deref())).await
+}
+
+#[tauri::command]
+pub async fn bot_copy_stack(
+    app: AppHandle,
+    copy: String,
+    branch: String,
+    parent: String,
+    message: String,
+    hash: String,
+) -> Result<String, String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || stack(&bots, &copy, &branch, &parent, &message, &hash)).await
+}
+
+#[tauri::command]
+pub async fn bot_copy_unstack(
+    app: AppHandle,
+    copy: String,
+    branch: String,
+    commit: String,
+    parent: String,
+) -> Result<(), String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || unstack(&bots, &copy, &branch, &commit, &parent)).await
+}
+
+#[tauri::command]
+pub async fn bot_copy_range(
+    app: AppHandle,
+    copy: String,
+    from: String,
+    to: String,
+) -> Result<BotDiff, String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || range(&bots, &copy, &from, &to)).await
+}
+
+#[tauri::command]
+pub async fn bot_copy_range_file_diff(
+    app: AppHandle,
+    copy: String,
+    from: String,
+    to: String,
+    path: String,
+) -> Result<RaceFileDiff, String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || range_file_diff(&bots, &copy, &from, &to, &path)).await
+}
+
+#[tauri::command]
+pub async fn bot_copy_apply_range(
+    app: AppHandle,
+    cwd: String,
+    copy: String,
+    from: String,
+    to: String,
+    hash: String,
+    cards: Vec<StackedCard>,
+) -> Result<RaceDiff, String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || {
+        apply_range(
+            &crate::fs::expand_home(&cwd),
+            &bots,
+            &copy,
+            &from,
+            &to,
+            &hash,
+            &cards,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn bot_copy_restack(
+    app: AppHandle,
+    cwd: String,
+    copy: String,
+    branch: String,
+    from: String,
+    commits: Vec<String>,
+) -> Result<BotRestack, String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || {
+        restack(
+            &crate::fs::expand_home(&cwd),
+            &bots,
+            &copy,
+            &branch,
+            &from,
+            &commits,
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -709,6 +1271,31 @@ mod tests {
 
     const BRANCH: &str = "aven/bot/jelly";
 
+    /// The copy's change since `parent`, as a card's checks pass it.
+    #[cfg_attr(windows, allow(dead_code))]
+    fn checked(bots: &Path, copy: &str, parent: &str) -> String {
+        diff(bots, copy, parent).unwrap().hash
+    }
+
+    /// Stack what a card's checks passed; its commit and fingerprint.
+    #[cfg_attr(windows, allow(dead_code))]
+    fn stack_checked(bots: &Path, copy: &str, parent: &str, message: &str) -> StackedCard {
+        let hash = checked(bots, copy, parent);
+        let commit = stack(bots, copy, BRANCH, parent, message, &hash).unwrap();
+        StackedCard { commit, hash }
+    }
+
+    #[cfg_attr(windows, allow(dead_code))]
+    fn cards(cards: &[&StackedCard]) -> Vec<StackedCard> {
+        cards
+            .iter()
+            .map(|card| StackedCard {
+                commit: card.commit.clone(),
+                hash: card.hash.clone(),
+            })
+            .collect()
+    }
+
     // Bots are not offered on Windows (Claude Code's sandbox does not run
     // there), and these drive real worktrees through canonical macOS paths.
     #[cfg(not(windows))]
@@ -717,7 +1304,7 @@ mod tests {
         let root = repo();
         let bots = temp_dir("bots");
         let key = root.to_string_lossy().to_string();
-        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         let copy_path = PathBuf::from(&copy.path);
         assert!(copy_path.starts_with(&bots));
         assert_eq!(copy.branch, BRANCH);
@@ -730,7 +1317,7 @@ mod tests {
         std::fs::write(copy_path.join("stray.txt"), "old job\n").unwrap();
         std::fs::write(copy_path.join("b.txt"), "bot edit\n").unwrap();
         // Asking again keeps the same copy, untouched.
-        assert_eq!(ensure_copy(&root, &bots, &key, BRANCH).unwrap(), copy);
+        assert_eq!(ensure_copy(&root, &bots, &key, BRANCH, None).unwrap(), copy);
         assert_eq!(read(&copy_path.join("b.txt")), "bot edit\n");
 
         // The user has uncommitted work; the copy starts from it. Their own
@@ -773,7 +1360,7 @@ mod tests {
         let root = repo();
         let bots = temp_dir("bots");
         let key = root.to_string_lossy().to_string();
-        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         let copy_path = PathBuf::from(&copy.path);
         let synced = sync(&root, &bots, &copy.path, BRANCH).unwrap();
         assert!(!synced.uncommitted);
@@ -814,7 +1401,7 @@ mod tests {
         assert_eq!(read(&root.join("new.txt")), "fresh\n");
 
         // Throw away: the copy goes back to the base.
-        discard(&bots, &copy.path, &synced.base, BRANCH).unwrap();
+        discard(&bots, &copy.path, &synced.base, BRANCH, None).unwrap();
         assert_eq!(read(&copy_path.join("a.txt")), "one\ntwo\n");
         assert!(!copy_path.join("new.txt").exists());
         assert!(diff(&bots, &copy.path, &synced.base)
@@ -836,7 +1423,7 @@ mod tests {
         let root = repo();
         let bots = temp_dir("bots");
         let key = root.to_string_lossy().to_string();
-        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         let copy_path = PathBuf::from(&copy.path);
         let synced = sync(&root, &bots, &copy.path, BRANCH).unwrap();
         std::fs::write(copy_path.join("a.txt"), "bot\n").unwrap();
@@ -870,18 +1457,18 @@ mod tests {
         let root = repo();
         let bots = temp_dir("bots");
         let key = root.to_string_lossy().to_string();
-        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         let copy_path = PathBuf::from(&copy.path);
         // Something deleted the folder behind git's back.
         std::fs::remove_dir_all(&copy_path).unwrap();
-        let again = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let again = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         assert_eq!(again, copy);
         assert_eq!(read(&copy_path.join("a.txt")), "one\ntwo\n");
         // A leftover folder git never knew is replaced too.
         remove(&root, &bots, &copy.path, BRANCH).unwrap();
         std::fs::create_dir_all(&copy_path).unwrap();
         std::fs::write(copy_path.join("junk.txt"), "x").unwrap();
-        ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         assert!(!copy_path.join("junk.txt").exists());
         assert!(copy_path.join("a.txt").is_file());
         remove(&root, &bots, &copy.path, BRANCH).unwrap();
@@ -894,19 +1481,19 @@ mod tests {
         let plain = temp_dir("plain");
         let bots = temp_dir("bots");
         let key = plain.to_string_lossy().to_string();
-        let error = ensure_copy(&plain, &bots, &key, BRANCH).unwrap_err();
+        let error = ensure_copy(&plain, &bots, &key, BRANCH, None).unwrap_err();
         assert!(error.contains("git repository"), "{error}");
         git_ok(&plain, &["init", "-q"]);
-        let error = ensure_copy(&plain, &bots, &key, BRANCH).unwrap_err();
+        let error = ensure_copy(&plain, &bots, &key, BRANCH, None).unwrap_err();
         assert!(error.contains("commit"), "{error}");
 
-        assert!(ensure_copy(&plain, &bots, &key, "main").is_err());
-        assert!(ensure_copy(&plain, &bots, &key, "aven/bot/../x").is_err());
-        assert!(ensure_copy(&plain, &bots, &key, "aven/bot/Jelly").is_err());
+        assert!(ensure_copy(&plain, &bots, &key, "main", None).is_err());
+        assert!(ensure_copy(&plain, &bots, &key, "aven/bot/../x", None).is_err());
+        assert!(ensure_copy(&plain, &bots, &key, "aven/bot/Jelly", None).is_err());
         assert!(sync(&plain, &bots, "/etc", BRANCH).is_err());
         assert!(diff(&bots, &bots.to_string_lossy(), &"a".repeat(40)).is_err());
         assert!(diff(&bots, &format!("{}/../x", bots.display()), &"a".repeat(40)).is_err());
-        assert!(discard(&bots, "/tmp/elsewhere", &"a".repeat(40), BRANCH).is_err());
+        assert!(discard(&bots, "/tmp/elsewhere", &"a".repeat(40), BRANCH, None).is_err());
         // Only a folder directly inside bots/, and only a checkout of its own.
         let nested = bots.join("a").join("b");
         std::fs::create_dir_all(&nested).unwrap();
@@ -952,7 +1539,7 @@ mod tests {
         git_ok(&root, &["commit", "-q", "-m", "settings"]);
         let bots = temp_dir("bots");
         let key = root.to_string_lossy().to_string();
-        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         let copy_path = PathBuf::from(&copy.path);
         let synced = sync(&root, &bots, &copy.path, BRANCH).unwrap();
         assert!(synced.planted.is_empty(), "{:?}", synced.planted);
@@ -996,7 +1583,7 @@ mod tests {
         let root = repo();
         let bots = temp_dir("bots");
         let key = root.to_string_lossy().to_string();
-        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         let copy_path = PathBuf::from(&copy.path);
         let synced = sync(&root, &bots, &copy.path, BRANCH).unwrap();
 
@@ -1060,7 +1647,7 @@ mod tests {
         let root = repo();
         let bots = temp_dir("bots");
         let key = root.to_string_lossy().to_string();
-        let copy = ensure_copy(&root, &bots, &key, BRANCH).unwrap();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
         let copy_path = PathBuf::from(&copy.path);
         let synced = sync(&root, &bots, &copy.path, BRANCH).unwrap();
         assert!(diff(&bots, &copy.path, &synced.base).is_ok());
@@ -1116,5 +1703,646 @@ mod tests {
         assert!(valid_branch("aven/bot/jelly-2"));
         assert!(!valid_branch("aven/race/x"));
         assert!(!valid_branch("aven/bot/"));
+    }
+
+    // A crew's stack: cards commit on its branch, the user's folder changes
+    // only through Apply, by exactly the reviewed range.
+    #[cfg(not(windows))]
+    #[test]
+    fn stacks_cards_and_applies_exactly_the_reviewed_range() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+
+        // Card 1 passes its checks: stacked on the branch.
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\ncard one\n").unwrap();
+        std::fs::write(copy_path.join("new.txt"), "fresh\n").unwrap();
+        let one = stack_checked(&bots, &copy.path, &base, "Timer screen");
+        let first = one.commit.clone();
+        assert_ne!(first, base);
+        let branch_head =
+            race::text(race::run(&root, &["rev-parse", &format!("refs/heads/{BRANCH}")]).unwrap());
+        assert_eq!(branch_head, first);
+        // Nothing is left over in the copy once stacked.
+        assert!(diff(&bots, &copy.path, &first)
+            .unwrap()
+            .changes
+            .files
+            .is_empty());
+        // Its commit is Aven's, not the user's identity.
+        let author =
+            race::text(race::run(&root, &["log", "-1", "--format=%an <%ae> %s", &first]).unwrap());
+        assert_eq!(author, "Aven crew <crew@aven.invalid> Crew: Timer screen");
+
+        // Card 2 builds on top of it; stacking needs its starting point.
+        std::fs::write(copy_path.join("b.txt"), "keep\ncard two\n").unwrap();
+        let hash = checked(&bots, &copy.path, &first);
+        assert_eq!(
+            stack(&bots, &copy.path, BRANCH, &base, "Wrong parent", &hash).unwrap_err(),
+            STACK_MOVED
+        );
+        let two = stack_checked(&bots, &copy.path, &first, "Settings page");
+        let second = two.commit.clone();
+
+        // Each card's own change, and the combined one.
+        let own = range(&bots, &copy.path, &first, &second).unwrap();
+        assert_eq!(
+            own.changes
+                .files
+                .iter()
+                .map(|f| f.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b.txt"]
+        );
+        let combined = range(&bots, &copy.path, &base, &second).unwrap();
+        let mut paths: Vec<_> = combined
+            .changes
+            .files
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
+        paths.sort();
+        assert_eq!(paths, vec!["a.txt", "b.txt", "new.txt"]);
+        let shown = range_file_diff(&bots, &copy.path, &base, &second, "b.txt").unwrap();
+        assert_eq!(shown.original.as_deref(), Some("keep\n"));
+        assert_eq!(shown.current.as_deref(), Some("keep\ncard two\n"));
+        // A range backwards, or not on the stack, is refused.
+        assert!(range(&bots, &copy.path, &second, &base).is_err());
+
+        // A card at work on top changes nothing about the reviewed range.
+        std::fs::write(copy_path.join("a.txt"), "in progress\n").unwrap();
+        // Nothing reached the user's folder before Apply.
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        // Only the reviewed fingerprint lands.
+        assert_eq!(
+            apply_range(
+                &root,
+                &bots,
+                &copy.path,
+                &base,
+                &second,
+                "nope",
+                &cards(&[&one, &two])
+            )
+            .unwrap_err(),
+            FIX_CHANGED
+        );
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        // Every card must be the change its checks passed, in its place.
+        let whole = range(&bots, &copy.path, &base, &second).unwrap();
+        let forged = StackedCard {
+            commit: second.clone(),
+            hash: one.hash.clone(),
+        };
+        assert_eq!(
+            apply_range(
+                &root,
+                &bots,
+                &copy.path,
+                &base,
+                &second,
+                &whole.hash,
+                &cards(&[&one, &forged])
+            )
+            .unwrap_err(),
+            CARD_CHANGED
+        );
+        assert_eq!(
+            apply_range(
+                &root,
+                &bots,
+                &copy.path,
+                &base,
+                &second,
+                &whole.hash,
+                &cards(&[&two])
+            )
+            .unwrap_err(),
+            CARD_CHANGED
+        );
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        // Applying up to card 1 lands card 1 alone.
+        let up_to = range(&bots, &copy.path, &base, &first).unwrap();
+        apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &base,
+            &first,
+            &up_to.hash,
+            &cards(&[&one]),
+        )
+        .unwrap();
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\ncard one\n");
+        assert_eq!(read(&root.join("b.txt")), "keep\n");
+        // Then the rest, from where the user now is.
+        let rest = range(&bots, &copy.path, &first, &second).unwrap();
+        apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &first,
+            &second,
+            &rest.hash,
+            &cards(&[&two]),
+        )
+        .unwrap();
+        assert_eq!(read(&root.join("b.txt")), "keep\ncard two\n");
+        assert_eq!(read(&root.join("new.txt")), "fresh\n");
+        // The in-progress work stayed in the copy, never in the user's folder.
+        assert_eq!(read(&copy_path.join("a.txt")), "in progress\n");
+
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn never_applies_protected_paths_from_a_stack() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::create_dir_all(copy_path.join(".husky")).unwrap();
+        std::fs::write(copy_path.join(".husky/pre-commit"), "curl evil\n").unwrap();
+        let top = stack_checked(&bots, &copy.path, &base, "Hooks");
+        let reviewed = range(&bots, &copy.path, &base, &top.commit).unwrap();
+        let error = apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &base,
+            &top.commit,
+            &reviewed.hash,
+            &cards(&[&top]),
+        )
+        .unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        assert!(!root.join(".husky").exists());
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Paths git would quote (non-ASCII, a quote, a tab) are read as they
+    // are, so a protected folder never slips past by its spelling.
+    #[cfg(not(windows))]
+    #[test]
+    fn never_applies_protected_paths_git_would_quote() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::create_dir_all(copy_path.join(".claude/skills/café")).unwrap();
+        std::fs::write(
+            copy_path.join(".claude/skills/café/SKILL.md"),
+            "---\nallowed-tools: Bash(*)\n---\n",
+        )
+        .unwrap();
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        // A card's own fix, applied on its own.
+        let fix = diff(&bots, &copy.path, &base).unwrap();
+        assert!(fix
+            .changes
+            .files
+            .iter()
+            .any(|file| file.path == ".claude/skills/café/SKILL.md"));
+        let error = apply(&root, &bots, &copy.path, &base, &fix.hash).unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        assert!(!root.join(".claude").exists());
+        // And from the crew's branch.
+        let top = stack_checked(&bots, &copy.path, &base, "Skill");
+        let reviewed = range(&bots, &copy.path, &base, &top.commit).unwrap();
+        assert!(reviewed
+            .changes
+            .files
+            .iter()
+            .any(|file| file.path == ".claude/skills/café/SKILL.md"));
+        let error = apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &base,
+            &top.commit,
+            &reviewed.hash,
+            &cards(&[&top]),
+        )
+        .unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        assert!(!root.join(".claude").exists());
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Names a case-insensitive file system folds into a protected one (APFS
+    // reads "ſ" as "s" and "ﬁ" as "fi") never reach your settings folders.
+    #[cfg(not(windows))]
+    #[test]
+    fn never_applies_look_alike_settings_names() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::create_dir_all(copy_path.join(".v\u{17f}code")).unwrap();
+        std::fs::write(
+            copy_path.join(".v\u{17f}code/tasks.json"),
+            "{\"tasks\":[{\"command\":\"echo pwned\"}]}\n",
+        )
+        .unwrap();
+        std::fs::write(copy_path.join(".mcp.j\u{17f}on"), "{}\n").unwrap();
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        // A card's own fix, applied on its own: refused.
+        let fix = diff(&bots, &copy.path, &base).unwrap();
+        let error = apply(&root, &bots, &copy.path, &base, &fix.hash).unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        // Never stacked either.
+        let error = stack(&bots, &copy.path, BRANCH, &base, "Look-alike", &fix.hash).unwrap_err();
+        assert!(error.starts_with(LOOK_ALIKE), "{error}");
+        assert_eq!(head(&copy_path).unwrap(), base);
+        // A commit made some other way (an older Aven) is refused at Apply
+        // and at a restack.
+        let sha = race::snapshot(&copy_path, &base, "Crew: Look-alike").unwrap();
+        move_branch(&copy_path, BRANCH, &sha, &base).unwrap();
+        let reviewed = range(&bots, &copy.path, &base, &sha).unwrap();
+        let card = StackedCard {
+            commit: sha.clone(),
+            hash: reviewed.hash.clone(),
+        };
+        let error = apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &base,
+            &sha,
+            &reviewed.hash,
+            &cards(&[&card]),
+        )
+        .unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        std::fs::write(root.join("b.txt"), "keep\nmine\n").unwrap();
+        let error = restack(&root, &bots, &copy.path, BRANCH, &base, &[sha]).unwrap_err();
+        assert!(error.contains(LOOK_ALIKE), "{error}");
+        // Your folder never got them, under either spelling.
+        assert!(!root.join(".vscode").exists());
+        assert!(!root.join(".mcp.json").exists());
+        assert_eq!(read(&root.join("a.txt")), "one\ntwo\n");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Ordinary names with accents apply like any other file, for a crew's
+    // card and for the Fixer; a dotfile-style name that isn't plain ASCII
+    // is kept out, as a margin.
+    #[cfg(not(windows))]
+    #[test]
+    fn applies_accented_names_but_not_accented_dotfiles() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::create_dir_all(copy_path.join("Donn\u{e9}es")).unwrap();
+        std::fs::write(copy_path.join("Donn\u{e9}es/notes.md"), "notes\n").unwrap();
+        std::fs::write(copy_path.join("R\u{e9}sum\u{e9}.md"), "cv\n").unwrap();
+        // The Fixer's own Apply.
+        let fix = diff(&bots, &copy.path, &base).unwrap();
+        apply(&root, &bots, &copy.path, &base, &fix.hash).unwrap();
+        assert_eq!(read(&root.join("Donn\u{e9}es/notes.md")), "notes\n");
+        assert_eq!(read(&root.join("R\u{e9}sum\u{e9}.md")), "cv\n");
+        // A crew card: stacked and applied from the branch.
+        std::fs::write(copy_path.join("Donn\u{e9}es/notes.md"), "more notes\n").unwrap();
+        let card = stack_checked(&bots, &copy.path, &base, "Notes");
+        let reviewed = range(&bots, &copy.path, &base, &card.commit).unwrap();
+        std::fs::remove_dir_all(root.join("Donn\u{e9}es")).unwrap();
+        std::fs::remove_file(root.join("R\u{e9}sum\u{e9}.md")).unwrap();
+        apply_range(
+            &root,
+            &bots,
+            &copy.path,
+            &base,
+            &card.commit,
+            &reviewed.hash,
+            &cards(&[&card]),
+        )
+        .unwrap();
+        assert_eq!(read(&root.join("Donn\u{e9}es/notes.md")), "more notes\n");
+        // A dotfile-style name with an accent: never stacked or applied.
+        std::fs::create_dir_all(copy_path.join(".n\u{f6}tes")).unwrap();
+        std::fs::write(copy_path.join(".n\u{f6}tes/run.sh"), "x\n").unwrap();
+        let fix = diff(&bots, &copy.path, &card.commit).unwrap();
+        let error = stack(&bots, &copy.path, BRANCH, &card.commit, "Dot", &fix.hash).unwrap_err();
+        assert!(error.starts_with(LOOK_ALIKE), "{error}");
+        assert!(error.contains(".n\u{f6}tes/run.sh"), "{error}");
+        let error = apply(&root, &bots, &copy.path, &card.commit, &fix.hash).unwrap_err();
+        assert!(error.starts_with(PROTECTED_FIX), "{error}");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Settings an agent planted under a look-alike name are swept like any.
+    #[cfg(not(windows))]
+    #[test]
+    fn sweeps_look_alike_settings_from_the_copy() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        sync(&root, &bots, &copy.path, BRANCH).unwrap();
+        std::fs::create_dir_all(copy_path.join(".claude")).unwrap();
+        std::fs::write(copy_path.join(".claude/\u{17f}ettings.json"), "{}\n").unwrap();
+        std::fs::write(copy_path.join(".mcp.j\u{17f}on"), "{}\n").unwrap();
+        let mut found = planted(&bots, &copy.path, true).unwrap();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                ".claude/\u{17f}ettings.json".to_string(),
+                ".mcp.j\u{17f}on".to_string()
+            ]
+        );
+        assert!(planted(&bots, &copy.path, false).unwrap().is_empty());
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // What the copy's attributes say never hides the branch's change from
+    // Review: files are text or binary by what they hold.
+    #[cfg(not(windows))]
+    #[test]
+    fn reviews_the_branch_whatever_the_copys_attributes_say() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        let top = stack_checked(&bots, &copy.path, &base, "Text").commit;
+        let before = range(&bots, &copy.path, &base, &top).unwrap();
+        // The card at work writes an attributes file that calls everything binary.
+        std::fs::write(copy_path.join(".gitattributes"), "* -diff\n").unwrap();
+        let after = range(&bots, &copy.path, &base, &top).unwrap();
+        assert_eq!(after.hash, before.hash);
+        let file = &after.changes.files[0];
+        assert_eq!(file.path, "a.txt");
+        assert!(!file.binary);
+        assert_eq!((file.additions, file.deletions), (1, 0));
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // A card's file the user's .gitignore now covers still comes along.
+    #[cfg(not(windows))]
+    #[test]
+    fn restacks_files_the_users_gitignore_now_covers() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\ncard one\n").unwrap();
+        let first = stack_checked(&bots, &copy.path, &base, "One").commit;
+        std::fs::create_dir_all(copy_path.join("gen")).unwrap();
+        std::fs::write(copy_path.join("gen/table.ts"), "generated\n").unwrap();
+        let second = stack_checked(&bots, &copy.path, &first, "Two").commit;
+        // The user ignores gen/ now (uncommitted).
+        std::fs::write(root.join(".gitignore"), "node_modules/\ngen/\n").unwrap();
+        let moved = restack(&root, &bots, &copy.path, BRANCH, &base, &[first, second]).unwrap();
+        let own = range(&bots, &copy.path, &moved.commits[0], &moved.commits[1]).unwrap();
+        assert_eq!(
+            own.changes
+                .files
+                .iter()
+                .map(|f| (f.path.as_str(), f.status.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("gen/table.ts", "added")]
+        );
+        assert_eq!(read(&copy_path.join("gen/table.ts")), "generated\n");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // A card is stacked only as the change its checks passed; one stacked
+    // already is found again; one stopped meanwhile comes back off.
+    #[cfg(not(windows))]
+    #[test]
+    fn stacks_only_the_checked_change_and_takes_it_off_again() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nchecked\n").unwrap();
+        let hash = checked(&bots, &copy.path, &base);
+        // Something wrote in the copy after the checks: not stacked.
+        std::fs::write(copy_path.join("later.txt"), "after the check\n").unwrap();
+        assert_eq!(
+            stack(&bots, &copy.path, BRANCH, &base, "Card", &hash).unwrap_err(),
+            STACK_CHANGED
+        );
+        assert_eq!(head(&copy_path).unwrap(), base);
+        std::fs::remove_file(copy_path.join("later.txt")).unwrap();
+        let commit = stack(&bots, &copy.path, BRANCH, &base, "Card", &hash).unwrap();
+        // Asked again (Aven stopped before it saved the commit): the same one.
+        assert_eq!(
+            stack(&bots, &copy.path, BRANCH, &base, "Card", &hash).unwrap(),
+            commit
+        );
+        // Its card was stopped while it was stacked: the branch goes back,
+        // the files stay.
+        unstack(&bots, &copy.path, BRANCH, &commit, &base).unwrap();
+        assert_eq!(head(&copy_path).unwrap(), base);
+        assert_eq!(read(&copy_path.join("a.txt")), "one\ntwo\nchecked\n");
+        unstack(&bots, &copy.path, BRANCH, &commit, &base).unwrap();
+        // Throwing work away only from the commit it recorded.
+        let again = stack(&bots, &copy.path, BRANCH, &base, "Card", &hash).unwrap();
+        assert_eq!(
+            discard(&bots, &copy.path, &base, BRANCH, Some(&base)).unwrap_err(),
+            STACK_MOVED
+        );
+        assert_eq!(head(&copy_path).unwrap(), again);
+        discard(&bots, &copy.path, &base, BRANCH, Some(&again)).unwrap();
+        assert_eq!(head(&copy_path).unwrap(), base);
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // A copy git forgot is made again where the crew's stack is.
+    #[cfg(not(windows))]
+    #[test]
+    fn makes_a_crews_copy_again_at_its_stack() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\nstacked\n").unwrap();
+        let top = stack_checked(&bots, &copy.path, &base, "Card").commit;
+        std::fs::remove_dir_all(&copy_path).unwrap();
+        let again = ensure_copy(&root, &bots, &key, BRANCH, Some(&top)).unwrap();
+        assert_eq!(head(Path::new(&again.path)).unwrap(), top);
+        assert_eq!(
+            read(&PathBuf::from(&again.path).join("a.txt")),
+            "one\ntwo\nstacked\n"
+        );
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    // Review sees everything Apply lands: modes, links and binary files.
+    #[cfg(not(windows))]
+    #[test]
+    fn reviews_modes_links_and_binary_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        let script = copy_path.join("b.txt");
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink("/Users/someone/.ssh", copy_path.join("keys")).unwrap();
+        std::fs::write(copy_path.join("logo.png"), b"\x89PNG\0\0data").unwrap();
+        let top = stack_checked(&bots, &copy.path, &base, "Files").commit;
+        let reviewed = range(&bots, &copy.path, &base, &top).unwrap();
+        let file = |path: &str| {
+            reviewed
+                .changes
+                .files
+                .iter()
+                .find(|file| file.path == path)
+                .unwrap_or_else(|| panic!("{path} isn't in the review"))
+        };
+        assert_eq!(
+            (
+                file("b.txt").old_mode.as_str(),
+                file("b.txt").new_mode.as_str()
+            ),
+            ("100644", "100755")
+        );
+        assert_eq!(file("keys").new_mode, "120000");
+        assert_eq!(
+            file("keys").link_target.as_deref(),
+            Some("/Users/someone/.ssh")
+        );
+        assert!(file("logo.png").binary);
+        assert_eq!(file("logo.png").status, "added");
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn restacks_onto_the_users_files_or_keeps_the_stack_as_it_was() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\ncard one\n").unwrap();
+        let first = stack_checked(&bots, &copy.path, &base, "One").commit;
+        std::fs::write(copy_path.join("new.txt"), "card two\n").unwrap();
+        let second = stack_checked(&bots, &copy.path, &first, "Two").commit;
+
+        // The user moved on elsewhere in the file: the stack replays on top.
+        std::fs::write(root.join("b.txt"), "keep\nmine\n").unwrap();
+        let moved = restack(
+            &root,
+            &bots,
+            &copy.path,
+            BRANCH,
+            &base,
+            &[first.clone(), second.clone()],
+        )
+        .unwrap();
+        assert_eq!(moved.commits.len(), 2);
+        assert_eq!(moved.hashes.len(), 2);
+        assert_ne!(moved.base, base);
+        // Each replayed card applies by its own new fingerprint.
+        let replayed: Vec<StackedCard> = moved
+            .commits
+            .iter()
+            .zip(&moved.hashes)
+            .map(|(commit, hash)| StackedCard {
+                commit: commit.clone(),
+                hash: hash.clone(),
+            })
+            .collect();
+        assert_eq!(
+            range(&bots, &copy.path, &moved.commits[0], &moved.commits[1])
+                .unwrap()
+                .hash,
+            moved.hashes[1]
+        );
+        assert_eq!(replayed.len(), 2);
+        assert_eq!(read(&copy_path.join("a.txt")), "one\ntwo\ncard one\n");
+        assert_eq!(read(&copy_path.join("b.txt")), "keep\nmine\n");
+        assert_eq!(read(&copy_path.join("new.txt")), "card two\n");
+        let own = range(&bots, &copy.path, &moved.commits[0], &moved.commits[1]).unwrap();
+        assert_eq!(own.changes.files.len(), 1);
+        assert_eq!(own.changes.files[0].path, "new.txt");
+
+        // The user rewrote the very lines card one changed: nothing is lost.
+        std::fs::write(root.join("a.txt"), "rewritten\n").unwrap();
+        let error = restack(
+            &root,
+            &bots,
+            &copy.path,
+            BRANCH,
+            &moved.base,
+            &moved.commits,
+        )
+        .unwrap_err();
+        assert!(error.starts_with(RESTACK_CONFLICT), "{error}");
+        assert!(error.contains("card 1 of 2"), "{error}");
+        assert_eq!(head(&copy_path).unwrap(), moved.commits[1]);
+        assert_eq!(read(&copy_path.join("a.txt")), "one\ntwo\ncard one\n");
+        assert_eq!(read(&copy_path.join("new.txt")), "card two\n");
+        // A card at work in the copy stops a restack.
+        std::fs::write(copy_path.join("wip.txt"), "busy\n").unwrap();
+        assert!(restack(
+            &root,
+            &bots,
+            &copy.path,
+            BRANCH,
+            &moved.base,
+            &moved.commits
+        )
+        .is_err());
+        assert!(copy_path.join("wip.txt").is_file());
+        // The user's folder never changed through any of it.
+        assert_eq!(read(&root.join("a.txt")), "rewritten\n");
+        assert!(!root.join("new.txt").exists());
+
+        remove(&root, &bots, &copy.path, BRANCH).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&bots);
     }
 }

@@ -4044,13 +4044,13 @@ export async function runDevSmoke(
 
   // A crew in the project, with the stand-in as each member: the Builder
   // works in the crew's copy with its rules, the Checker says not yet once,
-  // Security passes, the card is Ready after round 2, Apply lands exactly
-  // the reviewed change, and a turn prepared when the crew is turned off
-  // never goes.
+  // Security passes, the card is Ready after round 2 and stacked on the
+  // crew's branch, Apply all lands exactly the reviewed change, and a turn
+  // prepared when the crew is turned off never goes.
   const crew = get().crew;
   if (safe && crew)
     await step(
-      "a crew builds, checks and secures a card, applies it as reviewed, and stops when off",
+      "a crew builds, checks and secures a card, stacks it on its branch, applies it as reviewed, and stops when off",
       () => checkCrew(get, config.projectPath, crew),
     );
 

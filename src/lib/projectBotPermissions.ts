@@ -252,10 +252,31 @@ export const PROTECTED_FIX_PATHS = [
   ".pre-commit-config.yaml",
 ] as const;
 
-/** The protected paths among a fix's files. */
+/**
+ * A name as a file system that ignores case reads it: NFKC-normalised and
+ * fully case-folded, so "ſ" is "s", "ﬁ" is "fi" and a full-width "ｃ" is "c"
+ * (APFS reads the first two that way), not just its ASCII letters.
+ */
+export function foldedName(name: string): string {
+  return name.normalize("NFKC").toUpperCase().toLowerCase().normalize("NFKC");
+}
+
+/**
+ * The protected paths among a fix's files. A name git would have to quote
+ * (a quote or a control character in it) is never applied either. The
+ * top-level name is matched folded ("ſ" is "s" on a Mac), without the
+ * trailing dots and spaces Windows drops; and, as a margin, a dotfile-style
+ * name that isn't plain ASCII is kept out too. Ordinary names with accents
+ * ("Données", "Résumé.md") are like any other.
+ */
 export function protectedFixPaths(paths: readonly string[]): string[] {
   return paths.filter((path) => {
-    const first = path.replace(/\\/g, "/").split("/")[0]!.toLowerCase();
+    // oxlint-disable-next-line no-control-regex -- control characters are what this refuses.
+    if (path.startsWith('"') || /[\u0000-\u001f\u007f]/.test(path)) return true;
+    const top = path.replace(/\\/g, "/").split("/")[0]!;
+    // oxlint-disable-next-line no-control-regex -- ASCII is what this keeps.
+    if (top.startsWith(".") && /[^\u0000-\u007f]/.test(top)) return true;
+    const first = foldedName(top).replace(/[. ]+$/, "");
     return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
   });
 }

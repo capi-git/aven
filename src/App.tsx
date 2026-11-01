@@ -517,6 +517,7 @@ import {
   startHarnessBridge,
   stopStreaming,
   pickTextHarness,
+  typedTurn,
   type ApprovalDecision,
   type HarnessEvent,
   type UserQuestionReply,
@@ -1269,6 +1270,8 @@ export default function App({
   const [crewWorkingChats, setCrewWorkingChats] =
     useState<ReadonlySet<string>>(NO_BOT_CHATS);
   const [crewSheet, setCrewSheet] = useState<string | null>(null);
+  /** The page the crew's settings open at: its member gallery, or its own. */
+  const [crewSheetPage, setCrewSheetPage] = useState<string | undefined>();
   const [addProjectAnchor, setAddProjectAnchor] =
     useState<HTMLButtonElement | null>(null);
   const [branchAnchor, setBranchAnchor] = useState<HTMLButtonElement | null>(
@@ -7304,7 +7307,7 @@ export default function App({
 
       if (current.busy && !pendingSwitch) {
         const visible = displayAttachments(attachments);
-        const cards = userTurnCards(noteCard);
+        const cards = { ...userTurnCards(noteCard), ...typedTurn(options) };
         setSessions((prev) =>
           prev.map((s) => {
             if (s.id !== sessionId) return s;
@@ -7466,6 +7469,9 @@ export default function App({
         ...(rawCommand ? undefined : userTurnCards(noteCard, card)),
         ...(options?.discussion ? { discussion: options.discussion } : {}),
         ...(options?.botWake ? { botWake: options.botWake } : {}),
+        // Your own words, as you typed them: a member's chat offers to
+        // queue what it took down from these only.
+        ...typedTurn(options),
         ...(options?.userBlockId ? { id: options.userBlockId } : {}),
         // The orchestrator writes these turns, not the user; hide them.
         ...(options?.managed ? { internal: true } : {}),
@@ -8418,9 +8424,9 @@ export default function App({
                         ...message,
                         text,
                         attachments,
-                        // Rewritten, it shows as you wrote it.
+                        // Rewritten, it shows as you wrote it, and is yours.
                         ...(text !== message.text
-                          ? { displayText: undefined }
+                          ? { displayText: undefined, typed: true as const }
                           : {}),
                       }
                     : message,
@@ -8665,8 +8671,9 @@ export default function App({
   });
 
   // "Ask Codex to stop it" on a second dev server queues a message here.
+  // Its words are Aven's, not yours: it isn't marked typed.
   useDuplicateServerMessenger((sessionId, text) =>
-    onSubmit(sessionId, text, [], { followUpBehavior: "queue", typed: true }),
+    onSubmit(sessionId, text, [], { followUpBehavior: "queue" }),
   );
 
   const autoContinueKey = sessions
@@ -11378,7 +11385,10 @@ export default function App({
           closeUtilityViews();
           onOpenBoard(path);
         },
-        openSettings: setCrewSheet,
+        openSettings: (path, page) => {
+          setCrewSheetPage(page);
+          setCrewSheet(path);
+        },
         stop: stopCrewChat,
       }),
     [closeUtilityViews, onOpenBoard, openCrewChat, stopCrewChat],
@@ -11475,8 +11485,10 @@ export default function App({
     (path: string, action: SidebarCrewAction) => {
       if (action === "pause" || action === "resume")
         setCrewPaused(path, action === "pause");
-      else if (action === "settings") setCrewSheet(path);
-      else {
+      else if (action === "settings") {
+        setCrewSheetPage(undefined);
+        setCrewSheet(path);
+      } else {
         // Open crew, and Tell the crew…: the Feed's box is on its Board,
         // and Tell the crew… puts the cursor in it.
         closeUtilityViews();
@@ -12978,6 +12990,7 @@ export default function App({
             {crewSheet && botsAvailable() ? (
               <CrewSettingsSheet
                 path={crewSheet}
+                {...(crewSheetPage ? { initialPage: crewSheetPage } : {})}
                 fixerName={(() => {
                   const bot = getProjectBot(crewSheet);
                   return bot?.on ? botName(bot) : undefined;

@@ -44,13 +44,13 @@ describe("a Stuck card's buttons", () => {
 });
 
 describe("a Queued card", () => {
-  it("can go back to Ideas before it starts", () => {
+  it("can go back to Ideas before it starts (Not now)", () => {
     const queued = queueCard(
       { id: "c", title: "Dark mode", brief: "x", from: "you", maxRounds: 3 },
       1,
     );
     expect(crewBoardInfo(queued, names).actions).toEqual([
-      { id: "back-to-ideas", label: "Back to Ideas" },
+      { id: "back-to-ideas", label: "Not now" },
     ]);
   });
 });

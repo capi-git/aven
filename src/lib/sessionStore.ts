@@ -529,6 +529,8 @@ function sanitizeBlock(block: Block): Block | null {
     block.botWake.label.trim()
   )
     next.botWake = { label: block.botWake.label.slice(0, 200) };
+  if (block.role === "user" && block.typed === true && !next.botWake)
+    next.typed = true;
   if (block.tool) {
     // When a call started running only matters while it runs.
     const { startedAt, ...tool } = block.tool;

@@ -1,5 +1,4 @@
 import {
-  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -11,63 +10,36 @@ import {
   CrewCritter,
   CrewCritters,
   CrewRoundDots,
-  crewMarkState,
   CrewStatusPill,
 } from "../chrome/CrewCritter";
-import { ConfirmDialog } from "../chrome/ConfirmDialog";
-import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
-import { ArrowUp, MoreHorizontal, Pause, Play } from "../chrome/icons";
+import { ExplorerMenu } from "../chrome/ExplorerMenu";
+import { MoreHorizontal } from "../chrome/icons";
 import { Modal } from "../chrome/Modal";
 import { TeamCardButton } from "../chrome/TeamCard";
-import {
-  projectDisplayName,
-  useProjectLabels,
-} from "../hooks/useProjectLabels";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { claudeWeeklyUsed } from "../hooks/useProjectBots";
 import {
-  allowMoreRunsToday,
   applyCrewCard,
+  requestCrewReview,
   discardCrewCard,
   markCrewFixChanged,
   resumeCrewCard,
-  setCrewPaused,
-  stopCrewNow,
-  subscribeCrewTell,
-  takeCrewTell,
-  tellCrew,
-  turnOffCrew,
   useCrewWorkspace,
 } from "../lib/crewActions";
 import {
-  allCrewRunsToday,
-  crewGate,
-  crewHoldGate,
-  crewLimitsLine,
-} from "../lib/crewLimits";
-import {
-  CREW_ROLE_INFO,
   crewMemberById,
-  crewMembers,
   memberCritter,
   crewCard,
   securityReviewBy,
   updateCrew,
-  useCrewsAllRunsPerDay,
   withoutNote,
   type Crew,
   type CrewCard,
   type CrewFeedEntry,
 } from "../lib/crews";
-import {
-  titleBeside,
-  type CrewBoardInfo,
-  type CrewMemberView,
-} from "../lib/crewView";
+import type { CrewBoardInfo } from "../lib/crewView";
 import { errorText, logError } from "../lib/errors";
 import { addFeatureIdea } from "../lib/featureCards";
 import { botCopyHost } from "../lib/projectBotCopy";
-import { getProjectBot, runsToday } from "../lib/projectBots";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import {
   FEED_FOLLOW_START,
@@ -100,234 +72,6 @@ function clock(at: number): string {
   } catch {
     return "";
   }
-}
-
-/** The header: critters, "aven-site crew", its limits line, Pause and ⋯. */
-export const CrewHeader = memo(function CrewHeader({
-  crew,
-  now,
-  fixerRuns,
-}: {
-  crew: Crew;
-  now: number;
-  fixerRuns: number;
-}) {
-  const labels = useProjectLabels();
-  const workspace = useCrewWorkspace();
-  const [menu, setMenu] = useState<HTMLElement | null>(null);
-  const [confirmingOff, setConfirmingOff] = useState(false);
-  const name = projectDisplayName(crew.path, labels);
-  const roles = crewMembers(crew)
-    .filter((member) => member.role !== "fixer" || fixerRuns >= 0)
-    .map((member) => ({
-      id: member.id,
-      role: member.role,
-      ...(member.critter ? { critter: memberCritter(member) } : {}),
-    }));
-  const gate = crewGate({
-    crew,
-    now,
-    weeklyUsed: claudeWeeklyUsed(now),
-    fixerRuns,
-    allRuns: 0,
-  });
-  const items: ExplorerMenuItem[] = [
-    { kind: "item", id: "stop", label: "Stop now" },
-    ...(!gate.ok && gate.reason === "daily-cap"
-      ? [{ kind: "item" as const, id: "more", label: "Allow 10 more today" }]
-      : []),
-    { kind: "item", id: "settings", label: "Settings…" },
-    { kind: "sep" },
-    { kind: "item", id: "off", label: "Turn the crew off" },
-  ];
-  return (
-    <header
-      className="work-board-header crew-header"
-      data-crew-header={crew.path}
-    >
-      <CrewCritters
-        path={crew.path}
-        roles={roles}
-        max={5}
-        className="crew-header-critters"
-      />
-      <div className="work-board-heading">
-        <h1>{name} crew</h1>
-        <p className="work-board-today" data-crew-limits>
-          {crewLimitsLine(crew, now, fixerRuns)}
-        </p>
-      </div>
-      <div className="crew-header-actions">
-        <TeamCardButton
-          onClick={() => setCrewPaused(crew.path, !crew.paused)}
-          title={crew.paused ? "Resume the crew" : "Pause the crew"}
-        >
-          {crew.paused ? (
-            <Play className="size-3" />
-          ) : (
-            <Pause className="size-3" />
-          )}
-          <span>{crew.paused ? "Resume" : "Pause"}</span>
-        </TeamCardButton>
-        <TeamCardButton
-          variant="ghost"
-          aria-label="More for the crew"
-          aria-haspopup="menu"
-          aria-expanded={!!menu}
-          onClick={(event) => setMenu(menu ? null : event.currentTarget)}
-        >
-          <MoreHorizontal size={14} />
-        </TeamCardButton>
-      </div>
-      {menu ? (
-        <ExplorerMenu
-          x={0}
-          y={0}
-          anchor={menu}
-          align="end"
-          gap={4}
-          ariaLabel={`${name} crew actions`}
-          items={items}
-          onClose={() => setMenu(null)}
-          onPick={(id) => {
-            setMenu(null);
-            if (id === "stop") void stopCrewNow(crew.path);
-            else if (id === "more") allowMoreRunsToday(crew.path);
-            else if (id === "settings") workspace?.openSettings(crew.path);
-            else if (id === "off") setConfirmingOff(true);
-          }}
-        />
-      ) : null}
-      {confirmingOff ? (
-        <ConfirmDialog
-          title="Turn the crew off?"
-          body="What it is doing stops and nothing new starts. Its cards and its copy stay, so Ready work is still there when you turn it on."
-          confirmLabel="Turn off"
-          onConfirm={() => {
-            setConfirmingOff(false);
-            void turnOffCrew(crew.path);
-          }}
-          onCancel={() => setConfirmingOff(false)}
-        />
-      ) : null}
-    </header>
-  );
-});
-
-/**
- * Why the crew holds, when a limit (or you) holds it and work waits: what
- * holds it, what happens next, what waits, and a way on.
- */
-export function CrewHoldLine({
-  crew,
-  now,
-  fixerRuns,
-}: {
-  crew: Crew;
-  now: number;
-  fixerRuns: number;
-}) {
-  const workspace = useCrewWorkspace();
-  const allRunsCap = useCrewsAllRunsPerDay();
-  const held = crewHoldGate({
-    crew,
-    now,
-    weeklyUsed: claudeWeeklyUsed(now),
-    fixerRuns,
-    // Every crew's runs, as the runner counts them for the ceiling.
-    allRuns: allCrewRunsToday(now, (path) => {
-      const bot = getProjectBot(path);
-      return bot ? runsToday(bot, now) : 0;
-    }),
-    allRunsCap,
-  });
-  if (!held) return null;
-  const { gate, waiting } = held;
-  const waits = waiting
-    ? ` ${waiting.title} waits in ${waiting.stage === "ready" ? "Review" : "Building"}.`
-    : "";
-  return (
-    <div className="crew-hold" role="status" data-crew-hold={gate.reason}>
-      <Pause className="size-3.5 crew-hold-icon" />
-      <div className="crew-hold-text">
-        <strong>{gate.title}</strong>
-        <span>
-          {gate.detail}
-          {waits}
-        </span>
-      </div>
-      {gate.reason === "daily-cap" ? (
-        <TeamCardButton
-          size="compact"
-          onClick={() => allowMoreRunsToday(crew.path)}
-        >
-          Allow 10 more today
-        </TeamCardButton>
-      ) : gate.reason === "paused" ? (
-        <TeamCardButton
-          size="compact"
-          onClick={() => setCrewPaused(crew.path, false)}
-        >
-          Resume
-        </TeamCardButton>
-      ) : gate.reason === "no-member" && workspace ? (
-        <TeamCardButton
-          size="compact"
-          onClick={() => workspace.openSettings(crew.path)}
-        >
-          Settings
-        </TeamCardButton>
-      ) : null}
-    </div>
-  );
-}
-
-/** The crew's bots, one tile each: mark, name, role, word and one live line. */
-export function CrewStrip({
-  path,
-  members,
-}: {
-  path: string;
-  members: readonly CrewMemberView[];
-}) {
-  const workspace = useCrewWorkspace();
-  return (
-    <div className="crew-strip" role="list" aria-label="The crew">
-      {members.map((member) => (
-        <button
-          key={member.id}
-          type="button"
-          role="listitem"
-          className="crew-strip-tile"
-          data-crew-tile={member.id}
-          data-crew-role={member.role}
-          data-working={member.active || undefined}
-          title={`Open ${member.name}'s chat`}
-          onClick={() => workspace?.openChat(path, member.id)}
-        >
-          <CrewCritter
-            path={path}
-            role={member.role}
-            {...(member.critter ? { critter: member.critter } : {})}
-            state={crewMarkState(member.status, member.active)}
-            className="crew-strip-critter"
-          />
-          <span className="crew-strip-text">
-            <span className="crew-strip-name">
-              <strong>{member.name}</strong>
-              {titleBeside(member.name, member.roleLabel) ? (
-                <span className="crew-strip-role">{member.roleLabel}</span>
-              ) : null}
-              {member.status ? <CrewStatusPill status={member.status} /> : null}
-            </span>
-            <span className="crew-strip-line">
-              {member.line ?? member.job ?? CREW_ROLE_INFO[member.role].job}
-            </span>
-          </span>
-        </button>
-      ))}
-    </div>
-  );
 }
 
 /** A crew card's face on the Board: its stage, round dots and what it waits for. */
@@ -485,8 +229,9 @@ function feedTo(crew: Crew, entry: CrewFeedEntry): string | undefined {
 
 /**
  * The crew's feed: handoffs, verdicts, new ideas, holds and your notes, the
- * newest last, and the Tell the crew box. What you tell the crew is kept as
- * standing guidance every bot reads at its next turn.
+ * newest last, and the Tell the crew box. What you tell the crew becomes a
+ * card it builds; with Remember for every card, standing guidance every bot
+ * reads at its next turn.
  */
 export function CrewFeed({
   crew,
@@ -496,7 +241,6 @@ export function CrewFeed({
   /** A member's name, by its id or its role. */
   name: (who: string) => string;
 }) {
-  const [text, setText] = useState("");
   // The newest entries, and more on Show earlier: the store keeps the rest.
   const [shown, setShown] = useState(FEED_SHOWN);
   const [follow, setFollow] = useState<FeedFollow>(FEED_FOLLOW_START);
@@ -508,7 +252,11 @@ export function CrewFeed({
   const seenNewest = useRef(newest);
   const keepFromBottom = useRef<number | null>(null);
   const entries = crew.feed.slice(-shown);
-  const standing = new Set(crew.notes.map((note) => note.text));
+  // A standing note is the entry it was told in (the same words, the same
+  // moment), not every later message with those words, like a second "go".
+  const standing = new Map(
+    crew.notes.map((note) => [`${note.at}\n${note.text}`, note]),
+  );
   const today = new Date().toDateString();
   let lastDay = "";
   const toBottom = () => {
@@ -519,17 +267,6 @@ export function CrewFeed({
   useLayoutEffect(() => {
     toBottom();
   }, []);
-  // Tell the crew… from the sidebar: the cursor goes in the box.
-  const tellBox = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const take = () => {
-      // After the frame that shows the Board, so a tab just picked can take focus.
-      if (takeCrewTell(crew.path))
-        requestAnimationFrame(() => tellBox.current?.focus());
-    };
-    take();
-    return subscribeCrewTell(take);
-  }, [crew.path]);
   // New entries: followed at the bottom, counted while you read further up.
   useLayoutEffect(() => {
     if (newest === seenNewest.current) return;
@@ -610,10 +347,8 @@ export function CrewFeed({
                   ) : null;
                 lastDay = day;
                 const note =
-                  entry.kind === "note" &&
-                  entry.who === "you" &&
-                  standing.has(entry.text)
-                    ? crew.notes.find((item) => item.text === entry.text)
+                  entry.kind === "note" && entry.who === "you"
+                    ? standing.get(`${entry.at}\n${entry.text}`)
                     : undefined;
                 return (
                   <FeedRow
@@ -665,36 +400,6 @@ export function CrewFeed({
           </button>
         ) : null}
       </div>
-      <form
-        className="crew-tell"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!text.trim()) return;
-          tellCrew(crew.path, text);
-          setText("");
-          // What you told it is the newest entry: show it.
-          setFollow(FEED_FOLLOW_START);
-        }}
-      >
-        <input
-          ref={tellBox}
-          className="work-board-input crew-tell-input"
-          type="text"
-          placeholder="Tell the crew…"
-          aria-label="Tell the crew"
-          value={text}
-          maxLength={500}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <button
-          type="submit"
-          className="crew-tell-send"
-          aria-label="Send to the crew"
-          disabled={!text.trim()}
-        >
-          <ArrowUp className="size-3.5" />
-        </button>
-      </form>
     </section>
   );
 }
@@ -962,6 +667,12 @@ export function CrewReadySheet({
       ? Math.max(1, Math.round((card.endedAt - card.startedAt) / 60_000))
       : null;
   const apply = async () => {
+    // On the crew's branch: it lands from the batch's Review.
+    if (card.stacked) {
+      requestCrewReview(crew.path);
+      onClose();
+      return;
+    }
     setBusy(true);
     setProblem(null);
     const error = await applyCrewCard(crew.path, card.id).catch((reason) =>

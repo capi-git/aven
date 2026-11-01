@@ -50,6 +50,13 @@ pub struct RaceFile {
     pub additions: u32,
     pub deletions: u32,
     pub binary: bool,
+    /// Its git mode before and after ("100644", "100755", "120000" for a
+    /// link), "000000" where it didn't exist.
+    pub old_mode: String,
+    pub new_mode: String,
+    /// What a link points at, when it is one after the change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_target: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -152,6 +159,11 @@ pub(crate) fn text(bytes: Vec<u8>) -> String {
 struct ScratchIndex(PathBuf);
 
 impl ScratchIndex {
+    /// A scratch index with nothing in it yet.
+    fn empty() -> Self {
+        Self(std::env::temp_dir().join(format!("aven-race-index-{}", uuid::Uuid::new_v4())))
+    }
+
     fn seeded_from(worktree: &Path) -> Result<Self, String> {
         let reported = text(run(worktree, &["rev-parse", "--git-path", "index"])?);
         let own = if Path::new(&reported).is_absolute() {
@@ -298,36 +310,221 @@ pub fn create_lane(
     })
 }
 
-fn parse_numstat(raw: &str) -> Vec<(String, u32, u32, bool)> {
-    raw.lines()
-        .filter_map(|line| {
-            let mut parts = line.splitn(3, '\t');
-            let added = parts.next()?;
-            let removed = parts.next()?;
-            let path = parts.next()?.to_string();
-            let binary = added == "-" || removed == "-";
-            Some((
-                path,
-                added.parse().unwrap_or(0),
-                removed.parse().unwrap_or(0),
-                binary,
-            ))
+/// A tree with nothing in it, which every git knows without storing it.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// Git for reading a diff the copy can't steer: no attributes from the
+/// user's config, and (on a git that reads `GIT_ATTR_SOURCE`) none from the
+/// checkout or its commits either. Counts come from `--text`, and whether a
+/// file is binary from what it holds, so an attributes file never hides a
+/// change from Review.
+fn diff_git(dir: &Path, index: Option<&ScratchIndex>) -> Command {
+    let mut cmd = git(dir);
+    cmd.args(["-c", "core.attributesFile=/dev/null"])
+        .env("GIT_ATTR_SOURCE", EMPTY_TREE);
+    if let Some(index) = index {
+        cmd.env("GIT_INDEX_FILE", &index.0);
+    }
+    cmd
+}
+
+/// Said when a changed file's name can't be read exactly as git stores it.
+pub(crate) const UNREADABLE_PATH: &str =
+    "A changed file's name has characters Aven can't read safely, so Aven won't use this change";
+
+/// A changed file's name exactly as git stored it (read with `-z`, so never
+/// quoted). One that isn't plain text, or holds a control character, is
+/// refused rather than guessed at.
+fn changed_path(bytes: &[u8]) -> Result<String, String> {
+    let text = std::str::from_utf8(bytes).map_err(|_| UNREADABLE_PATH.to_string())?;
+    if text.is_empty() || text.starts_with('"') || text.chars().any(char::is_control) {
+        return Err(format!("{UNREADABLE_PATH}: {}", text.escape_debug()));
+    }
+    Ok(text.to_string())
+}
+
+/// One changed file as `git diff --raw -z --no-abbrev` lists it.
+struct RawEntry {
+    path: String,
+    status: char,
+    old_mode: String,
+    new_mode: String,
+    old_sha: String,
+    new_sha: String,
+}
+
+fn parse_raw(bytes: &[u8]) -> Result<Vec<RawEntry>, String> {
+    let mut parts = bytes.split(|byte| *byte == 0);
+    let mut entries = Vec::new();
+    while let Some(meta) = parts.next() {
+        if meta.is_empty() {
+            continue;
+        }
+        let meta = std::str::from_utf8(meta)
+            .ok()
+            .and_then(|meta| meta.strip_prefix(':'))
+            .ok_or_else(|| UNREADABLE_PATH.to_string())?;
+        let fields: Vec<&str> = meta.split(' ').collect();
+        let [old_mode, new_mode, old_sha, new_sha, status] = fields.as_slice() else {
+            return Err(UNREADABLE_PATH.into());
+        };
+        let path = changed_path(parts.next().ok_or_else(|| UNREADABLE_PATH.to_string())?)?;
+        entries.push(RawEntry {
+            path,
+            status: status.chars().next().unwrap_or('M'),
+            old_mode: (*old_mode).to_string(),
+            new_mode: (*new_mode).to_string(),
+            old_sha: (*old_sha).to_string(),
+            new_sha: (*new_sha).to_string(),
+        });
+    }
+    Ok(entries)
+}
+
+fn parse_numstat_z(bytes: &[u8]) -> Result<Vec<(String, u32, u32)>, String> {
+    bytes
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty())
+        .map(|record| {
+            let mut parts = record.splitn(3, |byte| *byte == b'\t');
+            let added = parts.next().unwrap_or_default();
+            let removed = parts.next().unwrap_or_default();
+            let path = changed_path(parts.next().ok_or_else(|| UNREADABLE_PATH.to_string())?)?;
+            let count = |raw: &[u8]| {
+                std::str::from_utf8(raw)
+                    .ok()
+                    .and_then(|text| text.parse().ok())
+                    .unwrap_or(0)
+            };
+            Ok((path, count(added), count(removed)))
         })
         .collect()
 }
 
-fn parse_name_status(raw: &str) -> Vec<(String, String)> {
-    raw.lines()
-        .filter_map(|line| {
-            let (code, path) = line.split_once('\t')?;
-            let status = match code.chars().next()? {
-                'A' => "added",
-                'D' => "deleted",
-                _ => "modified",
+/// The first bytes of each blob (enough to tell binary from text, and a
+/// link's target), read in one `git cat-file --batch`.
+fn blob_heads(
+    dir: &Path,
+    shas: &[String],
+) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+    use std::io::{BufRead, BufReader, Read};
+    const HEAD: usize = 8192;
+    let mut heads = std::collections::HashMap::new();
+    let wanted: Vec<&String> = shas
+        .iter()
+        .filter(|sha| is_sha(sha) && sha.bytes().any(|b| b != b'0'))
+        .collect();
+    if wanted.is_empty() {
+        return Ok(heads);
+    }
+    let mut child = git(dir)
+        .args(["cat-file", "--batch"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Could not run git: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("Could not run git")?;
+    let input: Vec<u8> = wanted
+        .iter()
+        .flat_map(|sha| format!("{sha}\n").into_bytes())
+        .collect();
+    // Written from its own thread, so a full output pipe never stalls it.
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&input);
+    });
+    let mut out = BufReader::new(child.stdout.take().ok_or("Could not run git")?);
+    for sha in &wanted {
+        let mut header = String::new();
+        if out.read_line(&mut header).map_err(|e| e.to_string())? == 0 {
+            break;
+        }
+        let fields: Vec<&str> = header.split_whitespace().collect();
+        let Some(size) = fields.get(2).and_then(|size| size.parse::<usize>().ok()) else {
+            continue;
+        };
+        let mut head = vec![0; size.min(HEAD)];
+        out.read_exact(&mut head).map_err(|e| e.to_string())?;
+        std::io::copy(
+            &mut (&mut out).take((size - head.len()) as u64 + 1),
+            &mut std::io::sink(),
+        )
+        .map_err(|e| e.to_string())?;
+        heads.insert((*sha).clone(), head);
+    }
+    let _ = writer.join();
+    let _ = child.wait();
+    Ok(heads)
+}
+
+/// What changed in a diff (`spec`: a range, or `--cached <base>` with a
+/// scratch index), every file with its modes, and each one text or binary
+/// by what it holds.
+fn read_changes(
+    dir: &Path,
+    index: Option<&ScratchIndex>,
+    spec: &[&str],
+) -> Result<RaceDiff, String> {
+    let read = |extra: &[&str]| {
+        let mut args = vec![
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "-z",
+        ];
+        args.extend_from_slice(extra);
+        args.extend_from_slice(spec);
+        run_git(diff_git(dir, index), &args, None)
+    };
+    let entries = parse_raw(&read(&["--raw", "--no-abbrev"])?)?;
+    let counts = parse_numstat_z(&read(&["--numstat", "--text"])?)?;
+    let shas: Vec<String> = entries
+        .iter()
+        .flat_map(|entry| [entry.old_sha.clone(), entry.new_sha.clone()])
+        .collect();
+    let heads = blob_heads(dir, &shas)?;
+    let files: Vec<RaceFile> = entries
+        .into_iter()
+        .map(|entry| {
+            let binary = [&entry.old_sha, &entry.new_sha]
+                .iter()
+                .any(|sha| heads.get(*sha).is_some_and(|head| head.contains(&0)));
+            let (additions, deletions) = if binary {
+                (0, 0)
+            } else {
+                counts
+                    .iter()
+                    .find(|(path, _, _)| *path == entry.path)
+                    .map(|(_, added, removed)| (*added, *removed))
+                    .unwrap_or((0, 0))
             };
-            Some((path.to_string(), status.to_string()))
+            let link_target = (entry.new_mode == "120000")
+                .then(|| heads.get(&entry.new_sha))
+                .flatten()
+                .map(|head| String::from_utf8_lossy(head).to_string());
+            RaceFile {
+                status: match entry.status {
+                    'A' => "added",
+                    'D' => "deleted",
+                    _ => "modified",
+                }
+                .into(),
+                path: entry.path,
+                additions,
+                deletions,
+                binary,
+                old_mode: entry.old_mode,
+                new_mode: entry.new_mode,
+                link_target,
+            }
         })
-        .collect()
+        .collect();
+    Ok(RaceDiff {
+        additions: files.iter().map(|file| file.additions).sum(),
+        deletions: files.iter().map(|file| file.deletions).sum(),
+        files,
+    })
 }
 
 pub fn diff(worktree: &Path, base: &str) -> Result<RaceDiff, String> {
@@ -338,54 +535,138 @@ pub fn diff(worktree: &Path, base: &str) -> Result<RaceDiff, String> {
     // lane's index nor the project's is touched.
     let index = ScratchIndex::seeded_from(worktree)?;
     run_staged(worktree, &index, &["add", "-A"])?;
-    let numstat = String::from_utf8_lossy(&run_staged(
-        worktree,
-        &index,
+    read_changes(worktree, Some(&index), &["--cached", base])
+}
+
+/// Everything that changed between two commits (`from` an ancestor of
+/// `to`), read from the repository alone: no checkout or index is touched.
+pub(crate) fn range_diff(dir: &Path, from: &str, to: &str) -> Result<RaceDiff, String> {
+    if !is_sha(from) || !is_sha(to) {
+        return Err("Invalid race range".into());
+    }
+    read_changes(dir, None, &[from, to])
+}
+
+/// The binary patch between two commits, as `patch` makes for a checkout.
+pub(crate) fn range_patch(dir: &Path, from: &str, to: &str) -> Result<Vec<u8>, String> {
+    if !is_sha(from) || !is_sha(to) {
+        return Err("Invalid race range".into());
+    }
+    run_git(
+        diff_git(dir, None),
         &[
             "diff",
-            "--cached",
             "--no-ext-diff",
             "--no-textconv",
+            "--binary",
             "--no-renames",
-            "--numstat",
-            base,
+            from,
+            to,
         ],
-    )?)
-    .to_string();
-    let names = String::from_utf8_lossy(&run_staged(
-        worktree,
-        &index,
-        &[
-            "diff",
-            "--cached",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-renames",
-            "--name-status",
-            base,
-        ],
-    )?)
-    .to_string();
-    let statuses = parse_name_status(&names);
-    let files: Vec<RaceFile> = parse_numstat(&numstat)
-        .into_iter()
-        .map(|(path, additions, deletions, binary)| RaceFile {
-            status: statuses
-                .iter()
-                .find(|(name, _)| *name == path)
-                .map(|(_, status)| status.clone())
-                .unwrap_or_else(|| "modified".into()),
-            path,
-            additions,
-            deletions,
-            binary,
-        })
-        .collect();
-    Ok(RaceDiff {
-        additions: files.iter().map(|file| file.additions).sum(),
-        deletions: files.iter().map(|file| file.deletions).sum(),
-        files,
+        None,
+    )
+}
+
+/// A file as it was at `from` and as it is at `to`.
+pub(crate) fn range_file_diff(
+    dir: &Path,
+    from: &str,
+    to: &str,
+    path: &str,
+) -> Result<RaceFileDiff, String> {
+    let path = clean_relative(path)?;
+    if !is_sha(from) || !is_sha(to) {
+        return Err("Invalid race range".into());
+    }
+    let show = |at: &str| {
+        run(dir, &["show", "--no-textconv", &format!("{at}:{path}")])
+            .ok()
+            .and_then(readable)
+    };
+    Ok(RaceFileDiff {
+        original: show(from),
+        current: show(to),
     })
+}
+
+/// The tree of everything in `worktree` now (new files too, ignored ones
+/// not), from a scratch index so the checkout's own index is untouched.
+pub(crate) fn snapshot_tree(worktree: &Path) -> Result<String, String> {
+    let index = ScratchIndex::seeded_from(worktree)?;
+    run_staged(worktree, &index, &["add", "-A"])?;
+    let tree = text(run_staged(worktree, &index, &["write-tree"])?);
+    if !is_sha(&tree) {
+        return Err("Could not record the crew's work".into());
+    }
+    Ok(tree)
+}
+
+/// A commit of `tree` on top of `parent`. Its author is Aven, so it never
+/// needs (or borrows) the user's git identity, and no hook runs.
+pub(crate) fn commit_tree(
+    dir: &Path,
+    tree: &str,
+    parent: &str,
+    message: &str,
+) -> Result<String, String> {
+    if !is_sha(tree) || !is_sha(parent) {
+        return Err("Invalid race base".into());
+    }
+    let mut cmd = git(dir);
+    for (key, value) in [
+        ("GIT_AUTHOR_NAME", "Aven crew"),
+        ("GIT_AUTHOR_EMAIL", "crew@aven.invalid"),
+        ("GIT_COMMITTER_NAME", "Aven crew"),
+        ("GIT_COMMITTER_EMAIL", "crew@aven.invalid"),
+    ] {
+        cmd.env(key, value);
+    }
+    let sha = text(run_git(
+        cmd,
+        &["commit-tree", tree, "-p", parent, "-F", "-"],
+        Some(message.as_bytes()),
+    )?);
+    if !is_sha(&sha) {
+        return Err("Could not record the crew's work".into());
+    }
+    Ok(sha)
+}
+
+/// A commit of everything in `worktree` now on top of `parent` (see
+/// `snapshot_tree` and `commit_tree`).
+pub(crate) fn snapshot(worktree: &Path, parent: &str, message: &str) -> Result<String, String> {
+    if !is_sha(parent) {
+        return Err("Invalid race base".into());
+    }
+    let tree = snapshot_tree(worktree)?;
+    commit_tree(worktree, &tree, parent, message)
+}
+
+/// `patch` applied to `parent`'s files in a scratch index, as a commit on
+/// top of it. Neither the checkout's files nor its ignore rules take part,
+/// so a file the user's `.gitignore` covers comes along like any other.
+pub(crate) fn replay(
+    dir: &Path,
+    parent: &str,
+    patch: &[u8],
+    message: &str,
+) -> Result<String, String> {
+    if !is_sha(parent) {
+        return Err("Invalid race base".into());
+    }
+    let index = ScratchIndex::empty();
+    run_staged(dir, &index, &["read-tree", parent])?;
+    if !patch.is_empty() {
+        let mut cmd = git(dir);
+        cmd.env("GIT_INDEX_FILE", &index.0);
+        run_git(
+            cmd,
+            &["apply", "--cached", "--whitespace=nowarn"],
+            Some(patch),
+        )?;
+    }
+    let tree = text(run_staged(dir, &index, &["write-tree"])?);
+    commit_tree(dir, &tree, parent, message)
 }
 
 const MAX_DIFF_TEXT: usize = 2 * 1024 * 1024;
@@ -405,9 +686,8 @@ pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
     }
     let index = ScratchIndex::seeded_from(worktree)?;
     run_staged(worktree, &index, &["add", "-A"])?;
-    run_staged(
-        worktree,
-        &index,
+    run_git(
+        diff_git(worktree, Some(&index)),
         &[
             "diff",
             "--cached",
@@ -417,6 +697,7 @@ pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
             "--no-renames",
             base,
         ],
+        None,
     )
 }
 

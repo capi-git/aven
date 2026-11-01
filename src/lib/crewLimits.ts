@@ -190,6 +190,23 @@ export function crewNoMemberGate(
 }
 
 /**
+ * As many cards as the crew's limit wait on its branch for your review:
+ * it starts no new one (the goal's included) until you apply some or take
+ * them off. Its Scout may still look.
+ */
+export function crewReviewGate(
+  waiting: number,
+): Exclude<CrewGate, { ok: true }> {
+  return {
+    ok: false,
+    reason: "review",
+    title: `${waiting} cards wait for you: review them to keep going`,
+    detail:
+      "Nothing new starts until you apply them or take some off the crew's branch.",
+  };
+}
+
+/**
  * One card at a time: the next queued card starts only once no card holds
  * the copy (being built or checked, Ready for your Apply, or Stuck).
  */

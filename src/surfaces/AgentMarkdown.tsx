@@ -63,6 +63,8 @@ import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../lib/inboxMedia";
 import { isNoteImagePath } from "../lib/noteImages";
 import { InboxMedia } from "./InboxMedia";
 import { LocalMarkdownImage } from "./LocalMarkdownImage";
+import { CrewFenceCard } from "./CrewFenceCard";
+import { isCrewFence } from "../lib/crewFences";
 
 const MERMAID_BASE_CONFIG = {
   startOnLoad: false,
@@ -413,6 +415,7 @@ function MarkdownCode({
   const text = block ? "" : textContent(children);
   const fileName = block ? undefined : inlineFileName(text);
   const { open, fileMenu } = useFileReference(fileName ? text : undefined);
+  const { cwd } = useContext(FileOpenContext);
   if (!block) {
     return (
       <>
@@ -456,6 +459,18 @@ function MarkdownCode({
   if (fence.language.toLowerCase() === "mermaid") {
     return (
       <MermaidBlock code={textContent(children)} incomplete={incomplete} />
+    );
+  }
+  // A crew's block (`aven-ideas`, a verdict, a handoff…) is Aven's to
+  // read: a compact card, never raw JSON.
+  if (isCrewFence(fence.language)) {
+    return (
+      <CrewFenceCard
+        language={fence.language}
+        code={textContent(children)}
+        incomplete={incomplete}
+        {...(cwd ? { cwd } : {})}
+      />
     );
   }
   const iconName =

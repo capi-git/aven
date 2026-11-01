@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   allowMoreRunsToday,
   applyCrewCard,
+  clearCrewGoal,
+  crewNudge,
+  crewTaskTitle,
   deleteBoardCard,
   discardCrewCard,
   focusCrewTell,
@@ -11,10 +14,13 @@ import {
   pickCrewModels,
   resumeCrewCard,
   setCrewPaused,
+  setCrewGoal,
+  setMemberGoal,
   setCrewQuietHours,
   stopCrewCard,
   takeCrewTell,
   tellCrew,
+  tellCrewWork,
   turnOnCrew,
 } from "./crewActions";
 import { crewInboxCard, openCrewInboxItems } from "./crewInbox";
@@ -29,7 +35,9 @@ import {
   resetCrewsCache,
   updateCrew,
   withCard,
+  withGoal,
   withIdea,
+  type Crew,
   type CrewCard,
 } from "./crews";
 import {
@@ -40,6 +48,7 @@ import {
 } from "./featureCards";
 import { localDay, resetProjectBotsCache } from "./projectBots";
 import { crewCardMenu } from "./crewView";
+import { botCopyError } from "./projectBotCopy";
 import { nextCardToStart } from "./crewLimits";
 
 const host = vi.hoisted(() => ({
@@ -174,6 +183,8 @@ describe("Apply lands exactly the reviewed change", () => {
             { path: "src/theme.ts", additions: 1, deletions: 0 },
             { path: ".Claude/settings.local.json", additions: 3, deletions: 0 },
             { path: ".husky/pre-commit", additions: 1, deletions: 0 },
+            // APFS reads "ſ" as "s": this lands in your .vscode.
+            { path: ".v\u017fcode/tasks.json", additions: 1, deletions: 0 },
           ],
         },
       });
@@ -181,7 +192,7 @@ describe("Apply lands exactly the reviewed change", () => {
     host.apply.mockClear();
     const problem = await applyCrewCard(PATH, id, NOON);
     expect(problem).toBe(
-      "Aven didn't apply this fix: it changes settings or hooks that could run commands as you (.Claude/settings.local.json, .husky/pre-commit). Take it over in a chat to apply that part yourself.",
+      "Aven didn't apply this fix: it changes settings or hooks that could run commands as you (.Claude/settings.local.json, .husky/pre-commit, .v\u017fcode/tasks.json). Take it over in a chat to apply that part yourself.",
     );
     expect(host.apply).not.toHaveBeenCalled();
     const card = crewCard(getCrew(PATH)!, id)!;
@@ -327,6 +338,9 @@ describe("Apply lands exactly the reviewed change", () => {
         }),
         sources: async () => [],
         planted: async () => [],
+        stack: async () => "c".repeat(40),
+        unstack: async () => {},
+        discard: async () => {},
       },
       weeklyUsed: () => null,
       fixerRuns: () => 0,
@@ -702,5 +716,231 @@ describe("a check that failed because Codex couldn't be locked down", () => {
     expect(
       crew.feed.some((entry) => entry.text.includes("checking with Claude")),
     ).toBe(true);
+  });
+});
+
+describe("Tell the crew… gives it work", () => {
+  it("knows a nudge with no task in it from a task", () => {
+    for (const nudge of [
+      "go",
+      "Go!",
+      "keep going",
+      "continue",
+      "start",
+      "ok go ahead",
+      "start building pom",
+      "keep working on POM",
+      "carry on please",
+    ])
+      expect(crewNudge(nudge, "/Users/me/Pom"), nudge).toBe(true);
+    for (const task of [
+      "build a timer screen",
+      "start building the settings page",
+      "keep working on the login bug",
+      "go through the README and fix typos",
+      "Use pnpm, not npm",
+    ])
+      expect(crewNudge(task, "/Users/me/Pom"), task).toBe(false);
+  });
+
+  it("titles a card from your words", () => {
+    expect(crewTaskTitle("build a timer screen")).toBe("Build a timer screen");
+    expect(crewTaskTitle("Add dark mode\nwith a toggle in Settings")).toBe(
+      "Add dark mode",
+    );
+    const long = crewTaskTitle(`make ${"the very long thing ".repeat(8)}`);
+    expect(long.length).toBeLessThanOrEqual(81);
+    expect(long.endsWith("…")).toBe(true);
+    expect(long.startsWith("Make the very long thing")).toBe(true);
+  });
+
+  it("makes a Board card and gives it to the crew, keeping your words as its note", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true }));
+    const words =
+      "Add a timer screen\nWith start, pause and reset, and a sound at zero.";
+    expect(await tellCrewWork(PATH, words, NOON)).toBeNull();
+    const [board] = featureBoardState(PATH).cards;
+    expect(board).toMatchObject({
+      title: "Add a timer screen",
+      note: words,
+      column: "building",
+    });
+    const crew = getCrew(PATH)!;
+    expect(crewCard(crew, board.id)).toMatchObject({
+      stage: "queued",
+      from: "you",
+    });
+    expect(crew.notes).toEqual([]);
+    expect(crew.feed.at(-1)?.text).toBe(
+      "You gave the crew “Add a timer screen”",
+    );
+  });
+
+  it("asks you to turn the crew on first, and adds nothing", async () => {
+    expect(await tellCrewWork(PATH, "build a timer", NOON)).toBe(
+      "Turn the crew on first.",
+    );
+    expect(featureBoardState(PATH).cards).toEqual([]);
+  });
+
+  it("a nudge resumes a paused crew rather than asking what to build", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true, paused: true }));
+    expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(crew.paused).toBeUndefined();
+    expect(featureBoardState(PATH).cards).toEqual([]);
+    // Nothing waits, so it says what it needs.
+    expect(crew.feed.map((entry) => entry.text).slice(-2)).toEqual([
+      "You resumed the crew",
+      "Tell the crew what to build, or add an idea.",
+    ]);
+  });
+});
+
+describe("a nudge with cards waiting on the branch", () => {
+  const ready = (id: string, parent: string, commit: string): CrewCard => ({
+    ...queueCard({ id, title: id, brief: id, from: "you", maxRounds: 3 }, NOON),
+    stage: "ready",
+    round: 1,
+    stacked: { commit, parent },
+  });
+
+  it("says they wait for your review, not that there's nothing to build", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...withCard(
+        withCard(
+          { ...crew, on: true },
+          ready("Timer", "a".repeat(40), "1".repeat(40)),
+        ),
+        ready("Settings", "1".repeat(40), "2".repeat(40)),
+      ),
+      stack: { base: "a".repeat(40) },
+    }));
+    expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
+      "2 cards wait for you on the crew's branch: review them to apply them.",
+    );
+  });
+
+  it("says why a queued card doesn't start once enough wait", async () => {
+    updateCrew(PATH, (crew) => {
+      let next: Crew = {
+        ...crew,
+        on: true,
+        stack: { base: "a".repeat(40) },
+        limits: { ...crew.limits, readyCap: 2 },
+      };
+      next = withCard(next, ready("Timer", "a".repeat(40), "1".repeat(40)));
+      next = withCard(next, ready("Settings", "1".repeat(40), "2".repeat(40)));
+      return withCard(
+        next,
+        queueCard(
+          { id: "next", title: "Next", brief: "x", from: "you", maxRounds: 3 },
+          NOON,
+        ),
+      );
+    });
+    expect(await tellCrewWork(PATH, "keep going", NOON)).toBeNull();
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
+      "2 cards wait for you on the crew's branch: review them to keep going.",
+    );
+  });
+});
+
+describe("a card whose file name reads as a settings folder", () => {
+  it("says which file, in plain words, and a nudge doesn't try it again", async () => {
+    const text = botCopyError(
+      new Error(
+        "A file's name reads as a settings folder on a Mac: .v\u017fcode/tasks.json (card 1 of 2)",
+      ),
+    );
+    expect(text).toBe(
+      "“.v\u017fcode/tasks.json” reads as a settings folder on a Mac, so it can't go to your files. Take it over in a chat to rename it, or throw the card away.",
+    );
+    updateCrew(PATH, (crew) =>
+      withCard(
+        { ...crew, on: true },
+        {
+          ...queueCard(
+            { id: "c", title: "Tasks", brief: "x", from: "you", maxRounds: 3 },
+            NOON,
+          ),
+          stage: "stuck",
+          round: 1,
+          holder: "checker",
+          base: "a".repeat(40),
+          stuck: { reason: "unsafe-name", text },
+        },
+      ),
+    );
+    expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(crewCard(crew, "c")!.stage).toBe("stuck");
+    expect(crew.feed.at(-1)?.text).toBe(text);
+  });
+});
+
+describe("a goal a member took down", () => {
+  it("never replaces the goal you set yourself unless you say so", () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      on: true,
+      members: [
+        ...crew.members,
+        { id: "scout", role: "scout", sessionId: "s-chat" },
+      ],
+    }));
+    setCrewGoal(PATH, "Just the settings page", NOON);
+    // Even from code that doesn't ask first.
+    updateCrew(PATH, (crew) =>
+      withGoal(crew, "Build the whole Pom app", NOON + 1, "scout", "Fox"),
+    );
+    expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
+    expect(
+      setMemberGoal(PATH, "scout", "r1", "Build the whole Pom app", {}, NOON),
+    ).toBe("The crew already has your goal. Replace it to use this one.");
+    expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
+    expect(
+      setMemberGoal(
+        PATH,
+        "scout",
+        "r1",
+        "Build the whole Pom app",
+        { replace: true },
+        NOON,
+      ),
+    ).toBeNull();
+    expect(getCrew(PATH)!.goal).toMatchObject({
+      text: "Build the whole Pom app",
+      by: "scout",
+    });
+  });
+});
+
+describe("a goal from Tell the crew…", () => {
+  it("sets, keeps going after a stop, and clears", () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true }));
+    setCrewGoal(PATH, "  Build the whole   Pom app ", NOON);
+    expect(getCrew(PATH)!.goal).toEqual({
+      text: "Build the whole Pom app",
+      at: NOON,
+    });
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
+      "You set the crew's goal: Build the whole Pom app",
+    );
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      goal: {
+        ...crew.goal!,
+        done: { at: NOON, text: "Nothing left", met: false },
+      },
+    }));
+    // "keep going" picks a stopped goal up again.
+    return tellCrewWork(PATH, "keep going", NOON + 1).then((why) => {
+      expect(why).toBeNull();
+      expect(getCrew(PATH)!.goal?.done).toBeUndefined();
+      clearCrewGoal(PATH, NOON + 2);
+      expect(getCrew(PATH)!.goal).toBeUndefined();
+    });
   });
 });

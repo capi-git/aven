@@ -304,12 +304,6 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   color: var(--aven-muted);
 }
 
-.crew-settings-off {
-  flex: none;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-caption);
-}
-
 .crew-settings-add {
   display: inline-flex;
   align-self: flex-start;
@@ -402,6 +396,117 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   cursor: default;
 }
 
+/* One line and what sits one level deeper: Rules ›, Edit limits ›, More ›. */
+.crew-settings-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 28px;
+  padding: 4px 0;
+  font-size: var(--text-ui-label);
+}
+
+.crew-settings-line > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+}
+
+.crew-settings-disclosure {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  cursor: pointer;
+}
+
+.crew-settings-disclosure:hover {
+  color: var(--color-content);
+}
+
+.crew-settings-disclosure[aria-expanded="true"]
+  .crew-settings-disclosure-chevron {
+  transform: rotate(90deg);
+}
+
+.crew-settings-deeper {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Model and effort on one row. */
+.crew-settings-inline {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.crew-settings-scope {
+  max-width: 220px;
+  margin-top: 0;
+}
+
+/* Remove from crew: a quiet word at the bottom, red only when you point at it. */
+.crew-settings-member-foot {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.crew-settings-member-foot > .crew-settings-remove-link {
+  margin-right: auto;
+}
+
+.crew-settings-remove-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  cursor: pointer;
+}
+
+.crew-settings-remove-link:hover:not(:disabled) {
+  color: var(--aven-danger-text, #e5574e);
+}
+
+.crew-settings-remove-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The member's mark, which opens its marks to pick from. */
+/* Over the header's rule for its 28px close button. */
+.modal-panel[role="dialog"] > header .crew-mark-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.modal-panel[role="dialog"] > header .crew-mark-button:hover,
+.modal-panel[role="dialog"] > header .crew-mark-button[aria-expanded="true"] {
+  background: var(--aven-fill-quaternary);
+}
+
+.crew-mark-popover .crew-critter-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 0;
+  padding: 6px;
+}
+
 /* A member's page. */
 .crew-critter-grid {
   display: grid;
@@ -435,48 +540,6 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   height: 20px;
 }
 
-.crew-agent-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 4px 0 6px;
-}
-
-.crew-agent {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  padding: 5px 10px;
-  border: 1px solid var(--aven-line);
-  border-radius: var(--aven-radius-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: var(--text-ui-label);
-  text-align: left;
-  cursor: pointer;
-}
-
-.crew-agent small {
-  color: var(--aven-muted);
-  font-size: var(--text-ui-micro);
-}
-
-.crew-agent[aria-checked="true"] {
-  border-color: color-mix(in srgb, var(--color-content) 55%, transparent);
-  background: var(--aven-fill-quaternary);
-}
-
-.crew-agent[aria-disabled="true"] {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.crew-agent:hover:not([aria-disabled="true"]):not([aria-checked="true"]) {
-  background: var(--aven-fill-quaternary);
-}
-
 .crew-settings-text,
 .crew-settings-input {
   width: 100%;
@@ -496,10 +559,10 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 
 .crew-settings-remove {
   display: flex;
+  flex: 1 1 100%;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  margin-top: 16px;
 }
 
 .crew-settings-remove[data-confirming] {

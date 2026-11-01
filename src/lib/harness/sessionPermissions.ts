@@ -150,7 +150,12 @@ function inside(path: string, folder: string): boolean {
  * no (its crew is off), or one outside its work folder is refused. Every
  * harness asks before it starts or reuses a process.
  */
-export function launchRefusal(sessionId: string, cwd: string): string | null {
+export function launchRefusal(
+  sessionId: string,
+  cwd: string,
+  /** The app starting it, when it isn't Claude Code. */
+  harness = "claude",
+): string | null {
   const permissions = sessionPermissions(sessionId);
   if (!permissions) {
     for (const check of guarded)
@@ -161,6 +166,10 @@ export function launchRefusal(sessionId: string, cwd: string): string | null {
   if (permissions.refuse) return permissions.refuse;
   if (permissions.workFolder && !inside(cwd, permissions.workFolder))
     return "This chat runs only in its own copy of the project, so it didn't start.";
+  // Only Claude Code's sandbox keeps an agent that writes out of the copy's
+  // settings files; on any other app, a teammate only reads.
+  if (permissions.workFolder && !permissions.readOnly && harness !== "claude")
+    return "This chat changes files, so it runs only on Claude Code, which keeps it out of the copy's settings. It didn't start.";
   return null;
 }
 

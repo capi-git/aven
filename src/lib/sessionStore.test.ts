@@ -112,6 +112,23 @@ describe("sanitizeSessionForPersist", () => {
     };
     expect(sanitizeSessionForPersist(session)).not.toHaveProperty("liveAgents");
   });
+  it("keeps that you typed a message yourself, never on a bot's wake-up", () => {
+    const session = newSession("claude", "/repo");
+    session.blocks = [
+      { id: "u1", role: "user", text: "Build a timer", typed: true },
+      {
+        id: "u2",
+        role: "user",
+        text: "Card",
+        typed: true,
+        botWake: { label: "Card" },
+      },
+    ];
+    const saved = sanitizeSessionForPersist(session);
+    expect(saved.blocks[0]!.typed).toBe(true);
+    expect(saved.blocks[1]!.typed).toBeUndefined();
+  });
+
   it("preserves an internal worker's lead and hidden turns without mutating the runtime blocks", () => {
     const session = {
       ...newSession("claude", "/repo"),
