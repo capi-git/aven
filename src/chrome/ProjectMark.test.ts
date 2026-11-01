@@ -93,6 +93,19 @@ describe("project marks", () => {
     expect(container.querySelector("[fill='#e06c75']")).toBeNull();
   });
 
+  it("draws its sigil in the project's colour: picked, its own, or Grey", async () => {
+    await draw({ appearance: appearance({ colorIndex: 7 }) });
+    expect(dots().dataset.tone).toBe("teal");
+    await draw({ appearance: appearance({ automaticColorIndex: 3 }) });
+    expect(dots().dataset.tone).toBe("yellow");
+    await draw({
+      appearance: appearance({ colorIndex: 0, automaticColorIndex: 3 }),
+    });
+    expect(dots().hasAttribute("data-tone")).toBe(false);
+    // Never an inline colour: the theme's tokens draw it.
+    expect(dots().getAttribute("style")).toBeNull();
+  });
+
   it("sweeps a light across it while an agent works", async () => {
     await draw({ appearance: appearance(), active: true });
     expect(

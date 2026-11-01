@@ -133,6 +133,25 @@
   /* Lines added and removed, in iOS's green and red. */
   --aven-git-add: #30d158;
   --aven-git-del: #ff453a;
+  /* Mark colours (DotMark's lit dots): muted, told apart at 15px, each
+     5.5:1 or more on the window and on raised surfaces. Each one's peak,
+     a little brighter, lights the working sweep and the landing tick. */
+  --aven-mark-blue: hsl(214 74% 68%);
+  --aven-mark-blue-peak: hsl(214 80% 80%);
+  --aven-mark-red: hsl(358 70% 68%);
+  --aven-mark-red-peak: hsl(358 78% 79%);
+  --aven-mark-yellow: hsl(45 68% 58%);
+  --aven-mark-yellow-peak: hsl(45 80% 70%);
+  --aven-mark-green: hsl(128 36% 60%);
+  --aven-mark-green-peak: hsl(128 45% 72%);
+  --aven-mark-pink: hsl(334 58% 72%);
+  --aven-mark-pink-peak: hsl(334 66% 82%);
+  --aven-mark-purple: hsl(266 66% 77%);
+  --aven-mark-purple-peak: hsl(266 74% 86%);
+  --aven-mark-teal: hsl(184 48% 52%);
+  --aven-mark-teal-peak: hsl(184 56% 64%);
+  --aven-mark-orange: hsl(25 80% 62%);
+  --aven-mark-orange-peak: hsl(25 86% 73%);
   /* Text that says a chat's changes wait for review. */
   --aven-review: var(--color-emerald-400, #30d158);
 }
@@ -205,6 +224,25 @@ html.theme-light {
   /* GitHub's green: 5:1 on white and on the pale grouped background. */
   --aven-git-add: #1a7f37;
   --aven-git-del: #d70015;
+  /* Mark colours, deeper for white: 4.6:1 or more on white and on the
+     pale grouped background. Their peaks are deeper still, which on white
+     reads as brighter. */
+  --aven-mark-blue: hsl(214 62% 44%);
+  --aven-mark-blue-peak: hsl(214 72% 35%);
+  --aven-mark-red: hsl(351 62% 45%);
+  --aven-mark-red-peak: hsl(351 72% 37%);
+  --aven-mark-yellow: hsl(44 92% 28%);
+  --aven-mark-yellow-peak: hsl(44 96% 22%);
+  --aven-mark-green: hsl(132 44% 32%);
+  --aven-mark-green-peak: hsl(132 54% 25%);
+  --aven-mark-pink: hsl(322 52% 42%);
+  --aven-mark-pink-peak: hsl(322 62% 34%);
+  --aven-mark-purple: hsl(266 46% 52%);
+  --aven-mark-purple-peak: hsl(266 54% 42%);
+  --aven-mark-teal: hsl(188 74% 28%);
+  --aven-mark-teal-peak: hsl(188 84% 21%);
+  --aven-mark-orange: hsl(25 90% 37%);
+  --aven-mark-orange-peak: hsl(25 96% 30%);
   --aven-review: color-mix(
     in srgb,
     var(--color-content) 15%,

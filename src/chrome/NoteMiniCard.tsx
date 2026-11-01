@@ -4,7 +4,7 @@ import { DotMark } from "./DotMark";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { noteSourceProject, type NoteCardMeta } from "../lib/notes";
 import { projectKey } from "../lib/paths";
-import { projectSigilAt } from "../lib/projectAppearance";
+import { projectSigilAt, projectToneAt } from "../lib/projectAppearance";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 
 type Props = {
@@ -49,6 +49,7 @@ export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
             ) : (
               <DotMark
                 sigil={projectSigilAt(card.sourceCwd!)}
+                tone={projectToneAt(card.sourceCwd!)}
                 className="size-[15px] shrink-0"
               />
             )}

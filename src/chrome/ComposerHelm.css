@@ -547,6 +547,44 @@
   width: 20px;
   height: 20px;
 }
+/* The colour row under the marks: a dot of each mark colour, Grey first.
+   The chosen one is ringed; the row itself has no colour of its own. */
+.helm-critter-stage-tone {
+  margin-left: 6px;
+  opacity: 0.75;
+}
+.helm-colour-row {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 2px;
+  margin-top: 4px;
+  padding: 4px 2px 2px;
+  border-top: 1px solid var(--aven-line);
+}
+.helm-colour-cell {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-md);
+  background: transparent;
+  cursor: pointer;
+}
+.helm-colour-cell[data-active] {
+  background: var(--helm-row-active);
+}
+.helm-colour-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--helm-swatch);
+}
+.helm-colour-cell[aria-checked="true"] .helm-colour-swatch {
+  box-shadow:
+    0 0 0 2px var(--helm-fill),
+    0 0 0 3.5px color-mix(in srgb, var(--color-content) 55%, transparent);
+}
 .helm-critter-note {
   margin: 6px 10px 2px;
   font-size: 11.5px;

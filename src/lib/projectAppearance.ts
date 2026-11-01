@@ -1,4 +1,5 @@
 import { appearanceSigil, type DotSigil } from "./dotSigils";
+import { appearanceTone, type MarkTone } from "./markTones";
 import { projectKey, projectName } from "./paths";
 import { projectLogoSrc } from "./projectLogos";
 import { currentMascotName, projectMascot } from "./projectMascots";
@@ -32,7 +33,7 @@ export type ProjectAppearance = {
   customLabel: string | null;
   /**
    * Resolved colour: custom hex, palette pick, or the one hashed from the
-   * name. Kept from before marks, which have no colour of their own.
+   * name. Its mark shows the nearest mark colour (`appearanceTone`).
    */
   color: string;
   /** Palette pick, or null for a custom or automatic colour. */
@@ -224,6 +225,11 @@ export function projectAppearance(path: string): ProjectAppearance {
 /** The sigil a project's mark shows, where only its folder is at hand. */
 export function projectSigilAt(path: string): DotSigil {
   return appearanceSigil(projectAppearance(path));
+}
+
+/** The colour a project's mark shows, where only its folder is at hand. */
+export function projectToneAt(path: string): MarkTone {
+  return appearanceTone(projectAppearance(path));
 }
 
 /** Changes whenever saved appearance may have changed, in this or another window. */

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMascotReaction } from "../hooks/useMascotReaction";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { appearanceSigil } from "../lib/dotSigils";
+import { appearanceTone } from "../lib/markTones";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import { DotMark } from "./DotMark";
 import "./ProjectMark.css";
@@ -63,6 +64,7 @@ export function ProjectMark({
       ) : (
         <DotMark
           sigil={appearanceSigil(appearance)}
+          tone={appearanceTone(appearance)}
           state={active && !reaction ? "working" : "still"}
           reaction={reaction?.kind}
           reactionId={reaction?.id}

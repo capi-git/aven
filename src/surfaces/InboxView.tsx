@@ -84,7 +84,7 @@ import {
   markInboxItemsSeen,
   useInboxSeenTick,
 } from "../lib/inboxSeen";
-import { projectSigilAt } from "../lib/projectAppearance";
+import { projectSigilAt, projectToneAt } from "../lib/projectAppearance";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { AgentMarkdown } from "./AgentMarkdown";
 import {
@@ -819,6 +819,7 @@ function InboxCard({
           ) : (
             <DotMark
               sigil={projectSigilAt(item.projectPath)}
+              tone={projectToneAt(item.projectPath)}
               className="size-[15px] shrink-0"
             />
           )}

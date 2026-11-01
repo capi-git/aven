@@ -2,6 +2,7 @@ import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { basename, type GitDiffIndex, type GitHistoryCommit } from "../lib/fs";
 import { shortTimeAgo, upstreamLabel } from "../lib/gitChangesView";
 import { appearanceSigil } from "../lib/dotSigils";
+import { appearanceTone } from "../lib/markTones";
 import { displayAppData } from "../lib/paths";
 import { ChevronDown, GitBranch, GitCompare, Plus } from "./icons";
 import { ProjectMark } from "./ProjectMark";
@@ -152,6 +153,7 @@ export function CleanState({
       {appearance ? (
         <DotMark
           sigil={appearanceSigil(appearance)}
+          tone={appearanceTone(appearance)}
           className="git-clean-mascot"
         />
       ) : (

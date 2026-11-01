@@ -136,6 +136,19 @@ describe("DotMark", () => {
     expect(mark.hasAttribute("data-frame")).toBe(false);
   });
 
+  it("takes its project's colour, and stays plain in Grey", async () => {
+    let mark = await draw({ sigil: "eye", tone: "teal" });
+    expect(mark.dataset.tone).toBe("teal");
+    // Still no colour in the markup: the stylesheet's tokens give it.
+    expect(host.querySelector("svg")?.getAttribute("stroke")).toBeNull();
+    mark = await draw({ sigil: "eye", tone: "teal", state: "working" });
+    expect(mark.dataset.tone).toBe("teal");
+    mark = await draw({ sigil: "eye", tone: "grey" });
+    expect(mark.hasAttribute("data-tone")).toBe(false);
+    mark = await draw({ sigil: "eye" });
+    expect(mark.hasAttribute("data-tone")).toBe(false);
+  });
+
   it("draws an unknown sigil as an empty grid rather than failing", async () => {
     const mark = await draw({ sigil: "nope" });
     expect(mark.dataset.sigil).toBe("custom");
@@ -150,12 +163,51 @@ describe("DotMark.css", () => {
   );
   const states: DotMarkState[] = ["idle", "working", "needs"];
 
-  it("animates only opacity and transform", () => {
+  const keyframes = (name: string) =>
+    new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?)\\n\\}`).exec(css)?.[1] ??
+    "";
+
+  it("animates only opacity, transform and the dots' colour", () => {
     for (const [, body] of css.matchAll(
       /@keyframes [\w-]+\s*\{([\s\S]*?)\n\}/g,
     ))
       for (const [, property] of body.matchAll(/([a-z-]+)\s*:/g))
-        expect(["opacity", "transform"]).toContain(property);
+        expect(["opacity", "transform", "stroke"]).toContain(property);
+  });
+
+  it("colours only the lit dots, the grid staying the text colour", () => {
+    expect(css).toMatch(
+      /\.dot-mark-lit,\s*\.dot-mark-lit-d,\s*\.dot-mark-was\s*\{\s*stroke: var\(--dot-mark-tint, currentColor\);/,
+    );
+    for (const [rule] of css.matchAll(/[^{}]*\{[^{}]*--dot-mark-tint[^{}]*\}/g))
+      expect(rule).not.toMatch(/grid/);
+    // A stuck agent's cross stays grey: its red dot says what happened.
+    expect(css).toMatch(
+      /\[data-state="error"\] \.dot-mark-lit \{\s*opacity: 0\.55;\s*stroke: currentColor;/,
+    );
+  });
+
+  it("runs the sweep's highlight in the colour, brighter at its peak", () => {
+    const sweep = keyframes("dot-mark-sweep");
+    expect(sweep).toMatch(
+      /30% \{\s*opacity: 1;\s*stroke: var\(--dot-mark-peak, currentColor\);/,
+    );
+    // Each colour's peak is its own plain token: an animated stroke drawn
+    // from a color-mix() turns black.
+    for (const tone of ["blue", "teal", "orange"])
+      expect(css).toContain(`--dot-mark-peak: var(--aven-mark-${tone}-peak);`);
+    expect(css).not.toMatch(/--dot-mark-peak:\s*color-mix/);
+    // The faint grid sweep keeps its grey.
+    expect(keyframes("dot-mark-sweep-faint")).not.toContain("stroke");
+  });
+
+  it("flashes the tick in its colour once as it lands", () => {
+    expect(keyframes("dot-mark-flash")).toContain(
+      "stroke: var(--dot-mark-peak, currentColor)",
+    );
+    expect(css).toMatch(
+      /\[data-state="done"\] \.dot-mark-lit \{\s*animation:[^;]*dot-mark-flash 900ms ease-out 1;/,
+    );
   });
 
   it("moves nothing with reduced motion", () => {
@@ -188,7 +240,7 @@ describe("DotMark.css", () => {
     );
   });
 
-  it("colours only the status dot, from the theme's status tokens", () => {
+  it("colours its status dot from the theme's status tokens", () => {
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
     for (const token of [
       "var(--aven-needs-you)",

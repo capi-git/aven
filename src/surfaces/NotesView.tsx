@@ -45,7 +45,7 @@ import {
 import { projectKey, projectName } from "../lib/paths";
 import { IS_MAC } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
-import { projectSigilAt } from "../lib/projectAppearance";
+import { projectSigilAt, projectToneAt } from "../lib/projectAppearance";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { AgentMarkdown, MarkdownSourceHighlight } from "./AgentMarkdown";
 
@@ -364,7 +364,11 @@ function NoteProjectMark({ cwd, logos }: { cwd: string } & ProjectMarks) {
           imageClassName="size-3.5"
         />
       ) : (
-        <DotMark sigil={projectSigilAt(cwd)} className="size-[15px] shrink-0" />
+        <DotMark
+          sigil={projectSigilAt(cwd)}
+          tone={projectToneAt(cwd)}
+          className="size-[15px] shrink-0"
+        />
       )}
       <span className="min-w-0 truncate">{project}</span>
     </span>
