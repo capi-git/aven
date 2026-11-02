@@ -1081,7 +1081,7 @@ describe("budgets in the runner", () => {
 });
 
 describe("the Scout: ideas start themselves, within limits", () => {
-  it("looks once a day, adds its ideas, and starts the small one by itself", async () => {
+  it("looks once a day, adds its ideas, and builds them by itself, top first", async () => {
     const h = harness({
       scout: () => ({
         text: fence("aven-ideas", {
@@ -1119,17 +1119,102 @@ describe("the Scout: ideas start themselves, within limits", () => {
       "Fix issue 12",
     ]);
     expect(crew.ideasAdded).toEqual({ day: localDay(NOON), count: 3 });
-    // Only the small idea from the project started by itself.
+    const id = (title: string) =>
+      [...h.board.values()].find((item) => item.title === title)!.id;
+    const [open, search, issue] = [
+      id("Remember the last open note"),
+      id("Search inside note bodies"),
+      id("Fix issue 12"),
+    ];
+    // The first idea started by itself, one at a time.
     expect(crew.autoStarts).toEqual({ day: localDay(NOON), count: 1 });
-    expect(card("idea-1")).toMatchObject({ from: "scout", size: "small" });
-    expect(crewCard(crew, "idea-2")).toBeUndefined();
-    expect(crewCard(crew, "idea-3")).toBeUndefined();
-    expect(h.moves).toContainEqual({ id: "idea-1", column: "building" });
+    expect(card(open)).toMatchObject({ from: "scout", size: "small" });
+    expect(crewCard(crew, search)).toBeUndefined();
+    expect(h.moves).toContainEqual({ id: open, column: "building" });
     await h.advance(10 * MINUTE);
-    expect(card("idea-1").stage).toBe("ready");
-    // The Scout doesn't look again today, and nothing else starts.
+    expect(card(open).stage).toBe("ready");
+    // Then the next, whatever its size; one from outside waits for you.
+    await h.advance(20 * MINUTE);
+    expect(card(search)).toMatchObject({ from: "scout", size: "medium" });
+    // The Scout doesn't look again today.
     await h.advance(60 * MINUTE);
     expect(h.sent.filter((item) => item.role === "scout")).toHaveLength(1);
+    expect(crewCard(getCrew(PATH)!, issue)).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("builds your own idea by itself, without counting it as the Scout's", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/pricing.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ scoutAt: NOON });
+    h.board.set("mine", {
+      id: "mine",
+      title: "Pricing page",
+      column: "idea",
+      chatIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+      movedAt: 1,
+    });
+    h.runner.start();
+    await h.advance(0);
+    const crew = getCrew(PATH)!;
+    expect(card("mine")).toMatchObject({ from: "you", title: "Pricing page" });
+    expect(crew.autoStarts).toBeUndefined();
+    expect(crew.feed.map((entry) => entry.text)).toContain(
+      "Started your idea “Pricing page” by itself",
+    );
+    expect(h.moves).toContainEqual({ id: "mine", column: "building" });
+    await h.advance(10 * MINUTE);
+    expect(card("mine").stage).toBe("ready");
+    h.runner.stop();
+  });
+
+  it("goes on past a card that changed nothing, and builds it again from the top when you try it again", async () => {
+    let builds = 0;
+    const h = harness({
+      builder: (text) => {
+        builds += 1;
+        // The first build of Dark mode finds it already done.
+        return builds === 1
+          ? { text: handoff("It was already done"), copy: null }
+          : {
+              text: handoff(text.includes("Dark mode") ? "Again" : "Built"),
+              copy: { hash: `h${builds}`, files: ["src/x.ts"] },
+            };
+      },
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ scoutAt: NOON });
+    give("card-1", "Dark mode toggle");
+    give("card-2", "Pricing page");
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(5 * MINUTE);
+    expect(card("card-1")).toMatchObject({
+      stage: "stuck",
+      stuck: { reason: "no-change" },
+    });
+    // It stepped aside: the next card didn't wait for you.
+    await h.advance(10 * MINUTE);
+    expect(card("card-2").stage).toBe("ready");
+    // Try again: first in line, from the top, with your words.
+    resumeCrewCard(PATH, "card-1", "Check the settings page too", h.now);
+    expect(card("card-1")).toMatchObject({
+      stage: "queued",
+      round: 0,
+      note: "Check the settings page too",
+    });
+    await h.advance(10 * MINUTE);
+    const again = h.sent.filter((item) => item.role === "builder").at(-1)!;
+    expect(again.text).toContain("Dark mode toggle");
+    expect(again.text).toContain("The user says: Check the settings page too");
+    expect(card("card-1").stage).toBe("ready");
     h.runner.stop();
   });
 

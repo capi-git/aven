@@ -12,9 +12,8 @@ import {
   crewGate,
   crewNoMemberGate,
   crewReviewGate,
-  ideaMayAutoStart,
   ideasLeft,
-  nextAutoStart,
+  nextIdeaToBuild,
   nextCardToStart,
   scoutShouldLook,
   securitySweepDue,
@@ -635,9 +634,26 @@ export class CrewRunner {
       this.clearHold(crew);
       return this.sendCardTurn(path, next, "builder", builder.id);
     }
+    // Idle: the next idea in Ideas builds by itself, top first (yours and
+    // the Scout's alike); then the goal's next card; then the Scout looks,
+    // or Security sweeps.
+    let cards: readonly FeatureCard[] | null = null;
+    try {
+      cards = await this.deps.board.cards(path);
+    } catch (error) {
+      logError("Crew board", error);
+    }
+    const idea = cards ? nextIdeaToBuild(crew, cards, now) : null;
+    if (idea) {
+      if (waiting) return this.hold(crew, crewReviewGate(waiting));
+      const gate = this.gate(crew, now);
+      if (!gate.ok) return this.hold(crew, gate);
+      this.clearHold(crew);
+      return this.autoStart(path, idea);
+    }
     // Idle with a goal: is it met, and what's the next card towards it.
-    // The crew keeps going, card after card, until it's met or it stops
-    // to ask (a Stuck card holds the copy, so nothing gets here).
+    // The team keeps going, card after card, until it's met or it stops
+    // to ask (a Stuck card with work holds the copy, so nothing gets here).
     if (crew.goal && !crew.goal.done && waiting)
       return this.hold(crew, crewReviewGate(waiting));
     if (crew.goal && !crew.goal.done) {
@@ -645,51 +661,21 @@ export class CrewRunner {
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
-      let board: readonly FeatureCard[] = [];
-      try {
-        board = await this.deps.board.cards(path);
-      } catch (error) {
-        logError("Crew board", error);
-      }
-      return this.sendGoalTurn(path, board);
+      return this.sendGoalTurn(path, cards ?? []);
     }
-    // Idle. A Scout idea may start by itself, or the Scout may look. The
-    // Board is read only when one of them could go.
-    const startable = Object.values(crew.ideas ?? {}).some(ideaMayAutoStart);
     const scoutDue = scoutShouldLook(crew, now, false);
     const sweepDue = securitySweepDue(crew, now);
-    if (!startable && !scoutDue && !sweepDue) return this.clearHold(crew);
-    let cards: readonly FeatureCard[] = [];
-    try {
-      cards = await this.deps.board.cards(path);
-    } catch (error) {
-      logError("Crew board", error);
-      return;
-    }
-    const inIdeas = (id: string) =>
-      cards.some((card) => card.id === id && card.column === "idea");
-    const auto = waiting ? null : nextAutoStart(crew, now, inIdeas);
-    if (auto) {
-      const gate = this.gate(crew, now);
-      if (!gate.ok) return this.hold(crew, gate);
-      return this.autoStart(
-        path,
-        cards.find((card) => card.id === auto)!,
-      );
-    }
-    if (scoutShouldLook(crew, now, false)) {
+    if ((!scoutDue && !sweepDue) || !cards) return this.clearHold(crew);
+    if (scoutDue) {
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
       return this.sendScoutTurn(path, cards);
     }
-    if (securitySweepDue(crew, now)) {
-      const gate = this.gate(crew, now);
-      if (!gate.ok) return this.hold(crew, gate);
-      this.clearHold(crew);
-      return this.sendScoutTurn(path, cards, "security");
-    }
+    const gate = this.gate(crew, now);
+    if (!gate.ok) return this.hold(crew, gate);
     this.clearHold(crew);
+    return this.sendScoutTurn(path, cards, "security");
   }
 
   /**
@@ -745,12 +731,19 @@ export class CrewRunner {
       await Promise.resolve(this.deps.board.move(crew.path, card.id, "review"));
   }
 
-  /** A small Scout idea starts by itself: queued, counted, and said in the feed. */
+  /**
+   * The next idea in Ideas starts by itself: queued and said in the feed. A
+   * Scout idea counts towards the day's cap on those; yours never does.
+   */
   private async autoStart(path: string, card: FeatureCard) {
     const now = this.deps.now();
+    let started = false;
     updateCrew(path, (crew) => {
+      const known = crewCard(crew, card.id);
+      if (known && known.stage !== "applied" && known.stage !== "discarded")
+        return crew;
       const idea = crew.ideas?.[card.id];
-      if (!idea) return crew;
+      started = true;
       let next = withCard(
         crew,
         queueCard(
@@ -758,27 +751,29 @@ export class CrewRunner {
             id: card.id,
             title: card.title,
             brief: [card.title, card.note].filter(Boolean).join("\n\n"),
-            from: "scout",
-            size: idea.size,
+            from: idea ? "scout" : "you",
+            ...(idea ? { size: idea.size } : {}),
             maxRounds: crew.limits.roundsPerCard,
           },
           now,
         ),
       );
-      next = withIdea(next, card.id, { ...idea, autoStarted: true });
-      next = {
-        ...next,
-        autoStarts: bumpToday(next.autoStarts, now),
-      };
+      if (idea) {
+        next = withIdea(next, card.id, { ...idea, autoStarted: true });
+        next = { ...next, autoStarts: bumpToday(next.autoStarts, now) };
+      }
       return withFeed(next, {
         at: now,
         kind: "start",
         who: "aven",
         cardId: card.id,
         title: card.title,
-        text: `Started ${this.deps.name(crew, "scout")}'s idea “${card.title}” by itself (small)`,
+        text: idea
+          ? `Started ${this.deps.name(crew, "scout")}'s idea “${card.title}” by itself`
+          : `Started your idea “${card.title}” by itself`,
       });
     });
+    if (!started) return;
     await Promise.resolve(this.deps.board.move(path, card.id, "building"));
     this.schedule();
   }

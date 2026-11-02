@@ -4,11 +4,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { crewFenceView } from "../lib/crewFences";
+import { queueCard } from "../lib/crewLoop";
 import {
   getCrew,
   queuedCards,
   resetCrewsCache,
   updateCrew,
+  withCard,
 } from "../lib/crews";
 import {
   featureBoardState,
@@ -116,7 +118,7 @@ describe("a team block's card", () => {
   });
 });
 
-describe("Give to team from an ideas block", () => {
+describe("Build it from an ideas block", () => {
   const PROJECT = "/Users/me/pom";
   let root: Root;
   let container: HTMLElement;
@@ -163,12 +165,53 @@ describe("Give to team from an ideas block", () => {
       title: "Timer screen",
       column: "building",
     });
-    await act(async () => button("Give all to team")!.click());
+    await act(async () => button("Build all")!.click());
     await act(async () => {
       for (let n = 0; n < 10; n += 1)
         await new Promise((r) => setTimeout(r, 0));
     });
     expect(queuedCards(getCrew(PROJECT)!).map((card) => card.title)).toEqual([
+      "Timer screen",
+      "Pause and resume",
+      "Haptics on finish",
+    ]);
+    expect(
+      [...container.querySelectorAll(".crew-fence-given")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["With the team", "With the team", "With the team"]);
+  });
+
+  it("says With the team for an idea the team already has, and never gives it twice", async () => {
+    // The Scout's first idea started by itself before you looked.
+    updateCrew(PROJECT, (crew) =>
+      withCard(
+        { ...crew, on: true },
+        queueCard(
+          {
+            id: "started",
+            title: "Timer screen",
+            brief: "Timer screen",
+            from: "scout",
+            maxRounds: 3,
+          },
+          1,
+        ),
+      ),
+    );
+    await act(async () =>
+      root.render(createElement(AgentMarkdown, { text: IDEAS, cwd: PROJECT })),
+    );
+    const first = container.querySelector(".crew-fence-items li")!;
+    expect(first.querySelector(".crew-fence-given")?.textContent).toBe(
+      "With the team",
+    );
+    await act(async () => button("Build all")!.click());
+    await act(async () => {
+      for (let n = 0; n < 10; n += 1)
+        await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(getCrew(PROJECT)!.cards.map((card) => card.title)).toEqual([
       "Timer screen",
       "Pause and resume",
       "Haptics on finish",

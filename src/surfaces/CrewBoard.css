@@ -1,8 +1,8 @@
-/* The crew's cards, Feed (in Activity) and Ready sheet. Black and grey like
-   the rest of Aven; colour only in small status words, the marks' status
-   dots and +/− counts. The Pipeline itself is in CrewPipeline.css. */
+/* The team's cards on the Board, its Feed (in Activity) and Ready sheet.
+   Black and grey like the rest of Aven; colour only in small status words,
+   the marks' status dots and +/− counts. */
 
-/* A crew card's stage, round dots and line. */
+/* A team card's stage and line. */
 .crew-card-stage {
   display: block;
   color: var(--aven-muted);
@@ -21,11 +21,6 @@
 
 .crew-card-stage[data-tone="needs-you"] strong {
   color: var(--aven-needs-you);
-}
-
-.crew-card-stage .crew-dots {
-  margin-left: 7px;
-  vertical-align: 1px;
 }
 
 .crew-card-line,
@@ -280,89 +275,6 @@
 .crew-sheet-actions {
   display: flex;
   gap: 6px;
-}
-
-/* Who a card went to, and what you set for it. */
-.crew-card-assigned {
-  display: block;
-  overflow: hidden;
-  margin-top: 2px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-micro);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Give to crew, and ▾ beside it for choosing who builds and checks. */
-.crew-give-split {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 1px;
-}
-
-.crew-give-more {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--aven-radius-sm);
-  background: transparent;
-  color: var(--aven-muted);
-  cursor: pointer;
-}
-
-.crew-give-more:hover,
-.crew-give-more[aria-expanded="true"] {
-  background: var(--aven-fill-quaternary);
-  color: var(--color-content);
-}
-
-.crew-give-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  font-size: var(--text-ui-label);
-}
-
-.crew-give-title {
-  margin: 0;
-  overflow: hidden;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.crew-give-field {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.crew-give-field > span {
-  color: var(--aven-muted);
-  font-size: var(--text-ui-caption);
-}
-
-.crew-give-field select {
-  width: 100%;
-  padding: 3px 6px;
-  font: inherit;
-}
-
-.crew-give-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.crew-give-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 2px;
 }
 
 /* The Feed (in Activity) scrolls inside itself. */

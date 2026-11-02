@@ -64,7 +64,7 @@ import {
 } from "../lib/teamThread";
 import type { BoardCard } from "../lib/workBoard";
 import { plural } from "../lib/words";
-import { BatchButtons } from "./CrewPipeline";
+import { BatchButtons } from "./TeamBatch";
 import "./TeamChat.css";
 
 /**
@@ -831,6 +831,14 @@ function PostView({
       >
         {post.needsYou ? <i className="team-event-dot" aria-hidden /> : null}
         {post.text} <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
+        {post.needsYou ? (
+          <>
+            {" "}
+            <button type="button" className="team-post-link" onClick={onCards}>
+              See it on the board
+            </button>
+          </>
+        ) : null}
       </li>
     );
   return (

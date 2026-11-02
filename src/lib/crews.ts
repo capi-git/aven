@@ -562,6 +562,8 @@ export type Crew = {
   goal?: CrewGoal;
   /** Replies in member chats already turned into cards: each is read once. */
   asks?: string[];
+  /** Ideas you said Not now to: they wait in Ideas until you build them. */
+  notNow?: string[];
   /**
    * What you wrote to the team, as you wrote it, the newest last: the team
    * chat shows these as your messages. Older builds drop them on reading.
@@ -619,6 +621,7 @@ const IDEAS_KEPT = 60;
 export const CREW_NOTE_MAX = 500;
 export const CREW_GOAL_MAX = 300;
 const ASKS_KEPT = 50;
+const NOT_NOW_KEPT = 200;
 /** Your messages to the team kept: the chat shows these and the Feed's posts. */
 export const CREW_MESSAGES_KEPT = 50;
 export const CREW_MESSAGE_MAX = 2_000;
@@ -1274,6 +1277,7 @@ export function readCrew(value: unknown): Crew | null {
   const stack = raw.stack as Crew["stack"] | undefined;
   const goal = readGoal(raw.goal);
   const asks = strings(raw.asks, ASKS_KEPT, 200);
+  const notNow = strings(raw.notNow, NOT_NOW_KEPT, 200);
   const messages = readMessages(raw.messages);
   return {
     ...base,
@@ -1338,6 +1342,7 @@ export function readCrew(value: unknown): Crew | null {
       : {}),
     ...(goal ? { goal } : {}),
     ...(asks.length ? { asks } : {}),
+    ...(notNow.length ? { notNow } : {}),
     ...(messages.length ? { messages } : {}),
     cards,
     feed,
@@ -2345,12 +2350,34 @@ export function crewCard(
 }
 
 /**
- * The card in the crew's copy now: being built or checked, Ready, or Stuck.
- * A Ready card stacked on the crew's branch no longer holds it: the next
- * card builds on top.
+ * A Stuck card with nothing of its own in the copy: its Builder changed no
+ * file in any round and stopped (it changed nothing, or asked before it
+ * did). It steps aside, so the team goes on with the next card meanwhile,
+ * and starts again from the top when you answer it or try it again.
+ */
+export function cardSteppedAside(card: CrewCard): boolean {
+  return (
+    card.stage === "stuck" &&
+    !card.turn &&
+    !card.stacked &&
+    (card.stuck?.reason === "no-change" ||
+      (card.stuck?.reason === "question" && card.holder === "builder")) &&
+    !card.fix &&
+    !card.rounds.some((round) => (round.change?.files ?? 0) > 0)
+  );
+}
+
+/**
+ * The card in the crew's copy now: being built or checked, Ready, or Stuck
+ * with work in it. A Ready card stacked on the crew's branch no longer
+ * holds it (the next card builds on top), nor does a Stuck card that
+ * changed nothing.
  */
 export function cardInCopy(crew: Pick<Crew, "cards">): CrewCard | undefined {
-  return crew.cards.find((card) => HOLDS_COPY.has(card.stage) && !card.stacked);
+  return crew.cards.find(
+    (card) =>
+      HOLDS_COPY.has(card.stage) && !card.stacked && !cardSteppedAside(card),
+  );
 }
 
 /**
@@ -2422,15 +2449,32 @@ export function withGoalCardDropped(crew: Crew, card: CrewCard): Crew {
   return { ...crew, goal: { ...crew.goal, dropped } };
 }
 
+/** A title by its words alone, without case or marks. */
+function titleWords(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
 /** Whether a planned title is one you threw away (by its words, without case). */
 export function goalDropped(crew: Pick<Crew, "goal">, title: string): boolean {
-  const words = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .trim();
-  const wanted = words(title);
-  return (crew.goal?.dropped ?? []).some((item) => words(item) === wanted);
+  const wanted = titleWords(title);
+  return (crew.goal?.dropped ?? []).some((item) => titleWords(item) === wanted);
+}
+
+/** Whether the team already has a card by this title, not thrown away. */
+export function crewHasTitle(
+  crew: Pick<Crew, "cards">,
+  title: string,
+): boolean {
+  const wanted = titleWords(title);
+  return (
+    !!wanted &&
+    crew.cards.some(
+      (card) => card.stage !== "discarded" && titleWords(card.title) === wanted,
+    )
+  );
 }
 
 /** The fingerprint a stacked card's Apply checks: its own change's. */

@@ -25,7 +25,12 @@ import {
   type FeatureCard,
 } from "../lib/featureCards";
 import { localDay, resetProjectBotsCache } from "../lib/projectBots";
-import { TEAM_VIEW_KEY, resetTeamViewCache, teamView } from "../lib/teamView";
+import {
+  TEAM_VIEW_KEY,
+  resetTeamViewCache,
+  setTeamView,
+  teamView,
+} from "../lib/teamView";
 import { TOO_LONG_FOR_A_GOAL, TOO_LONG_FOR_EVERYONE } from "../lib/crewActions";
 import {
   installWorkBoardActions,
@@ -332,6 +337,9 @@ beforeEach(() => {
   resetProjectBotsCache();
   resetCrewsCache();
   resetTeamViewCache();
+  // These tests are about the chat: the team opens on it (the Board is the
+  // first choice, tried below).
+  setTeamView(PROJECT, "chat");
   setFeatureCardBackend(memoryFeatureCardBackend());
   resetWorkBoardFeed();
   installWorkBoardActions({
@@ -366,21 +374,23 @@ afterEach(async () => {
 });
 
 describe("the team chat", () => {
-  it("opens on Chat, and remembers Cards for this project", async () => {
+  it("opens on the Board until you choose the Chat, and remembers it for this project", async () => {
+    localStorage.removeItem(TEAM_VIEW_KEY);
+    resetTeamViewCache();
     await setUp();
-    expect(chat()).not.toBeNull();
+    expect(container.querySelector("[data-team-board]")).not.toBeNull();
+    expect(container.querySelector("[data-team-chat]")).toBeNull();
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
-    expect(header.querySelector("h1")?.textContent).toBe("pom team");
-    const cards = [
+    expect(header.querySelector("h1")?.textContent).toBe("pom");
+    const options = [
       ...header.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
-    ].find((item) => item.textContent?.startsWith("Cards"))!;
-    // The ready card and the one in check.
-    expect(cards.textContent).toBe("Cards · 2");
-    await act(async () => cards.click());
-    expect(chat()).toBeNull();
-    expect(container.querySelector("[data-crew-pipeline]")).not.toBeNull();
-    expect(teamView(PROJECT)).toBe("cards");
-    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("cards");
+    ];
+    expect(options.map((item) => item.textContent)).toEqual(["Board", "Chat"]);
+    await act(async () => options[1]!.click());
+    expect(chat()).not.toBeNull();
+    expect(container.querySelector("[data-team-board]")).toBeNull();
+    expect(teamView(PROJECT)).toBe("chat");
+    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("chat");
   });
 
   it("lists Everyone, then each teammate with what it's doing, then Add teammate", async () => {
@@ -445,7 +455,7 @@ describe("the team chat", () => {
     expect(thread.textContent).not.toMatch(/[{}[\]]"/);
   });
 
-  it("pins Ready for you on top, and Apply all lands exactly what Cards' row would", async () => {
+  it("pins Ready for you on top, and Apply all lands exactly the reviewed range", async () => {
     await setUp();
     const ready = chat().querySelector<HTMLElement>(
       '[data-team-ready="batch"]',
@@ -624,7 +634,7 @@ describe("the team chat", () => {
     );
   });
 
-  it("asks you to answer only a card that still waits, and shows Cards without saving it", async () => {
+  it("asks you to answer only a card that still waits, and shows the Board without saving it", async () => {
     await setUp((crew, boards) => {
       const stuck = (id: string, stage: "stuck" | "applied") => ({
         ...crew.cards.find((card) => card.id === boards[0]!.id)!,
@@ -662,7 +672,7 @@ describe("the team chat", () => {
     ]);
     expect(button(asks[0]!, "Answer on its card")).toBeUndefined();
     await act(async () => button(asks[1]!, "Answer on its card")!.click());
-    expect(container.querySelector("[data-crew-pipeline]")).not.toBeNull();
+    expect(container.querySelector("[data-team-board]")).not.toBeNull();
     // How the team opens stays your choice: Chat.
     expect(teamView(PROJECT)).toBe("chat");
   });

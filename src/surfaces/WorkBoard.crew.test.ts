@@ -25,7 +25,6 @@ import {
   withCard,
   withFeed,
   withIdea,
-  withNote,
   type Crew,
   type CrewCard,
 } from "../lib/crews";
@@ -41,7 +40,7 @@ import {
   publishWorkBoardFeed,
   resetWorkBoardFeed,
 } from "../lib/workBoardFeed";
-import { resetTeamViewCache, setTeamView } from "../lib/teamView";
+import { resetTeamViewCache } from "../lib/teamView";
 import { WorkBoard, cardMenuItems } from "./WorkBoard";
 
 const actions = vi.hoisted(() => ({
@@ -266,6 +265,33 @@ const button = (scope: Element, name: string) =>
     (entry) => entry.textContent === name,
   );
 
+/** A team card's one line on where it stands, and the line under it. */
+const stage = (element: Element) =>
+  element.querySelector(".crew-card-stage")?.textContent ?? "";
+const line = (element: Element) =>
+  element.querySelector(".crew-card-line")?.textContent ?? "";
+const column = (id: string) =>
+  container.querySelector<HTMLElement>(`[data-board-column="${id}"]`)!;
+/** A card's or the team's ⋯, and the menu it opens. */
+const cardMenu = async (element: Element) => {
+  await act(async () =>
+    element.querySelector<HTMLButtonElement>(".work-board-card-more")!.click(),
+  );
+  return [...document.querySelectorAll("[data-menu] button")].map(
+    (item) => item.textContent,
+  );
+};
+const teamMenu = async () =>
+  act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="More for the team"]')!
+      .click(),
+  );
+const pickMenu = async (label: string) =>
+  act(async () =>
+    button(document.querySelector("[data-menu]")!, label)!.click(),
+  );
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
@@ -278,9 +304,8 @@ beforeEach(() => {
   });
   resetProjectBotsCache();
   resetCrewsCache();
-  // These are the team's Cards (its Pipeline); the chat has its own tests.
+  // These are the team's Board (where it opens); the chat has its own tests.
   resetTeamViewCache();
-  setTeamView(PROJECT, "cards");
   setFeatureCardBackend(memoryFeatureCardBackend());
   resetWorkBoardFeed();
   installWorkBoardActions({
@@ -312,7 +337,7 @@ afterEach(async () => {
 });
 
 describe("the team view: the Board with the team on it", () => {
-  it("has one header: its name, one sentence, Chat | Cards, Pause and ⋯; the limits and Activity in the footer", async () => {
+  it("has one header: its name, one sentence, Board | Chat, Team, Pause and ⋯; Activity in ⋯", async () => {
     await setUp(
       () => (crew) =>
         withFeed(crew, {
@@ -326,17 +351,21 @@ describe("the team view: the Board with the team on it", () => {
         }),
     );
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
-    expect(header.querySelector("h1")?.textContent).toBe("aven-site team");
+    expect(header.querySelector("h1")?.textContent).toBe("aven-site");
+    // The ideas on the Board build by themselves, the top one first.
+    const top = column("idea").querySelector(".work-board-card-name")!;
     expect(header.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "Nothing to build. Tell the team what to do, or add an idea.",
+      `Starting ${top.textContent}.`,
     );
+    expect(stage(top.closest("[data-board-card]")!)).toBe("Next");
     expect(button(header, "Pause")).toBeTruthy();
-    // One header: no board title above it, no strip, no columns, no Feed box.
+    expect(button(header, "Team")).toBeTruthy();
+    // One header: no board title above it, no strip, no Feed beside it.
     expect(container.querySelector(".work-board-header")).toBeNull();
     expect(container.querySelector(".crew-strip")).toBeNull();
-    expect(container.querySelector("[data-board-column]")).toBeNull();
     expect(container.querySelector("[data-crew-feed]")).toBeNull();
-    // Chat or Cards, in the same header: Cards is what this shows.
+    expect(container.querySelectorAll("header")).toHaveLength(1);
+    // Board or Chat, in the same header: the Board is what this shows.
     const switcher = header.querySelector<HTMLElement>(
       '[role="radiogroup"][aria-label="Show the team as"]',
     )!;
@@ -344,150 +373,79 @@ describe("the team view: the Board with the team on it", () => {
       [...switcher.querySelectorAll<HTMLElement>('[role="radio"]')].map(
         (item) => `${item.textContent}:${item.getAttribute("aria-checked")}`,
       ),
-    ).toEqual(["Chat:false", "Cards · 4:true"]);
-    expect(container.querySelectorAll("header")).toHaveLength(1);
+    ).toEqual(["Board:true", "Chat:false"]);
+    // The four columns, named for the team's work.
     expect(
-      container.querySelector("[data-crew-foot] [data-crew-limits]")
-        ?.textContent,
-    ).toBe("7 of 20 runs today · quiet 11 pm–8 am");
-    // Activity opens the whole Feed.
-    await act(async () =>
-      button(
-        container.querySelector("[data-crew-foot]")!,
-        "Activity ›",
-      )!.click(),
+      [...container.querySelectorAll("[data-board-column]")].map((item) =>
+        item.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Ideas", "Building", "Ready for you", "Done"]);
+    expect(column("idea").textContent).toContain(
+      "Built one by one, top first, while you're away",
     );
+    // Activity, in ⋯, opens the whole Feed, with the day's limits.
+    await teamMenu();
+    await pickMenu("Activity");
     const feed = document.querySelector<HTMLElement>("[data-crew-feed]")!;
     expect(feed.textContent).toContain("Builder → Checker · round 1");
     expect(feed.textContent).toContain(
       "A switch in Settings and a theme store.",
     );
+    expect(document.body.textContent).toContain(
+      "7 of 20 runs today · quiet 11 pm–8 am",
+    );
   });
 
-  it("groups its cards as rows, each with its path through Build, Check, Security and You", async () => {
+  it("says where each card stands in one line, who has it, and keeps buttons for what needs you", async () => {
     const boards = await setUp((boards) => (crew) => {
       let next = withCard(crew, crewCardFor(boards[2], "fixing"));
       next = withCard(next, crewCardFor(boards[5], "queued"));
       return next;
     });
-    const group = (label: string) =>
-      container.querySelector<HTMLElement>(`[aria-label="${label}"]`);
     const fixing = card(boards[2].id);
-    expect(group("In progress")!.contains(fixing)).toBe(true);
-    expect(fixing.querySelector(".crew-pipe-row-status")?.textContent).toBe(
-      "Round 2 of 3 · Builder fixing: Contrast",
-    );
-    expect(fixing.querySelector(".crew-pipe-bar")).toBeTruthy();
-    expect(
-      [...fixing.querySelectorAll<HTMLElement>(".crew-pipe-step")].map(
-        (step) => `${step.dataset.step}:${step.dataset.state}`,
-      ),
-    ).toEqual(["build:now", "check:todo", "security:todo", "you:todo"]);
-    expect(button(fixing, "Watch")).toBeTruthy();
+    expect(column("building").contains(fixing)).toBe(true);
+    expect(stage(fixing)).toBe("Fixing · Builder is on it · round 2 of 3 · 4m");
+    expect(line(fixing)).toBe("Checker asked for 2 fixes");
+    // Nothing to press while it works (the card opens its teammate's chat).
+    expect(fixing.querySelector(".work-board-card-actions")).toBeNull();
     const queued = card(boards[5].id);
-    expect(group("Up next")!.contains(queued)).toBe(true);
-    expect(queued.querySelector(".crew-pipe-row-status")?.textContent).toBe(
-      "From you · waits for Dark mode toggle",
-    );
-    expect(button(queued, "Not now")).toBeTruthy();
+    expect(column("building").contains(queued)).toBe(true);
+    expect(stage(queued)).toBe("Up next");
+    expect(queued.querySelector(".work-board-card-actions")).toBeNull();
+    expect(await cardMenu(queued)).toContain("Not now");
     expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "Building Dark mode toggle, round 2 of 3: Checker asked for 2 fixes.",
+      "Building Dark mode toggle, round 2 of 3.",
     );
-    // Ideas, with Add an idea.
-    expect(group("Ideas")!.textContent).toContain("Pricing page");
-    expect(group("Ideas")!.querySelector(".work-board-add")).toBeTruthy();
   });
 
-  it("Give to team and Not now on ideas; a Scout idea says where it came from", async () => {
-    const boards = await setUp(
-      (boards) => (crew) =>
-        withIdea(crew, boards[1].id, { at: 1, size: "small" }),
-    );
-    const mine = card(boards[0].id);
+  it("builds ideas by themselves, top first: Next, and Build it next or Not now in ⋯", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...withIdea(crew, boards[1].id, { at: 1, size: "small" }),
+      notNow: [boards[0].id],
+    }));
+    // You said Not now to the first: it waits, with Build it.
+    const held = card(boards[0].id);
+    expect(line(held)).toBe("Not now");
     expect(
-      [
-        ...mine.querySelectorAll(
-          ".crew-pipe-row-actions button:not([data-crew-give-more]):not(.crew-pipe-more)",
-        ),
-      ].map((item) => item.textContent),
-    ).toEqual(["Give to team"]);
-    // ▾ beside it chooses who builds and checks it.
-    expect(
-      mine.querySelector("[data-crew-give-more]")?.getAttribute("aria-label"),
-    ).toBe(`Choose who builds “${boards[0].title}”`);
-    const scouted = card(boards[1].id);
-    expect(scouted.querySelector(".crew-pipe-row-status")?.textContent).toBe(
-      "From Scout · small",
-    );
-    expect(button(scouted, "Not now")).toBeTruthy();
-    await act(async () => button(mine, "Give to team")!.click());
+      [...held.querySelectorAll(".work-board-card-actions button")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Build it"]);
+    await act(async () => button(held, "Build it")!.click());
     expect(actions.giveCardToCrew).toHaveBeenCalledWith(PROJECT, {
       id: boards[0].id,
       title: "Pricing page",
     });
-    await act(async () => button(scouted, "Not now")!.click());
+    // The Scout's builds next, by itself: no buttons, and no Build.
+    const scouted = card(boards[1].id);
+    expect(stage(scouted)).toBe("Next");
+    expect(line(scouted)).toBe("From Scout");
+    expect(scouted.querySelector(".work-board-card-actions")).toBeNull();
+    expect(await cardMenu(scouted)).toEqual(
+      expect.arrayContaining(["Build it next", "Not now"]),
+    );
+    await pickMenu("Not now");
     expect(actions.notNowIdea).toHaveBeenCalledWith(PROJECT, boards[1].id);
-  });
-
-  it("Give to team ▾ chooses who builds and checks a card, and the card says so", async () => {
-    const boards = await setUp((boards) => (crew) => ({
-      ...withCard(
-        crew,
-        queueCard(
-          {
-            id: boards[2].id,
-            title: boards[2].title,
-            brief: boards[2].title,
-            from: "you",
-            maxRounds: 2,
-            builderId: "builder-2",
-            override: { effort: "high" },
-          },
-          NOW,
-        ),
-      ),
-      members: [
-        ...crew.members,
-        { id: "builder-2", role: "builder", name: "Mole", critter: "hedgehog" },
-      ],
-      routes: [{ id: "r1", words: ["pricing"], to: "builder-2" }],
-    }));
-    // The queued card shows who it went to and what you set for it.
-    expect(
-      card(boards[2].id).querySelector(".crew-pipe-row-status")?.textContent,
-    ).toBe("From you · Mole builds · Checker checks · high · 2 rounds");
-    const idea = card(boards[0].id);
-    await act(async () =>
-      idea.querySelector<HTMLButtonElement>("[data-crew-give-more]")!.click(),
-    );
-    const chooser = document.querySelector<HTMLElement>(
-      "[data-crew-give-chooser]",
-    )!;
-    expect(chooser).toBeTruthy();
-    const selects = [...chooser.querySelectorAll("select")];
-    // Auto names the Builder the rules pick: "pricing" sends it to Mole.
-    expect(selects[0].options[0].textContent).toBe("Auto · Mole");
-    expect([...selects[0].options].map((option) => option.value)).toEqual([
-      "",
-      "builder",
-      "builder-2",
-    ]);
-    await act(async () => {
-      selects[0].value = "builder";
-      selects[0].dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    const rounds = [...chooser.querySelectorAll("select")].at(-1)!;
-    await act(async () => {
-      rounds.value = "4";
-      rounds.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    await act(async () => button(chooser, "Give to team")!.click());
-    expect(actions.giveCardToCrew).toHaveBeenCalledWith(
-      PROJECT,
-      { id: boards[0].id, title: "Pricing page" },
-      expect.any(Number),
-      { builderId: "builder", maxRounds: 4 },
-    );
   });
 
   describe("the Feed", () => {
@@ -536,14 +494,11 @@ describe("the team view: the Board with the team on it", () => {
     });
     const feed = () =>
       document.querySelector<HTMLElement>("[data-crew-feed-scroll]")!;
-    /** The Feed is in Activity, from the footer. */
-    const openActivity = async () =>
-      act(async () =>
-        button(
-          document.querySelector("[data-crew-foot]")!,
-          "Activity ›",
-        )!.click(),
-      );
+    /** The Feed is in Activity, from the team's ⋯. */
+    const openActivity = async () => {
+      await teamMenu();
+      await pickMenu("Activity");
+    };
     const add = async (text: string, grow = 100) => {
       metrics.scrollHeight += grow;
       await act(async () => {
@@ -688,11 +643,8 @@ describe("the team view: the Board with the team on it", () => {
       });
     });
     const ready = card(boards[3].id);
-    expect(
-      [...ready.querySelectorAll<HTMLElement>(".crew-pipe-step")].map(
-        (step) => step.dataset.state,
-      ),
-    ).toEqual(["done", "done", "done", "now"]);
+    expect(column("review").contains(ready)).toBe(true);
+    expect(stage(ready)).toBe("Ready · checked by Checker and Security");
     await act(async () => button(ready, "Review")!.click());
     const sheet = document.querySelector<HTMLElement>(
       `[data-crew-ready="${boards[3].id}"]`,
@@ -713,44 +665,29 @@ describe("the team view: the Board with the team on it", () => {
       (boards) => (crew) => withCard(crew, crewCardFor(boards[4], "stuck")),
     );
     const stuck = card(boards[4].id);
-    // In progress, with why, waiting on you.
-    expect(
-      container.querySelector('[aria-label="In progress"]')!.contains(stuck),
-    ).toBe(true);
+    // In Building, with why, waiting on you.
+    expect(column("building").contains(stuck)).toBe(true);
     expect(stuck.hasAttribute("data-needs-you")).toBe(true);
-    expect(stuck.querySelector(".crew-pipe-row-status")?.textContent).toBe(
-      "Stuck after 3 rounds",
-    );
+    expect(stage(stuck)).toBe("Needs you");
+    expect(line(stuck)).toBe("Stuck after 3 rounds");
+    expect(
+      [...stuck.querySelectorAll(".work-board-card-actions button")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["One more round", "Throw away"]);
     await act(async () => button(stuck, "One more round")!.click());
     expect(actions.resumeCrewCard).toHaveBeenCalledWith(PROJECT, boards[4].id);
     // The other ways on are in its ⋯.
-    const more = () =>
-      act(async () =>
-        stuck.querySelector<HTMLButtonElement>(".crew-pipe-more")!.click(),
-      );
-    await more();
-    expect(
-      [...document.querySelectorAll("[data-menu] button")].map(
-        (item) => item.textContent,
-      ),
-    ).toEqual([
-      "Take over in a chat",
-      "Back to Ideas",
-      "Throw away",
-      "Edit or delete…",
-    ]);
-    await act(async () =>
-      button(document.querySelector("[data-menu]")!, "Back to Ideas")!.click(),
+    expect(await cardMenu(stuck)).toEqual(
+      expect.arrayContaining(["Take over in a chat", "Back to Ideas"]),
     );
+    await pickMenu("Back to Ideas");
     expect(actions.discardCrewCard).toHaveBeenCalledWith(
       PROJECT,
       boards[4].id,
       "ideas",
     );
-    await more();
-    await act(async () =>
-      button(document.querySelector("[data-menu]")!, "Throw away")!.click(),
-    );
+    await act(async () => button(stuck, "Throw away")!.click());
     expect(actions.discardCrewCard).toHaveBeenCalledTimes(1);
     await act(async () =>
       button(
@@ -770,9 +707,8 @@ describe("the team view: the Board with the team on it", () => {
       (boards) => (crew) => withCard(crew, crewCardFor(boards[2], "question")),
     );
     const asking = card(boards[2].id);
-    expect(asking.querySelector(".crew-pipe-row-status")?.textContent).toBe(
-      "Builder asked: Keep each note's colour?",
-    );
+    expect(stage(asking)).toBe("Needs you");
+    expect(line(asking)).toBe("Builder asked: Keep each note's colour?");
     await act(async () => button(asking, "Answer")!.click());
     const box = asking.querySelector<HTMLTextAreaElement>("textarea")!;
     await act(async () => {
@@ -795,22 +731,15 @@ describe("the team view: the Board with the team on it", () => {
       (boards) => (crew) => withCard(crew, crewCardFor(boards[2], "fixing")),
     );
     const fixing = card(boards[2].id);
-    await act(async () =>
-      fixing.querySelector<HTMLButtonElement>(".crew-pipe-more")!.click(),
-    );
-    const menu = container.querySelector<HTMLElement>("[data-menu]")!;
-    await act(async () => button(menu, "Pause this card")!.click());
+    await cardMenu(fixing);
+    await pickMenu("Pause this card");
     expect(actions.setCrewCardPaused).toHaveBeenCalledWith(
       PROJECT,
       boards[2].id,
       true,
     );
-    await act(async () =>
-      fixing.querySelector<HTMLButtonElement>(".crew-pipe-more")!.click(),
-    );
-    await act(async () =>
-      button(container.querySelector("[data-menu]")!, "Stop now")!.click(),
-    );
+    await cardMenu(fixing);
+    await pickMenu("Stop now");
     expect(actions.stopCrewCard).toHaveBeenCalledWith(PROJECT, boards[2].id);
   });
 
@@ -839,80 +768,34 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.extra?.count).toBe(10);
   });
 
-  /** Type in Tell the crew… and send it. */
-  const tell = async (text: string) => {
-    const input = container.querySelector<HTMLInputElement>(
-      'input[aria-label="Tell the team"]',
-    )!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,
-        "value",
-      )!.set!.call(input, text);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+  it("makes a goal from ⋯ in the chat's box, and says when it waits", async () => {
+    const boards = await setUp(() => (crew) => crew);
+    await teamMenu();
+    await pickMenu("Set a goal…");
+    // The Chat shows, its box set to a goal.
+    expect(container.querySelector("[data-team-chat]")).not.toBeNull();
+    expect(container.querySelector("[data-team-board]")).toBeNull();
     await act(async () =>
-      input.form!.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true }),
-      ),
+      updateCrew(PROJECT, (crew) => ({
+        ...crew,
+        goal: { text: "Build the whole Pom app", at: NOW },
+      })),
     );
-    await settle();
-  };
-  /** The Feed's words: in Activity, from the footer. */
-  const feedText = async () => {
-    if (!document.querySelector("[data-crew-feed]"))
-      await act(async () =>
-        button(
-          document.querySelector("[data-crew-foot]")!,
-          "Activity ›",
-        )!.click(),
-      );
-    return document.querySelector("[data-crew-feed]")!.textContent ?? "";
-  };
-  /** How the crew takes the next message: a card, a rule or a goal. */
-  const mode = async (label: string) => {
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(".crew-pipe-ask-mode")!
-        .click(),
-    );
-    await act(async () =>
-      button(document.querySelector("[data-menu]")!, label)!.click(),
-    );
-  };
-
-  it("keeps what you tell the team as standing guidance with Remember for every card", async () => {
-    await setUp(() => (crew) => crew);
-    const word = () =>
-      container.querySelector<HTMLElement>(".crew-pipe-ask-mode")!.dataset.mode;
-    expect(word()).toBe("card");
-    await mode("Remember for every card");
-    expect(word()).toBe("rule");
-    await tell("Use pnpm, not npm.");
-    expect(getCrew(PROJECT)!.notes.map((note) => note.text)).toEqual([
-      "Use pnpm, not npm.",
-    ]);
-    // No card for a rule, and the next message is a card again.
-    expect(getCrew(PROJECT)!.cards).toEqual([]);
-    expect(word()).toBe("card");
-    expect(await feedText()).toContain("You told the team · standing");
-  });
-
-  it("makes a goal the team keeps going towards, from the box or ⋯", async () => {
-    await setUp(() => (crew) => crew);
-    await mode("Make it a goal");
-    await tell("Build the whole Pom app");
-    expect(getCrew(PROJECT)!.goal).toMatchObject({
-      text: "Build the whole Pom app",
-    });
-    expect(getCrew(PROJECT)!.cards).toEqual([]);
-    const goal = container.querySelector<HTMLElement>("[data-crew-goal]")!;
-    expect(goal.dataset.crewGoal).toBe("on");
-    expect(goal.textContent).toBe(
+    const goal = () =>
+      container.querySelector<HTMLElement>("[data-crew-goal]")!;
+    expect(goal().dataset.crewGoal).toBe("on");
+    expect(goal().textContent).toBe(
       "Goal Build the whole Pom app · the team keeps going",
     );
-    expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "Planning the next card for the goal.",
+    // A card that waits on you with work in hand: the goal waits too.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) =>
+        withCard(crew, crewCardFor(boards[4], "stuck")),
+      ),
+    );
+    expect(goal().dataset.crewGoal).toBe("waits");
+    expect(goal().textContent).toBe(
+      "Goal Build the whole Pom app · waits for you",
     );
     // A goal it stopped at: Keep going picks it up again.
     await act(async () =>
@@ -924,88 +807,12 @@ describe("the team view: the Board with the team on it", () => {
         },
       })),
     );
-    await act(async () =>
-      button(
-        container.querySelector("[data-crew-goal]")!,
-        "Keep going",
-      )!.click(),
-    );
+    await act(async () => button(goal(), "Keep going")!.click());
     expect(getCrew(PROJECT)!.goal?.done).toBeUndefined();
     // ⋯ → Clear the goal.
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="More for the team"]')!
-        .click(),
-    );
-    await act(async () =>
-      button(
-        container.querySelector("[data-crew-header] [data-menu]")!,
-        "Clear the goal",
-      )!.click(),
-    );
+    await teamMenu();
+    await pickMenu("Clear the goal");
     expect(getCrew(PROJECT)!.goal).toBeUndefined();
-  });
-
-  it("gives the team what you tell it as a card to build", async () => {
-    await setUp(() => (crew) => crew);
-    await tell("build a timer screen");
-    const crew = getCrew(PROJECT)!;
-    expect(crew.notes).toEqual([]);
-    expect(crew.cards).toHaveLength(1);
-    expect(crew.cards[0]).toMatchObject({
-      title: "Build a timer screen",
-      stage: "queued",
-      from: "you",
-    });
-    // Up next, with its path ahead of it, and in the Feed.
-    const given = card(crew.cards[0].id);
-    expect(
-      container.querySelector('[aria-label="Up next"]')!.contains(given),
-    ).toBe(true);
-    expect(given.querySelector(".crew-pipe-row-status")?.textContent).toBe(
-      "From you · next up",
-    );
-    expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "Starting Build a timer screen.",
-    );
-    expect(await feedText()).toContain(
-      "You gave the team “Build a timer screen”",
-    );
-  });
-
-  it("answers a nudge with nothing to build instead of making a vague card", async () => {
-    // "go" was a standing note before Tell the crew… made cards: it stays.
-    await setUp(() => (crew) => withNote(crew, "go", NOW - 60_000));
-    await tell("go");
-    const crew = getCrew(PROJECT)!;
-    expect(crew.cards).toEqual([]);
-    expect(crew.notes.map((note) => note.text)).toEqual(["go"]);
-    expect(crew.feed.at(-1)).toMatchObject({
-      who: "aven",
-      text: "Tell the team what to build, or add an idea.",
-    });
-    // Only the note you kept is standing, not the "go" you just sent.
-    expect((await feedText()).match(/· standing/g)).toHaveLength(1);
-    expect(
-      [...document.querySelectorAll(".crew-feed-unpin")].map(
-        (item) => item.textContent,
-      ),
-    ).toEqual(["Stop telling the team this"]);
-  });
-
-  it("a nudge tries a stopped card again", async () => {
-    const boards = await setUp(
-      (boards) => (crew) =>
-        withCard(crew, {
-          ...crewCardFor(boards[4], "stuck"),
-          stuck: { reason: "stopped", text: "You stopped it" },
-        }),
-    );
-    await tell("keep going");
-    const crew = getCrew(PROJECT)!;
-    expect(crew.cards).toHaveLength(1);
-    expect(crewCard(crew, boards[4].id)?.stage).toBe("building");
-    expect(crew.feed.at(-1)?.text).toBe(`Trying “${boards[4].title}” again`);
   });
 
   it("says when the team has nothing to build, with a Scout to add", async () => {
@@ -1017,11 +824,15 @@ describe("the team view: the Board with the team on it", () => {
       stop: vi.fn(async () => undefined),
     });
     try {
-      await setUp(() => (crew) => crew);
+      // You said Not now to both ideas: nothing builds.
+      await setUp((boards) => (crew) => ({
+        ...crew,
+        notNow: [boards[0].id, boards[1].id],
+      }));
       const sentence = () =>
         container.querySelector<HTMLElement>("[data-crew-sentence]")!;
       expect(sentence().textContent).toBe(
-        "Nothing to build. Tell the team what to do, or add an idea. Add a Scout to suggest ideas",
+        "Nothing to build. Add an idea and the team builds it. Add a Scout to suggest ideas",
       );
       await act(async () =>
         button(sentence(), "Add a Scout to suggest ideas")!.click(),
@@ -1035,7 +846,7 @@ describe("the team view: the Board with the team on it", () => {
         })),
       );
       expect(sentence().textContent).toBe(
-        "Nothing to build. Tell the team what to do, or add an idea.",
+        "Nothing to build. Add an idea and the team builds it.",
       );
       await act(async () =>
         updateCrew(PROJECT, (crew) =>
@@ -1064,8 +875,8 @@ describe("the team view: the Board with the team on it", () => {
     const boards = await setUp(
       (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
     );
-    const queued = card(boards[5].id);
-    await act(async () => button(queued, "Not now")!.click());
+    await cardMenu(card(boards[5].id));
+    await pickMenu("Not now");
     expect(actions.discardCrewCard).toHaveBeenCalledWith(
       PROJECT,
       boards[5].id,
@@ -1077,14 +888,8 @@ describe("the team view: the Board with the team on it", () => {
     const boards = await setUp(
       (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
     );
-    await act(async () =>
-      card(boards[5].id)
-        .querySelector<HTMLButtonElement>(".crew-pipe-more")!
-        .click(),
-    );
-    await act(async () =>
-      button(container.querySelector("[data-menu]")!, "Delete")!.click(),
-    );
+    await cardMenu(card(boards[5].id));
+    await pickMenu("Delete");
     const dialog = document.querySelector<HTMLElement>(
       '[data-confirm-dialog="Delete this card?"]',
     )!;
@@ -1120,7 +925,7 @@ describe("the team view: the Board with the team on it", () => {
     expect(labels()).toContain("Move to Ideas");
   });
 
-  it("never lifts a team's row when you drag it", async () => {
+  it("never lifts a team's card when you drag it", async () => {
     const boards = await setUp(
       (boards) => (crew) => withCard(crew, crewCardFor(boards[2], "fixing")),
     );
@@ -1135,7 +940,7 @@ describe("the team view: the Board with the team on it", () => {
     const row = card(boards[2].id);
     await act(async () => {
       row
-        .querySelector(".crew-pipe-row-title")!
+        .querySelector(".work-board-card-name")!
         .dispatchEvent(pointer("pointerdown", 50));
       window.dispatchEvent(pointer("pointermove", 60));
       window.dispatchEvent(pointer("pointermove", 200));
@@ -1230,15 +1035,17 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.on).toBe(false);
   });
 
-  it("puts the cursor in Tell the team when asked from elsewhere", async () => {
+  it("opens the Chat with the cursor in its box when Tell the team… is asked from elsewhere", async () => {
     await setUp(() => (crew) => crew);
+    expect(container.querySelector("[data-team-board]")).not.toBeNull();
     await act(async () => focusCrewTell(PROJECT));
     await act(
       async () =>
         new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     );
+    expect(container.querySelector("[data-team-chat]")).not.toBeNull();
     expect(document.activeElement).toBe(
-      container.querySelector('input[aria-label="Tell the team"]'),
+      container.querySelector("[data-team-chat] textarea"),
     );
   });
 
@@ -1292,20 +1099,23 @@ describe("the team view: the Board with the team on it", () => {
       return { ...next, stack: { base: "a".repeat(40) } };
     });
     const batch = container.querySelector<HTMLElement>("[data-crew-batch]")!;
-    expect(
-      container.querySelector('[aria-label="Ready for you"]')!.contains(batch),
-    ).toBe(true);
-    expect(batch.querySelector(".crew-pipe-row-title")?.textContent).toBe(
+    // One card on top of Ready for you stands for the cards on the branch.
+    expect(column("review").contains(batch)).toBe(true);
+    expect(batch.querySelector(".work-board-card-name")?.textContent).toBe(
       "2 cards ready on the team's branch",
     );
-    expect(batch.querySelector(".crew-pipe-row-status")?.textContent).toBe(
-      `${boards[3].title} · ${boards[4].title} · 1 file · checked`,
+    expect(stage(batch)).toBe(
+      `Ready · ${boards[3].title} · ${boards[4].title} · 1 file · checked`,
     );
-    // Its cards aren't rows of their own.
+    expect(
+      column("review").querySelector(".work-board-count")?.textContent,
+    ).toBe("2");
+    // Its cards aren't cards of their own.
     expect(card(boards[3].id)).toBeNull();
-    expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "2 cards wait for you.",
-    );
+    // The team goes on with the next idea meanwhile.
+    expect(
+      container.querySelector("[data-crew-sentence]")?.textContent,
+    ).toMatch(/^Starting .+\. 2 things wait for you\.$/);
     await settle();
     // Apply all lands exactly the range the row read: its last commit and
     // fingerprint, never whatever is on the branch by the time it lands.
@@ -1657,6 +1467,6 @@ describe("the team view: the Board with the team on it", () => {
     await setUp(() => (crew) => ({ ...crew, on: false }));
     expect(container.querySelector("[data-crew-header]")).toBeNull();
     expect(container.querySelector("[data-crew-feed]")).toBeNull();
-    expect(container.textContent).not.toContain("Give to team");
+    expect(container.textContent).not.toContain("Build it");
   });
 });

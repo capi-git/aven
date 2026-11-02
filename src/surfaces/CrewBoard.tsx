@@ -9,7 +9,6 @@ import {
 import {
   CrewCritter,
   CrewCritters,
-  CrewRoundDots,
   CrewStatusPill,
 } from "../chrome/CrewCritter";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
@@ -53,6 +52,7 @@ import { plural } from "../lib/words";
 import { homeElapsed } from "../lib/workspaceHome";
 import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
+import { teamWording } from "../lib/teamThread";
 import "./CrewBoard.css";
 
 /**
@@ -74,7 +74,11 @@ function clock(at: number): string {
   }
 }
 
-/** A crew card's face on the Board: its stage, round dots and what it waits for. */
+/**
+ * A team card's face on the Board: where it stands in one line ("Building ·
+ * Builder is on it · 4 min"), and under it a line in its own words (a
+ * question, why it stopped, where an idea came from).
+ */
 export function CrewCardFace({
   info,
   now,
@@ -90,33 +94,14 @@ export function CrewCardFace({
         <span className="crew-card-stage" data-tone={tone}>
           <strong>{info.label}</strong>
           {info.detail ? <span> · {info.detail}</span> : null}
-          {info.rounds && !info.needsYou ? (
-            <CrewRoundDots
-              current={info.rounds.current}
-              total={info.rounds.total}
-            />
+          {info.since !== undefined ? (
+            <span> · {homeElapsed(info.since, Math.max(now, info.since))}</span>
           ) : null}
         </span>
       ) : null}
-      {info.line || info.since !== undefined ? (
-        <span className="crew-card-line">
+      {info.line ? (
+        <span className="crew-card-line" title={info.line}>
           {info.line}
-          {info.line && info.since !== undefined ? " · " : ""}
-          {info.since !== undefined
-            ? homeElapsed(info.since, Math.max(now, info.since))
-            : null}
-        </span>
-      ) : null}
-      {info.assigned ? (
-        <span className="crew-card-assigned" data-crew-assigned>
-          {info.assigned}
-        </span>
-      ) : null}
-      {info.change ? (
-        <span className="crew-card-change">
-          {plural(info.change.files, "file")}{" "}
-          <span className="crew-plus">+{info.change.additions}</span>{" "}
-          <span className="crew-minus">−{info.change.deletions}</span>
         </span>
       ) : null}
     </>
@@ -480,7 +465,7 @@ function FeedRow({
           ) : (
             <p className="crew-feed-text">
               <span className="crew-feed-words" data-folded={folded}>
-                {entry.text}
+                {teamWording(entry.text)}
               </span>
             </p>
           )}

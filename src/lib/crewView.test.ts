@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { queueCard, startCard } from "./crewLoop";
-import { crewBoardInfo, crewStatus } from "./crewView";
+import { crewBoardInfo, crewCardMenu, crewStatus } from "./crewView";
 import { newCrew, type Crew, type CrewCard } from "./crews";
 
 const names = { builder: "Beetle", checker: "Owl" };
@@ -43,13 +43,51 @@ describe("a Stuck card's buttons", () => {
   });
 });
 
+describe("a card that changed nothing", () => {
+  it("says so in its Builder's words, with Try again or Throw away", () => {
+    const card: CrewCard = {
+      ...stuck("no-change"),
+      holder: "builder",
+      stuck: { reason: "no-change", text: "Beetle changed nothing" },
+      rounds: [
+        {
+          n: 1,
+          handoff: {
+            summary: "The fix was already in the team's latest commit",
+            howToCheck: [],
+            ran: [],
+          },
+        },
+      ],
+    };
+    const info = crewBoardInfo(card, names);
+    expect(info).toMatchObject({
+      label: "Needs you",
+      needsYou: true,
+      line: "Beetle changed nothing · The fix was already in the team's latest commit",
+    });
+    expect(info.actions.map((action) => action.label)).toEqual([
+      "One more round",
+      "Throw away",
+    ]);
+    expect(crewCardMenu(card).map((action) => action.label)).toEqual([
+      "Take over in a chat",
+      "Back to Ideas",
+    ]);
+  });
+});
+
 describe("a Queued card", () => {
-  it("can go back to Ideas before it starts (Not now)", () => {
+  it("can go back to Ideas before it starts (Not now, in its ⋯)", () => {
     const queued = queueCard(
       { id: "c", title: "Dark mode", brief: "x", from: "you", maxRounds: 3 },
       1,
     );
-    expect(crewBoardInfo(queued, names).actions).toEqual([
+    expect(crewBoardInfo(queued, names)).toMatchObject({
+      label: "Up next",
+      actions: [],
+    });
+    expect(crewCardMenu(queued)).toEqual([
       { id: "back-to-ideas", label: "Not now" },
     ]);
   });

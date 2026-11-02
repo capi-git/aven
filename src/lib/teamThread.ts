@@ -84,6 +84,26 @@ function plain(text: string): string {
     : flat;
 }
 
+/**
+ * Aven's and your lines as they read now: ones saved before the crew was
+ * called a team ("You gave the crew …") say team. A quoted title keeps its
+ * own words, and a branch's name (aven/bot/crew-…) is left alone.
+ */
+export function teamWording(text: string): string {
+  return text
+    .split(/(“[^”]*”)/)
+    .map((part) =>
+      part.startsWith("“")
+        ? part
+        : part.replace(
+            /(?<![\w/-])([Cc])rew(s?)(?![\w/-])/g,
+            (_match, c: string, plural: string) =>
+              `${c === "C" ? "T" : "t"}eam${plural}`,
+          ),
+    )
+    .join("");
+}
+
 /** "Builder started “X”" from Builder: "Started “X”". */
 function withoutName(text: string, name: string): string {
   for (const lead of [`${name} `, `${name}'s `]) {
@@ -188,7 +208,7 @@ function postOf(
       kind: "event",
       id: entry.id,
       at: entry.at,
-      text: plain(entry.text),
+      text: plain(teamWording(entry.text)),
       ...(entry.member ? { about: entry.member } : {}),
     };
   }
@@ -198,7 +218,7 @@ function postOf(
       kind: "event",
       id: entry.id,
       at: entry.at,
-      text: plain(entry.text),
+      text: plain(teamWording(entry.text)),
       ...(entry.member ? { about: entry.member } : {}),
       ...(entry.kind === "stuck" && waiting(entry) ? { needsYou: true } : {}),
     };

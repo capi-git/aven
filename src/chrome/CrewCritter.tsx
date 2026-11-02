@@ -115,34 +115,3 @@ export function CrewStatusPill({ status }: { status: CrewStatus }) {
     </span>
   );
 }
-
-/** Round dots: one per round, the current one outlined, earlier ones filled. */
-export function CrewRoundDots({
-  current,
-  total,
-}: {
-  current: number;
-  total: number;
-}) {
-  return (
-    <span
-      className="crew-dots"
-      role="img"
-      aria-label={`Round ${current} of ${total}`}
-    >
-      {Array.from({ length: Math.max(total, current) }, (_, index) => (
-        <span
-          key={index}
-          className="crew-dot"
-          data-state={
-            index + 1 < current
-              ? "done"
-              : index + 1 === current
-                ? "now"
-                : "later"
-          }
-        />
-      ))}
-    </span>
-  );
-}

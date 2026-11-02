@@ -10,6 +10,7 @@ import { TASKS_FENCE, parseTasks } from "../lib/crewHandoff";
 import {
   crewForChat,
   crewForFolder,
+  crewHasTitle,
   useCrewsStore,
   yourGoal,
 } from "../lib/crews";
@@ -29,7 +30,7 @@ export const CrewFenceSource = createContext<{
 
 /**
  * A crew's fenced block in a chat, as a compact card instead of raw JSON:
- * "3 ideas" with their titles and Give to crew, "2 must-fix", "Handed
+ * "3 ideas" with their titles and Build it, "2 must-fix", "Handed
  * over", "Goal met". The bot's words show as quoted text; the buttons are
  * Aven's. While the block is still being written, one quiet line.
  */
@@ -45,7 +46,7 @@ export function CrewFenceCard({
   /** The chat's folder: its project, or a crew's copy. */
   cwd?: string;
 }) {
-  // Re-read when crews change, so Give to crew appears once the crew is on.
+  // Re-read when teams change, so Build it appears once the team is on.
   useCrewsStore();
   const [given, setGiven] = useState<ReadonlySet<string>>(() => new Set());
   const [problem, setProblem] = useState<string | null>(null);
@@ -82,7 +83,10 @@ export function CrewFenceCard({
         });
       });
   };
-  const open = view.items.filter((item) => !given.has(item.title));
+  // One the team already has (it started by itself, say) isn't given twice.
+  const has = (title: string) =>
+    given.has(title) || (!!crew && crewHasTitle(crew, title));
+  const open = view.items.filter((item) => !has(item.title));
   return (
     <section
       className="crew-fence"
@@ -97,7 +101,7 @@ export function CrewFenceCard({
             className="crew-fence-button"
             onClick={() => give(open.map((item) => item.title))}
           >
-            Give all to team
+            Build all
           </button>
         ) : null}
       </header>
@@ -113,15 +117,15 @@ export function CrewFenceCard({
                 ) : null}
               </span>
               {canGive ? (
-                given.has(item.title) ? (
-                  <span className="crew-fence-given">Given</span>
+                has(item.title) ? (
+                  <span className="crew-fence-given">With the team</span>
                 ) : (
                   <button
                     type="button"
                     className="crew-fence-button"
                     onClick={() => give([item.title])}
                   >
-                    Give to team
+                    Build it
                   </button>
                 )
               ) : null}

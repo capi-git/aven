@@ -1,6 +1,6 @@
-/* A project's team: one header (mark, name, one sentence, Chat | Cards,
-   Pause and ⋯), then its Chat or its Cards. Dark and grey; colour only on
-   the marks' lit dots and small status dots. */
+/* A project's team: one header (mark, name, one sentence, Board | Chat,
+   Team, Pause and ⋯), then its Board or its Chat. Dark and grey; colour
+   only on the marks' lit dots and small status dots. */
 .team-screen {
   --team-faint: color-mix(in srgb, var(--color-content) 40%, transparent);
   --team-line-strong: color-mix(in srgb, var(--color-content) 15%, transparent);
@@ -80,7 +80,7 @@
 }
 
 .settings-segmented.team-head-switch {
-  min-width: 156px;
+  min-width: 132px;
 }
 
 .settings-segmented.team-head-switch button {
@@ -88,10 +88,49 @@
   white-space: nowrap;
 }
 
-/* Cards: the Pipeline under the same header. */
-.team-screen[data-team-view="cards"] > .crew-pipe {
-  max-width: none;
-  padding-top: 0;
+/* The Board: the header and the four columns lay out as the plain Board's
+   do, the columns filling what's left of the pane. */
+.team-screen[data-team-view="board"] {
+  display: contents;
+}
+
+.team-screen[data-team-view="board"] > .team-head {
+  flex-shrink: 0;
+  margin-bottom: 16px;
+}
+
+/* Team: the teammates' marks, and the word. */
+.team-head-team {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-head-team .crew-critters {
+  gap: 3px;
+}
+
+.team-head-team .dot-mark.crew-critter {
+  width: 16px;
+  height: 16px;
+}
+
+/* Activity: the full Feed, in a sheet. */
+.crew-activity .crew-feed {
+  min-height: 0;
+  max-height: none;
+  padding: 0 16px 12px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.crew-activity .crew-feed > .work-board-column-title {
+  display: none;
+}
+
+.crew-activity .crew-feed-scroll {
+  max-height: min(64vh, 640px);
 }
 
 @container (max-width: 720px) {

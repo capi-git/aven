@@ -60,6 +60,8 @@ import {
   type CrewRole,
   type CrewRoute,
   type CrewScoutSchedule,
+  crewHasTitle,
+  cardSteppedAside,
 } from "./crews";
 import { MEMBER_SIGIL_CHOICES, isSigilKey } from "./dotSigils";
 import { isMascotName } from "./projectMascots";
@@ -659,7 +661,7 @@ export async function giveCardToCrew(
       : "";
     return withFeed(
       withCard(
-        withoutCard(current, card.id),
+        withNotNow(withoutCard(current, card.id), card.id, false),
         queueCard(
           {
             id: card.id,
@@ -710,6 +712,9 @@ export async function giveIdeasToCrew(
   if (!getCrew(path)?.on) return "Turn the team on first.";
   await loadFeatureCards(path);
   for (const title of titles) {
+    // One the team already has (started by itself, say) isn't made twice.
+    const crew = getCrew(path);
+    if (crew && crewHasTitle(crew, title)) continue;
     const known = featureBoardState(path).cards.find(
       (card) =>
         card.column === "idea" &&
@@ -845,10 +850,22 @@ export function setMemberGoal(
 export function notNowIdea(path: string, cardId: string) {
   updateCrew(path, (crew) => {
     const idea = crew.ideas?.[cardId];
-    return idea && !idea.declined
-      ? withIdea(crew, cardId, { ...idea, declined: true })
-      : crew;
+    const next =
+      idea && !idea.declined
+        ? withIdea(crew, cardId, { ...idea, declined: true })
+        : crew;
+    return withNotNow(next, cardId, true);
   });
+}
+
+/** Ideas you said Not now to wait in Ideas; Build it takes one off the list. */
+function withNotNow(crew: Crew, cardId: string, held: boolean): Crew {
+  const list = crew.notNow ?? [];
+  if (list.includes(cardId) === held) return crew;
+  const notNow = held
+    ? [...list, cardId].slice(-200)
+    : list.filter((id) => id !== cardId);
+  return { ...crew, notNow: notNow.length ? notNow : undefined };
 }
 
 export function setCrewCardPaused(
@@ -929,7 +946,9 @@ export function resumeCrewCard(
       card = crewCard(crew, cardId)!;
     }
     const resumed = withInboxResolved(
-      resumeCard(card, { note, now }),
+      cardSteppedAside(card)
+        ? againFromTheTop(crew, card, note, now)
+        : resumeCard(card, { note, now }),
       "done",
       now,
     );
@@ -943,12 +962,55 @@ export function resumeCrewCard(
         ? `You sent “${card.title}” back: ${note.trim()}`
         : card.stuck?.reason === "question"
           ? `You answered on “${card.title}”`
-          : cardTriesAgain(card)
+          : cardTriesAgain(card) || cardSteppedAside(card)
             ? `Trying “${card.title}” again`
             : `One more round on “${card.title}”`,
     });
   });
   void moveFeatureCard(path, cardId, "building", "");
+}
+
+/**
+ * A card that stepped aside (it changed nothing) goes again from the top:
+ * first in line, built afresh on whatever the team has now, with your words
+ * (and the question they answer) for its Builder.
+ */
+function againFromTheTop(
+  crew: Crew,
+  card: CrewCard,
+  note: string | undefined,
+  now: number,
+): CrewCard {
+  const words = note?.replace(/\s+/g, " ").trim();
+  const question =
+    card.stuck?.reason === "question"
+      ? card.stuck.text.replace(/^[^:]*asked: /, "")
+      : "";
+  const said = words
+    ? question
+      ? `You asked: ${question} Their answer: ${words}`
+      : words
+    : undefined;
+  const first = Math.min(
+    now,
+    ...queuedCards(crew).map((item) => item.queuedAt),
+  );
+  return {
+    ...card,
+    stage: "queued",
+    round: 0,
+    rounds: [],
+    holder: undefined,
+    stuck: undefined,
+    base: undefined,
+    fix: undefined,
+    granted: undefined,
+    startedAt: undefined,
+    endedAt: undefined,
+    queuedAt: first - 1,
+    note: said?.slice(0, CREW_NOTE_MAX),
+    updatedAt: now,
+  };
 }
 
 const NOT_READY = "This card is no longer ready.";
@@ -1101,6 +1163,8 @@ export async function discardCrewCard(
     );
     const idea = next.ideas?.[cardId];
     if (idea) next = withIdea(next, cardId, { ...idea, declined: true });
+    // Back in Ideas, it waits there: it doesn't build by itself again.
+    if (then === "ideas") next = withNotNow(next, cardId, true);
     return withFeed(next, {
       at: now,
       kind: "note",
@@ -2136,7 +2200,12 @@ export function focusCrewTell(path: string) {
   for (const listener of [...tellListeners]) listener();
 }
 
-/** The Feed takes a request for its crew, once: true when there was one. */
+/** Whether Tell the team… waits for this team's box (without taking it). */
+export function crewTellWaiting(path: string): boolean {
+  return tellFor !== null && tellFor === tellKey(path);
+}
+
+/** The team's box takes a request for its team, once: true when there was one. */
 export function takeCrewTell(path: string): boolean {
   if (tellFor === null || tellFor !== tellKey(path)) return false;
   tellFor = null;

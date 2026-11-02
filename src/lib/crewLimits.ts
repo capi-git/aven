@@ -1,4 +1,5 @@
 import { securityOff } from "./crewLoop";
+import type { FeatureCard } from "./featureCards";
 import {
   CREW_ALL_RUNS_PER_DAY,
   CREW_ROLE_INFO,
@@ -31,7 +32,8 @@ import {
  *
  * - runs a day per crew (every member's turns, the Fixer's included), and a
  *   ceiling for all crews together;
- * - one card at a time: a Ready or Stuck card holds the copy until you act;
+ * - one card at a time: a Ready card, or a Stuck one with work in the copy,
+ *   holds the copy until you act (a Stuck card with none steps aside);
  * - a daily cap on Scout ideas that start by themselves, and on ideas added;
  * - quiet hours, and a pause near the end of your Claude week.
  *
@@ -224,14 +226,12 @@ export function autoStartsLeft(crew: Crew, now: number): number {
 }
 
 /**
- * Whether a Scout idea may start by itself: the Scout called it small, it
- * is not based on outside material, you didn't say Not now, and it has not
- * started before.
+ * Whether a Scout idea may start by itself: it is not based on outside
+ * material, you didn't say Not now, and it has not started before.
  */
 export function ideaMayAutoStart(idea: CrewIdea | undefined): boolean {
   return (
     !!idea &&
-    idea.size === "small" &&
     !idea.sourceUrl &&
     !idea.outside &&
     !idea.declined &&
@@ -241,25 +241,69 @@ export function ideaMayAutoStart(idea: CrewIdea | undefined): boolean {
   );
 }
 
+/** An idea on the Board, as the team reads it. */
+export type BoardIdea = Pick<
+  FeatureCard,
+  "id" | "column" | "movedAt" | "sourceUrl"
+>;
+
 /**
- * The Scout idea that starts by itself next, oldest first: only while the
- * crew is idle (no card in its copy, none queued) and under today's cap.
- * `inIdeas` says which of the ideas' cards still sit in Ideas.
+ * Why an idea in Ideas waits for you instead of building by itself, or
+ * null when it builds in its turn: you said Not now, it came from outside
+ * (an issue, outside material) or from Security's sweep, or the Scout's
+ * ideas for today are used up.
  */
-export function nextAutoStart(
+export function ideaWaits(
   crew: Crew,
+  idea: Pick<BoardIdea, "id" | "sourceUrl">,
   now: number,
-  inIdeas: (cardId: string) => boolean,
-): string | null {
-  if (cardInCopy(crew) || queuedCards(crew).length) return null;
-  if (autoStartsLeft(crew, now) <= 0) return null;
-  const known = new Set(crew.cards.map((card) => card.id));
-  const ideas = Object.entries(crew.ideas ?? {})
+): "not-now" | "outside" | "security" | "cap" | null {
+  if (crew.notNow?.includes(idea.id)) return "not-now";
+  const scout = crew.ideas?.[idea.id];
+  if (scout?.declined) return "not-now";
+  if (scout?.by === "security") return "security";
+  if (idea.sourceUrl || scout?.sourceUrl || scout?.outside) return "outside";
+  if (scout && !ideaMayAutoStart(scout)) return "not-now";
+  if (scout && autoStartsLeft(crew, now) <= 0) return "cap";
+  return null;
+}
+
+/**
+ * The ideas that build by themselves, in the order they will: Ideas top
+ * first (oldest first, as the Board shows them), yours and the Scout's
+ * alike, skipping any the team already has.
+ */
+export function ideasToBuild<T extends BoardIdea>(
+  crew: Crew,
+  cards: readonly T[],
+  now: number,
+): T[] {
+  const live = new Set(
+    crew.cards
+      .filter((card) => card.stage !== "discarded" && card.stage !== "applied")
+      .map((card) => card.id),
+  );
+  return cards
     .filter(
-      ([id, idea]) => ideaMayAutoStart(idea) && !known.has(id) && inIdeas(id),
+      (card) =>
+        card.column === "idea" &&
+        !live.has(card.id) &&
+        !ideaWaits(crew, card, now),
     )
-    .sort((a, b) => a[1].at - b[1].at);
-  return ideas[0]?.[0] ?? null;
+    .sort((a, b) => a.movedAt - b.movedAt || a.id.localeCompare(b.id));
+}
+
+/**
+ * The idea that builds next, by itself: only while the team is idle (no
+ * card in its copy, none queued).
+ */
+export function nextIdeaToBuild<T extends BoardIdea>(
+  crew: Crew,
+  cards: readonly T[],
+  now: number,
+): T | null {
+  if (cardInCopy(crew) || queuedCards(crew).length) return null;
+  return ideasToBuild(crew, cards, now)[0] ?? null;
 }
 
 /** Ideas the Scout may still add today. */
@@ -347,8 +391,8 @@ export function crewLimitRows(
       detail: `${builder} and ${checker} take turns in the team's copy`,
     },
     {
-      title: `${crew.limits.autoStartsPerDay} ideas start by themselves a day`,
-      detail: "Only small ones the Scout found in the project",
+      title: "Your ideas build by themselves, top first",
+      detail: `And ${crew.limits.autoStartsPerDay} of the Scout's a day; ideas from outside wait for you`,
     },
     {
       title: `Pause at ${crew.limits.pauseAtPercent}% of your Claude week`,

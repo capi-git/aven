@@ -1,0 +1,93 @@
+/* The batch's buttons and its Review. Dark and grey; colour only for a
+   small status. */
+
+.crew-pipe-link {
+  padding: 0;
+  color: var(--color-content);
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--aven-line);
+  text-underline-offset: 2px;
+}
+
+.crew-pipe-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.crew-pipe-link:disabled {
+  opacity: 0.5;
+}
+
+.crew-pipe-problem {
+  margin: 8px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* The batch's Review: each card, and Apply up to one of them. */
+.crew-batch-cards {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crew-batch-cards li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid var(--aven-line);
+  opacity: 0.55;
+}
+
+.crew-batch-cards li:first-child {
+  border-top: 0;
+}
+
+.crew-batch-cards li[data-included] {
+  opacity: 1;
+}
+
+.crew-batch-card {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.crew-batch-meta {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* Every file Apply lands, named, with what it does besides its lines. */
+.crew-batch-files {
+  display: flex;
+  max-height: 220px;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.crew-batch-files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: var(--text-ui-label);
+}
+
+.crew-batch-file {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A link, a program or a binary file: said in words, never only in colour. */
+.crew-batch-files li[data-flagged] .crew-batch-meta {
+  color: var(--color-content);
+}
