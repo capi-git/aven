@@ -262,7 +262,7 @@ export function crewPipeline(input: {
     sentence = ideas
       ? `${plural(ideas, "idea")} ${ideas === 1 ? "waits" : "wait"} for you to press Build it.`
       : held.length
-        ? "Today's Scout ideas are used. The next build tomorrow."
+        ? "Today's Scout ideas are used up. The next one builds tomorrow."
         : "Nothing to build. Add an idea and the team builds it.";
   }
   sentence = (

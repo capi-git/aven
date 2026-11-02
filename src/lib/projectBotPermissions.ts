@@ -124,7 +124,15 @@ const DELETING = [
 /** Posting or sending messages. */
 const SENDING = [
   "Bash(curl -X *)",
+  "Bash(curl -X*)",
   "Bash(curl * -X *)",
+  "Bash(curl * -X*)",
+  "Bash(curl -T *)",
+  "Bash(curl * -T *)",
+  "Bash(curl --upload-file*)",
+  "Bash(curl * --upload-file*)",
+  "Bash(curl --json*)",
+  "Bash(curl * --json*)",
   "Bash(curl --request *)",
   "Bash(curl * --request *)",
   "Bash(curl -d *)",
@@ -154,11 +162,11 @@ export function absolutePathRule(folder: string): string {
 /** The one line the settings sheet shows for what a bot never does. */
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
-  "Teammates work in their own copy. They never push, publish or deploy, and nothing reaches your files until you press Apply.";
+  "Teammates work in their own copy. Pushing, publishing and deploying are refused, and nothing reaches your files until you press Apply.";
 
 /** Who Access reaches. */
 export const TEAM_ACCESS_SCOPE_LINE =
-  "These are for teammates on Claude. Teammates on Codex work offline and never stop to ask. The Fixer keeps its own rules, and planning a goal is always offline.";
+  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser.";
 
 export const ALWAYS_ASKS_LINE =
   "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
@@ -212,18 +220,23 @@ export const BOT_ALLOWED_HOSTS = [
 ];
 
 /**
- * Where your tokens for those registries live. A bot's commands can reach
- * the registries so installs work, and installs read nothing here (public
- * packages need no token): without these, an upload can't publish anything.
+ * Where your tokens for those registries usually live. A bot's commands can
+ * reach the registries so installs work, and installs of public packages
+ * read nothing here. A token kept elsewhere (a shell startup file, a
+ * project's own .env) stays within reach: the publish commands are refused,
+ * not every way to upload.
  */
 export const PUBLISH_CREDENTIALS = [
   "~/.npmrc",
   "~/.yarnrc.yml",
+  "~/.config/pnpm/rc",
+  "~/.bunfig.toml",
   "~/.pypirc",
   "~/.netrc",
   "~/.cargo/credentials",
   "~/.cargo/credentials.toml",
   "~/.gem/credentials",
+  "~/.local/share/gem/credentials",
 ];
 
 /**
@@ -518,6 +531,8 @@ export function crewChatBrowserOff(sessionId: string): boolean {
   const found = crewForChat(sessionId);
   if (!found || found.member.role === "fixer") return false;
   return (
+    // A teammate on Codex works with no network at all.
+    crewMemberApp(found.member).harness === "codex" ||
     found.crew.planning === found.member.id ||
     !crewRoleUsesBrowser(found.crew, found.member.role)
   );

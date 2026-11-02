@@ -252,7 +252,7 @@ describe("what the team's header says", () => {
     expect(
       crewPipeline({ crew: crewOf([]), cards: [tomorrow], now: NOW, name })
         .sentence,
-    ).toBe("Today's Scout ideas are used. The next build tomorrow.");
+    ).toBe("Today's Scout ideas are used up. The next one builds tomorrow.");
   });
 
   it("says a limit holds an idea or the goal, with nothing queued", () => {

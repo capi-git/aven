@@ -7364,6 +7364,7 @@ export default function App({
                   {
                     worker:
                       !!current.orchestrationLeadId || isBotChat(sessionId),
+                    noBrowser: crewChatBrowserOff(sessionId),
                     typed: options?.typed === true,
                   },
                 );
