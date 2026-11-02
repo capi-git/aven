@@ -3379,8 +3379,11 @@ export default function App({
 
   useEffect(() => {
     const onVisible = () => {
+      // Hidden, the window's animations pause (see DotMark.css).
+      document.documentElement.toggleAttribute("data-hidden", document.hidden);
       if (!document.hidden) flushHarnessEvents();
     };
+    onVisible();
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [flushHarnessEvents]);

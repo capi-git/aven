@@ -33,6 +33,7 @@ import { revealFile } from "../lib/revealFile";
 import { terminalTabLabel } from "../lib/terminalTab";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useSortable } from "../hooks/useSortable";
+import { useWheelTabSwitch } from "../hooks/useWheelTabSwitch";
 import {
   TAB_TRACK_ID_ATTRIBUTE,
   useTabHighlight,
@@ -232,6 +233,7 @@ export function SurfaceTabs({
     [sortable.setContainerRef, lockOverscroll],
   );
   const canDrag = files.length > 1;
+  const wheelTabs = useWheelTabSwitch();
   // Two tabs or more stand on a track: equal shares, one sliding highlight
   // and a hairline between resting neighbours (see tabTrack.ts).
   const track = files.length > 1;
@@ -281,6 +283,7 @@ export function SurfaceTabs({
         aria-label={label}
         aria-orientation="horizontal"
         data-tab-track={track || undefined}
+        onWheel={wheelTabs}
         className="aven-surface-tab-strip aven-tab-strip scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto overscroll-none"
         onBlurCapture={(event) => {
           if (

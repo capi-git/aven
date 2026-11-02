@@ -365,3 +365,11 @@ html.theme-light .dot-mark[data-frame="square"] {
     transform: translateX(7%) rotate(6deg);
   }
 }
+
+/* While Aven is hidden nothing is watching: the marks hold still, and pick
+   up again where the sweep or the breath is when the window comes back. */
+:root[data-hidden] .dot-mark .dot-mark-lit,
+:root[data-hidden] .dot-mark .dot-mark-lit-d,
+:root[data-hidden] .dot-mark .dot-mark-grid-d {
+  animation-play-state: paused;
+}

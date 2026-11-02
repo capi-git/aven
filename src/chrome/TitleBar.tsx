@@ -63,6 +63,7 @@ import {
   type SortableLink,
   type SortablePointerPosition,
 } from "../hooks/useSortable";
+import { useWheelTabSwitch } from "../hooks/useWheelTabSwitch";
 import { useTabSlotMotion } from "../hooks/useTabSlotMotion";
 import {
   TAB_TRACK_ID_ATTRIBUTE,
@@ -2503,6 +2504,7 @@ function TitleBarComponent({
   }, []);
   const activeTabRef = useRef<HTMLDivElement | null>(null);
   const canDrag = displayIds.length > 1 || Boolean(onSurfaceDragEnd);
+  const wheelTabs = useWheelTabSwitch();
 
   // The window's strip takes tabs dragged from panes' headers
   // (windowStripDrop.ts): the line a segment pulled out of its split shows
@@ -3972,6 +3974,7 @@ function TitleBarComponent({
                 titleRow && !paneTabs ? undefined : "horizontal"
               }
               data-tab-track={track || undefined}
+              onWheel={wheelTabs}
               className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
               onFocusCapture={(event) => {
                 const target = event.target as HTMLElement;
