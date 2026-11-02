@@ -25,6 +25,12 @@ function read(): Readonly<Record<string, TeamView>> {
   }
   if (raw === cacheRaw) return cache;
   cacheRaw = raw;
+  // The v1 key (Chat or Cards) has nothing left to say.
+  try {
+    localStorage.removeItem("aven.teamView.v1");
+  } catch {
+    // Quietly left behind; nothing reads it.
+  }
   const next: Record<string, TeamView> = {};
   try {
     const saved = JSON.parse(raw ?? "{}") as unknown;

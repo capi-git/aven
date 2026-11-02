@@ -10,6 +10,7 @@ import {
   cardChecker,
   cardHolderId,
   cardSecurity,
+  cardSteppedAside,
   cardInCopy,
   crewMemberById,
   crewMembers,
@@ -385,7 +386,9 @@ export function crewBoardInfo(
           ...base,
           needsYou: true,
           line: card.stuck.text,
-          holder: card.holder,
+          // One that stepped aside has no chat to open: the team's copy has
+          // moved on to other work. It's answered on the card.
+          ...(cardSteppedAside(card) ? {} : { holder: card.holder }),
           ...(turnChat ? { sessionId: turnChat } : {}),
           actions: [A.answer],
         };
@@ -422,6 +425,8 @@ const WAITS: Record<IdeaWait, string> = {
   "not-now": "Not now",
   outside: "From outside · waits for you",
   security: "Waits for you",
+  chat: "A chat is on it",
+  large: "Large · waits for you",
   cap: "Waits for tomorrow: today's Scout ideas are used",
 };
 
@@ -477,10 +482,13 @@ export function crewCardMenu(card: CrewCard): CrewBoardAction[] {
     // Ready: Apply is the way; a fix Apply won't take can be taken over.
     case "ready":
       return [A.takeOver];
-    case "stuck":
+    case "stuck": {
+      // Stepped aside: the copy isn't its own, so there's nothing to take over.
+      const takeOver = cardSteppedAside(card) ? [] : [A.takeOver];
       return card.stuck?.reason === "question"
-        ? [A.takeOver, A.backToIdeas, A.throwAway]
-        : [...(cardCanGoOn(card) ? [A.takeOver] : []), A.backToIdeas];
+        ? [...takeOver, A.backToIdeas, A.throwAway]
+        : [...(cardCanGoOn(card) ? takeOver : []), A.backToIdeas];
+    }
     default:
       return [];
   }
@@ -547,6 +555,7 @@ export function crewBoardColumns<
     column: BoardColumn;
     crew?: CrewBoardInfo;
     source?: { url: string };
+    chatIds?: readonly string[];
   },
 >(
   columns: Readonly<Record<BoardColumn, readonly C[]>>,
@@ -567,8 +576,9 @@ export function crewBoardColumns<
       .filter((card) => card.stage !== "applied" && card.stage !== "discarded")
       .map((card) => [card.id, card]),
   );
-  // Ideas build top first: the first that doesn't wait for you is Next.
-  let next = true;
+  // Ideas build top first: the first that doesn't wait for you is Next,
+  // once nothing queued goes before it.
+  let next = !crew.cards.some((card) => card.stage === "queued");
   for (const column of BOARD_COLUMN_ORDER)
     for (const card of columns[column]) {
       const held = live.get(card.id);
@@ -585,6 +595,7 @@ export function crewBoardColumns<
           {
             id: card.id,
             ...(card.source ? { sourceUrl: card.source.url } : {}),
+            ...(card.chatIds ? { chatIds: card.chatIds } : {}),
           },
           now,
         );

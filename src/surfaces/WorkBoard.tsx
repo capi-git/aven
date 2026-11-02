@@ -77,6 +77,7 @@ import {
   crewCard,
   crewMemberName,
   getCrew,
+  stackedCards,
   useCrew,
   type Crew,
 } from "../lib/crews";
@@ -87,6 +88,7 @@ import {
 } from "../lib/crewView";
 import {
   botName,
+  localDay,
   botStatus,
   botsAvailable,
   runsToday,
@@ -184,6 +186,10 @@ export function WorkBoard({
   const bot = useProjectBot(project);
   const crewOn = !!crew?.on && botsAvailable();
   const fixerName = bot ? botName(bot) : undefined;
+  // The time only matters here to the Scout's daily cap: it moves once a
+  // day, so the minute's tick doesn't draw every card again.
+  const [today, setToday] = useState(now);
+  if (localDay(today) !== localDay(now)) setToday(now);
   const columns = useMemo(
     () =>
       crewOn && crew
@@ -197,10 +203,10 @@ export function WorkBoard({
               security: crewMemberName(crew, "security"),
             },
             (who) => crewMemberName(crew, who),
-            now,
+            today,
           )
         : shown.columns,
-    [crewOn, crew, shown.columns, now],
+    [crewOn, crew, shown.columns, today],
   );
   return (
     <WorkBoardView
@@ -346,7 +352,10 @@ export const WorkBoardView = memo(function WorkBoardView({
           // A card on the team's branch is reviewed, and lands, with the
           // batch's Review: Apply lands exactly what you saw there.
           const known = getCrew(project);
-          if (known && crewCard(known, card.id)?.stacked) {
+          if (
+            known &&
+            stackedCards(known).some((item) => item.id === card.id)
+          ) {
             requestCrewReview(project);
             return;
           }
@@ -659,7 +668,9 @@ export function cardMenuItems(
 ): ExplorerMenuItem[] {
   // The team's own: a card it has, or an idea's Build it next and Not now.
   const crewItems: ExplorerMenuItem[] = (
-    held ? crewCardMenu(held) : (card.crew?.menu ?? [])
+    held && held.stage !== "applied" && held.stage !== "discarded"
+      ? crewCardMenu(held)
+      : (card.crew?.menu ?? [])
   ).map((action) => ({
     kind: "item",
     id: `crew:${action.id}`,

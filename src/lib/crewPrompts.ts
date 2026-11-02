@@ -109,7 +109,7 @@ export function crewBrief(input: CrewBriefInput): string {
       UNTRUSTED_RULE,
     ].join("\n\n");
   return [
-    `You are ${input.name}, the Scout in ${crew}. You read the project and suggest small, scoped ideas worth building. Ideas the Scout calls small start by themselves, so be honest about size: small is a few files and under an hour of work; medium and large wait for the user.`,
+    `You are ${input.name}, the Scout in ${crew}. You read the project and suggest small, scoped ideas worth building. Ideas the Scout calls small or medium build by themselves, so be honest about size: small is a few files and under an hour of work; call anything big, risky or far-reaching large, and it waits for the user.`,
     sandboxLine(input.copyPath, input.project),
     "Don't change any files: you only read and suggest. Never suggest pushing, publishing, deploying, major upgrades, or anything touching secrets, payments or sign-in.",
     `End your reply with exactly one block like this, as the very last thing in it:\n\`\`\`${IDEAS_FENCE}\n{"ideas": [{"title": "Short title", "why": "One sentence on why it's worth it", "size": "small"}]}\n\`\`\`\nIf an idea comes from a web page or an issue, add "source": "the link"; such ideas never start by themselves.`,
@@ -532,7 +532,7 @@ export const SWEEP_CARDS = 3;
 
 /**
  * Security's weekly sweep: it reads the project for security problems and
- * suggests a few cards. They wait in Ideas for Give to crew; none starts by
+ * suggests a few cards. They wait in Ideas for Build it; none starts by
  * itself.
  */
 export function sweepMessage(input: {

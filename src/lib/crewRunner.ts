@@ -13,6 +13,7 @@ import {
   crewNoMemberGate,
   crewReviewGate,
   ideasLeft,
+  ideaWaits,
   nextIdeaToBuild,
   nextCardToStart,
   scoutShouldLook,
@@ -739,9 +740,8 @@ export class CrewRunner {
     const now = this.deps.now();
     let started = false;
     updateCrew(path, (crew) => {
-      const known = crewCard(crew, card.id);
-      if (known && known.stage !== "applied" && known.stage !== "discarded")
-        return crew;
+      // Not now, or a card the team has, since the Board was read: it waits.
+      if (ideaWaits(crew, card, now)) return crew;
       const idea = crew.ideas?.[card.id];
       started = true;
       let next = withCard(
@@ -1455,12 +1455,23 @@ export class CrewRunner {
           names,
         });
       } else if (role === "builder")
-        step = afterBuild(card, {
-          handoff: parseHandoff(reply),
-          change: changeFrom(diff, card.base ?? ""),
-          now,
-          names,
-        });
+        // What changed can't be read: never "changed nothing" (that card
+        // would step aside with its work still in the copy). It stops, and
+        // holds the copy until you try it again.
+        step =
+          !diff && crew.copy && card.base
+            ? turnFailed(card, {
+                role,
+                error: "Aven couldn't read what changed in the team's copy",
+                now,
+                name: names.builder,
+              })
+            : afterBuild(card, {
+                handoff: parseHandoff(reply),
+                change: changeFrom(diff, card.base ?? ""),
+                now,
+                names,
+              });
       else {
         // A check that changed the copy (or whose copy can't be read) is void.
         const edited =

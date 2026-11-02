@@ -10,7 +10,7 @@ import { TASKS_FENCE, parseTasks } from "../lib/crewHandoff";
 import {
   crewForChat,
   crewForFolder,
-  crewHasTitle,
+  crewCardByTitle,
   useCrewsStore,
   yourGoal,
 } from "../lib/crews";
@@ -85,7 +85,7 @@ export function CrewFenceCard({
   };
   // One the team already has (it started by itself, say) isn't given twice.
   const has = (title: string) =>
-    given.has(title) || (!!crew && crewHasTitle(crew, title));
+    given.has(title) || (!!crew && !!crewCardByTitle(crew, title));
   const open = view.items.filter((item) => !has(item.title));
   return (
     <section
@@ -118,7 +118,12 @@ export function CrewFenceCard({
               </span>
               {canGive ? (
                 has(item.title) ? (
-                  <span className="crew-fence-given">With the team</span>
+                  <span className="crew-fence-given">
+                    {crew &&
+                    crewCardByTitle(crew, item.title)?.stage === "applied"
+                      ? "Done"
+                      : "With the team"}
+                  </span>
                 ) : (
                   <button
                     type="button"

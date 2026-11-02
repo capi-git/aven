@@ -815,7 +815,7 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.goal).toBeUndefined();
   });
 
-  it("says when the team has nothing to build, with a Scout to add", async () => {
+  it("says when nothing builds by itself, with a Scout to add", async () => {
     const openSettings = vi.fn();
     const uninstall = installCrewWorkspace({
       openChat: vi.fn(),
@@ -832,7 +832,7 @@ describe("the team view: the Board with the team on it", () => {
       const sentence = () =>
         container.querySelector<HTMLElement>("[data-crew-sentence]")!;
       expect(sentence().textContent).toBe(
-        "Nothing to build. Add an idea and the team builds it. Add a Scout to suggest ideas",
+        "2 ideas wait for you to press Build it. Add a Scout to suggest ideas",
       );
       await act(async () =>
         button(sentence(), "Add a Scout to suggest ideas")!.click(),
@@ -846,7 +846,7 @@ describe("the team view: the Board with the team on it", () => {
         })),
       );
       expect(sentence().textContent).toBe(
-        "Nothing to build. Add an idea and the team builds it.",
+        "2 ideas wait for you to press Build it.",
       );
       await act(async () =>
         updateCrew(PROJECT, (crew) =>

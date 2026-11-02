@@ -441,5 +441,12 @@ describe("lines saved before the crew was a team", () => {
     expect(teamWording("On aven/bot/crew-0f26, the crew-wide cap")).toBe(
       "On aven/bot/crew-0f26, the crew-wide cap",
     );
+    // A file's name, and someone's own words after a colon, stay.
+    expect(teamWording("Changed crews.ts for the crew.")).toBe(
+      "Changed crews.ts for the team.",
+    );
+    expect(teamWording("You sent “X” back: tell the crew to stop")).toBe(
+      "You sent “X” back: tell the crew to stop",
+    );
   });
 });

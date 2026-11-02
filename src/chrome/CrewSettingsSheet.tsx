@@ -635,8 +635,8 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
                 />
               </LimitRow>
               <LimitRow
-                title="Ideas that start by themselves"
-                detail="A day, only small ones from the project. 0 for none"
+                title="Scout ideas that build by themselves"
+                detail="A day, not large ones or from outside. 0 for none. Yours always build"
               >
                 <NumberPick
                   label="Scout ideas that build by themselves a day"

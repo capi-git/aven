@@ -465,7 +465,9 @@ function FeedRow({
           ) : (
             <p className="crew-feed-text">
               <span className="crew-feed-words" data-folded={folded}>
-                {teamWording(entry.text)}
+                {entry.who === "aven" || entry.who === "you"
+                  ? teamWording(entry.text)
+                  : entry.text}
               </span>
             </p>
           )}

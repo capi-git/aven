@@ -1218,6 +1218,35 @@ describe("the Scout: ideas start themselves, within limits", () => {
     h.runner.stop();
   });
 
+  it("never takes a change it couldn't read for nothing changed: the card holds the copy", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/x.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ scoutAt: NOON });
+    give("card-1", "Dark mode toggle");
+    give("card-2", "Pricing page");
+    // Reading the copy fails once, right after the Builder's turn.
+    h.copy.diff.mockRejectedValueOnce(new Error("git broke"));
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(5 * MINUTE);
+    expect(card("card-1")).toMatchObject({
+      stage: "stuck",
+      stuck: {
+        reason: "failed",
+        text: "Beetle's turn didn't finish: Aven couldn't read what changed in the team's copy",
+      },
+    });
+    // Its work may still be in the copy: nothing else starts on top of it.
+    await h.advance(10 * MINUTE);
+    expect(card("card-2").stage).toBe("queued");
+    h.runner.stop();
+  });
+
   it("starts no more ideas than the day's cap", async () => {
     const h = harness({
       builder: () => ({

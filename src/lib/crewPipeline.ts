@@ -228,7 +228,7 @@ export function crewPipeline(input: {
     focus = queued[0]?.title ?? nextIdea!.title;
     sentence = `Starting ${focus}.`;
   } else if (goalOn) sentence = "Planning the next card for the goal.";
-  if (input.hold && !crew.paused && (working || queued.length || nextIdea)) {
+  if (input.hold && !crew.paused) {
     sentence = `${input.hold}: ${focus ?? "the team"} waits.`;
     held = "waits";
   }
@@ -251,8 +251,17 @@ export function crewPipeline(input: {
     !ready.length &&
     !aside &&
     !goalOn;
-  if (idle && !crew.paused)
-    sentence = "Nothing to build. Add an idea and the team builds it.";
+  if (idle && !crew.paused) {
+    // Ideas that wait for you (Not now, from outside): they need your word.
+    const ideas = input.cards.filter(
+      (card) =>
+        card.column === "idea" &&
+        card.crew?.actions.some((action) => action.id === "give"),
+    ).length;
+    sentence = ideas
+      ? `${plural(ideas, "idea")} ${ideas === 1 ? "waits" : "wait"} for you to press Build it.`
+      : "Nothing to build. Add an idea and the team builds it.";
+  }
   sentence = (
     capped && sentence.startsWith(`${capped} cards wait`)
       ? [sentence]

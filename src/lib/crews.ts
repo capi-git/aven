@@ -618,6 +618,8 @@ const FEED_KEPT = 200;
 const NOTES_KEPT = 20;
 const DONE_CARDS_KEPT = 20;
 const IDEAS_KEPT = 60;
+/** Ideas that wait for you: their records outlive the others' (see `keptIdeas`). */
+const HELD_IDEAS_KEPT = 1_000;
 export const CREW_NOTE_MAX = 500;
 export const CREW_GOAL_MAX = 300;
 const ASKS_KEPT = 50;
@@ -1196,14 +1198,16 @@ export function readCrew(value: unknown): Crew | null {
         .filter((route): route is CrewRoute => !!route)
         .slice(0, 12)
     : [];
-  const ideas: Record<string, CrewIdea> = {};
+  const read: Record<string, CrewIdea> = {};
   if (raw.ideas && typeof raw.ideas === "object")
-    for (const [id, item] of Object.entries(raw.ideas).slice(-IDEAS_KEPT)) {
+    for (const [id, item] of Object.entries(raw.ideas).slice(
+      -(IDEAS_KEPT + HELD_IDEAS_KEPT),
+    )) {
       const idea = item as Partial<CrewIdea> | null;
       if (!idea || !SIZES.has(idea.size as CrewIdeaSize)) continue;
       const why = text(idea.why, 300);
       const sourceUrl = text(idea.sourceUrl, 2048);
-      ideas[id] = {
+      read[id] = {
         at: finite(idea.at, 0, 8.64e15, 0),
         size: idea.size as CrewIdeaSize,
         ...(why ? { why } : {}),
@@ -1214,6 +1218,7 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.by === "security" ? { by: "security" as const } : {}),
       };
     }
+  const ideas = keptIdeas(read);
   const cards = Array.isArray(raw.cards)
     ? raw.cards.map(readCrewCard).filter((card): card is CrewCard => !!card)
     : [];
@@ -2324,11 +2329,36 @@ export function withoutNote(crew: Crew, id: string): Crew {
 }
 
 export function withIdea(crew: Crew, cardId: string, idea: CrewIdea): Crew {
-  const ideas = { ...crew.ideas, [cardId]: idea };
-  const keys = Object.keys(ideas);
-  for (const key of keys.slice(0, Math.max(0, keys.length - IDEAS_KEPT)))
-    delete ideas[key];
-  return { ...crew, ideas };
+  return { ...crew, ideas: keptIdeas({ ...crew.ideas, [cardId]: idea }) };
+}
+
+/** An idea's record says it waits for you: dropping it would let it build. */
+function ideaHeld(idea: CrewIdea): boolean {
+  return (
+    idea.by === "security" ||
+    !!idea.sourceUrl ||
+    !!idea.outside ||
+    !!idea.declined
+  );
+}
+
+/**
+ * The idea records kept: the newest of the rest, and every one that waits
+ * for you (Security's, from outside, Not now), up to a far larger cap, as
+ * its record is what keeps it from building by itself.
+ */
+function keptIdeas(
+  ideas: Readonly<Record<string, CrewIdea>>,
+): Record<string, CrewIdea> {
+  const entries = Object.entries(ideas);
+  const held = entries.filter(([, idea]) => ideaHeld(idea));
+  const rest = entries.filter(([, idea]) => !ideaHeld(idea));
+  const keep = new Set(
+    [...held.slice(-HELD_IDEAS_KEPT), ...rest.slice(-IDEAS_KEPT)].map(
+      ([id]) => id,
+    ),
+  );
+  return Object.fromEntries(entries.filter(([id]) => keep.has(id)));
 }
 
 // ---------------------------------------------------------------------------
@@ -2363,6 +2393,9 @@ export function cardSteppedAside(card: CrewCard): boolean {
     (card.stuck?.reason === "no-change" ||
       (card.stuck?.reason === "question" && card.holder === "builder")) &&
     !card.fix &&
+    // Its Builder's turn ended and Aven read the copy (a turn still waiting
+    // on an approval, or cut off by turning the team off, never got here).
+    card.rounds.some((round) => round.n === card.round && !!round.builtAt) &&
     !card.rounds.some((round) => (round.change?.files ?? 0) > 0)
   );
 }
@@ -2463,17 +2496,15 @@ export function goalDropped(crew: Pick<Crew, "goal">, title: string): boolean {
   return (crew.goal?.dropped ?? []).some((item) => titleWords(item) === wanted);
 }
 
-/** Whether the team already has a card by this title, not thrown away. */
-export function crewHasTitle(
+/** The team's card by this title (not thrown away), if it has one. */
+export function crewCardByTitle(
   crew: Pick<Crew, "cards">,
   title: string,
-): boolean {
+): CrewCard | undefined {
   const wanted = titleWords(title);
-  return (
-    !!wanted &&
-    crew.cards.some(
-      (card) => card.stage !== "discarded" && titleWords(card.title) === wanted,
-    )
+  if (!wanted) return undefined;
+  return crew.cards.find(
+    (card) => card.stage !== "discarded" && titleWords(card.title) === wanted,
   );
 }
 

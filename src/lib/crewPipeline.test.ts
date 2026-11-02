@@ -217,6 +217,46 @@ describe("what the team's header says", () => {
     expect(view.goal?.state).toBe("on");
   });
 
+  it("says ideas wait for you when none builds by itself", () => {
+    const crew = crewOf([]);
+    const waiting: PipelineBoardCard = {
+      id: "issue",
+      title: "Fix issue 12",
+      column: "idea",
+      at: NOW,
+      actions: [],
+      crew: {
+        roles: [],
+        line: "From outside · waits for you",
+        actions: [{ id: "give", label: "Build it", primary: true }],
+      },
+    };
+    expect(
+      crewPipeline({ crew, cards: [waiting], now: NOW, name }).sentence,
+    ).toBe("1 idea waits for you to press Build it.");
+  });
+
+  it("says a limit holds an idea or the goal, with nothing queued", () => {
+    const next: PipelineBoardCard = {
+      id: "dark",
+      title: "Dark mode",
+      column: "idea",
+      at: NOW,
+      actions: [],
+      crew: { roles: [], label: "Next", actions: [] },
+    };
+    const crew = crewOf([], { goal: { text: "Finish Pom", at: NOW } });
+    const view = crewPipeline({
+      crew,
+      cards: [next],
+      now: NOW,
+      name,
+      hold: "Today's 20 runs are used",
+    });
+    expect(view.sentence).toBe("Today's 20 runs are used: Dark mode waits.");
+    expect(view.goal?.state).toBe("waits");
+  });
+
   it("says nothing to build when idle, and offers a Scout when there's none", () => {
     const crew = crewOf([]);
     const view = crewPipeline({ crew, cards: [], now: NOW, name });

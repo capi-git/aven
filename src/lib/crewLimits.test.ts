@@ -18,6 +18,7 @@ import {
   CREW_ALL_RUNS_PER_DAY,
   cardInCopy,
   newCrew,
+  readCrew,
   withCard,
   withIdea,
   type Crew,
@@ -176,6 +177,15 @@ describe("one card at a time", () => {
     const current = withCard(withCard(crew(), nothing), queued("b", 4));
     expect(cardInCopy(current)).toBeUndefined();
     expect(nextCardToStart(current)).toBe("b");
+    // No read of the copy (a turn cut off while it waited on an approval,
+    // by turning the team off): its work may be there, so it holds the copy.
+    const cutOff = {
+      ...started,
+      stage: "stuck" as const,
+      holder: "builder" as const,
+      stuck: { reason: "question" as const, text: "Builder is waiting" },
+    };
+    expect(cardInCopy(withCard(crew(), cutOff))?.id).toBe("a");
     // A question asked before changing anything steps aside too.
     const asked = afterBuild(started, {
       handoff: { summary: "", howToCheck: [], ran: [], question: "Which one?" },
@@ -202,10 +212,10 @@ describe("one card at a time", () => {
 });
 
 describe("ideas build themselves, top first", () => {
-  const board = (id: string, movedAt: number, patch = {}) => ({
+  const board = (id: string, createdAt: number, patch = {}) => ({
     id,
     column: "idea" as const,
-    movedAt,
+    createdAt,
     ...patch,
   });
   const idea = (at: number, patch = {}) => ({
@@ -214,8 +224,8 @@ describe("ideas build themselves, top first", () => {
     ...patch,
   });
 
-  it("builds yours and the Scout's alike, oldest first, any size", () => {
-    const current = withIdea(crew(), "scout", idea(5, { size: "large" }));
+  it("builds yours and the Scout's alike, oldest first, as the Board shows them", () => {
+    const current = withIdea(crew(), "scout", idea(5, { size: "medium" }));
     const cards = [board("late", 30), board("scout", 20), board("early", 10)];
     expect(ideasToBuild(current, cards, NOON).map((card) => card.id)).toEqual([
       "early",
@@ -247,8 +257,52 @@ describe("ideas build themselves, top first", () => {
     expect(ideaWaits(current, { id: "yours" }, NOON)).toBeNull();
   });
 
-  it("never starts a declined Scout idea, one from outside, or one that already started", () => {
-    expect(ideaMayAutoStart(idea(1, { size: "large" }))).toBe(true);
+  it("keeps the records of ideas that wait, however many come after", () => {
+    let current = withIdea(
+      crew(),
+      "sweep",
+      idea(1, { by: "security" as const }),
+    );
+    current = withIdea(current, "linked", idea(1, { outside: true }));
+    current = withIdea(current, "declined", idea(1, { declined: true }));
+    for (let n = 0; n < 100; n += 1)
+      current = withIdea(current, `new-${n}`, idea(n));
+    expect(ideaWaits(current, { id: "sweep" }, NOON)).toBe("security");
+    expect(ideaWaits(current, { id: "linked" }, NOON)).toBe("outside");
+    expect(ideaWaits(current, { id: "declined" }, NOON)).toBe("not-now");
+    // The rest stay at their cap.
+    expect(Object.keys(current.ideas ?? {}).length).toBe(63);
+    // And they survive a save and a read.
+    const read = readCrew(JSON.parse(JSON.stringify(current)));
+    expect(ideaWaits(read!, { id: "sweep" }, NOON)).toBe("security");
+  });
+
+  it("waits on a card the team built or threw away, a large Scout idea and one a chat has", () => {
+    const thrown = {
+      ...startCard(
+        queueCard(
+          { id: "old", title: "Old", brief: "x", from: "you", maxRounds: 3 },
+          1,
+        ),
+        2,
+      ),
+      stage: "discarded" as const,
+    };
+    const current = withIdea(
+      withCard(crew(), thrown),
+      "big",
+      idea(1, { size: "large" }),
+    );
+    expect(ideaWaits(current, { id: "old" }, NOON)).toBe("not-now");
+    expect(ideaWaits(current, { id: "big" }, NOON)).toBe("large");
+    expect(
+      ideaWaits(current, { id: "drafted", chatIds: ["chat-1"] }, NOON),
+    ).toBe("chat");
+  });
+
+  it("never starts a declined Scout idea, a large one, one from outside, or one that already started", () => {
+    expect(ideaMayAutoStart(idea(1, { size: "large" }))).toBe(false);
+    expect(ideaMayAutoStart(idea(1, { size: "medium" }))).toBe(true);
     expect(ideaMayAutoStart(idea(1, { declined: true }))).toBe(false);
     expect(
       ideaMayAutoStart(idea(1, { sourceUrl: "https://example.com/issue" })),

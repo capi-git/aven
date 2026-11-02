@@ -439,6 +439,39 @@ describe("card actions", () => {
     expect(getCrew(PATH)!.notNow).toEqual(["idea-1"]);
   });
 
+  it("keeps your whole answer when a card that stepped aside goes again", () => {
+    const started = {
+      ...startCard(
+        queueCard(
+          {
+            id: "c1",
+            title: "Reminders",
+            brief: "x",
+            from: "you",
+            maxRounds: 3,
+          },
+          NOON,
+        ),
+        NOON,
+      ),
+      base: "base-1",
+    };
+    const question = "q".repeat(400);
+    const asked = afterBuild(started, {
+      handoff: { summary: "", howToCheck: [], ran: [], question },
+      change: null,
+      now: NOON,
+    }).card;
+    updateCrew(PATH, (crew) => withCard({ ...crew, on: true }, asked));
+    const answer = "a".repeat(300);
+    resumeCrewCard(PATH, "c1", answer, NOON);
+    const card = crewCard(getCrew(PATH)!, "c1")!;
+    expect(card.stage).toBe("queued");
+    expect(card.note).toContain(answer);
+    expect(card.note!.length).toBeLessThanOrEqual(500);
+    expect(card.note).toContain("You asked: qqq");
+  });
+
   it("gives an ideas block's ideas once: one the team already has isn't made twice", async () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: true }));
     // The Scout's idea started by itself, and is in Building now.

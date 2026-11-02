@@ -300,8 +300,8 @@ export function looksFromOutside(...texts: readonly string[]): boolean {
 
 /**
  * The Scout's ideas, at most `IDEAS_PER_TURN`. Each needs a title and its
- * size; one without a size it stated is left out, since only ideas the
- * Scout says are small may start by themselves.
+ * size; one without a size it stated is left out, since what the Scout
+ * says decides whether it builds by itself (large ones wait for you).
  */
 export function parseIdeas(text: string): ScoutIdea[] {
   const block = finalFencedBlock(text, IDEAS_FENCE);

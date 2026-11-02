@@ -23,15 +23,9 @@
   color: var(--aven-needs-you);
 }
 
-.crew-card-line,
-.crew-card-change {
+.crew-card-line {
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
-}
-
-.crew-card-change {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--text-ui-micro);
 }
 
 .crew-plus {

@@ -18,12 +18,6 @@
   opacity: 0.5;
 }
 
-.crew-pipe-problem {
-  margin: 8px 0 0;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-}
-
 /* The batch's Review: each card, and Apply up to one of them. */
 .crew-batch-cards {
   display: flex;

@@ -713,10 +713,6 @@ export function changedSinceLastRound(card: CrewCard): string[] {
 // ---------------------------------------------------------------------------
 // Words
 
-function roundsText(card: CrewCard): string {
-  return `round ${card.round} of ${roundLimit(card)}`;
-}
-
 /** Where the card stands, as its Board line says it. */
 export function crewStageLabel(card: CrewCard): string {
   switch (card.stage) {
@@ -734,24 +730,5 @@ export function crewStageLabel(card: CrewCard): string {
       return "Applied";
     case "discarded":
       return "Thrown away";
-  }
-}
-
-/** The line after the label: "round 2 of 3", "passed in round 1". */
-export function crewStageDetail(card: CrewCard): string {
-  switch (card.stage) {
-    case "queued":
-      return "next up";
-    case "building":
-    case "checking":
-      return roundsText(card);
-    case "ready":
-      return `passed in round ${card.round}`;
-    case "stuck":
-      return card.stuck?.text ?? "";
-    case "applied":
-      return "in your files";
-    default:
-      return "";
   }
 }

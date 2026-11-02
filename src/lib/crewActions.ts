@@ -60,7 +60,7 @@ import {
   type CrewRole,
   type CrewRoute,
   type CrewScoutSchedule,
-  crewHasTitle,
+  crewCardByTitle,
   cardSteppedAside,
 } from "./crews";
 import { MEMBER_SIGIL_CHOICES, isSigilKey } from "./dotSigils";
@@ -714,7 +714,7 @@ export async function giveIdeasToCrew(
   for (const title of titles) {
     // One the team already has (started by itself, say) isn't made twice.
     const crew = getCrew(path);
-    if (crew && crewHasTitle(crew, title)) continue;
+    if (crew && crewCardByTitle(crew, title)) continue;
     const known = featureBoardState(path).cards.find(
       (card) =>
         card.column === "idea" &&
@@ -782,6 +782,10 @@ export async function queueMemberTasks(
     let next = current;
     for (const [index, card] of added.entries()) {
       const task = tasks[index]!;
+      // It started by itself while the Board added the rest: it goes on.
+      const known = crewCard(next, card.id);
+      if (known && known.stage !== "applied" && known.stage !== "discarded")
+        continue;
       next = withCard(
         withoutCard(next, card.id),
         queueCard(
@@ -981,14 +985,22 @@ function againFromTheTop(
   note: string | undefined,
   now: number,
 ): CrewCard {
-  const words = note?.replace(/\s+/g, " ").trim();
+  // Your words whole; the question they answer in what room is left.
+  const words = note?.replace(/\s+/g, " ").trim().slice(0, CREW_NOTE_MAX);
   const question =
     card.stuck?.reason === "question"
       ? card.stuck.text.replace(/^[^:]*asked: /, "")
       : "";
+  const room = CREW_NOTE_MAX - (words?.length ?? 0) - 30;
+  const asked =
+    question && room > 20
+      ? question.length > room
+        ? `${question.slice(0, room - 1)}…`
+        : question
+      : "";
   const said = words
-    ? question
-      ? `You asked: ${question} Their answer: ${words}`
+    ? asked
+      ? `You asked: ${asked} Their answer: ${words}`
       : words
     : undefined;
   const first = Math.min(
@@ -1446,6 +1458,8 @@ async function dropStackedCardHeld(
     }
     const idea = next.ideas?.[cardId];
     if (idea) next = withIdea(next, cardId, { ...idea, declined: true });
+    // Back in Ideas, it waits there: it doesn't build by itself again.
+    if (then === "ideas") next = withNotNow(next, cardId, true);
     return withFeed(next, {
       at: now,
       kind: "note",
