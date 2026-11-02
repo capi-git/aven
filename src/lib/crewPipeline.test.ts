@@ -236,6 +236,25 @@ describe("what the team's header says", () => {
     ).toBe("1 idea waits for you to press Build it.");
   });
 
+  it("doesn't call a Scout idea for tomorrow one that waits for you", () => {
+    const tomorrow: PipelineBoardCard = {
+      id: "scout",
+      title: "A Scout idea",
+      column: "idea",
+      at: NOW,
+      actions: [],
+      crew: {
+        roles: ["scout"],
+        later: true,
+        actions: [{ id: "give", label: "Build it", primary: true }],
+      },
+    };
+    expect(
+      crewPipeline({ crew: crewOf([]), cards: [tomorrow], now: NOW, name })
+        .sentence,
+    ).toBe("Today's Scout ideas are used. The next build tomorrow.");
+  });
+
   it("says a limit holds an idea or the goal, with nothing queued", () => {
     const next: PipelineBoardCard = {
       id: "dark",

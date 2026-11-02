@@ -51,7 +51,7 @@ import {
   SWEEP_CARDS,
 } from "./crewPrompts";
 import {
-  crewAccess,
+  crewRoleUsesWeb,
   activeCrews,
   bumpToday,
   cardBuilder,
@@ -268,6 +268,8 @@ type LiveTurn = {
   role: CrewChatRole;
   /** The member taking it. */
   memberId: string;
+  /** A Scout that could read the web as this turn started. */
+  web?: boolean;
   /** Security's sweep of the whole project, not a card's review. */
   sweep?: boolean;
   /** The card it works on; none for the Scout. */
@@ -597,6 +599,9 @@ export class CrewRunner {
     if (this.turns.has(key)) return;
     const now = this.deps.now();
     if (jobIsLive(crew.job, now) && crew.job?.owner !== this.deps.owner) return;
+    // A plan cut off by a restart: the member goes back to what you set.
+    if (crew.planning)
+      updateCrew(path, (current) => ({ ...current, planning: undefined }));
     const inCopy = cardInCopy(crew);
     if (inCopy) {
       if (
@@ -922,6 +927,10 @@ export class CrewRunner {
     turn.timer = undefined;
     if (this.turns.get(key) !== turn) return;
     this.turns.delete(key);
+    if (turn.goal)
+      updateCrew(path, (crew) =>
+        crew.planning ? { ...crew, planning: undefined } : crew,
+      );
     releaseCrewJob(path, this.deps.owner);
     this.updateWorking();
     if (!this.turns.size && this.heartbeat != null) {
@@ -1763,6 +1772,10 @@ export class CrewRunner {
     const turn: LiveTurn = {
       role: by,
       memberId: looker.id,
+      // As its turn starts: a change meanwhile doesn't unread what it read.
+      ...(by === "scout" && crewRoleUsesWeb(before, "scout")
+        ? { web: true }
+        : {}),
       ...(sweep ? { sweep: true } : {}),
       sessionId: "",
       turnId: this.newId(),
@@ -1946,6 +1959,8 @@ export class CrewRunner {
       onAt: before.onAt,
     };
     this.beginTurn(key, turn);
+    // It plans offline: its chat launches without the web for this turn.
+    updateCrew(path, (crew) => ({ ...crew, planning: planner.id }));
     try {
       const onStack = stackHead(before);
       const prepared = await this.prepareCopy(path, !onStack);
@@ -2246,7 +2261,7 @@ export class CrewRunner {
           ...(idea.sourceUrl ? { sourceUrl: idea.sourceUrl } : {}),
           // A Scout that may read the web: what it found could be anyone's
           // words, so its ideas wait for you.
-          ...(idea.outside || crewAccess(next).web === "everyone"
+          ...(idea.outside || turn.web || crewRoleUsesWeb(next, "scout")
             ? { outside: true }
             : {}),
           ...(sweep ? { by: "security" as const } : {}),

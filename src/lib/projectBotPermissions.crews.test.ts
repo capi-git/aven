@@ -15,6 +15,7 @@ import {
   botPermissionRules,
   botSandbox,
   crewChatPermissions,
+  PUBLISH_CREDENTIALS,
   WEB_TOOLS,
   crewPermissionRules,
   crewSandbox,
@@ -118,14 +119,16 @@ describe("no push, no publish, for every teammate", () => {
     }
   });
 
-  it("never waits on you by default: it deletes in its copy, and is told no to the rest", () => {
+  it("never waits on you by default: a Builder deletes in its copy, and the rest is told no", () => {
     for (const role of ["builder", "checker", "scout"] as const) {
       const { deny = [], ask = [] } = crewPermissionRules(crew, role);
       expect(ask).toEqual([]);
-      expect(deny).not.toContain("Bash(rm *)");
-      // A test's curl to a local server runs: the sandbox keeps its network.
-      expect(deny).not.toContain("Bash(curl -X *)");
+      // Sending is refused too: never looser than Ask me.
+      expect(deny).toContain("Bash(curl -X *)");
       expect(deny).toContain("Bash(osascript *)");
+      if (role === "builder") expect(deny).not.toContain("Bash(rm *)");
+      // Only a Builder deletes without asking: the Checker and Scout only read.
+      else expect(deny).toContain("Bash(rm *)");
     }
     // Keep deleting behind the same choice as the rest.
     const refused = crewPermissionRules(
@@ -142,24 +145,88 @@ describe("no push, no publish, for every teammate", () => {
     expect(asked.deny).not.toContain("Bash(rm *)");
   });
 
-  it("lets you choose who uses the web, without asking", () => {
-    const rules = (
+  it("keeps a command to the package registries, with no way to widen them", () => {
+    for (const role of ["builder", "checker", "scout"] as const) {
+      const { network } = crewSandbox(crew, role, undefined);
+      expect(network?.strictAllowlist).toBe(true);
+      expect(network?.allowedDomains).not.toContain("example.com");
+    }
+  });
+
+  it("keeps publish tokens and your history out of reach", () => {
+    const sandbox = crewSandbox(crew, "builder", undefined);
+    expect(sandbox.filesystem?.denyRead).toEqual(PUBLISH_CREDENTIALS);
+    expect(sandbox.filesystem?.denyRead).toContain("~/.npmrc");
+    expect(sandbox.filesystem?.denyWrite).toContain(`${PROJECT}/.git/objects`);
+    expect(crewPermissionRules(crew, "builder").deny).toContain(
+      "Read(~/.npmrc)",
+    );
+    // A read-only teammate's sandbox keeps them too.
+    expect(crewSandbox(crew, "scout", undefined).filesystem?.denyRead).toEqual(
+      PUBLISH_CREDENTIALS,
+    );
+  });
+
+  it("lets you choose who uses the web", () => {
+    const denies = (
       web: "none" | "builders" | "everyone",
-      role: "builder" | "scout",
-    ) => crewPermissionRules({ ...crew, access: { web } }, role);
-    expect(rules("builders", "builder").allow).toEqual(WEB_TOOLS);
-    expect(rules("builders", "scout").allow).toBeUndefined();
-    expect(rules("builders", "scout").deny).toEqual(
+      role: "builder" | "checker" | "scout",
+    ) => crewPermissionRules({ ...crew, access: { web } }, role).deny;
+    expect(denies("builders", "builder")).not.toContain("WebFetch");
+    expect(denies("builders", "scout")).toEqual(
       expect.arrayContaining(WEB_TOOLS),
     );
-    expect(rules("everyone", "scout").allow).toEqual(WEB_TOOLS);
-    expect(rules("everyone", "scout").deny).not.toContain("WebFetch");
-    expect(rules("none", "builder").allow).toBeUndefined();
-    expect(rules("none", "builder").deny).toEqual(
+    expect(denies("builders", "checker")).toEqual(
       expect.arrayContaining(WEB_TOOLS),
     );
+    expect(denies("everyone", "scout")).not.toContain("WebFetch");
+    expect(denies("none", "builder")).toEqual(
+      expect.arrayContaining(WEB_TOOLS),
+    );
+    // Never skips auto mode's own check of what it fetches.
+    expect(
+      crewPermissionRules({ ...crew, access: { web: "everyone" } }, "builder")
+        .allow,
+    ).toBeUndefined();
     // Read-only stays read-only whatever you choose.
-    expect(rules("everyone", "scout").deny).toContain(`Edit(/${COPY}/**)`);
+    expect(denies("everyone", "scout")).toContain(`Edit(/${COPY}/**)`);
+  });
+
+  it("gives Aven's browser only to those who may use it", () => {
+    const socket = (
+      web: "none" | "builders" | "everyone",
+      role: "builder" | "checker" | "security" | "scout",
+    ) =>
+      crewSandbox({ ...crew, access: { web } }, role, "/tmp/aven.sock").network
+        ?.allowUnixSockets;
+    // All but the Scout, whose ideas build by themselves.
+    for (const role of ["builder", "checker", "security"] as const)
+      expect(socket("builders", role)).toEqual(["/tmp/aven.sock"]);
+    expect(socket("builders", "scout")).toBeUndefined();
+    expect(socket("everyone", "scout")).toEqual(["/tmp/aven.sock"]);
+    for (const role of ["builder", "checker", "scout"] as const)
+      expect(socket("none", role)).toBeUndefined();
+  });
+
+  it("plans a goal offline, whatever you set", () => {
+    const everyone = { ...crew, access: { web: "everyone" as const } };
+    expect(crewPermissionRules(everyone, "builder", true).deny).toEqual(
+      expect.arrayContaining(WEB_TOOLS),
+    );
+    expect(
+      crewSandbox(everyone, "builder", "/tmp/aven.sock", true).network
+        ?.allowUnixSockets,
+    ).toBeUndefined();
+  });
+
+  it("keeps asking about your folder when its own copy is inside it", () => {
+    const home = {
+      path: "/Users/me",
+      copy: { ...crew.copy!, path: "/Users/me/Library/copy" },
+    };
+    const { deny = [], ask = [] } = crewPermissionRules(home, "builder");
+    expect(deny).not.toContain("Edit(//Users/me/**)");
+    expect(ask).toEqual(["Edit(//Users/me/**)"]);
   });
 
   it("lets the Builder edit its copy, and never your folder without asking", () => {

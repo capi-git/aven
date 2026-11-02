@@ -253,6 +253,8 @@ export type CrewBoardInfo = {
   actions: CrewBoardAction[];
   /** More, in its ⋯: an idea's Build it next and Not now. */
   menu?: CrewBoardAction[];
+  /** It builds by itself another day: it isn't waiting on you. */
+  later?: boolean;
 };
 
 const A = {
@@ -425,7 +427,7 @@ const WAITS: Record<IdeaWait, string> = {
   "not-now": "Not now",
   outside: "From outside · waits for you",
   security: "Waits for you",
-  chat: "A chat is on it",
+  chat: "Has its own chat · waits for you",
   large: "Large · waits for you",
   cap: "Waits for tomorrow: today's Scout ideas are used",
 };
@@ -452,6 +454,7 @@ export function crewIdeaInfo(
       roles,
       line: [from, WAITS[place.waits]].filter(Boolean).join(" · "),
       actions: [{ ...A.give, label: "Build it" }],
+      ...(place.waits === "cap" ? { later: true } : {}),
       ...(place.waits === "not-now" ? {} : { menu: [A.notNow] }),
     };
   return {

@@ -34,7 +34,10 @@ import {
 import { probeHarnessAvailability } from "../lib/harness/availability";
 import { projectName } from "../lib/paths";
 import { saveBotSettings } from "../lib/projectBotActions";
-import { TEAM_ALWAYS_LINE } from "../lib/projectBotPermissions";
+import {
+  TEAM_ACCESS_SCOPE_LINE,
+  TEAM_ALWAYS_LINE,
+} from "../lib/projectBotPermissions";
 import {
   BOT_WAKE_KINDS,
   formatClockMinutes,
@@ -521,7 +524,7 @@ function AccessSection({ crew }: { crew: Crew }) {
       <div data-crew-access>
         <LimitRow
           title="Delete files in its copy"
-          detail="Its own copy and temp files, without asking"
+          detail="Builders, in the team's copy and temp folders, without asking"
         >
           <Toggle
             label="Delete files in its copy"
@@ -534,10 +537,10 @@ function AccessSection({ crew }: { crew: Crew }) {
           title="Use the web"
           detail={
             access.web === "everyone"
-              ? "Everyone searches and reads pages. Ideas the Scout finds wait for you"
+              ? "Everyone searches and reads pages, and uses Aven's browser. Ideas the Scout finds wait for you"
               : access.web === "builders"
-                ? "Builders search and read pages"
-                : "No teammate searches or reads pages"
+                ? "Builders search and read pages. All but the Scout use Aven's browser, to try the work"
+                : "No teammate searches, reads pages or uses Aven's browser"
           }
         >
           <Segmented
@@ -574,6 +577,9 @@ function AccessSection({ crew }: { crew: Crew }) {
       </div>
       <p className="bot-sheet-note" data-crew-never>
         {TEAM_ALWAYS_LINE}
+      </p>
+      <p className="bot-sheet-note" data-crew-access-scope>
+        {TEAM_ACCESS_SCOPE_LINE}
       </p>
     </Section>
   );

@@ -1162,6 +1162,50 @@ describe("the Scout: ideas start themselves, within limits", () => {
     h.runner.stop();
   });
 
+  it("holds its ideas if the Scout could read the web as its turn began, even if you changed that since", async () => {
+    let change = () => {};
+    const h = harness({
+      scout: () => {
+        change();
+        return {
+          text: fence("aven-ideas", {
+            ideas: [{ title: "A tip from a blog", size: "small" }],
+          }),
+        };
+      },
+    });
+    onCrew({ access: { web: "everyone" } });
+    change = () =>
+      updateCrew(PATH, (crew) => ({
+        ...crew,
+        access: { ...crew.access, web: "builders" },
+      }));
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(MINUTE + 5_000);
+    const [idea] = [...h.board.values()];
+    expect(getCrew(PATH)!.access?.web).toBe("builders");
+    expect(getCrew(PATH)!.ideas?.[idea!.id]?.outside).toBe(true);
+    h.runner.stop();
+  });
+
+  it("plans a goal offline, and gives its planner the web back after", async () => {
+    let during: string | undefined = "not asked";
+    const h = harness({
+      scout: () => {
+        during = getCrew(PATH)!.planning;
+        return { text: fence("aven-goal", { met: false, next: [] }) };
+      },
+    });
+    onCrew({ scoutAt: NOON, goal: { text: "Finish Pom", at: NOON } });
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(MINUTE + 5_000);
+    expect(during).toBe("scout");
+    expect(getCrew(PATH)!.planning).toBeUndefined();
+    h.runner.stop();
+  });
+
   it("builds your own idea by itself, without counting it as the Scout's", async () => {
     const h = harness({
       builder: () => ({

@@ -448,5 +448,9 @@ describe("lines saved before the crew was a team", () => {
     expect(teamWording("You sent “X” back: tell the crew to stop")).toBe(
       "You sent “X” back: tell the crew to stop",
     );
+    // A colon in a quoted title is the title's.
+    expect(teamWording("You gave the crew “Crew settings: add toggle”")).toBe(
+      "You gave the team “Crew settings: add toggle”",
+    );
   });
 });

@@ -253,14 +253,17 @@ export function crewPipeline(input: {
     !goalOn;
   if (idle && !crew.paused) {
     // Ideas that wait for you (Not now, from outside): they need your word.
-    const ideas = input.cards.filter(
+    const held = input.cards.filter(
       (card) =>
         card.column === "idea" &&
         card.crew?.actions.some((action) => action.id === "give"),
-    ).length;
+    );
+    const ideas = held.filter((card) => !card.crew?.later).length;
     sentence = ideas
       ? `${plural(ideas, "idea")} ${ideas === 1 ? "waits" : "wait"} for you to press Build it.`
-      : "Nothing to build. Add an idea and the team builds it.";
+      : held.length
+        ? "Today's Scout ideas are used. The next build tomorrow."
+        : "Nothing to build. Add an idea and the team builds it.";
   }
   sentence = (
     capped && sentence.startsWith(`${capped} cards wait`)

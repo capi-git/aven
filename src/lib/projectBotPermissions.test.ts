@@ -65,9 +65,9 @@ it("never pushes, opens pull requests, publishes or deploys, and asks before the
     "Bash(curl * -X *)",
   ])
     expect(ask).toContain(rule);
-  // Only Claude Code's two Bash pattern forms, never a bare tool name.
+  // Only Claude Code's pattern forms, never a bare tool name.
   for (const rule of [...ask!, ...deny!])
-    expect(rule).toMatch(/^(Bash|Edit)\(.+\)$/);
+    expect(rule).toMatch(/^(Bash|Edit|Read)\(.+\)$/);
 });
 
 it("sandboxes a bot's commands: its copy and temp only, never the shared refs, registries only", () => {
@@ -101,6 +101,7 @@ it("sandboxes a bot's commands: its copy and temp only, never the shared refs, r
     "/Users/me/Orbit/.git/hooks",
     "/Users/me/Orbit/.git/config",
     "/Users/me/Orbit/.git/worktrees",
+    "/Users/me/Orbit/.git/objects",
     "/data/bots/orbit-1a2b/.git",
     // Settings an app would load from the copy and run as you.
     "/data/bots/orbit-1a2b/.claude",

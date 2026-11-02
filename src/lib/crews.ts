@@ -567,6 +567,12 @@ export type Crew = {
   /** What teammates may do without stopping to ask you (see `crewAccess`). */
   access?: Partial<CrewAccess>;
   /**
+   * The member planning the goal's next cards now. It plans offline, whatever
+   * `access` says: a page it read could otherwise write cards that build
+   * by themselves.
+   */
+  planning?: string;
+  /**
    * What you wrote to the team, as you wrote it, the newest last: the team
    * chat shows these as your messages. Older builds drop them on reading.
    */
@@ -607,6 +613,28 @@ export type CrewAccess = {
    */
   others: "refuse" | "ask";
 };
+
+/** Whether a role may search and read the web (its search and fetch tools). */
+export function crewRoleUsesWeb(
+  crew: Pick<Crew, "access">,
+  role: CrewRole,
+): boolean {
+  const { web } = crewAccess(crew);
+  return web === "everyone" || (web === "builders" && role === "builder");
+}
+
+/**
+ * Whether a role may use Aven's browser. The Checker and Security use it to
+ * try the work, so "Builders" leaves it to all but the Scout, whose ideas
+ * build by themselves.
+ */
+export function crewRoleUsesBrowser(
+  crew: Pick<Crew, "access">,
+  role: CrewRole,
+): boolean {
+  const { web } = crewAccess(crew);
+  return web === "everyone" || (web === "builders" && role !== "scout");
+}
 
 /** A team's access, as you set it or as it starts. */
 export function crewAccess(crew: Pick<Crew, "access">): CrewAccess {
@@ -1328,6 +1356,7 @@ export function readCrew(value: unknown): Crew | null {
   const asks = strings(raw.asks, ASKS_KEPT, 200);
   const notNow = strings(raw.notNow, NOT_NOW_KEPT, 200);
   const access = readAccess(raw.access);
+  const planning = text(raw.planning, 200);
   const messages = readMessages(raw.messages);
   return {
     ...base,
@@ -1394,6 +1423,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(asks.length ? { asks } : {}),
     ...(notNow.length ? { notNow } : {}),
     ...(access ? { access } : {}),
+    ...(planning ? { planning } : {}),
     ...(messages.length ? { messages } : {}),
     cards,
     feed,
@@ -2381,6 +2411,7 @@ export function withIdea(crew: Crew, cardId: string, idea: CrewIdea): Crew {
 /** An idea's record says it waits for you: dropping it would let it build. */
 function ideaHeld(idea: CrewIdea): boolean {
   return (
+    idea.size === "large" ||
     idea.by === "security" ||
     !!idea.sourceUrl ||
     !!idea.outside ||
@@ -2390,7 +2421,7 @@ function ideaHeld(idea: CrewIdea): boolean {
 
 /**
  * The idea records kept: the newest of the rest, and every one that waits
- * for you (Security's, from outside, Not now), up to a far larger cap, as
+ * for you (large, Security's, from outside, Not now), up to a far larger cap, as
  * its record is what keeps it from building by itself.
  */
 function keptIdeas(

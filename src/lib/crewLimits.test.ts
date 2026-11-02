@@ -265,13 +265,15 @@ describe("ideas build themselves, top first", () => {
     );
     current = withIdea(current, "linked", idea(1, { outside: true }));
     current = withIdea(current, "declined", idea(1, { declined: true }));
+    current = withIdea(current, "big", idea(1, { size: "large" as const }));
     for (let n = 0; n < 100; n += 1)
       current = withIdea(current, `new-${n}`, idea(n));
     expect(ideaWaits(current, { id: "sweep" }, NOON)).toBe("security");
     expect(ideaWaits(current, { id: "linked" }, NOON)).toBe("outside");
     expect(ideaWaits(current, { id: "declined" }, NOON)).toBe("not-now");
+    expect(ideaWaits(current, { id: "big" }, NOON)).toBe("large");
     // The rest stay at their cap.
-    expect(Object.keys(current.ideas ?? {}).length).toBe(63);
+    expect(Object.keys(current.ideas ?? {}).length).toBe(64);
     // And they survive a save and a read.
     const read = readCrew(JSON.parse(JSON.stringify(current)));
     expect(ideaWaits(read!, { id: "sweep" }, NOON)).toBe("security");

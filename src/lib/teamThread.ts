@@ -91,20 +91,22 @@ function plain(text: string): string {
  * title, a file's name (crews.ts) and a branch's (aven/bot/crew-…).
  */
 export function teamWording(text: string): string {
-  const colon = text.indexOf(": ");
-  if (colon >= 0)
-    return `${teamWording(text.slice(0, colon))}${text.slice(colon)}`;
+  let spoken = false;
   return text
     .split(/(“[^”]*”)/)
-    .map((part) =>
-      part.startsWith("“")
-        ? part
-        : part.replace(
-            /(?<![\w/.-])([Cc])rew(s?)(?![\w/-]|\.\w)/g,
-            (_match, c: string, plural: string) =>
-              `${c === "C" ? "T" : "t"}eam${plural}`,
-          ),
-    )
+    .map((part) => {
+      if (spoken || part.startsWith("“")) return part;
+      const colon = part.indexOf(": ");
+      if (colon >= 0) spoken = true;
+      const words = colon >= 0 ? part.slice(0, colon) : part;
+      return (
+        words.replace(
+          /(?<![\w/.-])([Cc])rew(s?)(?![\w/-]|\.\w)/g,
+          (_match, c: string, plural: string) =>
+            `${c === "C" ? "T" : "t"}eam${plural}`,
+        ) + (colon >= 0 ? part.slice(colon) : "")
+      );
+    })
     .join("");
 }
 

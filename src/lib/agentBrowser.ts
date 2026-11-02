@@ -630,6 +630,8 @@ export async function prepareAgentBrowserPrompt(
   context: AgentBrowserContext,
   options: {
     worker?: boolean;
+    /** This chat may not use the browser: its turns don't offer it. */
+    noBrowser?: boolean;
     /**
      * The user wrote this message. Only such a turn ends their Stop on the
      * chat's use of other tabs and its declined requests; another agent's
@@ -645,11 +647,9 @@ export async function prepareAgentBrowserPrompt(
     options.worker || isRaceLanePath(context.cwd)
       ? null
       : agentGitInstructions();
-  return withBrowserGuidance(
-    git ? `${git}\n\n${text}` : text,
-    context,
-    options.typed === true,
-  );
+  const prompt = git ? `${git}\n\n${text}` : text;
+  if (options.noBrowser) return prompt;
+  return withBrowserGuidance(prompt, context, options.typed === true);
 }
 
 async function withBrowserGuidance(

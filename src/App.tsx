@@ -923,6 +923,7 @@ import {
 import { isHarnessAvailable } from "./lib/harness/availability";
 import { pickerModelsFor } from "./lib/models";
 import {
+  crewChatBrowserOff,
   installBotPermissions,
   teammateChatRefusal,
 } from "./lib/projectBotPermissions";
@@ -7817,6 +7818,7 @@ export default function App({
                 // A bot never commits, so it gets no Git preference either.
                 {
                   worker: !!current.orchestrationLeadId || isBotChat(sessionId),
+                  noBrowser: crewChatBrowserOff(sessionId),
                   typed: options?.typed === true,
                 },
               );
