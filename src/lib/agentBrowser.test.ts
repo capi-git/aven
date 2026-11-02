@@ -87,12 +87,12 @@ describe("agent browser session connection", () => {
     );
     expect(text).toContain("find pages first");
     expect(text).toContain(
-      "Navigating a page to a different local server opens a new page instead, so use the id it returns.",
+      "Navigating your page to another local server keeps the same page.",
     );
     expect(text).toContain('"newTab":true');
     // Agents iterate on one page instead of piling up mocks and tabs.
     expect(text).toContain(
-      "Open keeps one page per site for this chat and builds on it: opening the same address again reloads your page, and another address on the same site (another route, query string, fragment or mock file on that server) navigates it.",
+      "Open keeps one preview page for this chat and builds on it: opening the same address again reloads your page, and another address (another route, query string, fragment or mock file, or another local server) navigates it.",
     );
     expect(text).toContain(
       "It never reloads or navigates a page the user opened, kept, clicked, typed in or annotated, or another chat's page",

@@ -460,7 +460,7 @@ describe("an agent builds on one page", () => {
     expect(next.refresh).toBe("navigate");
   });
 
-  it("never navigates another chat's page and gives other servers and sites their own page", () => {
+  it("never navigates another chat's page; its own page follows its local server, and the web gets its own", () => {
     const createId = ids();
     const a = openAll(EMPTY_BROWSER, [mock], "chat-a", createId).workspace;
     const b = openAll(
@@ -485,9 +485,10 @@ describe("an agent builds on one page", () => {
     expect(
       others.results.map((result) => [result.tab.id, result.refresh]),
     ).toEqual([
+      // Another local server: the chat's own page moves to it.
+      ["page-1", "navigate"],
       ["page-3", undefined],
-      ["page-4", undefined],
-      ["page-4", "navigate"],
+      ["page-3", "navigate"],
       ["page-1", "navigate"],
     ]);
   });
@@ -620,6 +621,49 @@ describe("an agent builds on one page", () => {
       expect(sameAgentSite(mock, other)).toBe(false);
     expect(
       agentPageFor([{ id: "x", url: mock }], `${mock}?v=2`, "chat-a"),
+    ).toBeUndefined();
+  });
+
+  it("keeps one preview page per chat across local servers", () => {
+    const mine = { id: "mine", url: mock, agentChat: "chat-a" };
+    // Another port on this Mac: the chat's own page follows the server.
+    expect(
+      agentPageFor([mine], "http://localhost:5184/index.html", "chat-a"),
+    ).toEqual({ tab: mine, refresh: "navigate" });
+    expect(agentPageFor([mine], "http://127.0.0.1:5187/", "chat-a")).toEqual({
+      tab: mine,
+      refresh: "navigate",
+    });
+    // Unless the agent wants a second page beside it.
+    expect(
+      agentPageFor([mine], "http://localhost:5184/", "chat-a", undefined, {
+        newTab: true,
+      }),
+    ).toBeUndefined();
+    // Never the user's page, another chat's, or a page on the web.
+    expect(
+      agentPageFor(
+        [{ id: "u", url: mock }],
+        "http://localhost:5184/",
+        "chat-a",
+      ),
+    ).toBeUndefined();
+    expect(
+      agentPageFor(
+        [{ id: "o", url: mock, agentChat: "chat-b" }],
+        "http://localhost:5184/",
+        "chat-a",
+      ),
+    ).toBeUndefined();
+    expect(
+      agentPageFor(
+        [{ id: "w", url: "https://example.com/", agentChat: "chat-a" }],
+        "http://localhost:5184/",
+        "chat-a",
+      ),
+    ).toBeUndefined();
+    expect(
+      agentPageFor([mine], "https://example.com/", "chat-a"),
     ).toBeUndefined();
   });
 
