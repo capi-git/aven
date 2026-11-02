@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.1.164] - 2026-11-02
+
+### Added
+
+- **Team chat.** A team's screen opens on a chat.
+  - Your teammates are listed on the left with what each is doing. On the right is a thread of their work and handoffs, such as "Handed to Checker".
+  - **Ready for you** stays pinned at the top with Review and Apply all.
+  - **Cards** shows the board as before.
+  - Write to the whole team to give it a card, a rule or a goal, or @ one teammate to send it to that teammate's own chat. Nothing is queued unless you choose it.
+- **Build a team.** Start from a suggested team, or add roles from tiles, including one of your own with a name and one job.
+
+### Changed
+
+- **Crews are now teams:** "Pom team", "Add teammate", "Remove from team". Your crews carry over as they are.
+- **A roomier teammate page** replaces the cramped member settings. Job and instructions are on one side. The agent, the model and the effort are on the other, with the models listed in full and no pop-up menu.
+
+### Fixed
+
+- A teammate's model menu no longer opens half hidden under its settings.
+- Deleting or archiving a project turns its team off. Before, the team kept working out of sight.
+- Setting up Git from **New team** now goes on to the team, not to a bot.
+- Before a team's first card, a teammate's **Open chat** says why it can't open yet.
+
 ## [0.1.163] - 2026-10-31
 
 ### Added
