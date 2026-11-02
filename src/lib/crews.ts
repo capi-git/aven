@@ -16,7 +16,11 @@ import {
 import { SECURITY_INSTRUCTIONS } from "./crewPresets";
 import { crewMemberSigil } from "./dotSigils";
 import { isDefaultAgentName } from "./projectMascots";
-import { normalizeProjectPath, readRecents, sameProjectPath } from "./recents";
+import {
+  loadArchivedProjects,
+  normalizeProjectPath,
+  sameProjectPath,
+} from "./recents";
 import type { AutomationReview } from "./automationReview";
 import { registerGuardedChats } from "./harness/sessionPermissions";
 
@@ -1675,15 +1679,15 @@ export function crewForFolder(folder: string | undefined): Crew | undefined {
 /** Crews whose Builder, Checker and Scout are on. */
 export function activeCrews(): Crew[] {
   if (!botsAvailable()) return [];
-  // A project you deleted or archived (no longer listed) has no team at
-  // work, whatever its switch says: its work is out of reach. Without a
-  // saved list at all, every team counts.
-  const listed = readRecents(true);
+  // An archived project has no team at work, whatever its switch says: its
+  // work is out of reach. (Archiving or deleting one also turns its team
+  // off; this covers an archive made in another window.) A project that only
+  // fell off the recent list, which keeps 20, still has its team at work.
+  const archived = loadArchivedProjects();
   return Object.values(read().crews).filter(
     (crew) =>
       crew.on &&
-      (listed === null ||
-        listed.some((project) => sameProjectPath(project.path, crew.path))),
+      !archived.some((project) => sameProjectPath(project.path, crew.path)),
   );
 }
 

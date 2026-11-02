@@ -263,7 +263,7 @@ describe("starting from a suggested team", () => {
 });
 
 describe("a project you delete or archive", () => {
-  it("its team stops, keeping its cards, copy and branch; an unlisted project's team never works", async () => {
+  it("its team stops, keeping its cards, copy and branch; an archived project's team never works", async () => {
     updateCrew(PATH, (crew) => ({
       ...crew,
       on: true,
@@ -271,14 +271,12 @@ describe("a project you delete or archive", () => {
       copy: { path: "/copies/pom", branch: "aven/crew/pom", root: PATH },
       stack: { base: "a".repeat(40) },
     }));
-    // Listed: at work.
-    localStorage.setItem(
-      "monocode.recentProjects",
-      JSON.stringify([{ path: PATH, openedAt: 1 }]),
-    );
     expect(activeCrews().map((crew) => crew.path)).toEqual([PATH]);
-    // Archived or deleted elsewhere: no longer listed, so it isn't at work.
-    localStorage.setItem("monocode.recentProjects", JSON.stringify([]));
+    // Archived elsewhere: its work is out of reach, so it isn't at work.
+    localStorage.setItem(
+      "monocode.archivedProjects",
+      JSON.stringify([{ path: PATH, archivedAt: 1 }]),
+    );
     expect(activeCrews()).toEqual([]);
     await stopTeamForProject(PATH);
     const crew = getCrew(PATH)!;
@@ -287,9 +285,13 @@ describe("a project you delete or archive", () => {
     expect(crew.stack?.base).toBe("a".repeat(40));
   });
 
-  it("without any saved list of projects, every team that's on counts", () => {
+  it("a project that only fell off the recent list keeps its team at work", () => {
     on();
-    expect(localStorage.getItem("monocode.recentProjects")).toBeNull();
+    // The recent list keeps 20 projects; this one isn't among them.
+    localStorage.setItem(
+      "monocode.recentProjects",
+      JSON.stringify([{ path: "/Users/me/other", openedAt: 1 }]),
+    );
     expect(activeCrews().map((crew) => crew.path)).toEqual([PATH]);
   });
 });
