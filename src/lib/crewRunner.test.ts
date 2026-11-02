@@ -1143,6 +1143,25 @@ describe("the Scout: ideas start themselves, within limits", () => {
     h.runner.stop();
   });
 
+  it("holds the ideas of a Scout that may read the web for you", async () => {
+    const h = harness({
+      scout: () => ({
+        text: fence("aven-ideas", {
+          ideas: [{ title: "Copy a tip from a blog", size: "small" }],
+        }),
+      }),
+    });
+    onCrew({ access: { web: "everyone" } });
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(MINUTE + 5_000);
+    const [idea] = [...h.board.values()];
+    expect(getCrew(PATH)!.ideas?.[idea!.id]?.outside).toBe(true);
+    await h.advance(10 * MINUTE);
+    expect(crewCard(getCrew(PATH)!, idea!.id)).toBeUndefined();
+    h.runner.stop();
+  });
+
   it("builds your own idea by itself, without counting it as the Scout's", async () => {
     const h = harness({
       builder: () => ({

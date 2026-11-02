@@ -51,6 +51,7 @@ import {
   SWEEP_CARDS,
 } from "./crewPrompts";
 import {
+  crewAccess,
   activeCrews,
   bumpToday,
   cardBuilder,
@@ -2243,7 +2244,11 @@ export class CrewRunner {
           size: idea.size,
           ...(idea.why ? { why: idea.why } : {}),
           ...(idea.sourceUrl ? { sourceUrl: idea.sourceUrl } : {}),
-          ...(idea.outside ? { outside: true } : {}),
+          // A Scout that may read the web: what it found could be anyone's
+          // words, so its ideas wait for you.
+          ...(idea.outside || crewAccess(next).web === "everyone"
+            ? { outside: true }
+            : {}),
           ...(sweep ? { by: "security" as const } : {}),
         });
       });

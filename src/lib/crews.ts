@@ -564,6 +564,8 @@ export type Crew = {
   asks?: string[];
   /** Ideas you said Not now to: they wait in Ideas until you build them. */
   notNow?: string[];
+  /** What teammates may do without stopping to ask you (see `crewAccess`). */
+  access?: Partial<CrewAccess>;
   /**
    * What you wrote to the team, as you wrote it, the newest last: the team
    * chat shows these as your messages. Older builds drop them on reading.
@@ -588,6 +590,32 @@ export type CrewMessage = {
 };
 
 export type CrewMessageKind = "card" | "rule" | "goal";
+
+/**
+ * What a team's teammates may do without stopping to ask you, all inside
+ * its copy and sandbox. They never push, publish or deploy whatever this
+ * says, and the Checker and Security never change files.
+ */
+export type CrewAccess = {
+  /** Deleting in its copy and temp files: done, or as `others` says. */
+  deletes: boolean;
+  /** Who may search and read the web. */
+  web: "none" | "builders" | "everyone";
+  /**
+   * Anything else that would ask (committing, merging, sending, your own
+   * files): the teammate is told no and carries on, or it waits for you.
+   */
+  others: "refuse" | "ask";
+};
+
+/** A team's access, as you set it or as it starts. */
+export function crewAccess(crew: Pick<Crew, "access">): CrewAccess {
+  return {
+    deletes: crew.access?.deletes ?? true,
+    web: crew.access?.web ?? "builders",
+    others: crew.access?.others ?? "refuse",
+  };
+}
 
 /**
  * The crew's goal: it plans its own cards towards it and builds them one
@@ -707,6 +735,22 @@ export function isSha(value: unknown): value is string {
 
 /** Thrown-away goal cards a goal remembers. */
 const GOAL_DROPPED_KEPT = 30;
+
+/** Only what this build knows: anything else is as a team starts. */
+function readAccess(value: unknown): Partial<CrewAccess> | undefined {
+  const raw = value as Partial<CrewAccess> | null | undefined;
+  if (!raw || typeof raw !== "object") return undefined;
+  const access: Partial<CrewAccess> = {
+    ...(typeof raw.deletes === "boolean" ? { deletes: raw.deletes } : {}),
+    ...(raw.web === "none" || raw.web === "builders" || raw.web === "everyone"
+      ? { web: raw.web }
+      : {}),
+    ...(raw.others === "refuse" || raw.others === "ask"
+      ? { others: raw.others }
+      : {}),
+  };
+  return Object.keys(access).length ? access : undefined;
+}
 
 function readGoal(value: unknown): CrewGoal | undefined {
   const raw = value as Partial<CrewGoal> | null | undefined;
@@ -1283,6 +1327,7 @@ export function readCrew(value: unknown): Crew | null {
   const goal = readGoal(raw.goal);
   const asks = strings(raw.asks, ASKS_KEPT, 200);
   const notNow = strings(raw.notNow, NOT_NOW_KEPT, 200);
+  const access = readAccess(raw.access);
   const messages = readMessages(raw.messages);
   return {
     ...base,
@@ -1348,6 +1393,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(goal ? { goal } : {}),
     ...(asks.length ? { asks } : {}),
     ...(notNow.length ? { notNow } : {}),
+    ...(access ? { access } : {}),
     ...(messages.length ? { messages } : {}),
     cards,
     feed,

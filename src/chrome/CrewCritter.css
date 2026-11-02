@@ -644,3 +644,14 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 .crew-settings-heading.crew-blank-heading {
   margin-top: 14px;
 }
+/* Access: its small choices keep to their row. */
+.settings-segmented.crew-settings-access-choice {
+  flex: none;
+  min-width: 0;
+}
+
+.settings-segmented.crew-settings-access-choice button {
+  min-height: 24px;
+  padding-inline: 8px;
+  white-space: nowrap;
+}

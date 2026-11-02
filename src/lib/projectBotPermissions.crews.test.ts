@@ -15,6 +15,7 @@ import {
   botPermissionRules,
   botSandbox,
   crewChatPermissions,
+  WEB_TOOLS,
   crewPermissionRules,
   crewSandbox,
   installBotPermissions,
@@ -57,7 +58,7 @@ function crewChatPermissionsFor(role: "builder" | "checker") {
   return crewChatPermissions(role === "builder" ? "b-chat" : "c-chat");
 }
 
-const crew: Pick<Crew, "path" | "copy"> = {
+const crew: Pick<Crew, "path" | "copy" | "access"> = {
   path: PROJECT,
   copy: {
     path: COPY,
@@ -104,15 +105,70 @@ describe("no push, no publish, for every teammate", () => {
         expect(deny).toContain(rule);
         expect(ask).not.toContain(rule);
       }
-      // Committing and merging still ask: the user's OK, never a bot's.
-      expect(ask).toContain("Bash(git commit *)");
-      expect(ask).toContain("Bash(git merge *)");
+      // Committing and merging: it's told no, unless you choose Ask me.
+      expect(deny).toContain("Bash(git commit *)");
+      expect(deny).toContain("Bash(git merge *)");
+      const asking = crewPermissionRules(
+        { ...crew, access: { others: "ask" } },
+        role,
+      );
+      for (const rule of NEVER) expect(asking.deny).toContain(rule);
+      expect(asking.ask).toContain("Bash(git commit *)");
+      expect(asking.ask).toContain("Bash(git merge *)");
     }
   });
 
-  it("lets the Builder edit its copy, and asks before your folder", () => {
-    const { deny = [], ask = [] } = crewPermissionRules(crew, "builder");
-    expect(ask).toContain(`Edit(/${PROJECT}/**)`);
+  it("never waits on you by default: it deletes in its copy, and is told no to the rest", () => {
+    for (const role of ["builder", "checker", "scout"] as const) {
+      const { deny = [], ask = [] } = crewPermissionRules(crew, role);
+      expect(ask).toEqual([]);
+      expect(deny).not.toContain("Bash(rm *)");
+      // A test's curl to a local server runs: the sandbox keeps its network.
+      expect(deny).not.toContain("Bash(curl -X *)");
+      expect(deny).toContain("Bash(osascript *)");
+    }
+    // Keep deleting behind the same choice as the rest.
+    const refused = crewPermissionRules(
+      { ...crew, access: { deletes: false } },
+      "builder",
+    );
+    expect(refused.deny).toContain("Bash(rm *)");
+    const asked = crewPermissionRules(
+      { ...crew, access: { deletes: false, others: "ask" } },
+      "builder",
+    );
+    expect(asked.ask).toContain("Bash(rm *)");
+    expect(asked.ask).toContain("Bash(curl -X *)");
+    expect(asked.deny).not.toContain("Bash(rm *)");
+  });
+
+  it("lets you choose who uses the web, without asking", () => {
+    const rules = (
+      web: "none" | "builders" | "everyone",
+      role: "builder" | "scout",
+    ) => crewPermissionRules({ ...crew, access: { web } }, role);
+    expect(rules("builders", "builder").allow).toEqual(WEB_TOOLS);
+    expect(rules("builders", "scout").allow).toBeUndefined();
+    expect(rules("builders", "scout").deny).toEqual(
+      expect.arrayContaining(WEB_TOOLS),
+    );
+    expect(rules("everyone", "scout").allow).toEqual(WEB_TOOLS);
+    expect(rules("everyone", "scout").deny).not.toContain("WebFetch");
+    expect(rules("none", "builder").allow).toBeUndefined();
+    expect(rules("none", "builder").deny).toEqual(
+      expect.arrayContaining(WEB_TOOLS),
+    );
+    // Read-only stays read-only whatever you choose.
+    expect(rules("everyone", "scout").deny).toContain(`Edit(/${COPY}/**)`);
+  });
+
+  it("lets the Builder edit its copy, and never your folder without asking", () => {
+    const { deny = [] } = crewPermissionRules(crew, "builder");
+    expect(deny).toContain(`Edit(/${PROJECT}/**)`);
+    expect(
+      crewPermissionRules({ ...crew, access: { others: "ask" } }, "builder")
+        .ask,
+    ).toContain(`Edit(/${PROJECT}/**)`);
     expect(deny).not.toContain(`Edit(/${COPY}/**)`);
     expect(
       crewSandbox(crew, "builder", undefined).filesystem?.denyWrite,

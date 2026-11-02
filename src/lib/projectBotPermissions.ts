@@ -7,6 +7,7 @@ import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import {
   CREW_ROLE_INFO,
+  crewAccess,
   crewForChat,
   crewMemberApp,
   type Crew,
@@ -149,6 +150,10 @@ export function absolutePathRule(folder: string): string {
 }
 
 /** The one line the settings sheet shows for what a bot never does. */
+/** What a team's Access never changes. */
+export const TEAM_ALWAYS_LINE =
+  "Teammates work in their own copy. They never push, publish or deploy, and nothing reaches your files until you press Apply.";
+
 export const ALWAYS_ASKS_LINE =
   "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
 
@@ -359,22 +364,42 @@ export function botSandbox(
 export const WEB_TOOLS = ["WebFetch", "WebSearch"];
 
 export function crewPermissionRules(
-  crew: Pick<Crew, "path" | "copy">,
+  crew: Pick<Crew, "path" | "copy" | "access">,
   role: Exclude<CrewRole, "fixer">,
 ): ClaudePermissionRules {
   const rules = botPermissionRules({
     path: crew.path,
     ...(crew.copy ? { copy: crew.copy } : {}),
   });
-  if (CREW_ROLE_INFO[role].edits) return rules;
+  const access = crewAccess(crew);
+  const edits = CREW_ROLE_INFO[role].edits;
+  // Deleting, as you set it: the sandbox keeps it to the copy and temp files.
+  const asks = (rules.ask ?? []).filter(
+    (rule) =>
+      !(access.deletes && DELETING.includes(rule)) &&
+      // A teammate that only reads never edits: refused below.
+      (edits || !rule.startsWith("Edit(")),
+  );
+  const web = access.web === "everyone" || (access.web === "builders" && edits);
   return {
+    ...(web ? { allow: WEB_TOOLS } : {}),
     deny: [
       ...(rules.deny ?? []),
-      ...WEB_TOOLS,
-      `Edit(${absolutePathRule(crew.path)})`,
-      ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
+      ...(web ? [] : WEB_TOOLS),
+      ...(edits
+        ? []
+        : [
+            `Edit(${absolutePathRule(crew.path)})`,
+            ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
+          ]),
+      // Told no, it carries on: nothing waits for you while you're away.
+      // Its commands' network is already the sandbox's (package registries
+      // and this machine), so a test's curl to a local server still runs.
+      ...(access.others === "refuse"
+        ? asks.filter((rule) => !rule.startsWith("Bash(curl"))
+        : []),
     ],
-    ask: (rules.ask ?? []).filter((rule) => !rule.startsWith("Edit(")),
+    ask: access.others === "refuse" ? [] : asks,
   };
 }
 

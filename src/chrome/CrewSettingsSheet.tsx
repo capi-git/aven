@@ -1,8 +1,9 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { Toggle } from "../surfaces/SettingsControls";
+import { Segmented, Toggle } from "../surfaces/SettingsControls";
 import {
   firstCardChatText,
+  setCrewAccess,
   setCrewLimit,
   setCrewPaused,
   setCrewQuietHours,
@@ -19,6 +20,7 @@ import {
   crewMemberName,
   crewMembers,
   defaultBuilder,
+  crewAccess,
   memberCritter,
   memberLabel,
   setCrewsAllRunsPerDay,
@@ -32,7 +34,7 @@ import {
 import { probeHarnessAvailability } from "../lib/harness/availability";
 import { projectName } from "../lib/paths";
 import { saveBotSettings } from "../lib/projectBotActions";
-import { ALWAYS_ASKS_LINE } from "../lib/projectBotPermissions";
+import { TEAM_ALWAYS_LINE } from "../lib/projectBotPermissions";
 import {
   BOT_WAKE_KINDS,
   formatClockMinutes,
@@ -474,11 +476,9 @@ function CrewBody({
           Add teammate
         </button>
       </Section>
+      <AccessSection crew={crew} />
       <RoutingSection crew={crew} />
       <LimitsSection crew={crew} allRuns={allRuns} />
-      <p className="bot-sheet-note" data-crew-never>
-        {ALWAYS_ASKS_LINE}
-      </p>
       {problem ? (
         <p className="bot-sheet-problem" role="alert">
           {problem}
@@ -505,6 +505,77 @@ function CrewBody({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * What teammates may do without stopping to ask you. Each works in the
+ * team's own copy, in a sandbox, so this never reaches your files: only
+ * Apply does.
+ */
+function AccessSection({ crew }: { crew: Crew }) {
+  const path = crew.path;
+  const access = crewAccess(crew);
+  return (
+    <Section title="Access">
+      <div data-crew-access>
+        <LimitRow
+          title="Delete files in its copy"
+          detail="Its own copy and temp files, without asking"
+        >
+          <Toggle
+            label="Delete files in its copy"
+            tone="neutral"
+            on={access.deletes}
+            onChange={(deletes) => setCrewAccess(path, { deletes })}
+          />
+        </LimitRow>
+        <LimitRow
+          title="Use the web"
+          detail={
+            access.web === "everyone"
+              ? "Everyone searches and reads pages. Ideas the Scout finds wait for you"
+              : access.web === "builders"
+                ? "Builders search and read pages"
+                : "No teammate searches or reads pages"
+          }
+        >
+          <Segmented
+            label="Who uses the web"
+            className="crew-settings-access-choice"
+            value={access.web}
+            options={[
+              { value: "none", label: "No one" },
+              { value: "builders", label: "Builders" },
+              { value: "everyone", label: "Everyone" },
+            ]}
+            onChange={(web) => setCrewAccess(path, { web })}
+          />
+        </LimitRow>
+        <LimitRow
+          title="If it wants anything else"
+          detail={
+            access.others === "refuse"
+              ? "Committing, merging, sending or your own files: it's told no and keeps going"
+              : "Committing, merging, sending or your own files: it stops and waits for you"
+          }
+        >
+          <Segmented
+            label="When a teammate wants anything else"
+            className="crew-settings-access-choice"
+            value={access.others}
+            options={[
+              { value: "refuse", label: "Say no" },
+              { value: "ask", label: "Ask me" },
+            ]}
+            onChange={(others) => setCrewAccess(path, { others })}
+          />
+        </LimitRow>
+      </div>
+      <p className="bot-sheet-note" data-crew-never>
+        {TEAM_ALWAYS_LINE}
+      </p>
+    </Section>
   );
 }
 

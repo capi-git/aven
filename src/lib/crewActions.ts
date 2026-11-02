@@ -52,6 +52,7 @@ import {
   withoutCard,
   withoutMember,
   type Crew,
+  type CrewAccess,
   type CrewAgent,
   type CrewCard,
   type CrewLimitName,
@@ -2120,6 +2121,14 @@ export function setDefaultBuilder(path: string, id: string | null) {
 }
 
 /** Set one of the crew's limits, kept within what it may be. */
+/** What the team may do without stopping to ask you. */
+export function setCrewAccess(path: string, patch: Partial<CrewAccess>) {
+  updateCrew(path, (crew) => ({
+    ...crew,
+    access: { ...crew.access, ...patch },
+  }));
+}
+
 export function setCrewLimit(path: string, name: CrewLimitName, value: number) {
   if (!Number.isFinite(value)) return;
   const [low, high] = CREW_LIMIT_RANGES[name];
