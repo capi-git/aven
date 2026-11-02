@@ -168,3 +168,28 @@ it("says why nothing is listed", async () => {
   expect(picker.textContent).toBe("Every project has a bot");
   expect(picker.querySelector(".bot-picker-note")).toBeNull();
 });
+
+it("asked for a team, says team and Teams, and adds the team once Git is set up", async () => {
+  const onAdd = vi.fn();
+  const setup = pending();
+  await act(async () =>
+    root.render(
+      createElement(BotGitSetupSheet, {
+        project: { path: "/work/notes", label: "notes", state: "no-git" },
+        kind: "team",
+        onAdd,
+        onClose: vi.fn(),
+      }),
+    ),
+  );
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  expect(dialog.querySelector("h2")?.textContent).toBe("Add a team");
+  expect(dialog.querySelector(".bot-picker-note")?.textContent).toMatch(
+    /^Teams need Git/,
+  );
+  await act(async () => button("Set up Git for notes")!.click());
+  await act(async () =>
+    setup.finish({ started: true, wroteIgnore: false, files: 3 }),
+  );
+  expect(onAdd).toHaveBeenCalledWith("/work/notes");
+});

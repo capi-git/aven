@@ -18,9 +18,11 @@ import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
   TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
+  firstCardChatText,
   subscribeCrewTell,
   takeCrewTell,
   tellTeam,
+  teammateChatReady,
   tellTeammate,
   useCrewWorkspace,
 } from "../lib/crewActions";
@@ -181,6 +183,11 @@ export function TeamChat({
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
   const [mode, setMode] = useState<Mode>("card");
+  // Why a teammate's chat didn't open, under its name.
+  const [openProblem, setOpenProblem] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const filter =
     selected && members.some((member) => member.id === selected)
@@ -231,7 +238,13 @@ export function TeamChat({
         now={now}
         selected={filter}
         onSelect={select}
-        onOpenChat={(id) => workspace?.openChat(project, id)}
+        openProblem={openProblem}
+        onOpenChat={(id) => {
+          setOpenProblem(null);
+          void Promise.resolve(workspace?.openChat(project, id)).then((why) =>
+            setOpenProblem(why ? { id, text: why } : null),
+          );
+        }}
         onSettings={(id) => workspace?.openSettings(project, id)}
         onAdd={() => workspace?.openSettings(project, "add")}
       />
@@ -298,6 +311,7 @@ function Roster({
   now,
   selected,
   onSelect,
+  openProblem,
   onOpenChat,
   onSettings,
   onAdd,
@@ -309,6 +323,7 @@ function Roster({
   now: number;
   selected: string | null;
   onSelect: (id: string | null) => void;
+  openProblem: { id: string; text: string } | null;
   onOpenChat: (id: string) => void;
   onSettings: (id: string) => void;
   onAdd: () => void;
@@ -398,6 +413,13 @@ function Roster({
                     type="button"
                     className="team-roster-tool"
                     data-team-open-chat
+                    // Its chat starts with the team's first card.
+                    disabled={!teammateChatReady(crew, member.id)}
+                    title={
+                      teammateChatReady(crew, member.id)
+                        ? undefined
+                        : firstCardChatText(member.name)
+                    }
                     onClick={() => onOpenChat(member.id)}
                   >
                     Open chat
@@ -410,6 +432,19 @@ function Roster({
                     Settings
                   </button>
                 </span>
+              ) : null}
+              {isSelected &&
+              (openProblem?.id === member.id ||
+                !teammateChatReady(crew, member.id)) ? (
+                <p
+                  className="team-roster-note"
+                  role="status"
+                  data-team-open-note
+                >
+                  {openProblem?.id === member.id
+                    ? openProblem.text
+                    : firstCardChatText(member.name)}
+                </p>
               ) : null}
             </li>
           );

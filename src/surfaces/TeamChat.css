@@ -160,8 +160,22 @@
   font-size: var(--text-ui-label);
 }
 
-.team-roster-tool:hover {
+.team-roster-tool:hover:not(:disabled) {
   background: var(--aven-control-hover, var(--aven-hover));
+}
+
+.team-roster-tool:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Why its chat can't open yet, under its tools. */
+.team-roster-note {
+  margin: -2px 0 0;
+  padding: 0 10px 8px 49px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.4;
 }
 
 /* The thread column. */

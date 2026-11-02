@@ -68,6 +68,7 @@ import { pickerModelsFor, preferredModelId } from "./models";
 import {
   CREW_PRESETS,
   CREW_TEAM_PRESETS,
+  SECURITY_INSTRUCTIONS,
   type CrewPreset,
   type CrewTeamPreset,
 } from "./crewPresets";
@@ -210,6 +211,16 @@ export async function turnOffCrew(path: string) {
       if (card.turn) next = withCard(next, { ...card, turn: undefined });
     return next;
   });
+}
+
+/**
+ * A project deleted or archived: its team stops (as Turn off does) and
+ * nothing new starts. Its cards, copy, branch and settings stay, so it
+ * picks up again if the project comes back and you turn it on.
+ */
+export async function stopTeamForProject(path: string) {
+  if (!getCrew(path)?.on) return;
+  await turnOffCrew(path);
 }
 
 export function setCrewPaused(path: string, paused: boolean, now = Date.now()) {
@@ -469,6 +480,23 @@ export const TOO_LONG_FOR_A_GOAL = `A goal has to fit in ${CREW_GOAL_MAX} charac
 
 /** Said when a message to everyone is longer than a card's note can be. */
 export const TOO_LONG_FOR_EVERYONE = `That's too long for the whole team: keep it under ${CREW_NOTE_MAX} characters, or write to one teammate.`;
+
+/**
+ * A teammate's own chat starts with the team's copy, which is made at its
+ * first card: until then there is no chat to open or write to. The Fixer's
+ * chat is the project bot's, so it is always there.
+ */
+export function teammateChatReady(
+  crew: Pick<Crew, "copy" | "members">,
+  memberId: string,
+): boolean {
+  return crewMemberById(crew, memberId)?.role === "fixer" || !!crew.copy;
+}
+
+/** Said while a teammate's chat waits for the team's first card. */
+export function firstCardChatText(name: string): string {
+  return `${name}'s chat starts with the team's first card.`;
+}
 
 /**
  * Write to one teammate: your words go to its own chat as a message you
@@ -1783,6 +1811,40 @@ export function teamIsPreset(crew: Crew, team: CrewTeamPreset): boolean {
  * one gets its role's usual app and model. Resolves with why it couldn't,
  * or null.
  */
+/**
+ * Whether you changed a teammate from how it joined: its name, job,
+ * instructions, paths, effort, its app or model (other than its role's
+ * usual), or switched it off. A suggested team never drops such a one.
+ */
+export function teammateEdited(
+  member: CrewMember,
+  models: CrewModels,
+): boolean {
+  if (member.role === "fixer") return false;
+  const preset = CREW_PRESETS.find(
+    (item) => item.key === (member.preset ?? member.role),
+  );
+  const usual = crewModelFor(models, member.role);
+  const sameList = (a?: readonly string[], b?: readonly string[]) =>
+    (a ?? []).join("\n") === (b ?? []).join("\n");
+  return (
+    !!member.name ||
+    !!member.effort ||
+    !!member.paused ||
+    (member.instructions !== undefined &&
+      member.instructions !== preset?.instructions &&
+      !(
+        member.role === "security" &&
+        member.instructions === SECURITY_INSTRUCTIONS
+      )) ||
+    !sameList(member.scope, preset?.scope) ||
+    (member.label !== undefined && member.label !== preset?.label) ||
+    (member.job !== undefined && member.job !== preset?.job) ||
+    (member.harness !== undefined && member.harness !== usual.harness) ||
+    (member.model !== undefined && member.model !== usual.model)
+  );
+}
+
 export function startTeamFrom(
   path: string,
   key: string,
@@ -1796,15 +1858,21 @@ export function startTeamFrom(
   const presets = team.members
     .map((member) => CREW_PRESETS.find((preset) => preset.key === member))
     .filter((preset): preset is CrewPreset => !!preset);
+  const kept: string[] = [];
   updateCrew(path, (current) => {
     let next = current;
-    // Who stays: the Fixer, and each teammate the team has as it is.
-    for (const member of current.members)
+    // Who stays: the Fixer, each teammate the team has as it is, and any
+    // you changed (its settings are yours: never thrown away by a pick).
+    for (const member of current.members) {
       if (
-        member.role !== "fixer" &&
-        !presets.some((preset) => memberIsPreset(member, preset))
+        member.role === "fixer" ||
+        presets.some((preset) => memberIsPreset(member, preset))
       )
-        next = withoutMember(next, member.id);
+        continue;
+      if (teammateEdited(member, models))
+        kept.push(crewMemberName(current, member.id));
+      else next = withoutMember(next, member.id);
+    }
     for (const preset of presets) {
       if (next.members.some((member) => memberIsPreset(member, preset)))
         continue;
@@ -1812,7 +1880,9 @@ export function startTeamFrom(
     }
     return next;
   });
-  return null;
+  return kept.length
+    ? `Kept ${kept.join(" and ")}: you changed ${kept.length === 1 ? "its" : "their"} settings. Remove ${kept.length === 1 ? "it" : "them"} from ${kept.length === 1 ? "its" : "each"} page if you don't need ${kept.length === 1 ? "it" : "them"}.`
+    : null;
 }
 
 /** A ready-made teammate added to the team (no checks: the callers make them). */
@@ -1987,8 +2057,12 @@ export function setCrewLimit(path: string, name: CrewLimitName, value: number) {
 // What the crew UI needs from the main workspace, supplied by App.
 
 export type CrewWorkspace = {
-  /** Show a member's chat in a tab: by its id, or a role for its first. */
-  openChat: (path: string, who: string) => void;
+  /**
+   * Show a member's chat in a tab: by its id, or a role for its first.
+   * Resolves with why it couldn't (the team is off, its chat hasn't
+   * started yet), or null once the chat is on screen.
+   */
+  openChat: (path: string, who: string) => Promise<string | null> | void;
   /** Open the crew: the project's Board with the crew on it. */
   openCrew: (path: string) => void;
   /**

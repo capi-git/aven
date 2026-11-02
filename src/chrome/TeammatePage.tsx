@@ -74,10 +74,16 @@ export function TeammateBody({
   crew,
   member,
   name,
+  notice,
+  alert,
 }: {
   crew: Crew;
   member: CrewMember;
   name: string;
+  /** Something to know about it now: why its chat can't open yet. */
+  notice?: string | null;
+  /** Why something you just did didn't work: its chat didn't open. */
+  alert?: string | null;
 }) {
   const path = crew.path;
   const [problem, setProblem] = useState<string | null>(null);
@@ -99,9 +105,17 @@ export function TeammateBody({
           <WhenItWorks crew={crew} member={member} onProblem={setProblem} />
         </section>
       </div>
-      {problem ? (
+      {problem || alert ? (
         <p className="bot-sheet-problem teammate-problem" role="alert">
-          {problem}
+          {problem ?? alert}
+        </p>
+      ) : notice ? (
+        <p
+          className="teammate-small teammate-problem"
+          role="status"
+          data-crew-member-notice
+        >
+          {notice}
         </p>
       ) : null}
       <footer className="teammate-foot">
@@ -342,6 +356,8 @@ function RunsOn({
         <Segmented
           label="Agent"
           className="teammate-segmented"
+          // Every installed app (there can be eight) in rows of four.
+          {...(agents.length > 4 ? { columns: 4 } : {})}
           value={harness}
           options={agents.map((id) => {
             const why = agentProblem(id, member.role);

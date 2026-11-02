@@ -2,11 +2,13 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { Toggle } from "../surfaces/SettingsControls";
 import {
+  firstCardChatText,
   setCrewLimit,
   setCrewPaused,
   setCrewQuietHours,
   setCrewRoutes,
   setDefaultBuilder,
+  teammateChatReady,
   turnOffCrew,
   updateCrewMember,
   useCrewWorkspace,
@@ -62,7 +64,11 @@ const ALL_RUNS_CHOICES = [20, 30, 40, 60, 80, 100, 150, 200, 300, 500].filter(
   (value) => value >= CREW_ALL_RUNS_RANGE[0] && value <= CREW_ALL_RUNS_RANGE[1],
 );
 
-type Page = { kind: "crew" } | { kind: "member"; id: string } | { kind: "add" };
+type Page =
+  | { kind: "crew" }
+  /** A teammate's page, and the page it was opened from (its way back). */
+  | { kind: "member"; id: string; from: "crew" | "add" }
+  | { kind: "add" };
 
 /**
  * A team's settings: who is in it, who builds what, its limits and quiet
@@ -105,9 +111,11 @@ export function CrewSettingsSheet({
     initialPage === "add"
       ? { kind: "add" }
       : initialPage
-        ? { kind: "member", id: initialPage }
+        ? { kind: "member", id: initialPage, from: "crew" }
         : { kind: "crew" },
   );
+  // Why its chat didn't open, said on the teammate's page.
+  const [chatProblem, setChatProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [confirmingOff, setConfirmingOff] = useState(false);
@@ -118,12 +126,17 @@ export function CrewSettingsSheet({
   const member =
     crew && page.kind === "member" ? crewMemberById(crew, page.id) : undefined;
   const gone = !!crew && page.kind === "member" && !member;
+  const from = page.kind === "member" ? page.from : "crew";
   useEffect(() => {
-    // Removed (here or in another window): back to the team.
-    if (gone) setPage({ kind: "crew" });
-  }, [gone]);
+    // Removed (here or in another window): back where it was opened from.
+    if (gone) setPage(from === "add" ? { kind: "add" } : { kind: "crew" });
+  }, [gone, from]);
   if (!crew || gone) return null;
-  const toCrew = () => setPage({ kind: "crew" });
+  const toPage = (next: Page) => {
+    setChatProblem(null);
+    setPage(next);
+  };
+  const toCrew = () => toPage({ kind: "crew" });
   const turnOn = async () => {
     setBusy(true);
     setProblem(null);
@@ -135,6 +148,17 @@ export function CrewSettingsSheet({
     <button type="button" className="crew-settings-back" onClick={toCrew}>
       <ChevronLeft className="size-3.5" />
       {project} team
+    </button>
+  );
+  // A teammate opened from Build a team goes back there (Start team too).
+  const backToBuild = (
+    <button
+      type="button"
+      className="crew-settings-back"
+      onClick={() => toPage({ kind: "add" })}
+    >
+      <ChevronLeft className="size-3.5" />
+      Build {project}'s team
     </button>
   );
   // One sheet whose header and body follow the page, so moving between
@@ -169,6 +193,7 @@ export function CrewSettingsSheet({
     );
   } else if (member) {
     const name = crewMemberName(crew, member.id);
+    const chatReady = teammateChatReady(crew, member.id);
     // What it is called without a name of its own, numbered among the rest.
     const defaultName = crewMemberName(
       {
@@ -199,18 +224,27 @@ export function CrewSettingsSheet({
       ),
       description: teammateSubtitle(member, project),
       leading: <MarkButton path={path} member={member} />,
-      above: back,
+      above: from === "add" ? backToBuild : back,
       trailing: (
         <span className="teammate-head-actions">
           <button
             type="button"
             className="team-card-button"
             data-crew-open-chat
-            disabled={!crew.on || !workspace}
-            title={crew.on ? undefined : "Turn the team on to open its chat"}
+            disabled={!crew.on || !workspace || !chatReady}
+            title={
+              !crew.on
+                ? "Turn the team on to open its chat"
+                : !chatReady
+                  ? firstCardChatText(name)
+                  : undefined
+            }
             onClick={() => {
-              onClose();
-              workspace?.openChat(path, member.id);
+              setChatProblem(null);
+              void Promise.resolve(workspace?.openChat(path, member.id)).then(
+                // The sheet closes once the chat is on screen, not before.
+                (why) => (why ? setChatProblem(why) : onClose()),
+              );
             }}
           >
             Open chat
@@ -232,7 +266,14 @@ export function CrewSettingsSheet({
       className: "teammate-sheet",
     };
     body = (
-      <TeammateBody key={member.id} crew={crew} member={member} name={name} />
+      <TeammateBody
+        key={member.id}
+        crew={crew}
+        member={member}
+        name={name}
+        notice={crew.on && !chatReady ? firstCardChatText(name) : null}
+        alert={chatProblem}
+      />
     );
   } else if (page.kind === "add") {
     header = {
@@ -241,6 +282,7 @@ export function CrewSettingsSheet({
         ? "Add teammates one at a time. You can change anyone later."
         : "Start from a suggested team, or add teammates one at a time. You can change anyone later.",
       leading: <ProjectMark path={path} className="team-build-head-mark" />,
+      above: back,
       size: "lg",
       className: "team-build-sheet",
     };
@@ -250,7 +292,7 @@ export function CrewSettingsSheet({
         project={project}
         {...(fixerName ? { fixerName } : {})}
         {...(onAddFixer ? { onAddFixer } : {})}
-        onOpenMember={(id) => setPage({ kind: "member", id })}
+        onOpenMember={(id) => toPage({ kind: "member", id, from: "add" })}
         onStart={async () => {
           const error = await onTurnOn(path);
           if (!error) onStarted?.(path);
@@ -326,8 +368,8 @@ export function CrewSettingsSheet({
         members={members}
         fixerName={fixerName}
         problem={problem}
-        onOpenMember={(id) => setPage({ kind: "member", id })}
-        onAdd={() => setPage({ kind: "add" })}
+        onOpenMember={(id) => toPage({ kind: "member", id, from: "crew" })}
+        onAdd={() => toPage({ kind: "add" })}
         onClose={onClose}
       />
     );

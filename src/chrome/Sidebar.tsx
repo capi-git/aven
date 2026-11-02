@@ -2529,6 +2529,7 @@ function SidebarComponent({
           x={botPicker.x}
           y={botPicker.y}
           label={addCrew ? "Add a team to" : "Add a bot to"}
+          kind={addCrew ? "team" : "bot"}
           projects={botPicker.projects}
           empty={botPicker.empty}
           onBusyChange={(busy) => {

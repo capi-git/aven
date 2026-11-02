@@ -73,7 +73,7 @@ const names = { builder: "Builder", checker: "Checker" };
 let root: Root;
 let container: HTMLDivElement;
 const workspace = {
-  openChat: vi.fn(),
+  openChat: vi.fn(async (): Promise<string | null> => null),
   openCrew: vi.fn(),
   openSettings: vi.fn(),
   stop: vi.fn(async () => undefined),
@@ -140,6 +140,7 @@ async function setUp(
       ...crew,
       on: true,
       onAt: NOW - 3_600_000,
+      copy: { path: "/copies/pom", branch: "aven/crew/pom", root: PROJECT },
       runs: { day: localDay(NOW), count: 6 },
       members: [
         ...crew.members,
@@ -927,5 +928,39 @@ describe("the team chat", () => {
       TOO_LONG_FOR_A_GOAL,
     );
     expect(box().value).toBe(goal);
+  });
+
+  it("can't open a teammate's chat before the team's first card, and says why", async () => {
+    await setUp((crew) => {
+      const next = { ...crew };
+      delete next.copy;
+      return next;
+    });
+    await pick("checker");
+    const open = chat().querySelector<HTMLButtonElement>(
+      "[data-team-open-chat]",
+    )!;
+    expect(open.disabled).toBe(true);
+    expect(open.title).toBe(
+      "Checker's chat starts with the team's first card.",
+    );
+    expect(chat().querySelector("[data-team-open-note]")?.textContent).toBe(
+      "Checker's chat starts with the team's first card.",
+    );
+    // Once it can open, a chat that still doesn't says why, under its name.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => ({
+        ...crew,
+        copy: { path: "/copies/pom", branch: "aven/crew/pom", root: PROJECT },
+      })),
+    );
+    expect(chat().querySelector("[data-team-open-note]")).toBeNull();
+    workspace.openChat.mockResolvedValueOnce("Couldn't open Checker's chat.");
+    await act(async () =>
+      chat().querySelector<HTMLButtonElement>("[data-team-open-chat]")!.click(),
+    );
+    expect(chat().querySelector("[data-team-open-note]")?.textContent).toBe(
+      "Couldn't open Checker's chat.",
+    );
   });
 });

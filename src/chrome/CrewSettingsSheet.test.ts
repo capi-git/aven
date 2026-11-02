@@ -16,10 +16,12 @@ import { resetProjectBotsCache } from "../lib/projectBots";
 import { installCrewWorkspace } from "../lib/crewActions";
 import { CrewSettingsSheet } from "./CrewSettingsSheet";
 
+// The apps installed here: Codex and Cursor, unless a test installs more.
+const installed = vi.hoisted(() => ({ ids: new Set(["codex", "cursor"]) }));
 vi.mock("../lib/harness/availability", async (original) => ({
   ...(await original<typeof import("../lib/harness/availability")>()),
   probeHarnessAvailability: vi.fn(async () => undefined),
-  isHarnessAvailable: (id: string) => id === "codex" || id === "cursor",
+  isHarnessAvailable: (id: string) => installed.ids.has(id),
 }));
 
 const PATH = "/Users/me/aven-site";
@@ -27,6 +29,7 @@ let root: Root;
 let container: HTMLElement;
 
 beforeEach(() => {
+  installed.ids = new Set(["codex", "cursor"]);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("localStorage", memoryStorage());
   resetProjectBotsCache();
@@ -291,16 +294,49 @@ describe("Build a team", () => {
       ...sheet().querySelectorAll<HTMLButtonElement>("[data-crew-team]"),
     ];
     expect(radios().map((radio) => radio.tabIndex)).toEqual([0, -1, -1]);
+    const before = JSON.stringify(getCrew(PATH)!.members);
     await act(async () =>
       radios()[0]!.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
       ),
     );
+    // Arrows only move: who is in the team stays as it was.
+    expect(document.activeElement).toBe(radios()[1]);
+    expect(JSON.stringify(getCrew(PATH)!.members)).toBe(before);
+    expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
+      ["true", "false", "false"],
+    );
+    // Choosing is a press (Space or Enter on a button is one).
+    await act(async () => radios()[1]!.click());
     expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
       ["false", "true", "false"],
     );
     expect(radios().map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
-    expect(document.activeElement).toBe(radios()[1]);
+  });
+
+  it("never drops a teammate whose settings you changed when you pick a suggested team", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      on: false,
+      onAt: undefined,
+      members: crew.members.map((member) =>
+        member.id === "builder"
+          ? { ...member, instructions: "Use the house style." }
+          : member,
+      ),
+    }));
+    await open("add");
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-team="polish"]')!
+        .click(),
+    );
+    expect(crewMemberById(getCrew(PATH)!, "builder")?.instructions).toBe(
+      "Use the house style.",
+    );
+    expect(sheet().querySelector('[role="alert"]')?.textContent).toContain(
+      "Kept Builder: you changed its settings.",
+    );
   });
 
   it("says why Start team couldn't, and starts nothing", async () => {
@@ -529,8 +565,12 @@ describe("a teammate's page", () => {
     );
   });
 
-  it("opens its chat, closing the sheet; while the team is off it can't", async () => {
-    const openChat = vi.fn();
+  it("opens its chat, closing the sheet once it's open; while the team is off it can't", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      copy: { path: "/copies/site", branch: "aven/crew/site", root: PATH },
+    }));
+    const openChat = vi.fn(async () => null as string | null);
     const onClose = vi.fn();
     const uninstall = installCrewWorkspace({
       openChat,
@@ -610,5 +650,92 @@ describe("the sheet's styles", () => {
     );
     expect(mark).toContain("width: 40px");
     expect(mark).toContain("height: 40px");
+  });
+});
+
+describe("a teammate's chat before the team's first card", () => {
+  it("can't be opened, and says why, from its page", async () => {
+    const openChat = vi.fn(async () => null as string | null);
+    const onClose = vi.fn();
+    const uninstall = installCrewWorkspace({
+      openChat,
+      openCrew: vi.fn(),
+      openSettings: vi.fn(),
+      stop: vi.fn(async () => undefined),
+    });
+    try {
+      await act(async () =>
+        root.render(
+          createElement(CrewSettingsSheet, {
+            path: PATH,
+            initialPage: "builder",
+            onTurnOn: async () => null,
+            onClose,
+          }),
+        ),
+      );
+      // No copy yet: the chat starts with the team's first card.
+      const open = buttonNamed("Open chat")!;
+      expect(open.disabled).toBe(true);
+      expect(open.title).toBe(
+        "Builder's chat starts with the team's first card.",
+      );
+      expect(
+        sheet().querySelector("[data-crew-member-notice]")?.textContent,
+      ).toBe("Builder's chat starts with the team's first card.");
+      // With its copy, a chat that still won't open says why; the sheet stays.
+      await act(async () =>
+        updateCrew(PATH, (crew) => ({
+          ...crew,
+          copy: { path: "/copies/site", branch: "aven/crew/site", root: PATH },
+        })),
+      );
+      openChat.mockResolvedValueOnce("Couldn't open Builder's chat.");
+      await act(async () => buttonNamed("Open chat")!.click());
+      expect(onClose).not.toHaveBeenCalled();
+      expect(sheet().querySelector('[role="alert"]')?.textContent).toBe(
+        "Couldn't open Builder's chat.",
+      );
+    } finally {
+      uninstall();
+    }
+  });
+});
+
+describe("the way back", () => {
+  it("goes from Build a team to the team, and from a teammate to where you opened it", async () => {
+    await open("add");
+    // A teammate opened from Build a team goes back there.
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-member-row="checker"]')!
+        .click(),
+    );
+    expect(sheet().querySelector("[data-crew-member-page]")).not.toBeNull();
+    await act(async () => buttonNamed("Build aven-site's team")!.click());
+    expect(sheet().querySelector("[data-crew-add]")).not.toBeNull();
+    // Build a team goes back to the team.
+    await act(async () => buttonNamed("aven-site team")!.click());
+    expect(sheet().querySelector("[data-crew-settings]")).not.toBeNull();
+  });
+});
+
+describe("every installed agent", () => {
+  it("fits in rows of four on a teammate's page", async () => {
+    installed.ids = new Set([
+      "codex",
+      "cursor",
+      "grok",
+      "opencode",
+      "pi",
+      "omp",
+      "fx",
+    ]);
+    await open("checker");
+    const agent = sheet().querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Agent"]',
+    )!;
+    expect(agent.querySelectorAll('[role="radio"]').length).toBeGreaterThan(4);
+    expect(agent.style.gridTemplateColumns).toBe("repeat(4, minmax(0, 1fr))");
   });
 });

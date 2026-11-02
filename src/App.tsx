@@ -895,9 +895,12 @@ import { CrewSettingsSheet } from "./chrome/CrewSettingsSheet";
 import type { SidebarCrew, SidebarCrewAction } from "./chrome/SidebarCrews";
 import {
   focusCrewTell,
+  firstCardChatText,
   installCrewWorkspace,
   pickCrewModels,
   setCrewPaused,
+  stopTeamForProject,
+  teammateChatReady,
   turnOnCrew,
 } from "./lib/crewActions";
 import { crewRunsLine } from "./lib/crewLimits";
@@ -1259,10 +1262,12 @@ export default function App({
   } | null>(null);
   // The project whose bot settings sheet is open.
   const [botSheet, setBotSheet] = useState<string | null>(null);
-  /** Add a bot, asked of a project that needs Git first. */
+  /** Add a bot or a team, asked of a project that needs Git first. */
   const [botGitSetup, setBotGitSetup] = useState<{
     path: string;
     state: GitSetupNeed;
+    /** What it adds once Git is set up. */
+    for: "bot" | "team";
   } | null>(null);
   // Chats project bots are working in: kept loaded without a tab.
   const [botWorkingChats, setBotWorkingChats] =
@@ -6649,6 +6654,8 @@ export default function App({
               );
             }
           };
+          // Its team stops first: its chats are among what goes.
+          await stopTeamForProject(normalized);
           await removeProjectData(normalized, {
             openSessionIds: sessionsRef.current
               .filter((session) => sameProjectPath(session.cwd, normalized))
@@ -6658,6 +6665,8 @@ export default function App({
           });
           assertWorkspaceReady();
         }
+        // An archived project's team stops too: it can't be reached.
+        if (!options.purgeData) await stopTeamForProject(normalized);
         // Read current state only after all saves, process stops, and deletes.
         const wasCurrent = sameProjectPath(projectCwdRef.current, normalized);
         const remaining = options.purgeData
@@ -11185,7 +11194,7 @@ export default function App({
       }
       void gitSetupNeeded(path).then(async (need) => {
         if (need) {
-          setBotGitSetup({ path, state: need });
+          setBotGitSetup({ path, state: need, for: "bot" });
           return;
         }
         const problem = await turnOnBotWithDefaults(path);
@@ -11347,19 +11356,27 @@ export default function App({
   );
   /** Show a crew member's chat; the Fixer's is the project bot's. */
   const openCrewChat = useCallback(
-    async (path: string, who: string) => {
+    async (path: string, who: string): Promise<string | null> => {
       const crew = getCrew(path);
       const member = crew
         ? (crewMemberById(crew, who) ??
           crew.members.find((entry) => entry.role === who))
         : undefined;
-      if (who === "fixer" || member?.role === "fixer")
-        return void openBotChat(path);
-      if (!crew?.on || !member) return;
+      if (who === "fixer" || member?.role === "fixer") {
+        if (!getProjectBot(path)?.on)
+          return "The Fixer is off. Turn the project's bot on first.";
+        await openBotChat(path);
+        return null;
+      }
+      if (!crew?.on || !member) return "Turn the team on first.";
+      const name = crewMemberName(crew, member.id);
+      // Its chat starts with the team's copy, made at its first card.
+      if (!teammateChatReady(crew, member.id)) return firstCardChatText(name);
       const chat = await ensureCrewChat(crew, member.id);
-      if (!chat) return;
+      if (!chat) return `Couldn't open ${name}'s chat.`;
       setHomeViewOpen(false);
       await onSelectHistorySession(chat.id);
+      return null;
     },
     [ensureCrewChat, onSelectHistorySession, openBotChat, setHomeViewOpen],
   );
@@ -11378,9 +11395,10 @@ export default function App({
   useEffect(
     () =>
       installCrewWorkspace({
-        openChat: (path, role) => {
-          closeUtilityViews();
-          void openCrewChat(path, role);
+        openChat: async (path, role) => {
+          const why = await openCrewChat(path, role);
+          if (!why) closeUtilityViews();
+          return why;
         },
         openCrew: (path) => {
           closeUtilityViews();
@@ -11413,7 +11431,7 @@ export default function App({
               ? await ensureBotChat(bot!)
               : await ensureCrewChat(crew, member.id);
           if (!chat)
-            return `${name}'s chat starts with the team's first card. Write to everyone to give the team one.`;
+            return `${firstCardChatText(name)} Write to everyone to give the team one.`;
           return onChatSubmit(chat.id, text) === false
             ? `Couldn't send it to ${name}.`
             : null;
@@ -11544,7 +11562,7 @@ export default function App({
       if (getCrew(path)?.on) return onOpenCrew(path);
       void gitSetupNeeded(path).then(async (need) => {
         if (need) {
-          setBotGitSetup({ path, state: need });
+          setBotGitSetup({ path, state: need, for: "team" });
           return;
         }
         if (!getCrew(path)?.onAt) {
@@ -13063,9 +13081,13 @@ export default function App({
                   ...botGitSetup,
                   label: projectAppearance(botGitSetup.path).label,
                 }}
+                kind={botGitSetup.for}
                 onAdd={(path) => {
+                  const forTeam = botGitSetup.for === "team";
                   setBotGitSetup(null);
-                  onAddBot(path);
+                  // Git is set up: on to what it was asked for.
+                  if (forTeam) onAddCrew(path);
+                  else onAddBot(path);
                 }}
                 onClose={() => setBotGitSetup(null)}
               />

@@ -155,7 +155,7 @@ export function TeamBuilder({
                       starts.current[index] = node;
                     }}
                     // One stop in the tab order: the chosen team (else the
-                    // first); arrow keys move between them, choosing.
+                    // first); arrow keys move between them.
                     tabIndex={index === focusable ? 0 : -1}
                     onClick={() => setProblem(startTeamFrom(path, team.key))}
                     onKeyDown={(event) => {
@@ -172,9 +172,8 @@ export function TeamBuilder({
                                 : null;
                       if (next === null) return;
                       event.preventDefault();
-                      setProblem(
-                        startTeamFrom(path, CREW_TEAM_PRESETS[next]!.key),
-                      );
+                      // Arrows only move: Space, Enter or a click chooses,
+                      // since choosing changes who is in the team.
                       starts.current[next]?.focus();
                     }}
                   >

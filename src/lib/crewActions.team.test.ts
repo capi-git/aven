@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  stopTeamForProject,
+  teammateChatReady,
   TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
   installCrewWorkspace,
@@ -13,6 +15,7 @@ import {
 } from "./crewActions";
 import { CREW_TEAM_PRESETS } from "./crewPresets";
 import {
+  activeCrews,
   CREW_GOAL_MAX,
   CREW_NOTE_MAX,
   crewCard,
@@ -256,5 +259,77 @@ describe("starting from a suggested team", () => {
       "checker",
       "security",
     ]);
+  });
+});
+
+describe("a project you delete or archive", () => {
+  it("its team stops, keeping its cards, copy and branch; an unlisted project's team never works", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      on: true,
+      onAt: NOON - 1,
+      copy: { path: "/copies/pom", branch: "aven/crew/pom", root: PATH },
+      stack: { base: "a".repeat(40) },
+    }));
+    // Listed: at work.
+    localStorage.setItem(
+      "monocode.recentProjects",
+      JSON.stringify([{ path: PATH, openedAt: 1 }]),
+    );
+    expect(activeCrews().map((crew) => crew.path)).toEqual([PATH]);
+    // Archived or deleted elsewhere: no longer listed, so it isn't at work.
+    localStorage.setItem("monocode.recentProjects", JSON.stringify([]));
+    expect(activeCrews()).toEqual([]);
+    await stopTeamForProject(PATH);
+    const crew = getCrew(PATH)!;
+    expect(crew.on).toBe(false);
+    expect(crew.copy?.branch).toBe("aven/crew/pom");
+    expect(crew.stack?.base).toBe("a".repeat(40));
+  });
+
+  it("without any saved list of projects, every team that's on counts", () => {
+    on();
+    expect(localStorage.getItem("monocode.recentProjects")).toBeNull();
+    expect(activeCrews().map((crew) => crew.path)).toEqual([PATH]);
+  });
+});
+
+describe("a teammate's own chat", () => {
+  it("waits for the team's copy, except the Fixer's, which is the bot's", () => {
+    on();
+    const crew = getCrew(PATH)!;
+    expect(teammateChatReady(crew, "builder")).toBe(false);
+    expect(
+      teammateChatReady(
+        { ...crew, members: [...crew.members, { id: "fixer", role: "fixer" }] },
+        "fixer",
+      ),
+    ).toBe(true);
+    expect(
+      teammateChatReady(
+        { ...crew, copy: { path: "/c", branch: "b", root: PATH } },
+        "builder",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("a suggested team, once you've changed a teammate", () => {
+  it("keeps that teammate and says so", () => {
+    ensureCrewSaved(PATH);
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.id === "security" ? { ...member, model: "codex:gpt-9" } : member,
+      ),
+    }));
+    expect(startTeamFrom(PATH, "polish", MODELS)).toBe(
+      "Kept Security: you changed its settings. Remove it from its page if you don't need it.",
+    );
+    const roles = getCrew(PATH)!.members.map(
+      (member) => member.preset ?? member.id,
+    );
+    // The plain Builder (never changed) left; Security stayed.
+    expect(roles.sort()).toEqual(["checker", "designer", "security", "tester"]);
   });
 });
