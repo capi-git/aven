@@ -1,61 +1,35 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CrewCritter, crewMarkState } from "../chrome/CrewCritter";
-import { ConfirmDialog } from "../chrome/ConfirmDialog";
-import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
-import {
-  ArrowUp,
-  ChevronDown,
-  MoreHorizontal,
-  Pause,
-  Play,
-} from "../chrome/icons";
+import { CrewCritter } from "../chrome/CrewCritter";
+import { ExplorerMenu } from "../chrome/ExplorerMenu";
+import { ArrowUp, ChevronDown, MoreHorizontal } from "../chrome/icons";
 import { Modal } from "../chrome/Modal";
 import { TeamCardButton } from "../chrome/TeamCard";
 import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
-import { claudeWeeklyUsed } from "../hooks/useProjectBots";
+import { useBatchActions, type BatchRange } from "../hooks/useTeamPipeline";
 import {
-  allowMoreRunsToday,
   applyCrewBatch,
-  clearCrewGoal,
   dropStackedCard,
-  restackCrew,
-  resumeCrewGoal,
   reviewCrewBatch,
   setCrewGoal,
-  setCrewPaused,
-  stopCrewNow,
   subscribeCrewTell,
-  takeCrewReview,
   takeCrewTell,
   tellCrew,
   tellCrewWork,
-  turnOffCrew,
-  useCrewWorkspace,
 } from "../lib/crewActions";
-import { allCrewRunsToday, crewHoldGate } from "../lib/crewLimits";
 import {
-  crewPipeline,
   reviewFileNotes,
+  type Pipeline,
   type PipelineBatch,
   type PipelineRow,
   type PipelineStep,
 } from "../lib/crewPipeline";
-import {
-  cardHolderId,
-  cardInCopy,
-  crewMembers,
-  memberCritter,
-  stackedCards,
-  useCrewsAllRunsPerDay,
-  type Crew,
-} from "../lib/crews";
+import { cardInCopy, stackedCards, type Crew } from "../lib/crews";
 import type { CrewBoardActionId } from "../lib/crewView";
 import { errorText, logError } from "../lib/errors";
 import { botCopyHost, type BotDiff } from "../lib/projectBotCopy";
-import { getProjectBot, runsToday } from "../lib/projectBots";
 import { buildUnifiedFile } from "../lib/unifiedDiff";
 import type { BoardAction, BoardCard, BoardColumnId } from "../lib/workBoard";
 import { plural } from "../lib/words";
@@ -65,19 +39,19 @@ import "../chrome/TeamCard.css";
 import "./CrewPipeline.css";
 
 /**
- * The crew's Pipeline (its Board, while the crew is on): one header with
- * its marks and one sentence on what it's doing and what needs you, the
- * box for telling it what to build next, its cards as rows grouped Ready
- * for you → In progress → Up next → Ideas, each with its path through
- * Build, Check, Security and You, and a quiet footer: shipped this week,
- * Activity (the Feed) and the limits. Every button says Aven's words.
+ * The team's Cards (its Pipeline): the box for telling it what to build
+ * next, its cards as rows grouped Ready for you → In progress → Up next →
+ * Ideas, each with its path through Build, Check, Security and You, and a
+ * quiet footer: shipped this week, Activity (the Feed) and the limits. The
+ * team's header is the team screen's (see `TeamScreen`). Every button says
+ * Aven's words.
  */
 export function CrewPipeline({
   project,
   crew,
+  view,
+  range,
   columns,
-  now,
-  fixerRuns,
   name,
   answering,
   onAnswerDone,
@@ -86,87 +60,54 @@ export function CrewPipeline({
   onCrewAction,
   onMenu,
   onChoose,
+  onReview,
   boardButtons,
   editor,
   addIdea,
+  taskBox,
 }: {
   project: string;
   crew: Crew;
+  view: Pipeline;
+  range: BatchRange | null;
   columns: Readonly<Record<BoardColumnId, readonly BoardCard[]>>;
-  now: number;
-  fixerRuns: number;
   /** A member's name, by its id or role. */
   name: (who: string) => string;
   answering: string | null;
   onAnswerDone: () => void;
-  /** Why the last crew action on a card didn't go through. */
+  /** Why the last team action on a card didn't go through. */
   problems: Readonly<Record<string, string>>;
   editing: string | null;
   onCrewAction: (card: BoardCard, id: CrewBoardActionId) => void;
-  /** Open a card's ⋯ menu (draft, edit, delete, and the crew's own). */
+  /** Open a card's ⋯ menu (draft, edit, delete, and the team's own). */
   onMenu: (cardId: string, anchor: HTMLElement) => void;
-  /** Give to crew ▾: who builds and checks it. */
+  /** Give to team ▾: who builds and checks it. */
   onChoose: (cardId: string, anchor: HTMLElement) => void;
+  /** Open the batch's Review. */
+  onReview: () => void;
   /** A Board card's own buttons (Review, Ship it…), as the Board draws them. */
   boardButtons: (card: BoardCard, actions: readonly BoardAction[]) => ReactNode;
   /** The card's editor, while it is being edited. */
   editor: (card: BoardCard) => ReactNode;
   /** Add an idea, under Ideas. */
   addIdea: ReactNode;
+  /** Lets ⋯ → Set a goal… put the task box in goal mode. */
+  taskBox?: { current: { goal: () => void } | null };
 }) {
-  const cards = useMemo(
-    () => [
-      ...columns.review,
-      ...columns.building,
-      ...columns.idea,
-      ...columns.shipped,
-    ],
+  const byId = useMemo(
+    () =>
+      new Map(
+        [
+          ...columns.review,
+          ...columns.building,
+          ...columns.idea,
+          ...columns.shipped,
+        ].map((card) => [card.id, card]),
+      ),
     [columns],
   );
-  const byId = useMemo(
-    () => new Map(cards.map((card) => [card.id, card])),
-    [cards],
-  );
   const labels = useProjectLabels();
-  const allRunsCap = useCrewsAllRunsPerDay();
-  const held = crewHoldGate({
-    crew,
-    now,
-    weeklyUsed: claudeWeeklyUsed(now),
-    fixerRuns,
-    allRuns: allCrewRunsToday(now, (path) => {
-      const bot = getProjectBot(path);
-      return bot ? runsToday(bot, now) : 0;
-    }),
-    allRunsCap,
-  });
-  const range = useBatchRange(project, crew);
-  const view = crewPipeline({
-    crew,
-    cards,
-    now,
-    name,
-    fixerRuns,
-    ...(held && held.gate.reason !== "paused" ? { hold: held.gate.title } : {}),
-    ...(range ? { batchFiles: range.files } : {}),
-  });
   const [activity, setActivity] = useState(false);
-  const [reviewing, setReviewing] = useState(false);
-  useEffect(() => {
-    // Review from the Inbox: the batch's Review opens here.
-    const take = () => {
-      if (takeCrewReview(project)) setReviewing(true);
-    };
-    take();
-    return subscribeCrewTell(take);
-  }, [project]);
-  // Nothing on the branch to review: the request is over, so a batch that
-  // arrives later never opens its Review by itself.
-  const hasBatch = !!view.batch;
-  useEffect(() => {
-    if (reviewing && !hasBatch) setReviewing(false);
-  }, [reviewing, hasBatch]);
-  const taskBox = useRef<{ goal: () => void } | null>(null);
   const row = (item: PipelineRow) => {
     const card = byId.get(item.id);
     return (
@@ -206,16 +147,6 @@ export function CrewPipeline({
   };
   return (
     <div className="crew-pipe" data-crew-pipeline={project}>
-      <PipelineHeader
-        crew={crew}
-        project={project}
-        sentence={view.sentence}
-        focus={view.focus}
-        offerScout={view.offerScout}
-        goal={view.goal}
-        dailyCap={held?.gate.reason === "daily-cap"}
-        onSetGoal={() => taskBox.current?.goal()}
-      />
       <CrewTaskBox path={project} control={taskBox} />
       {view.batch || view.ready.length ? (
         <PipelineGroup label="Ready for you">
@@ -225,7 +156,7 @@ export function CrewPipeline({
               crew={crew}
               batch={view.batch}
               range={range}
-              onReview={() => setReviewing(true)}
+              onReview={onReview}
             />
           ) : null}
           {view.ready.map(row)}
@@ -268,18 +199,11 @@ export function CrewPipeline({
         <Modal
           onClose={() => setActivity(false)}
           title="Activity"
-          description={`${projectDisplayName(project, labels)} crew`}
+          description={`${projectDisplayName(project, labels)} team`}
           className="crew-activity"
         >
           <CrewFeed crew={crew} name={name} />
         </Modal>
-      ) : null}
-      {reviewing && view.batch ? (
-        <CrewBatchSheet
-          crew={crew}
-          project={project}
-          onClose={() => setReviewing(false)}
-        />
       ) : null}
     </div>
   );
@@ -301,191 +225,6 @@ function PipelineGroup({
 }
 
 // ---------------------------------------------------------------------------
-// The header
-
-function PipelineHeader({
-  crew,
-  project,
-  sentence,
-  focus,
-  offerScout,
-  goal,
-  dailyCap,
-  onSetGoal,
-}: {
-  crew: Crew;
-  project: string;
-  sentence: string;
-  focus?: string;
-  offerScout: boolean;
-  goal?: { text: string; state: "on" | "met" | "stopped"; why?: string };
-  dailyCap: boolean;
-  onSetGoal: () => void;
-}) {
-  const labels = useProjectLabels();
-  const workspace = useCrewWorkspace();
-  const [menu, setMenu] = useState<HTMLElement | null>(null);
-  const [confirmingOff, setConfirmingOff] = useState(false);
-  const name = projectDisplayName(crew.path, labels);
-  const working = cardInCopy(crew);
-  const holder = working ? cardHolderId(crew, working) : undefined;
-  const members = crewMembers(crew);
-  const items: ExplorerMenuItem[] = [
-    { kind: "item", id: "stop", label: "Stop now" },
-    ...(dailyCap
-      ? [{ kind: "item" as const, id: "more", label: "Allow 10 more today" }]
-      : []),
-    goal
-      ? { kind: "item", id: "clear-goal", label: "Clear the goal" }
-      : { kind: "item", id: "goal", label: "Set a goal…" },
-    { kind: "item", id: "settings", label: "Settings…" },
-    { kind: "sep" },
-    { kind: "item", id: "off", label: "Turn the crew off" },
-  ];
-  // The card the sentence names stands out, once.
-  const at = focus ? sentence.indexOf(focus) : -1;
-  return (
-    <header className="crew-pipe-head" data-crew-header={crew.path}>
-      <div className="crew-pipe-marks" role="list" aria-label="The crew">
-        {members.map((member) => {
-          const busy =
-            !!member.doing ||
-            (holder === member.id && working?.stage !== "stuck");
-          const needs = holder === member.id && working?.stage === "stuck";
-          return (
-            <button
-              key={member.id}
-              type="button"
-              role="listitem"
-              className="crew-pipe-mark"
-              data-crew-tile={member.id}
-              title={`${workspace ? "Settings for " : ""}${member.name ?? member.id}`}
-              aria-label={`${member.role} ${member.id}`}
-              onClick={() => workspace?.openSettings(crew.path, member.id)}
-            >
-              <CrewCritter
-                path={project}
-                role={member.role}
-                {...(member.critter ? { critter: memberCritter(member) } : {})}
-                state={crewMarkState(
-                  needs ? "needs-you" : undefined,
-                  busy,
-                  member.paused ? "idle" : "still",
-                )}
-                className="crew-pipe-mark-dots"
-              />
-            </button>
-          );
-        })}
-      </div>
-      <div className="crew-pipe-heading">
-        <h1>{name} crew</h1>
-        <p className="crew-pipe-sentence" data-crew-sentence>
-          {at >= 0 ? (
-            <>
-              {sentence.slice(0, at)}
-              <b>{focus}</b>
-              {sentence.slice(at + focus!.length)}
-            </>
-          ) : (
-            sentence
-          )}
-          {offerScout && workspace ? (
-            <>
-              {" "}
-              <button
-                type="button"
-                className="crew-pipe-link"
-                data-crew-add-scout
-                onClick={() => workspace.openSettings(crew.path, "add")}
-              >
-                Add a Scout to suggest ideas
-              </button>
-            </>
-          ) : null}
-        </p>
-        {goal ? (
-          <p className="crew-pipe-goal" data-crew-goal={goal.state}>
-            <span className="crew-pipe-goal-word">Goal</span> {goal.text}
-            <span className="crew-pipe-goal-state">
-              {goal.state === "met"
-                ? " · met"
-                : goal.state === "stopped"
-                  ? ` · stopped: ${goal.why ?? ""}`
-                  : " · the crew keeps going"}
-            </span>
-            {goal.state === "stopped" ? (
-              <button
-                type="button"
-                className="crew-pipe-link"
-                onClick={() => resumeCrewGoal(crew.path)}
-              >
-                Keep going
-              </button>
-            ) : null}
-          </p>
-        ) : null}
-      </div>
-      <div className="crew-pipe-head-actions">
-        <TeamCardButton
-          onClick={() => setCrewPaused(crew.path, !crew.paused)}
-          title={crew.paused ? "Resume the crew" : "Pause the crew"}
-        >
-          {crew.paused ? (
-            <Play className="size-3" />
-          ) : (
-            <Pause className="size-3" />
-          )}
-          <span>{crew.paused ? "Resume" : "Pause"}</span>
-        </TeamCardButton>
-        <TeamCardButton
-          variant="ghost"
-          aria-label="More for the crew"
-          aria-haspopup="menu"
-          aria-expanded={!!menu}
-          onClick={(event) => setMenu(menu ? null : event.currentTarget)}
-        >
-          <MoreHorizontal size={14} />
-        </TeamCardButton>
-      </div>
-      {menu ? (
-        <ExplorerMenu
-          x={0}
-          y={0}
-          anchor={menu}
-          align="end"
-          gap={4}
-          ariaLabel={`${name} crew actions`}
-          items={items}
-          onClose={() => setMenu(null)}
-          onPick={(id) => {
-            setMenu(null);
-            if (id === "stop") void stopCrewNow(crew.path);
-            else if (id === "more") allowMoreRunsToday(crew.path);
-            else if (id === "goal") onSetGoal();
-            else if (id === "clear-goal") clearCrewGoal(crew.path);
-            else if (id === "settings") workspace?.openSettings(crew.path);
-            else if (id === "off") setConfirmingOff(true);
-          }}
-        />
-      ) : null}
-      {confirmingOff ? (
-        <ConfirmDialog
-          title="Turn the crew off?"
-          body="What it is doing stops and nothing new starts. Its cards and its copy stay, so Ready work is still there when you turn it on."
-          confirmLabel="Turn off"
-          onConfirm={() => {
-            setConfirmingOff(false);
-            void turnOffCrew(crew.path);
-          }}
-          onCancel={() => setConfirmingOff(false)}
-        />
-      ) : null}
-    </header>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // The task box
 
 type TellMode = "card" | "rule" | "goal";
@@ -500,7 +239,7 @@ const TELL_MODES: readonly {
     id: "card",
     label: "Build it",
     word: "Card",
-    placeholder: "What should the crew build next?",
+    placeholder: "What should the team build next?",
   },
   {
     id: "rule",
@@ -512,7 +251,7 @@ const TELL_MODES: readonly {
     id: "goal",
     label: "Make it a goal",
     word: "Goal",
-    placeholder: "A goal the crew keeps going towards…",
+    placeholder: "A goal the team keeps going towards…",
   },
 ];
 
@@ -579,7 +318,7 @@ export function CrewTaskBox({
           className="crew-pipe-ask-input"
           type="text"
           placeholder={current.placeholder}
-          aria-label="Tell the crew"
+          aria-label="Tell the team"
           value={text}
           maxLength={500}
           onChange={(event) => setText(event.target.value)}
@@ -588,7 +327,7 @@ export function CrewTaskBox({
           type="button"
           className="crew-pipe-ask-mode"
           data-mode={mode}
-          aria-label={`How the crew takes this: ${current.label}`}
+          aria-label={`How the team takes this: ${current.label}`}
           title="A card to build, a rule for every card, or a goal"
           aria-haspopup="menu"
           aria-expanded={!!menu}
@@ -600,7 +339,7 @@ export function CrewTaskBox({
         <button
           type="submit"
           className="crew-pipe-ask-send"
-          aria-label="Send to the crew"
+          aria-label="Send to the team"
           disabled={!text.trim()}
         >
           <ArrowUp className="size-3.5" />
@@ -613,7 +352,7 @@ export function CrewTaskBox({
           anchor={menu}
           align="end"
           gap={4}
-          ariaLabel="How the crew takes this"
+          ariaLabel="How the team takes this"
           items={TELL_MODES.map((item) => ({
             kind: "item" as const,
             id: item.id,
@@ -657,7 +396,7 @@ function StepTrack({
           data-step={step.id}
           data-state={step.state}
           title={
-            step.state === "skip" ? "This crew has no Security" : undefined
+            step.state === "skip" ? "This team has no Security" : undefined
           }
         >
           {step.state === "done" ? (
@@ -818,42 +557,8 @@ function PipelineRowView({
   );
 }
 
-/** What the batch row shows of the branch: its last commit, fingerprint and files. */
-type BatchRange = { to: string; hash: string; files: number };
-
 /**
- * The batch's range as the branch holds it now, read again whenever a card
- * is stacked or applied: what the row's Apply all lands, and its files.
- * Null while it's read, or once its top moved on (so Apply waits).
- */
-function useBatchRange(project: string, crew: Crew): BatchRange | null {
-  const top = stackedCards(crew).at(-1)?.stacked?.commit;
-  const base = crew.stack?.base;
-  const [range, setRange] = useState<BatchRange | null>(null);
-  useEffect(() => {
-    let live = true;
-    if (!top) return;
-    void reviewCrewBatch(project).then((found) => {
-      if (!live) return;
-      setRange(
-        "error" in found
-          ? null
-          : {
-              to: found.to,
-              hash: found.diff.hash,
-              files: found.diff.files.length,
-            },
-      );
-    });
-    return () => {
-      live = false;
-    };
-  }, [project, top, base]);
-  return range && range.to === top ? range : null;
-}
-
-/**
- * The batch on the crew's branch: one row, Review and Apply all. Apply all
+ * The batch on the team's branch: one row, Review and Apply all. Apply all
  * lands exactly the range this row read (its last commit and fingerprint);
  * a card a restack replayed goes through Review instead.
  */
@@ -870,16 +575,6 @@ function BatchRow({
   range: BatchRange | null;
   onReview: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const run = async (work: () => Promise<string | null>) => {
-    setBusy(true);
-    setProblem(null);
-    const why = await work().catch((error) => errorText(error));
-    setBusy(false);
-    setProblem(why);
-  };
-  const conflict = problem ?? batch.conflict;
   return (
     <article className="crew-pipe-row" data-crew-batch>
       <div className="crew-pipe-row-name">
@@ -889,7 +584,42 @@ function BatchRow({
         </span>
       </div>
       <StepTrack project={project} steps={batch.steps} />
-      <div className="crew-pipe-row-actions">
+      <BatchButtons
+        crew={crew}
+        batch={batch}
+        range={range}
+        onReview={onReview}
+        className="crew-pipe-row-actions"
+        problemClass="crew-pipe-problem"
+      />
+    </article>
+  );
+}
+
+/**
+ * The batch's Review and Apply all (or Review to apply, for a replayed
+ * card), and why the last Apply didn't land, with Update onto your files.
+ * Both the Cards row and the chat's Ready for you draw these.
+ */
+export function BatchButtons({
+  crew,
+  batch,
+  range,
+  onReview,
+  className,
+  problemClass,
+}: {
+  crew: Crew;
+  batch: PipelineBatch;
+  range: BatchRange | null;
+  onReview: () => void;
+  className: string;
+  problemClass: string;
+}) {
+  const actions = useBatchActions(crew, batch, range);
+  return (
+    <>
+      <div className={className}>
         {batch.reviewFirst ? (
           <TeamCardButton size="compact" variant="primary" onClick={onReview}>
             Review to apply
@@ -902,33 +632,25 @@ function BatchRow({
             <TeamCardButton
               size="compact"
               variant="primary"
-              disabled={busy || !range}
-              onClick={() => {
-                if (!range) return;
-                void run(() =>
-                  applyCrewBatch(crew.path, {
-                    to: range.to,
-                    hash: range.hash,
-                  }),
-                );
-              }}
+              disabled={actions.busy || !range}
+              onClick={actions.applyAll}
             >
-              {busy ? "Applying…" : "Apply all"}
+              {actions.busy ? "Applying…" : "Apply all"}
             </TeamCardButton>
           </>
         )}
       </div>
-      {conflict ? (
-        <p className="crew-pipe-problem" role="alert">
-          {conflict}
-          {batch.conflict && /Update the crew's branch/.test(batch.conflict) ? (
+      {actions.problem ? (
+        <p className={problemClass} role="alert">
+          {actions.problem}
+          {actions.restack ? (
             <>
               {" "}
               <button
                 type="button"
                 className="crew-pipe-link"
-                disabled={busy}
-                onClick={() => void run(() => restackCrew(crew.path))}
+                disabled={actions.busy}
+                onClick={actions.update}
               >
                 Update onto your files
               </button>
@@ -936,7 +658,7 @@ function BatchRow({
           ) : null}
         </p>
       ) : null}
-    </article>
+    </>
   );
 }
 
@@ -1073,7 +795,7 @@ export function CrewBatchSheet({
   return (
     <Modal
       onClose={onClose}
-      title={`${plural(order.length, "card")} ready on the crew's branch`}
+      title={`${plural(order.length, "card")} ready on the team's branch`}
       description={
         review
           ? `${upTo ? `Up to ${ordered.at(-1)?.title}` : "All of them"} · ${plural(review.diff.files.length, "file")} · +${review.diff.additions} −${review.diff.deletions}`

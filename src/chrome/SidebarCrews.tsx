@@ -57,12 +57,12 @@ function saveOpen(open: ReadonlySet<string>) {
 /** The crew's right-click menu, its runs today below the line. */
 export function crewMenuItems(crew: SidebarCrew): ExplorerMenuItem[] {
   return [
-    { kind: "item", id: "open", label: "Open crew" },
-    { kind: "item", id: "tell", label: "Tell the crew…" },
+    { kind: "item", id: "open", label: "Open team" },
+    { kind: "item", id: "tell", label: "Tell the team…" },
     { kind: "sep" },
     crew.paused
-      ? { kind: "item", id: "resume", label: "Resume crew" }
-      : { kind: "item", id: "pause", label: "Pause crew" },
+      ? { kind: "item", id: "resume", label: "Resume team" }
+      : { kind: "item", id: "pause", label: "Pause team" },
     { kind: "item", id: "settings", label: "Settings…" },
     { kind: "sep" },
     { kind: "item", id: "runs", label: crew.runsLine, disabled: true },
@@ -130,7 +130,7 @@ export function SidebarCrewRows({
               <button
                 type="button"
                 className="personal-other-task personal-task-card personal-bot-row personal-crew-open"
-                title={`${crew.project} crew · ${crew.runsLine}`}
+                title={`${crew.project} team · ${crew.runsLine}`}
                 onClick={() => onOpenCrew?.(crew.path)}
               >
                 <CrewCritters path={crew.path} roles={roles} active={working} />
@@ -142,8 +142,8 @@ export function SidebarCrewRows({
                 aria-expanded={expanded}
                 aria-label={
                   expanded
-                    ? `Fold ${crew.project}'s crew`
-                    : `Show ${crew.project}'s crew`
+                    ? `Fold ${crew.project}'s team`
+                    : `Show ${crew.project}'s team`
                 }
                 onClick={() => toggle(crew.path)}
               >
@@ -157,7 +157,7 @@ export function SidebarCrewRows({
               <div
                 className="personal-crew-members"
                 role="group"
-                aria-label={`${crew.project}'s crew`}
+                aria-label={`${crew.project}'s team`}
               >
                 {crew.members.map((member) => (
                   <button
@@ -215,7 +215,7 @@ export function SidebarCrewRows({
           x={menu.x}
           y={menu.y}
           items={crewMenuItems(menu.crew)}
-          ariaLabel={`${menu.crew.project} crew actions`}
+          ariaLabel={`${menu.crew.project} team actions`}
           onClose={() => setMenu(null)}
           onPick={(id) => {
             const path = menu.crew.path;

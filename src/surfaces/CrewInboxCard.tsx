@@ -57,7 +57,7 @@ export function CrewInboxDetail({ item }: { item: CrewInboxItem }) {
       <p className="automation-review-kind">
         <ProjectMark path={item.project} className="automation-review-mark" />
         <span>
-          {crewInboxHeading(item.card)} · {projectName(item.project)} crew
+          {crewInboxHeading(item.card)} · {projectName(item.project)} team
         </span>
       </p>
       <h2>{item.review.title}</h2>
@@ -107,7 +107,7 @@ export function InboxCrewCard({
       data-utility-card
       data-crew-inbox-card={item.key}
       aria-current={active ? "true" : undefined}
-      aria-label={`${crewInboxHeading(item.card)}: ${item.review.title}, from ${projectName(item.project)}'s crew`}
+      aria-label={`${crewInboxHeading(item.card)}: ${item.review.title}, from ${projectName(item.project)}'s team`}
       onClick={onSelect}
       className={`flex w-full flex-col rounded-md border border-transparent px-2.5 py-2 text-left ${
         active
@@ -138,7 +138,7 @@ export function InboxCrewCard({
       <span className="mt-1 flex min-w-0 items-center gap-1.5 text-ui-caption text-content/45">
         <ProjectMark path={item.project} className="automation-review-mark" />
         <span className="min-w-0 truncate">
-          {projectName(item.project)} crew
+          {projectName(item.project)} team
         </span>
       </span>
     </button>

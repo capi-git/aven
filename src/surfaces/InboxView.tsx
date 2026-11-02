@@ -493,7 +493,7 @@ export function InboxView({
         {visibleCrew.length ? (
           <ul
             className="flex flex-col gap-0.5 p-1.5 pb-0"
-            aria-label="From crews"
+            aria-label="From teams"
           >
             {visibleCrew.map((item) => (
               <li key={item.key}>

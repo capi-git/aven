@@ -173,9 +173,13 @@
     color 100ms ease,
     background-color 100ms ease;
 }
-.settings-segmented button:hover {
+.settings-segmented button:hover:not([aria-disabled="true"]) {
   color: var(--color-content);
   background: var(--aven-fill-quaternary, var(--aven-hover));
+}
+.settings-segmented button[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.45;
 }
 .settings-segmented button[aria-checked="true"] {
   background: var(--aven-thumb);

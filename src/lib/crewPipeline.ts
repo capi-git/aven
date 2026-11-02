@@ -302,7 +302,7 @@ export function crewPipeline(input: {
     );
   const batch: PipelineBatch | null = batchOf
     ? {
-        title: `${plural(batchOf.cards.length, "card")} ready on the crew's branch`,
+        title: `${plural(batchOf.cards.length, "card")} ready on the team's branch`,
         status: [
           batchOf.cards.map((card) => card.title).join(" · "),
           input.batchFiles != null ? plural(input.batchFiles, "file") : "",
@@ -424,9 +424,11 @@ export function crewPipeline(input: {
   else if (working) {
     focus = working.title;
     const rounds = `round ${working.round} of ${roundLimit(working)}`;
-    if (working.stage === "stuck")
-      sentence = `${working.title} needs you: ${working.stuck?.text ?? "it stopped"}.`;
-    else if (working.paused) sentence = `${working.title} is paused.`;
+    if (working.stage === "stuck") {
+      const why = working.stuck?.text ?? "it stopped";
+      // A question keeps its own mark: "…fill up?", never "…fill up?."
+      sentence = `${working.title} needs you: ${why}${/[.!?…]$/.test(why) ? "" : "."}`;
+    } else if (working.paused) sentence = `${working.title} is paused.`;
     else if (working.holder === "security")
       sentence = `${name("security")} is reviewing ${working.title} for security, ${rounds}.`;
     else if (working.holder === "checker" || working.stage === "checking")
@@ -446,7 +448,7 @@ export function crewPipeline(input: {
   } else if (crew.goal && !crew.goal.done)
     sentence = "Planning the next card for the goal.";
   if (input.hold && !crew.paused && (working || queued.length))
-    sentence = `${input.hold}: ${focus ?? "the crew"} waits.`;
+    sentence = `${input.hold}: ${focus ?? "the team"} waits.`;
   // Enough waits on the branch: nothing new starts until you review it.
   const capped = waitsForReview(crew);
   if (
@@ -463,7 +465,7 @@ export function crewPipeline(input: {
     !ready.length &&
     !(crew.goal && !crew.goal.done);
   if (idle && !crew.paused)
-    sentence = "Nothing to build. Tell the crew what to do, or add an idea.";
+    sentence = "Nothing to build. Tell the team what to do, or add an idea.";
   sentence = (
     capped && sentence.startsWith(`${capped} cards wait`)
       ? [sentence]

@@ -1,0 +1,749 @@
+/* The team chat: the roster on the left, the thread and its box on the
+   right. Neutral surfaces only: a selected row is a grey fill, your
+   messages a grey bubble. Colour is the marks' own and the small amber
+   dot of what waits for you. */
+.team-chat {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: 264px minmax(0, 1fr);
+}
+
+/* The roster. */
+.team-roster {
+  min-height: 0;
+  padding: 12px 10px 12px 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--aven-line);
+}
+
+.team-roster ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-roster-item {
+  --dot-mark-surface: var(--color-background-base);
+  position: relative;
+  border-radius: var(--aven-radius-lg);
+}
+
+/* Everyone, then a line; the teammates; a line, then Add teammate. */
+.team-roster-item:first-child {
+  margin-bottom: 7px;
+}
+
+.team-roster-item:first-child::after,
+.team-roster-item[data-add]::before {
+  position: absolute;
+  right: 10px;
+  left: 10px;
+  height: 1px;
+  background: var(--aven-line);
+  content: "";
+}
+
+.team-roster-item:first-child::after {
+  bottom: -5px;
+}
+
+.team-roster-item[data-add] {
+  margin-top: 7px;
+}
+
+.team-roster-item[data-add]::before {
+  top: -5px;
+}
+
+.team-roster-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px;
+  border-radius: var(--aven-radius-lg);
+  color: var(--color-content);
+  text-align: left;
+}
+
+.team-roster-row:hover {
+  background: var(--aven-hover);
+}
+
+.team-roster-item[data-selected] {
+  --dot-mark-surface: var(--aven-elevated-3);
+  background: var(--aven-selected);
+}
+
+.team-roster-item[data-selected] .team-roster-row:hover {
+  background: transparent;
+}
+
+.team-roster-row:focus-visible,
+.team-roster-tool:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -2px;
+}
+
+.dot-mark.team-roster-mark,
+.project-mark.team-roster-mark {
+  width: 28px;
+  height: 28px;
+  flex: none;
+}
+
+.team-roster-item[data-add] .dot-mark {
+  --dot-mark-unlit: 0.2;
+}
+
+.team-roster-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.team-roster-name {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-roster-item[data-add] .team-roster-name {
+  color: var(--aven-muted);
+  font-weight: 500;
+}
+
+.team-roster-line {
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-roster-line[data-live] {
+  color: color-mix(in srgb, var(--color-content) 82%, transparent);
+}
+
+.team-roster-when {
+  flex: none;
+  align-self: flex-start;
+  padding-top: 2px;
+  color: var(--team-faint);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The selected teammate: its chat and its page, under its name. */
+.team-roster-tools {
+  display: flex;
+  gap: 4px;
+  padding: 0 10px 8px 49px;
+  margin-top: -3px;
+}
+
+.team-roster-tool {
+  padding: 2px 7px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-fill-tertiary, var(--aven-hover));
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+}
+
+.team-roster-tool:hover:not(:disabled) {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+
+.team-roster-tool:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Why its chat can't open yet, under its tools. */
+.team-roster-note {
+  margin: -2px 0 0;
+  padding: 0 10px 8px 49px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.4;
+}
+
+/* The thread column. */
+.team-thread {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  padding: 14px 0 0 28px;
+}
+
+/* Ready for you, pinned. */
+.team-ready-list {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.team-ready {
+  --dot-mark-surface: var(--aven-raised);
+  display: grid;
+  align-items: center;
+  gap: 4px 14px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 11px 12px 11px 14px;
+  border: 1px solid var(--team-line-strong);
+  border-radius: var(--aven-radius-xl);
+  background: var(--aven-raised);
+}
+
+.dot-mark.team-ready-mark {
+  width: 26px;
+  height: 26px;
+}
+
+.team-ready-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.team-ready-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro, 11px);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.team-ready-tag i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--aven-needs-you);
+}
+
+.team-ready-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.team-ready-line b {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-ready-line span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-ready-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-ready-problem {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* The posts. */
+.team-thread-wrap {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+/* Posts scrolled up under Ready for you fade out over a few pixels rather
+   than stop at a hard edge; the padding keeps the first post clear of the
+   fade when the thread is at its top. A mask, so no colour is drawn. */
+.team-thread-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 20px 0 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22px);
+  mask-image: linear-gradient(to bottom, transparent, #000 22px);
+}
+
+.team-thread-earlier {
+  display: block;
+  margin: 2px auto 8px;
+  padding: 3px 10px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.team-thread-earlier:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.team-thread-empty {
+  margin: 48px auto 0;
+  max-width: 380px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body, 13px);
+  text-align: center;
+}
+
+.team-day + .team-day,
+.team-day + .team-posts {
+  margin-top: 6px;
+}
+
+.team-day-label {
+  margin: 6px 0 4px;
+  color: var(--team-faint);
+  font-size: 11.5px;
+  font-weight: 400;
+  text-align: center;
+}
+
+.team-posts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-post {
+  --dot-mark-surface: var(--color-background-base);
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.dot-mark.team-post-mark {
+  width: 24px;
+  height: 24px;
+  margin-top: 2px;
+}
+
+.team-post-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.team-post-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.team-post-head b {
+  flex: none;
+  font-weight: 600;
+}
+
+.team-post-head time,
+.team-post-card {
+  flex: none;
+  color: var(--team-faint);
+  font-size: 11.5px;
+}
+
+.team-post-card {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-post-card::before {
+  margin-right: 7px;
+  content: "·";
+}
+
+.team-post-text {
+  margin: 1px 0 0;
+  color: color-mix(in srgb, var(--color-content) 86%, transparent);
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.team-post[data-live] .team-post-text {
+  color: var(--aven-muted);
+}
+
+.team-post[data-needs-you] .team-post-text {
+  color: var(--color-content);
+}
+
+/* A handoff: who passed it, and to whom. */
+.team-handoff {
+  --dot-mark-surface: var(--color-background-base);
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 2px 9px 2px 6px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-capsule);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  white-space: nowrap;
+}
+
+.team-handoff > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dot-mark.team-handoff-mark {
+  width: 14px;
+  height: 14px;
+}
+
+.team-handoff-arrow {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  color: var(--team-faint);
+}
+
+.team-handoff-you {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  margin: 0 4px;
+  border-radius: 50%;
+  background: var(--color-content);
+}
+
+.team-post-link {
+  display: block;
+  margin-top: 5px;
+  padding: 0;
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  text-decoration: underline;
+  text-decoration-color: var(--aven-line);
+  text-underline-offset: 2px;
+}
+
+.team-post-link:hover {
+  text-decoration-color: currentColor;
+}
+
+/* Your messages: a grey bubble on the right. */
+.team-you {
+  display: flex;
+  max-width: 64%;
+  flex-direction: column;
+  align-items: flex-end;
+  align-self: flex-end;
+  margin: 6px 0;
+}
+
+.team-you-bubble {
+  margin: 0;
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: var(--aven-fill-secondary, var(--aven-selected));
+  color: var(--color-content);
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.team-you-meta {
+  margin: 3px 2px 0;
+  color: var(--team-faint);
+  font-size: 11.5px;
+}
+
+/* What Aven said, or something you did: a quiet line. */
+.team-event {
+  max-width: 78%;
+  margin: 6px auto;
+  color: var(--team-faint);
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.team-event time {
+  margin-left: 4px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.team-event[data-needs-you] {
+  color: var(--aven-muted);
+}
+
+.team-event-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--aven-needs-you);
+  vertical-align: 1px;
+}
+
+.team-thread-new {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  padding: 4px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-popup);
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  transform: translateX(-50%);
+}
+
+/* The box. */
+.team-compose-wrap {
+  position: relative;
+  flex: none;
+  padding-top: 8px;
+}
+
+.team-compose {
+  display: flex;
+  min-height: 48px;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--team-line-strong);
+  border-radius: var(--aven-radius-xl);
+  background: var(--aven-raised);
+}
+
+.team-compose:focus-within {
+  border-color: color-mix(in srgb, var(--color-content) 26%, transparent);
+}
+
+.team-compose-input {
+  min-width: 0;
+  min-height: 30px;
+  flex: 1 1 auto;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  outline: none;
+  resize: none;
+}
+
+.team-compose-input::placeholder {
+  color: var(--team-faint);
+}
+
+.team-compose-to {
+  display: inline-flex;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 2px 2px -4px;
+  padding: 0 7px 0 8px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-fill-tertiary, var(--aven-hover));
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+  font-weight: 600;
+}
+
+.team-compose-to:hover {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+
+.team-compose-mode,
+.team-compose-at {
+  display: inline-flex;
+  height: 30px;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--team-faint);
+  font-size: var(--text-ui-label);
+}
+
+.team-compose-at {
+  justify-content: center;
+  width: 30px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.team-compose-mode:hover,
+.team-compose-mode[aria-expanded="true"],
+.team-compose-at:hover,
+.team-compose-at[aria-expanded="true"] {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.team-compose-mode:not([data-mode="card"]) {
+  color: var(--color-content);
+}
+
+.team-compose-send {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.team-compose-send:disabled {
+  color: var(--team-faint);
+}
+
+.team-compose-problem {
+  margin: 6px 2px 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* @ one teammate: a short list above the box. */
+.team-mention {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: 0;
+  z-index: 2;
+  display: flex;
+  width: min(300px, 100%);
+  flex-direction: column;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--aven-glass-overlay-edge, var(--aven-line));
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-popup);
+  box-shadow: var(--aven-specular), var(--aven-shadow);
+  list-style: none;
+}
+
+.team-mention-option {
+  --dot-mark-surface: var(--aven-popup);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--aven-radius-row);
+  font-size: 13px;
+  cursor: default;
+}
+
+.team-mention-option[aria-selected="true"] {
+  background: var(--aven-selected);
+}
+
+.dot-mark.team-mention-mark,
+.project-mark.team-mention-mark {
+  width: 18px;
+  height: 18px;
+}
+
+.team-mention-role {
+  margin-left: auto;
+  color: var(--team-faint);
+  font-size: var(--text-ui-label);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .team-roster-row,
+  .team-compose-send {
+    transition: background-color 120ms ease;
+  }
+}
+
+/* Narrow: the roster folds above the thread, as one scrolling row. */
+@container (max-width: 760px) {
+  .team-chat {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .team-roster {
+    padding: 10px 0 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--aven-line);
+  }
+
+  .team-roster ul {
+    flex-direction: row;
+  }
+
+  .team-roster-item {
+    flex: none;
+    width: 200px;
+  }
+
+  .team-roster-item:first-child::after,
+  .team-roster-item[data-add]::before {
+    display: none;
+  }
+
+  .team-roster-item:first-child,
+  .team-roster-item[data-add] {
+    margin: 0;
+  }
+
+  .team-thread {
+    padding-left: 0;
+  }
+
+  .team-you {
+    max-width: 86%;
+  }
+}

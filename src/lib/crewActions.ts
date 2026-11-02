@@ -14,6 +14,7 @@ import {
 } from "./crewLoop";
 import {
   CREW_EXTRA_RUNS,
+  CREW_GOAL_MAX,
   CREW_NOTE_MAX,
   bumpToday,
   cardInCopy,
@@ -46,6 +47,8 @@ import {
   waitsForReview,
   yourGoal,
   withNote,
+  withMessage,
+  CREW_MESSAGE_MAX,
   withoutCard,
   withoutMember,
   type Crew,
@@ -53,6 +56,7 @@ import {
   type CrewCard,
   type CrewLimitName,
   type CrewMember,
+  type CrewMessageKind,
   type CrewRole,
   type CrewRoute,
   type CrewScoutSchedule,
@@ -61,7 +65,13 @@ import { MEMBER_SIGIL_CHOICES, isSigilKey } from "./dotSigils";
 import { isMascotName } from "./projectMascots";
 import { isHarnessAvailable } from "./harness/availability";
 import { pickerModelsFor, preferredModelId } from "./models";
-import { CREW_PRESETS, type CrewPreset } from "./crewPresets";
+import {
+  CREW_PRESETS,
+  CREW_TEAM_PRESETS,
+  SECURITY_INSTRUCTIONS,
+  type CrewPreset,
+  type CrewTeamPreset,
+} from "./crewPresets";
 import { errorText, logError } from "./errors";
 import {
   addFeatureIdea,
@@ -176,7 +186,7 @@ export function turnOnCrew(path: string, models: CrewModels, now = Date.now()) {
       at: now,
       kind: "note",
       who: "aven",
-      text: "The crew is on",
+      text: "The team is on",
     });
   });
 }
@@ -203,6 +213,16 @@ export async function turnOffCrew(path: string) {
   });
 }
 
+/**
+ * A project deleted or archived: its team stops (as Turn off does) and
+ * nothing new starts. Its cards, copy, branch and settings stay, so it
+ * picks up again if the project comes back and you turn it on.
+ */
+export async function stopTeamForProject(path: string) {
+  if (!getCrew(path)?.on) return;
+  await turnOffCrew(path);
+}
+
 export function setCrewPaused(path: string, paused: boolean, now = Date.now()) {
   updateCrew(path, (crew) =>
     !!crew.paused === paused
@@ -213,7 +233,7 @@ export function setCrewPaused(path: string, paused: boolean, now = Date.now()) {
             at: now,
             kind: "note",
             who: "you",
-            text: paused ? "You paused the crew" : "You resumed the crew",
+            text: paused ? "You paused the team" : "You resumed the team",
           },
         ),
   );
@@ -301,7 +321,7 @@ export function clearCrewGoal(path: string, now = Date.now()) {
       at: now,
       kind: "note",
       who: "you",
-      text: "You cleared the crew's goal",
+      text: "You cleared the team's goal",
     });
   });
 }
@@ -323,7 +343,7 @@ export function resumeCrewGoal(path: string, now = Date.now()) {
         at: now,
         kind: "note",
         who: "you",
-        text: `You asked the crew to keep going: ${crew.goal.text}`,
+        text: `You asked the team to keep going: ${crew.goal.text}`,
       },
     );
   });
@@ -331,7 +351,7 @@ export function resumeCrewGoal(path: string, now = Date.now()) {
 
 /** What the crew says to a nudge when it has nothing to start. */
 export const CREW_NOTHING_TO_BUILD =
-  "Tell the crew what to build, or add an idea.";
+  "Tell the team what to build, or add an idea.";
 
 const escapeWord = (word: string) =>
   word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -348,7 +368,7 @@ export function crewNudge(text: string, project?: string): boolean {
     "this",
     "that",
     "everything",
-    "the (?:project|app|work|crew)",
+    "the (?:project|app|work|crew|team)",
     ...(name ? [escapeWord(name)] : []),
   ].join("|");
   const nudge = new RegExp(
@@ -397,7 +417,7 @@ export async function tellCrewWork(
 ): Promise<string | null> {
   const words = text.trim().slice(0, CREW_NOTE_MAX);
   if (!words) return null;
-  if (!getCrew(path)?.on) return "Turn the crew on first.";
+  if (!getCrew(path)?.on) return "Turn the team on first.";
   if (crewNudge(words, path)) {
     nudgeCrew(path, words, now);
     return null;
@@ -409,6 +429,103 @@ export async function tellCrewWork(
   });
   if (!card) return "Couldn't add the card to the Board.";
   return giveCardToCrew(path, card, now);
+}
+
+/**
+ * Write to the team, as the team chat does: your words are kept as your
+ * message, and they become what you chose: a card the team builds (Tell
+ * the team…), a rule for every card, or the goal. A nudge ("go") starts
+ * what waits, as in the task box. Resolves with why it couldn't, or null;
+ * a message that didn't go through isn't kept.
+ */
+export async function tellTeam(
+  path: string,
+  text: string,
+  as: CrewMessageKind = "card",
+  now = Date.now(),
+): Promise<string | null> {
+  const words = text.trim();
+  if (!words) return null;
+  if (words.length > CREW_NOTE_MAX) return TOO_LONG_FOR_EVERYONE;
+  if (as === "goal" && words.length > CREW_GOAL_MAX) return TOO_LONG_FOR_A_GOAL;
+  const crew = getCrew(path);
+  if (!crew?.on) return "Turn the team on first.";
+  // "keep going" starts what waits: no card, so it isn't called one.
+  const nudge = as === "card" && crewNudge(words, path);
+  const before = new Set(crew.feed.map((entry) => entry.id));
+  if (as === "rule") tellCrew(path, words, now);
+  else if (as === "goal") setCrewGoal(path, words, now);
+  else {
+    const problem = await tellCrewWork(path, words, now);
+    if (problem) return problem;
+  }
+  // The Feed's own line for what you wrote: your message stands for it.
+  // Anything else it led to ("You resumed the team") stays as it is.
+  const echo = getCrew(path)?.feed.find(
+    (entry) => !before.has(entry.id) && entry.who === "you" && entry.at === now,
+  )?.id;
+  updateCrew(path, (current) =>
+    withMessage(current, {
+      at: now,
+      text: words,
+      ...(nudge ? {} : { as }),
+      ...(echo ? { echo } : {}),
+    }),
+  );
+  return null;
+}
+
+/** Said when a goal is longer than a goal can be: it's never cut. */
+export const TOO_LONG_FOR_A_GOAL = `A goal has to fit in ${CREW_GOAL_MAX} characters. Shorten it, or send it as a card.`;
+
+/** Said when a message to everyone is longer than a card's note can be. */
+export const TOO_LONG_FOR_EVERYONE = `That's too long for the whole team: keep it under ${CREW_NOTE_MAX} characters, or write to one teammate.`;
+
+/**
+ * A teammate's own chat starts with the team's copy, which is made at its
+ * first card: until then there is no chat to open or write to. The Fixer's
+ * chat is the project bot's, so it is always there.
+ */
+export function teammateChatReady(
+  crew: Pick<Crew, "copy" | "members">,
+  memberId: string,
+): boolean {
+  return crewMemberById(crew, memberId)?.role === "fixer" || !!crew.copy;
+}
+
+/** Said while a teammate's chat waits for the team's first card. */
+export function firstCardChatText(name: string): string {
+  return `${name}'s chat starts with the team's first card.`;
+}
+
+/**
+ * Write to one teammate: your words go to its own chat as a message you
+ * typed there, so its chat can offer to queue what it takes down (Queue
+ * these, Set as goal), and nothing is queued by itself. Resolves with why
+ * it couldn't, or null.
+ */
+export async function tellTeammate(
+  path: string,
+  memberId: string,
+  text: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const words = text.trim().slice(0, CREW_MESSAGE_MAX);
+  if (!words) return null;
+  const crew = getCrew(path);
+  if (!crew?.on) return "Turn the team on first.";
+  if (!crewMemberById(crew, memberId))
+    return "That teammate isn't in the team.";
+  const send = crewWorkspace()?.sendToMember;
+  if (!send) return "Open Aven's main window to write to a teammate.";
+  const problem = await send(path, memberId, words).catch((error) =>
+    errorText(error),
+  );
+  if (problem) return problem;
+  updateCrew(path, (current) =>
+    withMessage(current, { at: now, text: words, to: memberId }),
+  );
+  return null;
 }
 
 /**
@@ -460,7 +577,7 @@ function nudgeCrew(path: string, words: string, now: number) {
   if (acted && next && !waitsForReview(crew)) return;
   // Passed work waiting on the branch is yours to review, not the crew's.
   const waiting = stackedCards(crew).length;
-  const onBranch = `${waiting === 1 ? "One card waits" : `${waiting} cards wait`} for you on the crew's branch`;
+  const onBranch = `${waiting === 1 ? "One card waits" : `${waiting} cards wait`} for you on the team's branch`;
   const reply = !next
     ? waiting
       ? `${onBranch}: ${waiting === 1 ? "review it to apply it" : "review them to apply them"}.`
@@ -473,7 +590,7 @@ function nudgeCrew(path: string, words: string, now: number) {
         ? `“${next.title}” is Ready: apply it or send it back from its card.`
         : next.stage === "queued" && waitsForReview(crew)
           ? `${onBranch}: review them to keep going.`
-          : `The crew is on “${next.title}”.`;
+          : `The team is on “${next.title}”.`;
   updateCrew(path, (current) =>
     withFeed(current, { at: now, kind: "note", who: "aven", text: reply }),
   );
@@ -530,7 +647,7 @@ export async function giveCardToCrew(
   choice?: CrewCardChoice,
 ): Promise<string | null> {
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the crew on first.";
+  if (!crew?.on) return "Turn the team on first.";
   const known = crewCard(crew, card.id);
   if (known && known.stage !== "applied" && known.stage !== "discarded")
     return null;
@@ -572,7 +689,7 @@ export async function giveCardToCrew(
         who: "you",
         cardId: card.id,
         title: card.title,
-        text: `You gave the crew “${card.title}”${to}`,
+        text: `You gave the team “${card.title}”${to}`,
       },
     );
   });
@@ -590,7 +707,7 @@ export async function giveIdeasToCrew(
   titles: readonly string[],
   now = Date.now(),
 ): Promise<string | null> {
-  if (!getCrew(path)?.on) return "Turn the crew on first.";
+  if (!getCrew(path)?.on) return "Turn the team on first.";
   await loadFeatureCards(path);
   for (const title of titles) {
     const known = featureBoardState(path).cards.find(
@@ -642,8 +759,9 @@ export async function queueMemberTasks(
   now = Date.now(),
 ): Promise<string | null> {
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the crew on first.";
-  if (!crewMemberById(crew, memberId)) return "That member isn't in the crew.";
+  if (!crew?.on) return "Turn the team on first.";
+  if (!crewMemberById(crew, memberId))
+    return "That teammate isn't in the team.";
   if (!tasks.length) return null;
   if (!takeAsk(path, replyId)) return null;
   const added: FeatureCard[] = [];
@@ -704,10 +822,11 @@ export function setMemberGoal(
   now = Date.now(),
 ): string | null {
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the crew on first.";
-  if (!crewMemberById(crew, memberId)) return "That member isn't in the crew.";
+  if (!crew?.on) return "Turn the team on first.";
+  if (!crewMemberById(crew, memberId))
+    return "That teammate isn't in the team.";
   if (yourGoal(crew) && !options.replace)
-    return "The crew already has your goal. Replace it to use this one.";
+    return "The team already has your goal. Replace it to use this one.";
   if (!takeAsk(path, replyId)) return null;
   updateCrew(path, (current) =>
     withGoal(
@@ -833,7 +952,7 @@ export function resumeCrewCard(
 }
 
 const NOT_READY = "This card is no longer ready.";
-const STILL_WORKING = "The crew is still working. Apply once it finishes.";
+const STILL_WORKING = "The team is still working. Apply once it finishes.";
 
 /**
  * A Ready card whose change moved after its check: never re-stamped as
@@ -1013,15 +1132,15 @@ export function crewBatch(crew: Crew | undefined): CrewBatch | null {
   return cards.length ? { from: crew.stack.base, cards } : null;
 }
 
-const NOT_ON_BRANCH = "That card isn't on the crew's branch any more.";
+const NOT_ON_BRANCH = "That card isn't on the team's branch any more.";
 const BRANCH_MOVED =
-  "The crew's branch changed since you looked. Review it again.";
+  "The team's branch changed since you looked. Review it again.";
 /** Said when an Apply didn't say exactly what it reviewed. */
 export const REVIEW_FIRST =
-  "Review the crew's branch first: Apply lands exactly the change you reviewed.";
+  "Review the team's branch first: Apply lands exactly the change you reviewed.";
 /** Said when the crew is at work in its copy. */
 const CREW_AT_WORK =
-  "The crew is at work in its copy. Try again once its turn ends.";
+  "The team is at work in its copy. Try again once its turn ends.";
 
 /** Where the batch ends: at `upTo` (a card's id), else its last card. */
 function batchEnd(
@@ -1123,7 +1242,7 @@ export async function applyCrewBatch(
     logError("Apply crew batch", error);
     if (!/conflict/i.test(errorText(error))) return botCopyError(error);
     const text =
-      "Your files changed where the crew worked, so nothing was applied. Update the crew's branch onto your files, then Apply again.";
+      "Your files changed where the team worked, so nothing was applied. Update the team's branch onto your files, then Apply again.";
     updateCrew(path, (current) =>
       current.stack
         ? { ...current, stack: { ...current.stack, conflict: text } }
@@ -1164,7 +1283,7 @@ export async function applyCrewBatch(
 
 /** The card the crew is at work on (or that waits on you) builds on its branch. */
 const BUILDS_ON_TOP = (title: string) =>
-  `“${title}” builds on top of the crew's branch. Finish it or throw it away first.`;
+  `“${title}” builds on top of the team's branch. Finish it or throw it away first.`;
 
 /**
  * Take the top card off the crew's branch (Back to Ideas or Throw away):
@@ -1224,7 +1343,7 @@ async function dropStackedCardHeld(
   const card = batch?.cards.at(-1);
   if (!crew?.copy || !batch || !card) return NOT_ON_BRANCH;
   if (card.id !== cardId)
-    return "Only the last card on the crew's branch can come off it.";
+    return "Only the last card on the team's branch can come off it.";
   const busy = cardInCopy(crew);
   if (busy) return BUILDS_ON_TOP(busy.title);
   try {
@@ -1271,8 +1390,8 @@ async function dropStackedCardHeld(
       title: known.title,
       text:
         then === "ideas"
-          ? `“${known.title}” came off the crew's branch and went back to Ideas`
-          : `You took “${known.title}” off the crew's branch and threw it away`,
+          ? `“${known.title}” came off the team's branch and went back to Ideas`
+          : `You took “${known.title}” off the team's branch and threw it away`,
     });
   });
   if (then === "ideas") await moveFeatureCard(path, cardId, "idea", "");
@@ -1342,7 +1461,7 @@ async function restackCrewHeld(
       at: now,
       kind: "note",
       who: "aven",
-      text: `Updated the crew's branch onto your files (${batch.cards.length} ${batch.cards.length === 1 ? "card" : "cards"}): replayed, not checked again, so Review them before you apply`,
+      text: `Updated the team's branch onto your files (${batch.cards.length} ${batch.cards.length === 1 ? "card" : "cards"}): replayed, not checked again, so Review them before you apply`,
     });
   });
   return null;
@@ -1368,9 +1487,9 @@ export function crewDeleteNote(crew: Crew | undefined, cardId: string): string {
   const card = heldCrewCard(crew, cardId);
   if (!card) return "";
   if (card.stage === "ready")
-    return "The crew's Ready change is thrown away too.";
-  if (card.stage === "queued") return "It leaves the crew's queue too.";
-  return "The crew's work on it is thrown away too.";
+    return "The team's Ready change is thrown away too.";
+  if (card.stage === "queued") return "It leaves the team's queue too.";
+  return "The team's work on it is thrown away too.";
 }
 
 /**
@@ -1510,7 +1629,7 @@ export function addCrewMember(
   input: CrewNewMember = {},
 ): { id: string } | { error: string } {
   const crew = getCrew(path);
-  if (!crew) return { error: "This project has no crew." };
+  if (!crew) return { error: "This project has no team." };
   const role: Exclude<CrewRole, "fixer"> =
     template === "custom" ? (input.role ?? "builder") : template;
   if (
@@ -1518,10 +1637,10 @@ export function addCrewMember(
     crew.members.some((member) => member.role === role)
   )
     return {
-      error: `This crew already has ${role === "scout" ? "a Scout" : "Security"}.`,
+      error: `This team already has ${role === "scout" ? "a Scout" : "Security"}.`,
     };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "A crew has at most 8 members." };
+    return { error: "A team has at most 8 teammates." };
   const harness =
     input.harness &&
     crewAgentAllowed(input.harness) &&
@@ -1567,10 +1686,10 @@ export function updateCrewMember(
 ): string | null {
   const crew = getCrew(path);
   const member = crew ? crewMemberById(crew, id) : undefined;
-  if (!crew || !member) return "That member isn't in the crew.";
+  if (!crew || !member) return "That teammate isn't in the team.";
   if (member.role === "fixer") return "The Fixer is set in its own settings.";
   if (change.harness !== undefined && !crewAgentAllowed(change.harness))
-    return "Crews run only on apps that keep their rules: Claude Code or Codex.";
+    return "Teams run only on apps that keep their rules: Claude Code or Codex.";
   if (
     change.harness !== undefined &&
     !crewAgentsFor(member.role).includes(change.harness as CrewAgent)
@@ -1641,16 +1760,156 @@ export function updateCrewMember(
  * wearing its mark, with no title of its own.
  */
 export function presetInCrew(crew: Crew, preset: CrewPreset): boolean {
-  return crew.members.some(
-    (member) =>
-      member.preset === preset.key ||
-      (preset.role === "security" && member.role === "security") ||
-      (preset.role === "scout" && member.role === "scout") ||
-      (!preset.label &&
-        member.role === preset.role &&
-        !member.label &&
-        memberCritter(member) === preset.mark),
+  return crew.members.some((member) => memberIsPreset(member, preset));
+}
+
+/** Whether a member is that ready-made one (see `presetInCrew`). */
+export function memberIsPreset(
+  member: CrewMember,
+  preset: CrewPreset,
+): boolean {
+  return (
+    member.preset === preset.key ||
+    (preset.role === "security" && member.role === "security") ||
+    (preset.role === "scout" && member.role === "scout") ||
+    (!preset.label &&
+      member.role === preset.role &&
+      !member.label &&
+      memberCritter(member) === preset.mark)
   );
+}
+
+/**
+ * A team that has never started: never turned on, and no cards. Only then
+ * can a suggested team replace who is in it.
+ */
+export function teamUnstarted(crew: Crew): boolean {
+  return !crew.on && !crew.onAt && !crew.cards.length;
+}
+
+/** Whether the team is exactly a suggested team (its Fixer aside). */
+export function teamIsPreset(crew: Crew, team: CrewTeamPreset): boolean {
+  const presets = team.members
+    .map((key) => CREW_PRESETS.find((preset) => preset.key === key))
+    .filter((preset): preset is CrewPreset => !!preset);
+  const members = crew.members.filter((member) => member.role !== "fixer");
+  return (
+    members.length === presets.length &&
+    presets.every((preset) =>
+      members.some((member) => memberIsPreset(member, preset)),
+    ) &&
+    members.every((member) =>
+      presets.some((preset) => memberIsPreset(member, preset)),
+    )
+  );
+}
+
+/**
+ * Start from a suggested team: before the team has ever started, it becomes
+ * that team's teammates (the Fixer stays: it is the project's bot).
+ * Teammates already in it keep their settings; the rest leave. Each new
+ * one gets its role's usual app and model. Resolves with why it couldn't,
+ * or null.
+ */
+/**
+ * Whether you changed a teammate from how it joined: its name, job,
+ * instructions, paths, effort, its app or model (other than its role's
+ * usual), or switched it off. A suggested team never drops such a one.
+ */
+export function teammateEdited(
+  member: CrewMember,
+  models: CrewModels,
+): boolean {
+  if (member.role === "fixer") return false;
+  const preset = CREW_PRESETS.find(
+    (item) => item.key === (member.preset ?? member.role),
+  );
+  const usual = crewModelFor(models, member.role);
+  const sameList = (a?: readonly string[], b?: readonly string[]) =>
+    (a ?? []).join("\n") === (b ?? []).join("\n");
+  return (
+    !!member.name ||
+    !!member.effort ||
+    !!member.paused ||
+    (member.instructions !== undefined &&
+      member.instructions !== preset?.instructions &&
+      !(
+        member.role === "security" &&
+        member.instructions === SECURITY_INSTRUCTIONS
+      )) ||
+    !sameList(member.scope, preset?.scope) ||
+    (member.label !== undefined && member.label !== preset?.label) ||
+    (member.job !== undefined && member.job !== preset?.job) ||
+    (member.harness !== undefined && member.harness !== usual.harness) ||
+    (member.model !== undefined && member.model !== usual.model)
+  );
+}
+
+export function startTeamFrom(
+  path: string,
+  key: string,
+  models: CrewModels = crewModelsHere(),
+): string | null {
+  const team = CREW_TEAM_PRESETS.find((item) => item.key === key);
+  const crew = getCrew(path);
+  if (!team || !crew) return "That team isn't available.";
+  if (!teamUnstarted(crew))
+    return "Add or remove teammates one at a time once the team has started.";
+  const presets = team.members
+    .map((member) => CREW_PRESETS.find((preset) => preset.key === member))
+    .filter((preset): preset is CrewPreset => !!preset);
+  const kept: string[] = [];
+  updateCrew(path, (current) => {
+    let next = current;
+    // Who stays: the Fixer, each teammate the team has as it is, and any
+    // you changed (its settings are yours: never thrown away by a pick).
+    for (const member of current.members) {
+      if (
+        member.role === "fixer" ||
+        presets.some((preset) => memberIsPreset(member, preset))
+      )
+        continue;
+      if (teammateEdited(member, models))
+        kept.push(crewMemberName(current, member.id));
+      else next = withoutMember(next, member.id);
+    }
+    for (const preset of presets) {
+      if (next.members.some((member) => memberIsPreset(member, preset)))
+        continue;
+      next = withPreset(next, preset, crewModelFor(models, preset.role));
+    }
+    return next;
+  });
+  return kept.length
+    ? `Kept ${kept.join(" and ")}: you changed ${kept.length === 1 ? "its" : "their"} settings. Remove ${kept.length === 1 ? "it" : "them"} from ${kept.length === 1 ? "its" : "each"} page if you don't need ${kept.length === 1 ? "it" : "them"}.`
+    : null;
+}
+
+/** A ready-made teammate added to the team (no checks: the callers make them). */
+function withPreset(
+  crew: Crew,
+  preset: CrewPreset,
+  app?: { harness?: string; model?: string },
+): Crew {
+  const harness =
+    app?.harness &&
+    crewAgentAllowed(app.harness) &&
+    crewAgentsFor(preset.role).includes(app.harness)
+      ? app.harness
+      : undefined;
+  const model = harness ? cleanText(app?.model, 200) : undefined;
+  const member: CrewMember = {
+    id: newMemberId(crew, preset.role),
+    role: preset.role,
+    preset: preset.key,
+    critter: freeMark(crew, preset.mark),
+    ...(preset.label ? { label: preset.label, job: preset.job } : {}),
+    instructions: preset.instructions,
+    ...(preset.scope?.length ? { scope: [...preset.scope] } : {}),
+    ...(harness ? { harness } : {}),
+    ...(model ? { model } : {}),
+  };
+  return { ...crew, members: [...crew.members, member] };
 }
 
 /**
@@ -1666,36 +1925,18 @@ export function addCrewPreset(
   const preset = CREW_PRESETS.find((item) => item.key === key);
   const crew = getCrew(path);
   if (!preset || !crew) return { error: "That member isn't available." };
-  if (presetInCrew(crew, preset)) return { error: "It's in the crew already." };
+  if (presetInCrew(crew, preset)) return { error: "It's in the team already." };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "A crew has at most 8 members." };
+    return { error: "A team has at most 8 teammates." };
   if (
     (preset.role === "scout" || preset.role === "security") &&
     crew.members.some((member) => member.role === preset.role)
   )
-    return { error: "It's in the crew already." };
-  const harness =
-    app?.harness &&
-    crewAgentAllowed(app.harness) &&
-    crewAgentsFor(preset.role).includes(app.harness)
-      ? app.harness
-      : undefined;
-  const model = harness ? cleanText(app?.model, 200) : undefined;
+    return { error: "It's in the team already." };
   let id = "";
   updateCrew(path, (current) => {
     id = newMemberId(current, preset.role);
-    const member: CrewMember = {
-      id,
-      role: preset.role,
-      preset: preset.key,
-      critter: freeMark(current, preset.mark),
-      ...(preset.label ? { label: preset.label, job: preset.job } : {}),
-      instructions: preset.instructions,
-      ...(preset.scope?.length ? { scope: [...preset.scope] } : {}),
-      ...(harness ? { harness } : {}),
-      ...(model ? { model } : {}),
-    };
-    return { ...current, members: [...current.members, member] };
+    return withPreset(current, preset, app);
   });
   return { id };
 }
@@ -1715,7 +1956,7 @@ export function removeCrewMember(path: string, id: string): string | null {
     (member.role === "builder" || member.role === "checker") &&
     crew.members.filter((entry) => entry.role === member.role).length <= 1
   )
-    return `A crew needs a ${CREW_ROLE_INFO[member.role].label}.`;
+    return `A team needs a ${CREW_ROLE_INFO[member.role].label}.`;
   const working =
     !!member.doing ||
     crew.cards.some(
@@ -1732,7 +1973,7 @@ export function removeCrewMember(path: string, id: string): string | null {
       (card.builderId === id || card.checkerId === id),
   );
   if (holding)
-    return `“${holding.title}” is still in the crew's copy. Apply it, send it back to Ideas or throw it away first.`;
+    return `“${holding.title}” is still in the team's copy. Apply it, send it back to Ideas or throw it away first.`;
   updateCrew(path, (current) => withoutMember(current, id));
   return null;
 }
@@ -1816,8 +2057,12 @@ export function setCrewLimit(path: string, name: CrewLimitName, value: number) {
 // What the crew UI needs from the main workspace, supplied by App.
 
 export type CrewWorkspace = {
-  /** Show a member's chat in a tab: by its id, or a role for its first. */
-  openChat: (path: string, who: string) => void;
+  /**
+   * Show a member's chat in a tab: by its id, or a role for its first.
+   * Resolves with why it couldn't (the team is off, its chat hasn't
+   * started yet), or null once the chat is on screen.
+   */
+  openChat: (path: string, who: string) => Promise<string | null> | void;
   /** Open the crew: the project's Board with the crew on it. */
   openCrew: (path: string) => void;
   /**
@@ -1827,6 +2072,16 @@ export type CrewWorkspace = {
   openSettings: (path: string, page?: string) => void;
   /** Stop a chat's turn, and wait until it has. */
   stop: (sessionId: string) => Promise<void>;
+  /**
+   * Send your words to a member's own chat, as a message you typed there
+   * (the Fixer's is the project bot's). Resolves with why it couldn't, or
+   * null. Only the main workspace has it.
+   */
+  sendToMember?: (
+    path: string,
+    who: string,
+    text: string,
+  ) => Promise<string | null>;
 };
 
 let workspace: CrewWorkspace | null = null;

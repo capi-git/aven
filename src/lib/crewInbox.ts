@@ -142,7 +142,7 @@ export function openCrewInboxItems(
           title:
             batch.length === 1
               ? top.title
-              : `${batch.length} cards ready on the crew's branch`.slice(
+              : `${batch.length} cards ready on the team's branch`.slice(
                   0,
                   120,
                 ),

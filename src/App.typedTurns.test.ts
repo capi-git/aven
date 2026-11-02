@@ -52,6 +52,19 @@ describe("sends the user made", () => {
   });
 });
 
+describe("the team chat's @teammate", () => {
+  it("goes through the chat's own message box, as words you typed there", () => {
+    const at = app.indexOf("sendToMember: async (path, who, text) => {");
+    expect(at).toBeGreaterThan(-1);
+    const block = app.slice(at, app.indexOf("}),", at));
+    // The message box's path marks it typed (see above); nothing else sends it.
+    expect(block).toContain("onChatSubmit(chat.id, text)");
+    expect(block).not.toContain("onSubmit(");
+    expect(block).not.toContain("botWake");
+    expect(block).not.toContain("managed");
+  });
+});
+
 describe("the message you typed keeps its mark", () => {
   /** The source of the block from `anchor` to the next `return` after it. */
   const from = (anchor: string, length = 1600) => {

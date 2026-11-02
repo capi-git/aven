@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 
 const core = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ import {
   botProjectState,
   botProjectStates,
   gitSetupNeeded,
+  isRestackConflict,
 } from "./projectBotCopy";
 
 it("tells a project that needs Git from one that can't have a bot", async () => {
@@ -36,4 +38,19 @@ it("Add a bot first offers Git to a project without it, and only then", async ()
   // says what is wrong as before.
   await expect(gitSetupNeeded("/work/app")).resolves.toBeNull();
   await expect(gitSetupNeeded("/work/gone")).resolves.toBeNull();
+});
+
+it("knows the host's restack refusal, in its words today and before teams", () => {
+  // The words the host sends (project_bots.rs), as it builds the refusal.
+  const rust = readFileSync("src-tauri/src/project_bots.rs", "utf8");
+  const sent = /const RESTACK_CONFLICT: &str = "([^"]+)";/.exec(rust)?.[1];
+  expect(sent).toBe("Your files changed where the team worked");
+  expect(isRestackConflict(new Error(`${sent} (card 1 of 2): a.ts`))).toBe(
+    true,
+  );
+  // A host from before teams said "crew".
+  expect(
+    isRestackConflict("Your files changed where the crew worked (card 2 of 2)"),
+  ).toBe(true);
+  expect(isRestackConflict("Your files changed")).toBe(false);
 });

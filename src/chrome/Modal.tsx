@@ -5,16 +5,18 @@ import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { LAYER } from "../lib/layers";
 import "./Overlays.css";
 
-export type ModalSize = "sm" | "md";
+export type ModalSize = "sm" | "md" | "lg";
 
 const WIDTH: Record<ModalSize, string> = {
   sm: "w-[min(420px,calc(100vw-24px))]",
   md: "w-[min(560px,calc(100vw-24px))]",
+  lg: "w-[min(1080px,calc(100vw-24px))]",
 };
 
 const TOP: Record<ModalSize, string> = {
   sm: "top-[22%]",
   md: "top-[10%]",
+  lg: "top-[6%]",
 };
 
 const MODAL_SELECTOR =
@@ -119,6 +121,8 @@ type Props = {
   leading?: ReactNode;
   /** Shown after the title, before Close, such as an On switch. */
   trailing?: ReactNode;
+  /** Shown above the title row, such as a way back to the page before. */
+  above?: ReactNode;
   children: ReactNode;
 };
 
@@ -130,6 +134,7 @@ export function ModalPanel({
   className,
   leading,
   trailing,
+  above,
   children,
 }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -227,7 +232,9 @@ export function ModalPanel({
         }}
         onMouseDown={(event) => event.stopPropagation()}
         className={`modal-panel flex flex-col overflow-hidden rounded-2xl ${className ?? ""}`}
+        data-size={size}
       >
+        {above ? <div className="modal-panel-above">{above}</div> : null}
         <header className="modal-panel-content flex shrink-0 items-start gap-2 px-4 pt-3">
           {leading}
           <div className="min-w-0 flex-1 pt-0.5">

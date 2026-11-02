@@ -13,12 +13,15 @@ import {
 import { memoryStorage } from "../lib/devSmoke";
 import { ALWAYS_ASKS_LINE } from "../lib/projectBotPermissions";
 import { resetProjectBotsCache } from "../lib/projectBots";
+import { installCrewWorkspace } from "../lib/crewActions";
 import { CrewSettingsSheet } from "./CrewSettingsSheet";
 
+// The apps installed here: Codex and Cursor, unless a test installs more.
+const installed = vi.hoisted(() => ({ ids: new Set(["codex", "cursor"]) }));
 vi.mock("../lib/harness/availability", async (original) => ({
   ...(await original<typeof import("../lib/harness/availability")>()),
   probeHarnessAvailability: vi.fn(async () => undefined),
-  isHarnessAvailable: (id: string) => id === "codex" || id === "cursor",
+  isHarnessAvailable: (id: string) => installed.ids.has(id),
 }));
 
 const PATH = "/Users/me/aven-site";
@@ -26,6 +29,7 @@ let root: Root;
 let container: HTMLElement;
 
 beforeEach(() => {
+  installed.ids = new Set(["codex", "cursor"]);
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("localStorage", memoryStorage());
   resetProjectBotsCache();
@@ -70,7 +74,7 @@ const pick = async (select: HTMLSelectElement, value: string) =>
 const disclose = async (selector: string) =>
   act(async () => sheet().querySelector<HTMLButtonElement>(selector)!.click());
 
-describe("the crew's settings", () => {
+describe("the team's settings", () => {
   it("shows little at first: members with one detail, one line each for routing and limits", async () => {
     updateCrew(PATH, (crew) => ({
       ...crew,
@@ -99,9 +103,11 @@ describe("the crew's settings", () => {
     // One short detail: the model, and "off" only when it is.
     const checker = rows[1]!.querySelector("small")!.textContent!;
     // A model the catalog doesn't know yet still reads as a name.
-    expect(checker).toBe("GPT-9.1 · off");
-    expect(rows[2]!.querySelector("small")!.textContent).toBe("Haiku 9");
-    expect(rows[0]!.querySelector("small")!.textContent).not.toContain("·");
+    expect(checker).toBe("Codex · GPT-9.1 · off");
+    expect(rows[2]!.querySelector("small")!.textContent).toBe(
+      "Claude · Haiku 9",
+    );
+    expect(rows[0]!.querySelector("small")!.textContent).toMatch(/^Claude · /);
     // No subtitle: "works only while Aven is open" is the switch's tooltip.
     expect(document.querySelector(".crew-settings")!.textContent).not.toContain(
       "Works only while Aven is open",
@@ -146,12 +152,12 @@ describe("the crew's settings", () => {
     await pick(rounds, "5");
     expect(getCrew(PATH)!.limits.roundsPerCard).toBe(5);
     expect(
-      sheet().querySelector('[aria-label="Runs a day, all crews"]'),
+      sheet().querySelector('[aria-label="Runs a day, all teams"]'),
     ).toBeNull();
     await disclose("[data-crew-limits-more]");
     await pick(
       sheet().querySelector<HTMLSelectElement>(
-        '[aria-label="Runs a day, all crews"]',
+        '[aria-label="Runs a day, all teams"]',
       )!,
       "100",
     );
@@ -181,66 +187,279 @@ describe("the crew's settings", () => {
     expect(sheet().querySelector('[data-crew-rule="r1"]')).not.toBeNull();
   });
 
-  it("adds a Builder from a template and opens its page", async () => {
+  it("opens a teammate's page from the list, and Add teammate opens Build a team", async () => {
     await open();
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-member-row="checker"]')!
+        .click(),
+    );
+    expect(
+      sheet()
+        .querySelector("[data-crew-member-page]")
+        ?.getAttribute("data-crew-member-page"),
+    ).toBe("checker");
+    // The way back sits above its name.
+    await act(async () => buttonNamed("aven-site team")!.click());
     await act(async () =>
       sheet()
         .querySelector<HTMLButtonElement>("[data-crew-add-member]")!
         .click(),
     );
-    // Ready-made members above; one already in the crew is greyed.
-    expect(
-      sheet()
-        .querySelector('[data-crew-preset="security"]')
-        ?.getAttribute("aria-disabled"),
-    ).toBe("true");
-    expect(
-      sheet()
-        .querySelector('[data-crew-preset="scout"]')
-        ?.getAttribute("aria-disabled"),
-    ).toBeNull();
+    expect(sheet().querySelector("[data-crew-add]")).not.toBeNull();
+    expect(sheet().querySelector("h2")?.textContent).toBe(
+      "Build aven-site's team",
+    );
+  });
+});
+
+describe("Build a team", () => {
+  it("shows each role with In team or +; a second Builder is fine, a second Security isn't", async () => {
+    await open("add");
+    const tile = (key: string) =>
+      sheet().querySelector<HTMLElement>(`[data-crew-preset="${key}"]`)!;
+    expect(tile("security").textContent).toContain("In team");
+    expect(tile("security").querySelector("button")).toBeNull();
+    expect(tile("scout").textContent).not.toContain("In team");
+    // The Builder is in, and another one can join.
+    expect(tile("builder").textContent).toContain("In team");
     await act(async () =>
-      sheet()
-        .querySelector<HTMLButtonElement>('[data-crew-template="builder"]')!
+      tile("builder")
+        .querySelector<HTMLButtonElement>('[aria-label="Add another Builder"]')!
         .click(),
     );
     expect(crewMemberById(getCrew(PATH)!, "builder-2")?.role).toBe("builder");
-    expect(
-      sheet()
-        .querySelector("[data-crew-member-page]")
-        ?.getAttribute("data-crew-member-page"),
-    ).toBe("builder-2");
+    await act(async () =>
+      tile("designer")
+        .querySelector<HTMLButtonElement>('[aria-label="Add Designer"]')!
+        .click(),
+    );
+    const designer = getCrew(PATH)!.members.find(
+      (member) => member.preset === "designer",
+    )!;
+    expect(designer).toMatchObject({ role: "builder", label: "Designer" });
+    expect(tile("designer").textContent).toContain("In team");
+    // Each teammate in the team's column opens its page.
+    const rows = [
+      ...sheet().querySelectorAll<HTMLElement>("[data-crew-member-row]"),
+    ].map((row) => row.dataset.crewMemberRow);
+    expect(rows).toEqual([
+      "builder",
+      "builder-2",
+      designer.id,
+      "checker",
+      "security",
+    ]);
+    // A team that has started can't be swapped for a suggested one.
+    expect(sheet().querySelector("[data-crew-team]")).toBeNull();
+    expect(buttonNamed("Done")).toBeTruthy();
   });
 
-  it("sets a member's mark from its popover, agent, model and instructions; other apps say why not", async () => {
+  it("starts from a suggested team before the team has ever started, and Start team turns it on", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
+    const onTurnOn = vi.fn(async () => null);
+    const onStarted = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(CrewSettingsSheet, {
+          path: PATH,
+          initialPage: "add",
+          onTurnOn,
+          onStarted,
+          onClose: () => {},
+        }),
+      ),
+    );
+    const team = (key: string) =>
+      sheet().querySelector<HTMLElement>(`[data-crew-team="${key}"]`)!;
+    // A new team is Builder, Checker and Security: Ship features.
+    expect(team("ship").getAttribute("aria-checked")).toBe("true");
+    expect(team("polish").textContent).toContain("Designer, Tester, Checker");
+    await act(async () => team("polish").click());
+    const roles = getCrew(PATH)!.members.map(
+      (member) => member.preset ?? member.id,
+    );
+    // Its Checker stays as it was; the Builder and Security leave.
+    expect(roles.sort()).toEqual(["checker", "designer", "tester"]);
+    expect(team("polish").getAttribute("aria-checked")).toBe("true");
+    await act(async () => buttonNamed("Start team")!.click());
+    expect(onTurnOn).toHaveBeenCalledWith(PATH);
+    expect(onStarted).toHaveBeenCalledWith(PATH);
+  });
+
+  it("is one stop in the tab order, and arrow keys move between the suggested teams", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
+    await open("add");
+    const radios = () => [
+      ...sheet().querySelectorAll<HTMLButtonElement>("[data-crew-team]"),
+    ];
+    expect(radios().map((radio) => radio.tabIndex)).toEqual([0, -1, -1]);
+    const before = JSON.stringify(getCrew(PATH)!.members);
+    await act(async () =>
+      radios()[0]!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      ),
+    );
+    // Arrows only move: who is in the team stays as it was.
+    expect(document.activeElement).toBe(radios()[1]);
+    expect(JSON.stringify(getCrew(PATH)!.members)).toBe(before);
+    expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
+      ["true", "false", "false"],
+    );
+    // Choosing is a press (Space or Enter on a button is one).
+    await act(async () => radios()[1]!.click());
+    expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
+      ["false", "true", "false"],
+    );
+    expect(radios().map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
+  });
+
+  it("never drops a teammate whose settings you changed when you pick a suggested team", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      on: false,
+      onAt: undefined,
+      members: crew.members.map((member) =>
+        member.id === "builder"
+          ? { ...member, instructions: "Use the house style." }
+          : member,
+      ),
+    }));
+    await open("add");
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-team="polish"]')!
+        .click(),
+    );
+    expect(crewMemberById(getCrew(PATH)!, "builder")?.instructions).toBe(
+      "Use the house style.",
+    );
+    expect(sheet().querySelector('[role="alert"]')?.textContent).toContain(
+      "Kept Builder: you changed its settings.",
+    );
+  });
+
+  it("says why Start team couldn't, and starts nothing", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
+    const onStarted = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(CrewSettingsSheet, {
+          path: PATH,
+          initialPage: "add",
+          onTurnOn: async () => "Teams need a Git project.",
+          onStarted,
+          onClose: () => {},
+        }),
+      ),
+    );
+    await act(async () => buttonNamed("Start team")!.click());
+    expect(sheet().querySelector('[role="alert"]')?.textContent).toBe(
+      "Teams need a Git project.",
+    );
+    expect(onStarted).not.toHaveBeenCalled();
+  });
+
+  it("adds your own teammate with a name and one job; a Builder can't pick Codex", async () => {
+    await open("add");
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Add your own teammate"]',
+        )!
+        .click(),
+    );
+    const form = sheet().querySelector<HTMLFormElement>("[data-crew-custom]")!;
+    const codex = [...form.querySelectorAll("option")].find(
+      (option) => option.value === "codex",
+    )!;
+    expect(codex.disabled).toBe(true);
+    const [name, job] = [...form.querySelectorAll("input")];
+    const type = async (field: HTMLInputElement, value: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(field, value);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    await type(name!, "Copywriter");
+    await type(job!, "Keeps the words plain");
+    await act(async () => buttonNamed("Add")!.click());
+    expect(
+      getCrew(PATH)!.members.find((member) => member.label === "Copywriter"),
+    ).toMatchObject({ role: "builder", job: "Keeps the words plain" });
+  });
+});
+
+describe("a teammate's page", () => {
+  it("sets its mark, agent, model and effort in view, with no floating menu; other apps say why not", async () => {
     await open("checker");
     // The mark grid isn't open until you press the mark.
     expect(document.querySelector('[data-mark-choice="designer"]')).toBeNull();
-    const agent = sheet().querySelector<HTMLSelectElement>(
-      'select[aria-label="Agent"]',
+    expect(sheet().querySelector("header p")?.textContent).toBe(
+      "A Checker on aven-site's team · only reads",
+    );
+    const agent = sheet().querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Agent"]',
     )!;
-    const options = [...agent.options];
-    expect(options.map((item) => item.value)).toEqual([
-      "claude",
-      "codex",
-      "cursor",
+    const options = [...agent.querySelectorAll<HTMLButtonElement>("button")];
+    expect(options.map((item) => item.textContent)).toEqual([
+      "Claude",
+      "Codex",
+      "Cursor",
     ]);
-    const cursor = options.find((item) => item.value === "cursor")!;
-    // Why not is the item's tooltip, not a paragraph.
-    expect(cursor.disabled).toBe(true);
+    const cursor = options[2]!;
+    // Why not is its tooltip, not a paragraph.
+    expect(cursor.getAttribute("aria-disabled")).toBe("true");
     expect(cursor.title).toBe("Can't be locked to read-only");
-    expect(document.querySelector(".crew-settings")!.textContent).not.toContain(
-      "Can't be locked to read-only",
-    );
-    await pick(agent, "cursor");
+    expect(sheet().textContent).not.toContain("Can't be locked to read-only");
+    await act(async () => cursor.click());
     expect(crewMemberById(getCrew(PATH)!, "checker")?.harness).toBeUndefined();
-    await pick(agent, "codex");
+    await act(async () => options[1]!.click());
     expect(crewMemberById(getCrew(PATH)!, "checker")?.harness).toBe("codex");
-    // Model and effort share one row.
-    const model = sheet().querySelector(".crew-settings-inline")!;
-    expect(model.closest(".crew-settings-limit")!.textContent).toContain(
-      "Model",
+    await act(async () => options[0]!.click());
+    // The model: a list in view, no picker to open.
+    expect(
+      document.querySelector('input[aria-label="Search models"]'),
+    ).toBeNull();
+    const models = sheet().querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Model"]',
+    )!;
+    const sonnet = models.querySelector<HTMLButtonElement>(
+      '[data-model="claude:sonnet-5"]',
+    )!;
+    await act(async () => sonnet.click());
+    expect(crewMemberById(getCrew(PATH)!, "checker")?.model).toBe(
+      "claude:sonnet-5",
     );
+    expect(sonnet.getAttribute("aria-checked")).toBe("true");
+    // Older ones are tucked away until asked for.
+    expect(
+      sheet().querySelector('[role="radiogroup"][aria-label="Older models"]'),
+    ).toBeNull();
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>("[data-crew-older-models]")!
+        .click(),
+    );
+    expect(
+      sheet().querySelector('[role="radiogroup"][aria-label="Older models"]'),
+    ).not.toBeNull();
+    // Effort: a segmented control, Default first, for a model that has one.
+    await act(async () =>
+      models
+        .querySelector<HTMLButtonElement>('[data-model="claude:opus-5.5"]')!
+        .click(),
+    );
+    const effort = sheet().querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Effort"]',
+    )!;
+    const high = [...effort.querySelectorAll<HTMLButtonElement>("button")].find(
+      (item) => item.textContent === "High",
+    )!;
+    await act(async () => high.click());
+    expect(crewMemberById(getCrew(PATH)!, "checker")?.effort).toBe("high");
     await act(async () =>
       document
         .querySelector<HTMLButtonElement>("[data-crew-mark-button]")!
@@ -277,33 +496,109 @@ describe("the crew's settings", () => {
       "Run the e2e tests.",
     );
     // The last Checker can't be removed: a quiet word, its why a tooltip.
-    const remove = buttonNamed("Remove from crew")!;
+    const remove = buttonNamed("Remove from team")!;
     expect(remove.disabled).toBe(true);
     expect(remove.className).toBe("crew-settings-remove-link");
-    expect(remove.title).toBe("A crew needs a Checker.");
+    expect(remove.title).toBe("A team needs a Checker.");
   });
 
-  it("keeps a Builder's scope and its default under More, with one line of its rules", async () => {
+  it("keeps a Builder's paths as chips with Edit, its default under When it works, and one line of its rules", async () => {
     updateCrew(PATH, (crew) => ({
       ...crew,
-      members: [...crew.members, { id: "builder-2", role: "builder" }],
+      members: [
+        ...crew.members,
+        {
+          id: "builder-2",
+          role: "builder",
+          label: "Designer",
+          job: "Builds UI cards",
+          scope: [
+            "src/a",
+            "src/b",
+            "src/c",
+            "src/d",
+            "src/e",
+            "src/f",
+            "src/g",
+          ],
+        },
+      ],
     }));
     await open("builder-2");
+    const chips = sheet().querySelector<HTMLElement>("[data-crew-scope]")!;
+    expect(
+      [...chips.querySelectorAll("code")].map((chip) => chip.textContent),
+    ).toEqual(["src/a", "src/b", "src/c", "src/d", "src/e"]);
     expect(
       sheet().querySelector('textarea[aria-label="Works only in"]'),
     ).toBeNull();
-    // No long rules paragraph on the page.
-    expect(sheet().textContent).not.toContain("Whatever you set here");
-    await disclose("[data-crew-member-more]");
+    await act(async () =>
+      chips.querySelector<HTMLButtonElement>("[data-crew-scope-edit]")!.click(),
+    );
+    const scope = sheet().querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Works only in"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!.call(scope, "/elsewhere/x");
+      scope.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => buttonNamed("Done")!.click());
+    // Outside the project: refused, with why.
+    expect(sheet().querySelector('[role="alert"]')?.textContent).toContain(
+      "is outside the project",
+    );
+    expect(crewMemberById(getCrew(PATH)!, "builder-2")?.scope).toHaveLength(7);
+    // Its title and job are its own to change.
     expect(
-      sheet().querySelector('textarea[aria-label="Works only in"]'),
-    ).not.toBeNull();
+      sheet().querySelector<HTMLInputElement>('input[aria-label="Job"]')?.value,
+    ).toBe("Builds UI cards");
     expect(
-      sheet().querySelector('[aria-label="Takes cards no rule picks"]'),
+      sheet().querySelector(
+        '[data-crew-when] [aria-label="Takes cards no rule picks"]',
+      ),
     ).not.toBeNull();
     expect(sheet().querySelector("[data-crew-member-rules]")?.textContent).toBe(
-      "Changes files only in the crew's copy, never pushes, runs in its sandbox.",
+      "Never pushes or publishes, and runs in its sandbox. Changes save as you make them.",
     );
+  });
+
+  it("opens its chat, closing the sheet once it's open; while the team is off it can't", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      copy: { path: "/copies/site", branch: "aven/crew/site", root: PATH },
+    }));
+    const openChat = vi.fn(async () => null as string | null);
+    const onClose = vi.fn();
+    const uninstall = installCrewWorkspace({
+      openChat,
+      openCrew: vi.fn(),
+      openSettings: vi.fn(),
+      stop: vi.fn(async () => undefined),
+    });
+    try {
+      await act(async () =>
+        root.render(
+          createElement(CrewSettingsSheet, {
+            path: PATH,
+            initialPage: "builder",
+            onTurnOn: async () => null,
+            onClose,
+          }),
+        ),
+      );
+      await act(async () => buttonNamed("Open chat")!.click());
+      expect(onClose).toHaveBeenCalled();
+      expect(openChat).toHaveBeenCalledWith(PATH, "builder");
+      await act(async () =>
+        updateCrew(PATH, (crew) => ({ ...crew, on: false })),
+      );
+      expect(buttonNamed("Open chat")!.disabled).toBe(true);
+    } finally {
+      uninstall();
+    }
   });
 });
 
@@ -355,5 +650,92 @@ describe("the sheet's styles", () => {
     );
     expect(mark).toContain("width: 40px");
     expect(mark).toContain("height: 40px");
+  });
+});
+
+describe("a teammate's chat before the team's first card", () => {
+  it("can't be opened, and says why, from its page", async () => {
+    const openChat = vi.fn(async () => null as string | null);
+    const onClose = vi.fn();
+    const uninstall = installCrewWorkspace({
+      openChat,
+      openCrew: vi.fn(),
+      openSettings: vi.fn(),
+      stop: vi.fn(async () => undefined),
+    });
+    try {
+      await act(async () =>
+        root.render(
+          createElement(CrewSettingsSheet, {
+            path: PATH,
+            initialPage: "builder",
+            onTurnOn: async () => null,
+            onClose,
+          }),
+        ),
+      );
+      // No copy yet: the chat starts with the team's first card.
+      const open = buttonNamed("Open chat")!;
+      expect(open.disabled).toBe(true);
+      expect(open.title).toBe(
+        "Builder's chat starts with the team's first card.",
+      );
+      expect(
+        sheet().querySelector("[data-crew-member-notice]")?.textContent,
+      ).toBe("Builder's chat starts with the team's first card.");
+      // With its copy, a chat that still won't open says why; the sheet stays.
+      await act(async () =>
+        updateCrew(PATH, (crew) => ({
+          ...crew,
+          copy: { path: "/copies/site", branch: "aven/crew/site", root: PATH },
+        })),
+      );
+      openChat.mockResolvedValueOnce("Couldn't open Builder's chat.");
+      await act(async () => buttonNamed("Open chat")!.click());
+      expect(onClose).not.toHaveBeenCalled();
+      expect(sheet().querySelector('[role="alert"]')?.textContent).toBe(
+        "Couldn't open Builder's chat.",
+      );
+    } finally {
+      uninstall();
+    }
+  });
+});
+
+describe("the way back", () => {
+  it("goes from Build a team to the team, and from a teammate to where you opened it", async () => {
+    await open("add");
+    // A teammate opened from Build a team goes back there.
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-member-row="checker"]')!
+        .click(),
+    );
+    expect(sheet().querySelector("[data-crew-member-page]")).not.toBeNull();
+    await act(async () => buttonNamed("Build aven-site's team")!.click());
+    expect(sheet().querySelector("[data-crew-add]")).not.toBeNull();
+    // Build a team goes back to the team.
+    await act(async () => buttonNamed("aven-site team")!.click());
+    expect(sheet().querySelector("[data-crew-settings]")).not.toBeNull();
+  });
+});
+
+describe("every installed agent", () => {
+  it("fits in rows of four on a teammate's page", async () => {
+    installed.ids = new Set([
+      "codex",
+      "cursor",
+      "grok",
+      "opencode",
+      "pi",
+      "omp",
+      "fx",
+    ]);
+    await open("checker");
+    const agent = sheet().querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Agent"]',
+    )!;
+    expect(agent.querySelectorAll('[role="radio"]').length).toBeGreaterThan(4);
+    expect(agent.style.gridTemplateColumns).toBe("repeat(4, minmax(0, 1fr))");
   });
 });

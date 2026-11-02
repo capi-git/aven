@@ -895,9 +895,12 @@ import { CrewSettingsSheet } from "./chrome/CrewSettingsSheet";
 import type { SidebarCrew, SidebarCrewAction } from "./chrome/SidebarCrews";
 import {
   focusCrewTell,
+  firstCardChatText,
   installCrewWorkspace,
   pickCrewModels,
   setCrewPaused,
+  stopTeamForProject,
+  teammateChatReady,
   turnOnCrew,
 } from "./lib/crewActions";
 import { crewRunsLine } from "./lib/crewLimits";
@@ -908,6 +911,7 @@ import {
   crewMemberApp,
   crewMemberById,
   crewMemberName,
+  ensureCrewSaved,
   getCrew,
   isCrewChat,
   updateCrew,
@@ -1258,10 +1262,12 @@ export default function App({
   } | null>(null);
   // The project whose bot settings sheet is open.
   const [botSheet, setBotSheet] = useState<string | null>(null);
-  /** Add a bot, asked of a project that needs Git first. */
+  /** Add a bot or a team, asked of a project that needs Git first. */
   const [botGitSetup, setBotGitSetup] = useState<{
     path: string;
     state: GitSetupNeed;
+    /** What it adds once Git is set up. */
+    for: "bot" | "team";
   } | null>(null);
   // Chats project bots are working in: kept loaded without a tab.
   const [botWorkingChats, setBotWorkingChats] =
@@ -6648,6 +6654,8 @@ export default function App({
               );
             }
           };
+          // Its team stops first: its chats are among what goes.
+          await stopTeamForProject(normalized);
           await removeProjectData(normalized, {
             openSessionIds: sessionsRef.current
               .filter((session) => sameProjectPath(session.cwd, normalized))
@@ -6657,6 +6665,8 @@ export default function App({
           });
           assertWorkspaceReady();
         }
+        // An archived project's team stops too: it can't be reached.
+        if (!options.purgeData) await stopTeamForProject(normalized);
         // Read current state only after all saves, process stops, and deletes.
         const wasCurrent = sameProjectPath(projectCwdRef.current, normalized);
         const remaining = options.purgeData
@@ -7055,7 +7065,7 @@ export default function App({
       const crew = bot ? undefined : crewForChat(session.id);
       if (!bot && !crew) return session;
       if (crew && !crew.crew.on)
-        return "This crew is off. Turn it on in its settings to use its chats.";
+        return "This team is off. Turn it on in its settings to use its chats.";
       const copy = bot ? bot.copy?.path : crew?.crew.copy?.path;
       if (!copy)
         return "The bot's copy isn't ready yet. Try again in a moment.";
@@ -11184,7 +11194,7 @@ export default function App({
       }
       void gitSetupNeeded(path).then(async (need) => {
         if (need) {
-          setBotGitSetup({ path, state: need });
+          setBotGitSetup({ path, state: need, for: "bot" });
           return;
         }
         const problem = await turnOnBotWithDefaults(path);
@@ -11346,19 +11356,27 @@ export default function App({
   );
   /** Show a crew member's chat; the Fixer's is the project bot's. */
   const openCrewChat = useCallback(
-    async (path: string, who: string) => {
+    async (path: string, who: string): Promise<string | null> => {
       const crew = getCrew(path);
       const member = crew
         ? (crewMemberById(crew, who) ??
           crew.members.find((entry) => entry.role === who))
         : undefined;
-      if (who === "fixer" || member?.role === "fixer")
-        return void openBotChat(path);
-      if (!crew?.on || !member) return;
+      if (who === "fixer" || member?.role === "fixer") {
+        if (!getProjectBot(path)?.on)
+          return "The Fixer is off. Turn the project's bot on first.";
+        await openBotChat(path);
+        return null;
+      }
+      if (!crew?.on || !member) return "Turn the team on first.";
+      const name = crewMemberName(crew, member.id);
+      // Its chat starts with the team's copy, made at its first card.
+      if (!teammateChatReady(crew, member.id)) return firstCardChatText(name);
       const chat = await ensureCrewChat(crew, member.id);
-      if (!chat) return;
+      if (!chat) return `Couldn't open ${name}'s chat.`;
       setHomeViewOpen(false);
       await onSelectHistorySession(chat.id);
+      return null;
     },
     [ensureCrewChat, onSelectHistorySession, openBotChat, setHomeViewOpen],
   );
@@ -11377,9 +11395,10 @@ export default function App({
   useEffect(
     () =>
       installCrewWorkspace({
-        openChat: (path, role) => {
-          closeUtilityViews();
-          void openCrewChat(path, role);
+        openChat: async (path, role) => {
+          const why = await openCrewChat(path, role);
+          if (!why) closeUtilityViews();
+          return why;
         },
         openCrew: (path) => {
           closeUtilityViews();
@@ -11390,8 +11409,43 @@ export default function App({
           setCrewSheet(path);
         },
         stop: stopCrewChat,
+        // The team chat's @teammate: your words go to its chat as if you
+        // typed them there (its own message box's path, marked typed).
+        sendToMember: async (path, who, text) => {
+          const crew = getCrew(path);
+          const member = crew
+            ? (crewMemberById(crew, who) ??
+              crew.members.find((entry) => entry.role === who))
+            : undefined;
+          if (!crew?.on || !member) return "Turn the team on first.";
+          const bot = member.role === "fixer" ? getProjectBot(path) : undefined;
+          const name = crewMemberName(
+            crew,
+            member.id,
+            bot ? botName(bot) : undefined,
+          );
+          if (member.role === "fixer" && !bot?.on)
+            return `${name} is off. Turn the project's bot on first.`;
+          const chat =
+            member.role === "fixer"
+              ? await ensureBotChat(bot!)
+              : await ensureCrewChat(crew, member.id);
+          if (!chat)
+            return `${firstCardChatText(name)} Write to everyone to give the team one.`;
+          return onChatSubmit(chat.id, text) === false
+            ? `Couldn't send it to ${name}.`
+            : null;
+        },
       }),
-    [closeUtilityViews, onOpenBoard, openCrewChat, stopCrewChat],
+    [
+      closeUtilityViews,
+      onOpenBoard,
+      openCrewChat,
+      stopCrewChat,
+      ensureBotChat,
+      ensureCrewChat,
+      onChatSubmit,
+    ],
   );
   /**
    * Turn a crew on: Claude Code is needed (the sandbox); the Checker runs on
@@ -11401,12 +11455,12 @@ export default function App({
   const turnOnCrewFor = useCallback(async (path: string) => {
     await probeHarnessAvailability();
     if (!isHarnessAvailable("claude"))
-      return "Crews use Claude Code. Install it and sign in, then turn the crew on.";
+      return "Teams use Claude Code. Install it and sign in, then turn the team on.";
     const need = await gitSetupNeeded(path);
     if (need)
       return need === "no-git"
-        ? "Crews need a Git project. Set up Git for this folder first."
-        : "Crews need a Git project with at least one commit.";
+        ? "Teams need a Git project. Set up Git for this folder first."
+        : "Teams need a Git project with at least one commit.";
     const codex = isHarnessAvailable("codex");
     turnOnCrew(
       path,
@@ -11498,18 +11552,28 @@ export default function App({
     },
     [closeUtilityViews, onOpenBoard],
   );
-  /** New crew: it turns on and its Board opens. A project needing Git says so. */
+  /**
+   * New team: a project without one yet opens Build a team, where Start team
+   * turns it on and opens it; a team that has been on before turns on again
+   * and opens. A project needing Git says so.
+   */
   const onAddCrew = useCallback(
     (path: string) => {
       if (getCrew(path)?.on) return onOpenCrew(path);
       void gitSetupNeeded(path).then(async (need) => {
         if (need) {
-          setBotGitSetup({ path, state: need });
+          setBotGitSetup({ path, state: need, for: "team" });
+          return;
+        }
+        if (!getCrew(path)?.onAt) {
+          ensureCrewSaved(path);
+          setCrewSheetPage("add");
+          setCrewSheet(path);
           return;
         }
         const problem = await turnOnCrewFor(path);
         if (problem) {
-          void message(problem, { title: "Can't add a crew", kind: "info" });
+          void message(problem, { title: "Can't add a team", kind: "info" });
           return;
         }
         onOpenCrew(path);
@@ -12996,6 +13060,10 @@ export default function App({
                   return bot?.on ? botName(bot) : undefined;
                 })()}
                 onTurnOn={turnOnCrewFor}
+                onStarted={(path) => {
+                  setCrewSheet(null);
+                  onOpenCrew(path);
+                }}
                 onAddFixer={(path) => {
                   setCrewSheet(null);
                   onAddBot(path);
@@ -13013,9 +13081,13 @@ export default function App({
                   ...botGitSetup,
                   label: projectAppearance(botGitSetup.path).label,
                 }}
+                kind={botGitSetup.for}
                 onAdd={(path) => {
+                  const forTeam = botGitSetup.for === "team";
                   setBotGitSetup(null);
-                  onAddBot(path);
+                  // Git is set up: on to what it was asked for.
+                  if (forTeam) onAddCrew(path);
+                  else onAddBot(path);
                 }}
                 onClose={() => setBotGitSetup(null)}
               />

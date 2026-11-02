@@ -1,39 +1,20 @@
-import {
-  useEffect,
-  useId,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { Toggle } from "../surfaces/SettingsControls";
 import {
-  addCrewMember,
-  addCrewPreset,
-  crewAgentAllowed,
-  crewModelFor,
-  crewModelsHere,
-  presetInCrew,
-  removeCrewMember,
+  firstCardChatText,
   setCrewLimit,
   setCrewPaused,
   setCrewQuietHours,
   setCrewRoutes,
   setDefaultBuilder,
+  teammateChatReady,
   turnOffCrew,
   updateCrewMember,
-  type CrewMemberChange,
-  type CrewTemplate,
+  useCrewWorkspace,
 } from "../lib/crewActions";
 import { quietText } from "../lib/crewLimits";
-import { crewEffortSetting } from "../lib/crewModels";
 import {
-  CREW_AGENTS,
-  CREW_ALL_RUNS_RANGE,
-  CREW_INSTRUCTIONS_MAX,
-  CREW_ROLE_INFO,
-  crewAgentsFor,
-  crewMemberApp,
   crewMemberById,
   crewMemberName,
   crewMembers,
@@ -43,20 +24,12 @@ import {
   setCrewsAllRunsPerDay,
   useCrew,
   useCrewsAllRunsPerDay,
+  CREW_ALL_RUNS_RANGE,
   type Crew,
   type CrewLimitName,
   type CrewMember,
-  type CrewRole,
-  type CrewScoutSchedule,
 } from "../lib/crews";
-import {
-  getHarnessAvailabilitySnapshot,
-  isHarnessAvailable,
-  probeHarnessAvailability,
-  subscribeHarnessAvailability,
-} from "../lib/harness/availability";
-import { LAYER } from "../lib/layers";
-import { findModel, preferredModelId } from "../lib/models";
+import { probeHarnessAvailability } from "../lib/harness/availability";
 import { projectName } from "../lib/paths";
 import { saveBotSettings } from "../lib/projectBotActions";
 import { ALWAYS_ASKS_LINE } from "../lib/projectBotPermissions";
@@ -66,17 +39,20 @@ import {
   useProjectBot,
   type BotQuietHours,
 } from "../lib/projectBots";
-import { titleBeside } from "../lib/crewView";
-import { MEMBER_SIGIL_CHOICES } from "../lib/dotSigils";
-import { CREW_PRESETS } from "../lib/crewPresets";
-import { HARNESSES, HARNESS_TITLE, type HarnessId } from "../lib/session";
 import { BotCritter } from "./BotCritter";
 import { CrewCritter, CrewCritters } from "./CrewCritter";
+import {
+  LIMIT_CHOICES,
+  LimitRow,
+  MemberTitle,
+  NumberPick,
+  memberAppLine,
+} from "./crewSettingsParts";
 import { ChevronLeft, ChevronRight, ChevronUp, Plus, X } from "./icons";
 import { Modal } from "./Modal";
-import { ModelPicker } from "./ModelPicker";
-import { Popover } from "./Popover";
-import { DotMark } from "./DotMark";
+import { ProjectMark } from "./ProjectMark";
+import { TeamBuilder } from "./TeamBuilder";
+import { MarkButton, TeammateBody, teammateSubtitle } from "./TeammatePage";
 import "./TeamCard.css";
 import "./BotSettingsSheet.css";
 import "./CrewCritter.css";
@@ -84,48 +60,43 @@ import "./CrewCritter.css";
 /** Whole hours a quiet time can start or end at, as the pickers list them. */
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour * 60);
 
-/** The values each limit's picker offers (yours is added when it isn't one). */
-const LIMIT_CHOICES: Readonly<Record<CrewLimitName, readonly number[]>> = {
-  roundsPerCard: [1, 2, 3, 4, 5],
-  runsPerDay: [5, 10, 15, 20, 30, 40, 60, 80, 100, 150, 200],
-  autoStartsPerDay: [0, 1, 2, 3, 5, 8, 10, 15, 20],
-  ideasPerDay: [0, 1, 2, 3, 4, 5, 6, 8, 10],
-  turnMinutes: [5, 10, 15, 20, 30, 45, 60, 90, 120],
-  pauseAtPercent: [50, 60, 70, 80, 90, 100],
-  readyCap: [1, 2, 3, 5, 8, 10, 15, 20],
-};
 const ALL_RUNS_CHOICES = [20, 30, 40, 60, 80, 100, 150, 200, 300, 500].filter(
   (value) => value >= CREW_ALL_RUNS_RANGE[0] && value <= CREW_ALL_RUNS_RANGE[1],
 );
 
 type Page =
   | { kind: "crew" }
-  | { kind: "member"; id: string }
-  | { kind: "add"; custom?: boolean };
+  /** A teammate's page, and the page it was opened from (its way back). */
+  | { kind: "member"; id: string; from: "crew" | "add" }
+  | { kind: "add" };
 
 /**
- * A crew's settings: who is in it and how each works, who builds what,
- * its limits and quiet hours, Pause and Turn off. A member's own page sets
- * its name and mark, the app and model it runs on, your instructions,
- * the paths it works in, and when it works. None of these change what a
- * member may do: that comes from its role (see `crewChatPermissions`).
+ * A team's settings: who is in it, who builds what, its limits and quiet
+ * hours, Pause and Turn off. Build a team (Add teammate) adds teammates or
+ * starts from a suggested team; a teammate's own page sets its name and
+ * mark, its job, your instructions, where it works, what it runs on and
+ * when it works. None of these change what a teammate may do: that comes
+ * from its role (see `crewChatPermissions`).
  */
 export function CrewSettingsSheet({
   path,
   fixerName,
   initialPage,
   onTurnOn,
+  onStarted,
   onAddFixer,
   onFixerSettings,
   onClose,
 }: {
   path: string;
   fixerName?: string;
-  /** Open on a member's page (its id), or on Add ("add"). */
+  /** Open on a teammate's page (its id), or on Build a team ("add"). */
   initialPage?: string;
-  /** Turn the crew on (it is off). Resolves with why it couldn't, or null. */
+  /** Turn the team on (it is off). Resolves with why it couldn't, or null. */
   onTurnOn: (path: string) => Promise<string | null>;
-  /** Add the project's bot as the crew's Fixer. */
+  /** Start team on Build a team turned it on: show it. */
+  onStarted?: (path: string) => void;
+  /** Add the project's bot as the team's Fixer. */
   onAddFixer?: (path: string) => void;
   /** Open the Fixer's own settings (the project bot's). */
   onFixerSettings?: (path: string) => void;
@@ -133,15 +104,18 @@ export function CrewSettingsSheet({
 }) {
   const crew = useCrew(path);
   const appearance = useProjectAppearance(path);
+  const workspace = useCrewWorkspace();
   const project = appearance?.label || projectName(path);
   const nameId = useId();
   const [page, setPage] = useState<Page>(() =>
     initialPage === "add"
       ? { kind: "add" }
       : initialPage
-        ? { kind: "member", id: initialPage }
+        ? { kind: "member", id: initialPage, from: "crew" }
         : { kind: "crew" },
   );
+  // Why its chat didn't open, said on the teammate's page.
+  const [chatProblem, setChatProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [confirmingOff, setConfirmingOff] = useState(false);
@@ -152,12 +126,17 @@ export function CrewSettingsSheet({
   const member =
     crew && page.kind === "member" ? crewMemberById(crew, page.id) : undefined;
   const gone = !!crew && page.kind === "member" && !member;
+  const from = page.kind === "member" ? page.from : "crew";
   useEffect(() => {
-    // Removed (here or in another window): back to the crew.
-    if (gone) setPage({ kind: "crew" });
-  }, [gone]);
+    // Removed (here or in another window): back where it was opened from.
+    if (gone) setPage(from === "add" ? { kind: "add" } : { kind: "crew" });
+  }, [gone, from]);
   if (!crew || gone) return null;
-  const toCrew = () => setPage({ kind: "crew" });
+  const toPage = (next: Page) => {
+    setChatProblem(null);
+    setPage(next);
+  };
+  const toCrew = () => toPage({ kind: "crew" });
   const turnOn = async () => {
     setBusy(true);
     setProblem(null);
@@ -165,6 +144,23 @@ export function CrewSettingsSheet({
     setBusy(false);
     if (error) setProblem(error);
   };
+  const back = (
+    <button type="button" className="crew-settings-back" onClick={toCrew}>
+      <ChevronLeft className="size-3.5" />
+      {project} team
+    </button>
+  );
+  // A teammate opened from Build a team goes back there (Start team too).
+  const backToBuild = (
+    <button
+      type="button"
+      className="crew-settings-back"
+      onClick={() => toPage({ kind: "add" })}
+    >
+      <ChevronLeft className="size-3.5" />
+      Build {project}'s team
+    </button>
+  );
   // One sheet whose header and body follow the page, so moving between
   // pages never closes and opens it again.
   let header: {
@@ -172,29 +168,32 @@ export function CrewSettingsSheet({
     description?: string;
     leading?: ReactNode;
     trailing?: ReactNode;
+    above?: ReactNode;
+    size?: "md" | "lg";
+    className?: string;
   };
   let body: ReactNode;
   if (member?.role === "fixer") {
     header = {
       title: crewMemberName(crew, member.id, fixerName),
-      description: `Fixer in ${project}'s crew`,
+      description: `Fixer on ${project}'s team`,
       leading: (
         <span className="bot-sheet-critter">
           <BotCritter path={path} className="bot-sheet-critter-sprite" />
         </span>
       ),
+      above: back,
     };
     body = (
       <FixerBody
         path={path}
-        project={project}
         onFixerSettings={onFixerSettings}
-        onBack={toCrew}
         onClose={onClose}
       />
     );
   } else if (member) {
     const name = crewMemberName(crew, member.id);
+    const chatReady = teammateChatReady(crew, member.id);
     // What it is called without a name of its own, numbered among the rest.
     const defaultName = crewMemberName(
       {
@@ -223,47 +222,83 @@ export function CrewSettingsSheet({
           }}
         />
       ),
-      // The role word, unless the name already says it ("Builder 2").
-      ...(titleBeside(name, memberLabel(member))
-        ? { description: memberLabel(member) }
-        : {}),
+      description: teammateSubtitle(member, project),
       leading: <MarkButton path={path} member={member} />,
+      above: from === "add" ? backToBuild : back,
       trailing: (
-        <Toggle
-          label={`${name} on`}
-          tone="neutral"
-          on={!member.paused}
-          onChange={(on) => updateCrewMember(path, member.id, { paused: !on })}
-        />
+        <span className="teammate-head-actions">
+          <button
+            type="button"
+            className="team-card-button"
+            data-crew-open-chat
+            disabled={!crew.on || !workspace || !chatReady}
+            title={
+              !crew.on
+                ? "Turn the team on to open its chat"
+                : !chatReady
+                  ? firstCardChatText(name)
+                  : undefined
+            }
+            onClick={() => {
+              setChatProblem(null);
+              void Promise.resolve(workspace?.openChat(path, member.id)).then(
+                // The sheet closes once the chat is on screen, not before.
+                (why) => (why ? setChatProblem(why) : onClose()),
+              );
+            }}
+          >
+            Open chat
+          </button>
+          <span className="teammate-on">
+            On
+            <Toggle
+              label={`${name} on`}
+              tone="neutral"
+              on={!member.paused}
+              onChange={(on) =>
+                updateCrewMember(path, member.id, { paused: !on })
+              }
+            />
+          </span>
+        </span>
       ),
+      size: "lg",
+      className: "teammate-sheet",
     };
     body = (
-      <MemberBody
+      <TeammateBody
         key={member.id}
         crew={crew}
         member={member}
         name={name}
-        project={project}
-        onBack={toCrew}
-        onClose={onClose}
+        notice={crew.on && !chatReady ? firstCardChatText(name) : null}
+        alert={chatProblem}
       />
     );
   } else if (page.kind === "add") {
     header = {
-      title: page.custom ? "Your own member" : "Add to the crew",
-      description: page.custom
-        ? "It builds or checks, with your title and instructions"
-        : "Several Builders and Checkers; one Scout and one Fixer",
+      title: `Build ${project}'s team`,
+      description: crew.on
+        ? "Add teammates one at a time. You can change anyone later."
+        : "Start from a suggested team, or add teammates one at a time. You can change anyone later.",
+      leading: <ProjectMark path={path} className="team-build-head-mark" />,
+      above: back,
+      size: "lg",
+      className: "team-build-sheet",
     };
     body = (
-      <AddBody
+      <TeamBuilder
         crew={crew}
-        custom={!!page.custom}
-        hasFixer={!!fixerName}
-        onAddFixer={onAddFixer}
-        onCustom={(custom) => setPage({ kind: "add", custom })}
-        onAdded={(id) => setPage({ kind: "member", id })}
-        onBack={toCrew}
+        project={project}
+        {...(fixerName ? { fixerName } : {})}
+        {...(onAddFixer ? { onAddFixer } : {})}
+        onOpenMember={(id) => toPage({ kind: "member", id, from: "add" })}
+        onStart={async () => {
+          const error = await onTurnOn(path);
+          if (!error) onStarted?.(path);
+          return error;
+        }}
+        onClose={onClose}
       />
     );
   } else {
@@ -271,7 +306,7 @@ export function CrewSettingsSheet({
       (entry) => entry.role !== "fixer" || !!fixerName,
     );
     header = {
-      title: `${project} crew`,
+      title: `${project} team`,
       leading: (
         <span className="bot-sheet-critter">
           <CrewCritters
@@ -287,7 +322,7 @@ export function CrewSettingsSheet({
       trailing: (
         <span title="Works only while Aven is open and your Mac is awake">
           <Toggle
-            label="Crew on"
+            label="Team on"
             tone="neutral"
             on={crew.on}
             disabled={busy}
@@ -301,7 +336,7 @@ export function CrewSettingsSheet({
     };
     body = confirmingOff ? (
       <div className="bot-sheet-body">
-        <p className="bot-sheet-question">Turn the crew off?</p>
+        <p className="bot-sheet-question">Turn the team off?</p>
         <p className="bot-sheet-note">
           What it is doing stops and nothing new starts. Its cards and its copy
           stay, so Ready work is still there when you turn it on.
@@ -333,8 +368,8 @@ export function CrewSettingsSheet({
         members={members}
         fixerName={fixerName}
         problem={problem}
-        onOpenMember={(id) => setPage({ kind: "member", id })}
-        onAdd={() => setPage({ kind: "add" })}
+        onOpenMember={(id) => toPage({ kind: "member", id, from: "crew" })}
+        onAdd={() => toPage({ kind: "add" })}
         onClose={onClose}
       />
     );
@@ -344,10 +379,11 @@ export function CrewSettingsSheet({
       onClose={onClose}
       title={header.title}
       {...(header.description ? { description: header.description } : {})}
-      size="md"
-      className="bot-sheet crew-settings"
+      size={header.size ?? "md"}
+      className={`bot-sheet crew-settings ${header.className ?? ""}`}
       leading={header.leading}
       trailing={header.trailing}
+      above={header.above}
     >
       {body}
     </Modal>
@@ -366,93 +402,13 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function BackButton({ onBack, label }: { onBack: () => void; label: string }) {
-  return (
-    <button type="button" className="crew-settings-back" onClick={onBack}>
-      <ChevronLeft className="size-3.5" />
-      {label}
-    </button>
-  );
-}
-
-/** A labelled picker of numbers, yours kept when it isn't one of the choices. */
-function NumberPick({
-  label,
-  value,
-  choices,
-  format = String,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  choices: readonly number[];
-  format?: (value: number) => string;
-  onChange: (value: number) => void;
-}) {
-  const values = choices.includes(value)
-    ? choices
-    : [...choices, value].sort((a, b) => a - b);
-  return (
-    <select
-      className="aven-field crew-settings-select"
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(Number(event.target.value))}
-    >
-      {values.map((item) => (
-        <option key={item} value={item}>
-          {format(item)}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function LimitRow({
-  title,
-  detail,
-  children,
-}: {
-  title: string;
-  detail: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="bot-sheet-row crew-settings-limit">
-      <span title={detail}>{title}</span>
-      {children}
-    </div>
-  );
-}
-
-function memberApp(member: CrewMember): { harness: HarnessId; model: string } {
-  const app = crewMemberApp(member);
-  return {
-    harness: app.harness,
-    model: app.model ?? preferredModelId(app.harness),
-  };
-}
-
-/** A model's name; one the catalog doesn't know yet still reads as a name. */
-function modelName(id: string): string {
-  const known = findModel(id)?.name;
-  if (known) return known;
-  const bare = id.slice(id.indexOf(":") + 1);
-  if (/^gpt-/i.test(bare)) return `GPT-${bare.slice(4)}`;
-  return bare
-    .split("-")
-    .filter(Boolean)
-    .map((word) => word[0]!.toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
 /**
- * A member's one detail in the crew's list: its model ("Opus 5.5"), and a
- * word when it isn't as usual ("off"). The rest is on its own page.
+ * A teammate's one detail in the team's list: what it runs on ("Claude ·
+ * Opus 5.5"), and a word when it isn't as usual ("off").
  */
 function memberDetail(member: CrewMember): string {
   if (member.role === "fixer") return "Fixes what breaks";
-  return [modelName(memberApp(member).model), member.paused ? "off" : ""]
+  return [memberAppLine(member), member.paused ? "off" : ""]
     .filter(Boolean)
     .join(" · ");
 }
@@ -472,7 +428,7 @@ function CrewBody({
   crew: Crew;
   members: readonly CrewMember[];
   fixerName?: string;
-  /** Why the crew couldn't turn on. */
+  /** Why the team couldn't turn on. */
   problem: string | null;
   onOpenMember: (id: string) => void;
   onAdd: () => void;
@@ -482,7 +438,7 @@ function CrewBody({
   const allRuns = useCrewsAllRunsPerDay();
   return (
     <div className="bot-sheet-body" data-crew-settings={path}>
-      <Section title="Members">
+      <Section title="Teammates">
         {members.map((member) => (
           <button
             key={member.id}
@@ -515,7 +471,7 @@ function CrewBody({
           onClick={onAdd}
         >
           <Plus className="size-3.5" />
-          Add member
+          Add teammate
         </button>
       </Section>
       <RoutingSection crew={crew} />
@@ -536,7 +492,7 @@ function CrewBody({
             data-variant="ghost"
             onClick={() => setCrewPaused(path, !crew.paused)}
           >
-            {crew.paused ? "Resume crew" : "Pause crew"}
+            {crew.paused ? "Resume team" : "Pause team"}
           </button>
         ) : null}
         <button
@@ -648,7 +604,7 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
             detail={
               quiet.on
                 ? `Nothing new starts ${quietText(quiet)}`
-                : "The crew may start work at any hour"
+                : "The team may start work at any hour"
             }
           >
             <Toggle
@@ -668,11 +624,11 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
           {more ? (
             <>
               <LimitRow
-                title="Runs a day, all crews"
-                detail="A ceiling for every crew together"
+                title="Runs a day, all teams"
+                detail="A ceiling for every team together"
               >
                 <NumberPick
-                  label="Runs a day, all crews"
+                  label="Runs a day, all teams"
                   value={allRuns}
                   choices={ALL_RUNS_CHOICES}
                   onChange={setCrewsAllRunsPerDay}
@@ -691,7 +647,7 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
               </LimitRow>
               <LimitRow
                 title="Cards waiting for you"
-                detail="Passed cards on the crew's branch before it starts no new one"
+                detail="Passed cards on the team's branch before it starts no new one"
               >
                 <NumberPick
                   label="Cards waiting for you"
@@ -955,508 +911,19 @@ function RoutingSection({ crew }: { crew: Crew }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// A member
-
-/** Why an app can't be picked for this member, or null when it can. */
-function agentProblem(id: HarnessId, role: CrewRole): string | null {
-  if (!crewAgentAllowed(id))
-    return role === "builder"
-      ? "Can't be held to the crew's rules yet"
-      : "Can't be locked to read-only";
-  if (!crewAgentsFor(role).includes(id))
-    return "Can't keep a Builder out of the copy's settings yet";
-  if (id !== "claude" && !isHarnessAvailable(id)) return "Not installed";
-  return null;
-}
-
-function useInstalledAgents(): readonly HarnessId[] {
-  useSyncExternalStore(
-    subscribeHarnessAvailability,
-    getHarnessAvailabilitySnapshot,
-    getHarnessAvailabilitySnapshot,
-  );
-  // Claude Code and Codex always; any other app only once it's installed.
-  return HARNESSES.filter(
-    (id) =>
-      (CREW_AGENTS as readonly string[]).includes(id) || isHarnessAvailable(id),
-  );
-}
-
-function MemberBody({
-  crew,
-  member,
-  name,
-  project,
-  onBack,
-  onClose,
-}: {
-  crew: Crew;
-  member: CrewMember;
-  name: string;
-  project: string;
-  onBack: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="bot-sheet-body" data-crew-member-page={member.id}>
-      <BackButton onBack={onBack} label={`${project} crew`} />
-      <MemberFields crew={crew} member={member} />
-      <div className="bot-sheet-actions crew-settings-member-foot">
-        <RemoveMember
-          crew={crew}
-          member={member}
-          name={name}
-          onRemoved={onBack}
-        />
-        <button
-          type="button"
-          className="team-card-button"
-          data-variant="primary"
-          onClick={onClose}
-        >
-          Done
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function MemberFields({ crew, member }: { crew: Crew; member: CrewMember }) {
-  const path = crew.path;
-  const agents = useInstalledAgents();
-  const { harness, model } = memberApp(member);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [instructions, setInstructions] = useState(member.instructions ?? "");
-  const [scope, setScope] = useState((member.scope ?? []).join("\n"));
-  const [more, setMore] = useState(false);
-  const effort = crewEffortSetting(harness, model);
-  const set = (change: CrewMemberChange) =>
-    setProblem(updateCrewMember(path, member.id, change));
-  return (
-    <>
-      <div className="bot-sheet-row crew-settings-limit">
-        <span>Agent</span>
-        <select
-          className="aven-field crew-settings-select"
-          aria-label="Agent"
-          value={harness}
-          onChange={(event) => {
-            const id = event.target.value as HarnessId;
-            const why = agentProblem(id, member.role);
-            if (why) return setProblem(`${HARNESS_TITLE[id]}: ${why}.`);
-            set({ harness: id });
-          }}
-        >
-          {agents.map((id) => {
-            const why = agentProblem(id, member.role);
-            return (
-              <option
-                key={id}
-                value={id}
-                disabled={!!why && id !== harness}
-                title={why ?? undefined}
-                data-agent={id}
-              >
-                {HARNESS_TITLE[id]}
-              </option>
-            );
-          })}
-        </select>
-      </div>
-      {member.fallback ? (
-        <p className="bot-sheet-small">
-          Checking with Claude for now: Codex couldn't be locked down here.
-        </p>
-      ) : null}
-      <div className="bot-sheet-row crew-settings-limit">
-        <span title="Its usual model; a card can pick another">Model</span>
-        <span className="crew-settings-inline">
-          <ModelPicker
-            harness={harness}
-            model={model}
-            onChange={(nextHarness, nextModel) => {
-              if (nextHarness === harness) return set({ model: nextModel });
-              const why = agentProblem(nextHarness, member.role);
-              if (why)
-                return setProblem(`${HARNESS_TITLE[nextHarness]}: ${why}.`);
-              setProblem(
-                updateCrewMember(path, member.id, { harness: nextHarness }) ??
-                  updateCrewMember(path, member.id, { model: nextModel }),
-              );
-            }}
-          />
-          {effort ? (
-            <select
-              className="aven-field crew-settings-select"
-              aria-label="Effort"
-              title="How hard it thinks"
-              value={
-                effort.options.some((option) => option.value === member.effort)
-                  ? member.effort
-                  : ""
-              }
-              onChange={(event) => set({ effort: event.target.value || null })}
-            >
-              <option value="">Default effort</option>
-              {effort.options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          ) : null}
-        </span>
-      </div>
-      <textarea
-        className="aven-field crew-settings-text"
-        aria-label="Instructions"
-        title="Your words for this member, read at every turn. They add to the crew's rules and never replace them."
-        rows={2}
-        maxLength={CREW_INSTRUCTIONS_MAX}
-        placeholder={
-          member.role === "checker"
-            ? "Instructions, like “Always run the end-to-end tests”"
-            : member.role === "scout"
-              ? "Instructions, like “Look for small fixes in the docs”"
-              : "Instructions, like “Match the existing styles”"
-        }
-        value={instructions}
-        onChange={(event) => setInstructions(event.target.value)}
-        onBlur={() => set({ instructions })}
-      />
-      <Disclosure
-        label="More"
-        open={more}
-        onToggle={() => setMore(!more)}
-        data-crew-member-more
-      />
-      {more ? (
-        <div className="crew-settings-deeper" data-crew-member-more-open>
-          {member.label ? (
-            <div className="crew-settings-pair">
-              <input
-                className="aven-field crew-settings-input"
-                aria-label="Title"
-                defaultValue={member.label}
-                maxLength={40}
-                onBlur={(event) => {
-                  if (event.target.value.trim())
-                    set({ label: event.target.value });
-                }}
-              />
-              <input
-                className="aven-field crew-settings-input"
-                aria-label="Job"
-                placeholder={CREW_ROLE_INFO[member.role].job}
-                defaultValue={member.job ?? ""}
-                maxLength={120}
-                onBlur={(event) => set({ job: event.target.value })}
-              />
-            </div>
-          ) : null}
-          {member.role === "builder" ? (
-            <div className="bot-sheet-row crew-settings-limit">
-              <span title="One path or pattern a line; empty for the whole project. A change outside these goes back as a must-fix.">
-                Works only in
-              </span>
-              <textarea
-                className="aven-field crew-settings-text crew-settings-scope"
-                aria-label="Works only in"
-                rows={1}
-                placeholder="The whole project"
-                value={scope}
-                onChange={(event) => setScope(event.target.value)}
-                onBlur={() => set({ scope })}
-              />
-            </div>
-          ) : null}
-          <WhenItWorks crew={crew} member={member} onProblem={setProblem} />
-          <p className="bot-sheet-small" data-crew-member-rules>
-            {CREW_ROLE_INFO[member.role].edits
-              ? "Changes files only in the crew's copy, never pushes, runs in its sandbox."
-              : "Only reads, never pushes, runs in its sandbox."}
-          </p>
-        </div>
-      ) : null}
-      {problem ? (
-        <p className="bot-sheet-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-/** The member's mark: pressing it opens the marks to pick from, in a small popover. */
-function MarkButton({ path, member }: { path: string; member: CrewMember }) {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const mark = memberCritter(member);
-  return (
-    <>
-      <button
-        type="button"
-        className="bot-sheet-critter crew-mark-button"
-        aria-label="Change its mark"
-        title="Change its mark"
-        aria-haspopup="dialog"
-        aria-expanded={!!anchor}
-        data-crew-mark-button
-        onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
-      >
-        <CrewCritter
-          path={path}
-          role={member.role}
-          {...(member.critter ? { critter: mark } : {})}
-          className="bot-sheet-critter-sprite"
-        />
-      </button>
-      {anchor ? (
-        <Popover
-          anchor={anchor}
-          side="bottom"
-          align="start"
-          width={268}
-          // Above the sheet it opens from.
-          layer={LAYER.dialog + 1}
-          autoFocus
-          onDismiss={() => setAnchor(null)}
-          role="dialog"
-          aria-label="Its mark"
-          className="crew-mark-popover"
-          data-crew-mark-popover
-        >
-          <div
-            className="crew-critter-grid"
-            role="radiogroup"
-            aria-label="Mark"
-          >
-            {MEMBER_SIGIL_CHOICES.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                role="radio"
-                aria-checked={item.key === mark}
-                aria-label={item.label}
-                title={item.label}
-                className="crew-critter-cell"
-                data-mark-choice={item.key}
-                onClick={() => {
-                  const why = updateCrewMember(path, member.id, {
-                    critter: item.key,
-                  });
-                  setProblem(why);
-                  if (!why) setAnchor(null);
-                }}
-              >
-                <DotMark sigil={item} className="crew-critter-cell-art" />
-              </button>
-            ))}
-          </div>
-          {problem ? (
-            <p className="bot-sheet-problem" role="alert">
-              {problem}
-            </p>
-          ) : null}
-        </Popover>
-      ) : null}
-    </>
-  );
-}
-
-/**
- * When it works, under More: the Scout's looks and its ideas a day,
- * Security's weekly sweep, and which Builder takes cards no rule picks.
- * Each row's why is its tooltip.
- */
-function WhenItWorks({
-  crew,
-  member,
-  onProblem,
-}: {
-  crew: Crew;
-  member: CrewMember;
-  onProblem: (problem: string | null) => void;
-}) {
-  const path = crew.path;
-  if (member.role === "scout")
-    return (
-      <>
-        <LimitRow
-          title="Looks for ideas"
-          detail="Only while the crew has nothing else to do"
-        >
-          <select
-            className="aven-field crew-settings-select"
-            aria-label="Looks for ideas"
-            value={member.schedule ?? "daily"}
-            onChange={(event) =>
-              onProblem(
-                updateCrewMember(path, member.id, {
-                  schedule: event.target.value as CrewScoutSchedule,
-                }),
-              )
-            }
-          >
-            <option value="daily">Once a day</option>
-            <option value="weekly">Once a week</option>
-            <option value="off">Never</option>
-          </select>
-        </LimitRow>
-        <LimitRow title="Ideas a day" detail="At most, added to Ideas">
-          <NumberPick
-            label="Ideas a day"
-            value={crew.limits.ideasPerDay}
-            choices={LIMIT_CHOICES.ideasPerDay}
-            onChange={(value) => setCrewLimit(path, "ideasPerDay", value)}
-          />
-        </LimitRow>
-        <LimitRow
-          title="Start by themselves"
-          detail="Small ones, a day. 0 for none: you give each one"
-        >
-          <NumberPick
-            label="Ideas that start by themselves a day"
-            value={crew.limits.autoStartsPerDay}
-            choices={LIMIT_CHOICES.autoStartsPerDay}
-            onChange={(value) => setCrewLimit(path, "autoStartsPerDay", value)}
-          />
-        </LimitRow>
-      </>
-    );
-  if (member.role === "security")
-    return (
-      <LimitRow
-        title="Security sweep"
-        detail="Reads the whole project and adds security cards to Ideas. They wait for you"
-      >
-        <select
-          className="aven-field crew-settings-select"
-          aria-label="Security sweep"
-          value={member.sweep ?? "off"}
-          onChange={(event) =>
-            onProblem(
-              updateCrewMember(path, member.id, {
-                sweep: event.target.value === "weekly" ? "weekly" : "off",
-              }),
-            )
-          }
-        >
-          <option value="off">Off</option>
-          <option value="weekly">Once a week</option>
-        </select>
-      </LimitRow>
-    );
-  if (member.role !== "builder") return null;
-  const builders = crew.members.filter((entry) => entry.role === "builder");
-  if (builders.length < 2) return null;
-  const isDefault = defaultBuilder(crew)?.id === member.id;
-  return (
-    <LimitRow
-      title="Takes cards no rule picks"
-      detail="One Builder is the default"
-    >
-      <Toggle
-        label="Takes cards no rule picks"
-        tone="neutral"
-        on={isDefault}
-        disabled={isDefault}
-        onChange={(on) => {
-          if (on) setDefaultBuilder(path, member.id);
-        }}
-      />
-    </LimitRow>
-  );
-}
-
-function RemoveMember({
-  crew,
-  member,
-  name,
-  onRemoved,
-}: {
-  crew: Crew;
-  member: CrewMember;
-  name: string;
-  onRemoved: () => void;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const last =
-    (member.role === "builder" || member.role === "checker") &&
-    crew.members.filter((entry) => entry.role === member.role).length <= 1;
-  if (confirming)
-    return (
-      <div className="crew-settings-remove" data-confirming>
-        <p className="bot-sheet-question">Remove {name}?</p>
-        <p className="bot-sheet-note">
-          Its cards go by the crew's rules. Its chat stays in your history and
-          doesn't run again.
-        </p>
-        {problem ? (
-          <p className="bot-sheet-problem" role="alert">
-            {problem}
-          </p>
-        ) : null}
-        <div className="bot-sheet-actions">
-          <button
-            type="button"
-            className="team-card-button"
-            onClick={() => setConfirming(false)}
-          >
-            Keep it
-          </button>
-          <button
-            type="button"
-            className="team-card-button"
-            data-variant="primary"
-            onClick={() => {
-              const why = removeCrewMember(crew.path, member.id);
-              if (why) setProblem(why);
-              else onRemoved();
-            }}
-          >
-            Remove
-          </button>
-        </div>
-      </div>
-    );
-  return (
-    <button
-      type="button"
-      className="crew-settings-remove-link"
-      disabled={last}
-      title={
-        last
-          ? `A crew needs a ${CREW_ROLE_INFO[member.role].label}.`
-          : undefined
-      }
-      onClick={() => setConfirming(true)}
-    >
-      Remove from crew
-    </button>
-  );
-}
-
 /** The Fixer is the project's bot: its switches here, the rest in its own settings. */
 function FixerBody({
   path,
-  project,
   onFixerSettings,
-  onBack,
   onClose,
 }: {
   path: string;
-  project: string;
   onFixerSettings?: (path: string) => void;
-  onBack: () => void;
   onClose: () => void;
 }) {
   const bot = useProjectBot(path);
   return (
     <div className="bot-sheet-body" data-crew-member-page="fixer">
-      <BackButton onBack={onBack} label={`${project} crew`} />
       <Section title="Agent">
         <p className="bot-sheet-small crew-settings-hint">
           Claude Code. The Fixer is this project's bot, which runs on Claude.
@@ -1518,352 +985,5 @@ function FixerBody({
         </button>
       </div>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Adding a member
-
-const TEMPLATES: readonly {
-  template: CrewTemplate | "fixer";
-  role: CrewRole;
-  title: string;
-  job: string;
-}[] = [
-  {
-    template: "builder",
-    role: "builder",
-    title: "Builder",
-    job: "Builds the cards it's given. Add more to split the work",
-  },
-  {
-    template: "checker",
-    role: "checker",
-    title: "Checker",
-    job: "Checks each build before you see it",
-  },
-  {
-    template: "scout",
-    role: "scout",
-    title: "Scout",
-    job: CREW_ROLE_INFO.scout.job,
-  },
-  {
-    template: "fixer",
-    role: "fixer",
-    title: "Fixer",
-    job: "This project's bot: checks chats and the dev server",
-  },
-  {
-    template: "custom",
-    role: "builder",
-    title: "Your own",
-    job: "A title, a job line and your instructions",
-  },
-];
-
-/**
- * Ready-made members: one click adds one, on its role's usual app and
- * model; its name, instructions and paths stay editable. One already in
- * the crew is greyed.
- */
-function Gallery({
-  crew,
-  onAdded,
-  onProblem,
-}: {
-  crew: Crew;
-  onAdded: (id: string) => void;
-  onProblem: (problem: string | null) => void;
-}) {
-  useSyncExternalStore(
-    subscribeHarnessAvailability,
-    getHarnessAvailabilitySnapshot,
-    getHarnessAvailabilitySnapshot,
-  );
-  const models = crewModelsHere();
-  return (
-    <>
-      <h3 className="crew-settings-heading">Ready-made</h3>
-      <div role="list" className="crew-gallery" data-crew-gallery>
-        {CREW_PRESETS.map((preset) => {
-          const inCrew = presetInCrew(crew, preset);
-          const app = crewModelFor(models, preset.role);
-          const name = preset.label ?? CREW_ROLE_INFO[preset.role].label;
-          return (
-            <button
-              key={preset.key}
-              type="button"
-              role="listitem"
-              className="crew-gallery-item"
-              data-crew-preset={preset.key}
-              aria-disabled={inCrew || undefined}
-              title={inCrew ? `${name} is in the crew` : `Add ${name}`}
-              onClick={() => {
-                if (inCrew) return;
-                const added = addCrewPreset(crew.path, preset.key, app);
-                if ("error" in added) onProblem(added.error);
-                else onAdded(added.id);
-              }}
-            >
-              <CrewCritter
-                path={crew.path}
-                role={preset.role}
-                critter={preset.mark}
-              />
-              <span className="crew-gallery-text">
-                <strong>
-                  <MemberTitle
-                    name={name}
-                    title={CREW_ROLE_INFO[preset.role].label}
-                  />
-                </strong>
-                <small>{inCrew ? "In the crew" : preset.job}</small>
-                <small className="crew-gallery-app">
-                  {HARNESS_TITLE[app.harness]} · {modelName(app.model)}
-                  {preset.scope?.length ? " · its own paths" : ""}
-                </small>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-function AddBody({
-  crew,
-  custom,
-  hasFixer,
-  onAddFixer,
-  onCustom,
-  onAdded,
-  onBack,
-}: {
-  crew: Crew;
-  custom: boolean;
-  hasFixer: boolean;
-  onAddFixer?: (path: string) => void;
-  onCustom: (custom: boolean) => void;
-  onAdded: (id: string) => void;
-  onBack: () => void;
-}) {
-  const [problem, setProblem] = useState<string | null>(null);
-  const hasScout = crew.members.some((member) => member.role === "scout");
-  const blockedBy = (template: CrewTemplate | "fixer"): string | null => {
-    if (template === "scout" && hasScout) return "This crew has its Scout";
-    if (template === "fixer")
-      return hasFixer
-        ? "This crew has its Fixer"
-        : onAddFixer
-          ? null
-          : "Add a bot to the project first";
-    return null;
-  };
-  return (
-    <div className="bot-sheet-body" data-crew-add>
-      <BackButton
-        onBack={custom ? () => onCustom(false) : onBack}
-        label="Back"
-      />
-      {custom ? (
-        <CustomMember
-          crew={crew}
-          onAdded={onAdded}
-          onCancel={() => onCustom(false)}
-        />
-      ) : (
-        <>
-          <Gallery crew={crew} onAdded={onAdded} onProblem={setProblem} />
-          <h3 className="crew-settings-heading crew-blank-heading">
-            Start from blank
-          </h3>
-          <div role="list" className="crew-templates">
-            {TEMPLATES.map((item) => {
-              const blocked = blockedBy(item.template);
-              return (
-                <button
-                  key={item.template}
-                  type="button"
-                  role="listitem"
-                  className="bot-sheet-row crew-settings-member"
-                  data-crew-template={item.template}
-                  aria-disabled={!!blocked || undefined}
-                  onClick={() => {
-                    if (blocked) return;
-                    if (item.template === "fixer") {
-                      onAddFixer?.(crew.path);
-                      return;
-                    }
-                    if (item.template === "custom") {
-                      onCustom(true);
-                      return;
-                    }
-                    const added = addCrewMember(crew.path, item.template);
-                    if ("error" in added) setProblem(added.error);
-                    else onAdded(added.id);
-                  }}
-                >
-                  {item.template === "custom" ? (
-                    <span className="crew-template-plus" aria-hidden="true">
-                      <Plus className="size-4" />
-                    </span>
-                  ) : (
-                    <CrewCritter path={crew.path} role={item.role} />
-                  )}
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>{blocked ?? item.job}</small>
-                  </span>
-                  <ChevronRight className="crew-settings-chevron size-3.5" />
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-      {problem ? (
-        <p className="bot-sheet-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function CustomMember({
-  crew,
-  onAdded,
-  onCancel,
-}: {
-  crew: Crew;
-  onAdded: (id: string) => void;
-  onCancel: () => void;
-}) {
-  const agents = useInstalledAgents();
-  const [label, setLabel] = useState("");
-  const [job, setJob] = useState("");
-  const [role, setRole] = useState<"builder" | "checker">("builder");
-  const [harness, setHarness] = useState<HarnessId>("claude");
-  const [instructions, setInstructions] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
-  const add = () => {
-    const added = addCrewMember(crew.path, "custom", {
-      role,
-      label,
-      job,
-      harness,
-      instructions,
-    });
-    if ("error" in added) setProblem(added.error);
-    else onAdded(added.id);
-  };
-  return (
-    <form
-      className="crew-custom"
-      data-crew-custom
-      onSubmit={(event) => {
-        event.preventDefault();
-        add();
-      }}
-    >
-      <label className="crew-settings-field">
-        <span>Title</span>
-        <input
-          className="aven-field crew-settings-input"
-          placeholder="Designer"
-          maxLength={40}
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-        />
-      </label>
-      <label className="crew-settings-field">
-        <span>Job</span>
-        <input
-          className="aven-field crew-settings-input"
-          placeholder="Makes it look right"
-          maxLength={120}
-          value={job}
-          onChange={(event) => setJob(event.target.value)}
-        />
-      </label>
-      <label className="crew-settings-field">
-        <span>Works as</span>
-        <select
-          className="aven-field crew-settings-select"
-          value={role}
-          onChange={(event) =>
-            setRole(event.target.value as "builder" | "checker")
-          }
-        >
-          <option value="builder">A Builder: changes files in the copy</option>
-          <option value="checker">A Checker: only reads and checks</option>
-        </select>
-      </label>
-      <label className="crew-settings-field">
-        <span>Agent</span>
-        <select
-          className="aven-field crew-settings-select"
-          value={harness}
-          onChange={(event) => setHarness(event.target.value as HarnessId)}
-        >
-          {agents.map((id) => {
-            const why = agentProblem(id, role);
-            return (
-              <option key={id} value={id} disabled={!!why}>
-                {HARNESS_TITLE[id]}
-                {why ? ` (${why.toLowerCase()})` : ""}
-              </option>
-            );
-          })}
-        </select>
-      </label>
-      <label className="crew-settings-field">
-        <span>Instructions</span>
-        <textarea
-          className="aven-field crew-settings-text"
-          rows={3}
-          maxLength={CREW_INSTRUCTIONS_MAX}
-          placeholder="Keep to the design tokens. Check contrast in both themes."
-          value={instructions}
-          onChange={(event) => setInstructions(event.target.value)}
-        />
-      </label>
-      {problem ? (
-        <p className="bot-sheet-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-      <div className="bot-sheet-actions">
-        <button type="button" className="team-card-button" onClick={onCancel}>
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="team-card-button"
-          data-variant="primary"
-          disabled={!label.trim()}
-        >
-          Add
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/** A member's name, then its title when the name doesn't already say it. */
-function MemberTitle({ name, title }: { name: string; title: string }) {
-  const beside = titleBeside(name, title);
-  return (
-    <>
-      {name}
-      {beside ? (
-        <>
-          {" "}
-          <small className="crew-settings-role">{beside}</small>
-        </>
-      ) : null}
-    </>
   );
 }

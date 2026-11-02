@@ -258,7 +258,7 @@ export type CrewBoardInfo = {
 };
 
 const A = {
-  give: { id: "give", label: "Give to crew", primary: true },
+  give: { id: "give", label: "Give to team", primary: true },
   notNow: { id: "not-now", label: "Not now" },
   watch: { id: "watch", label: "Watch" },
   review: { id: "review", label: "Review" },

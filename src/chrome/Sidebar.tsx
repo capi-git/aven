@@ -1562,10 +1562,10 @@ function SidebarComponent({
         ? "Add a project first"
         : !candidates.length
           ? addCrew
-            ? "Every project has a crew"
+            ? "Every project has a team"
             : "Every project has a bot"
           : addCrew
-            ? "No project here can have a crew"
+            ? "No project here can have a team"
             : "No project here can have a bot";
       closeSessionMenu();
       setFolderMenu(null);
@@ -2406,14 +2406,14 @@ function SidebarComponent({
                 (addToSection && projects.length) ? (
                   <section
                     className="personal-bots-group"
-                    aria-label={onAddCrew ? "Crews" : "Bots"}
+                    aria-label={onAddCrew ? "Teams" : "Bots"}
                     data-sidebar-bots=""
                   >
                     <div className="personal-projects-heading">
-                      <span>{onAddCrew ? "Crews" : "Bots"}</span>
+                      <span>{onAddCrew ? "Teams" : "Bots"}</span>
                       {addToSection ? (
                         <SessionsHeaderButton
-                          label={addCrew ? "New crew" : "New bot"}
+                          label={addCrew ? "New team" : "New bot"}
                           open={!!botPicker}
                           hasPopup
                           onClick={(event) =>
@@ -2443,7 +2443,7 @@ function SidebarComponent({
                             openBotPicker(event.currentTarget)
                           }
                         >
-                          {addCrew ? "Add a crew" : "Add a bot"}
+                          {addCrew ? "Add a team" : "Add a bot"}
                         </button>
                       ) : null}
                     </div>
@@ -2528,7 +2528,8 @@ function SidebarComponent({
         <BotPicker
           x={botPicker.x}
           y={botPicker.y}
-          label={addCrew ? "Add a crew to" : "Add a bot to"}
+          label={addCrew ? "Add a team to" : "Add a bot to"}
+          kind={addCrew ? "team" : "bot"}
           projects={botPicker.projects}
           empty={botPicker.empty}
           onBusyChange={(busy) => {
