@@ -1779,11 +1779,24 @@ fn resolve_cursor_agent() -> Option<PathBuf> {
     first_binary_matching(candidates, is_cursor_agent)
 }
 
+/// Prefers whatever `codex` the user's own shell resolves, like
+/// `resolve_claude`. Trying `~/.local/bin/codex` first picked the ChatGPT
+/// app's wrapper, pinned to an older bundled CLI, over a newer Homebrew or npm
+/// install, so Aven ran a different Codex than the terminal.
 fn resolve_codex() -> Option<PathBuf> {
-    let home = dirs_home().map(PathBuf::from);
-    let mut candidates: Vec<PathBuf> = Vec::new();
+    first_binary(codex_candidates(
+        dirs_home().map(PathBuf::from).as_deref(),
+        which_via_login_shell("codex"),
+    ))
+}
 
-    if let Some(home) = &home {
+/// Where to look for `codex`, in order: the login shell's answer, the fixed
+/// install dirs a Finder launch can still reach, and last the Codex app's
+/// bundled CLI, which never goes on PATH and is pinned to the app release.
+fn codex_candidates(home: Option<&Path>, from_shell: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    candidates.extend(from_shell);
+    if let Some(home) = home {
         candidates.push(home.join(".local/bin/codex"));
         candidates.push(home.join(".npm-global/bin/codex"));
         candidates.push(home.join(".cargo/bin/codex"));
@@ -1799,21 +1812,13 @@ fn resolve_codex() -> Option<PathBuf> {
     candidates.push(PathBuf::from("/usr/local/bin/codex"));
     candidates.push(PathBuf::from("/usr/bin/codex"));
     candidates.push(PathBuf::from("/snap/bin/codex"));
-    if let Some(from_shell) = which_via_login_shell("codex") {
-        candidates.push(from_shell);
-    }
-
-    // Last resort: the Codex app bundles its own CLI, but never puts it on
-    // PATH. It is pinned to the app release (often a prerelease), so a real
-    // CLI install always wins.
-    if let Some(home) = &home {
+    if let Some(home) = home {
         candidates.push(home.join("Applications/Codex.app/Contents/Resources/codex"));
     }
     candidates.push(PathBuf::from(
         "/Applications/Codex.app/Contents/Resources/codex",
     ));
-
-    first_binary(candidates)
+    candidates
 }
 
 /// The official standalone Windows installer does not use npm's directory.
@@ -3408,6 +3413,39 @@ mod tests {
         assert_eq!(which_in_path("", "claude"), None);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `~/.local/bin/codex` is often the ChatGPT app's wrapper around an older
+    /// bundled CLI; the shell's `codex` is the one the user updates.
+    #[test]
+    fn codex_resolution_asks_the_shell_first_and_the_codex_app_last() {
+        let home = Path::new("/tmp/home");
+        let candidates = codex_candidates(Some(home), Some("/opt/homebrew/bin/codex".into()));
+        assert_eq!(candidates[0], PathBuf::from("/opt/homebrew/bin/codex"));
+        assert_eq!(candidates[1], PathBuf::from("/tmp/home/.local/bin/codex"));
+        assert_eq!(
+            candidates.last().map(PathBuf::as_path),
+            Some(Path::new(
+                "/Applications/Codex.app/Contents/Resources/codex"
+            ))
+        );
+        let at = |dir: &str| candidates.iter().position(|c| c == Path::new(dir)).unwrap();
+        assert!(
+            at("/opt/homebrew/bin/codex") < at("/tmp/home/.local/bin/codex"),
+            "the shell's codex must beat the app wrapper"
+        );
+        assert!(
+            at("/snap/bin/codex") < at("/tmp/home/Applications/Codex.app/Contents/Resources/codex")
+        );
+
+        // A GUI launch with no shell answer still has the fixed dirs.
+        let without_shell = codex_candidates(Some(home), None);
+        assert_eq!(
+            without_shell[0],
+            PathBuf::from("/tmp/home/.local/bin/codex")
+        );
+        assert_eq!(without_shell.len(), candidates.len() - 1);
+        assert!(codex_candidates(None, None).contains(&PathBuf::from("/usr/local/bin/codex")));
     }
 
     #[test]
