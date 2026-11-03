@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  forgetMotionImage,
   holdMotionPages,
   lastMotionImage,
+  panesMoved,
   registerMotionPage,
   releaseMotionPages,
+  releaseMotionPagesAfter,
   resetMotionPages,
   type MotionPage,
 } from "./browserMotion";
+import type { LayoutNode } from "./layout";
 
 function fakePage(capture: () => Promise<string | null>) {
   const log: string[] = [];
@@ -28,6 +32,91 @@ describe("browser pages in motions", () => {
   afterEach(() => {
     resetMotionPages();
     vi.useRealTimers();
+  });
+
+  it("keeps a page held by a later motion past the first one's timer", async () => {
+    const web = fakePage(async () => "data:web");
+    registerMotionPage("web", web.page);
+    const first = await holdMotionPages(["web"]);
+    releaseMotionPagesAfter(first, 200);
+    await vi.advanceTimersByTimeAsync(100);
+    const second = await holdMotionPages(["web"]);
+    expect(second).toEqual(["web"]);
+    releaseMotionPagesAfter(second, 200);
+    // The first motion's time is up: the second one still has the page.
+    await vi.advanceTimersByTimeAsync(140);
+    expect(web.log).toEqual(["hold data:web"]);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(web.log).toEqual(["hold data:web", "release"]);
+  });
+
+  it("does not capture a page already held", async () => {
+    const capture = vi.fn(async () => "data:web");
+    const web = fakePage(capture);
+    registerMotionPage("web", web.page);
+    await holdMotionPages(["web"]);
+    await holdMotionPages(["web"]);
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(web.log).toEqual(["hold data:web"]);
+  });
+
+  it("tells a hold when the motion has stopped waiting for it", async () => {
+    let wanted: (() => boolean) | undefined;
+    registerMotionPage("web", {
+      capture: async () => "data:web",
+      hold: (_src, stillWanted) => {
+        wanted = stillWanted;
+        return new Promise(() => {});
+      },
+      release: async () => {},
+    });
+    const holding = holdMotionPages(["web"], [], 80);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(wanted?.()).toBe(true);
+    await vi.advanceTimersByTimeAsync(80);
+    expect(await holding).toEqual([]);
+    expect(wanted?.()).toBe(false);
+  });
+
+  it("forgets a page's picture when the page changes", async () => {
+    const web = fakePage(async () => "data:web");
+    registerMotionPage("web", web.page);
+    releaseMotionPages(await holdMotionPages(["web"]));
+    forgetMotionImage("web");
+    expect(lastMotionImage("web")).toBeUndefined();
+  });
+
+  it("names only the panes a layout change moves", () => {
+    const pane = (id: string) => ({ type: "leaf" as const, id });
+    const split = (
+      id: string,
+      dir: "right" | "down",
+      children: LayoutNode[],
+      sizes: number[],
+    ): LayoutNode => ({ type: "split", id, dir, children, sizes });
+    const before = split("s", "right", [pane("a"), pane("b")], [1, 1]);
+    // The right half splits: the left pane keeps its place.
+    const after = split(
+      "s",
+      "right",
+      [pane("a"), split("t", "down", [pane("b"), pane("c")], [1, 1])],
+      [1, 1],
+    );
+    expect([...panesMoved(before, after)].sort()).toEqual(["b", "c"]);
+    expect(panesMoved(before, before).size).toBe(0);
+    // Sizes count as shares, however they are written.
+    expect(
+      panesMoved(before, split("s", "right", [pane("a"), pane("b")], [50, 50]))
+        .size,
+    ).toBe(0);
+    expect(
+      [
+        ...panesMoved(
+          before,
+          split("s", "right", [pane("b"), pane("a")], [1, 1]),
+        ),
+      ].sort(),
+    ).toEqual(["a", "b"]);
   });
 
   it("captures live pages, holds them with their picture and remembers it", async () => {

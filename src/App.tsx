@@ -137,7 +137,7 @@ import {
 } from "./surfaces/WorkspaceBrowserSurface";
 import {
   SWITCH_MS,
-  WorkspaceStage,
+  MainWorkspaceStage,
   workspaceSurfaceDropAt,
   ZOOM_GLIDE_MS,
   type WorkspaceSurfaceDropTarget,
@@ -163,7 +163,12 @@ import {
   workspaceIntentIds,
   type WorkspaceIntent,
 } from "./lib/workspaceIntents";
-import { holdMotionPages, releaseMotionPagesAfter } from "./lib/browserMotion";
+import { setWorkspaceSurfaceDrag } from "./lib/workspaceSurfaceDrag";
+import {
+  holdMotionPages,
+  panesMoved,
+  releaseMotionPagesAfter,
+} from "./lib/browserMotion";
 import {
   addStripPane,
   combineStripTabs,
@@ -2041,16 +2046,22 @@ export default function App({
   const browserIdsRef = useRef<ReadonlySet<string>>(new Set());
   browserIdsRef.current = new Set(browserSurfaces.map((tab) => tab.surfaceId));
   /** Hold the pages a motion moves, or null when no page is involved. */
-  const holdPagesForMotion = useCallback((incoming: readonly string[]) => {
-    if (motionReduced()) return null;
-    const { view } = viewRef.current;
-    const pages = browserIdsRef.current;
-    // A page on a rail is not showing: it comes in, as from another entry.
-    const live = openLeafIds(view.layout).filter((id) => pages.has(id));
-    const coming = incoming.filter((id) => pages.has(id) && !live.includes(id));
-    if (!live.length && !coming.length) return null;
-    return holdMotionPages(live, coming);
-  }, []);
+  const holdPagesForMotion = useCallback(
+    (incoming: readonly string[], moved?: ReadonlySet<string>) => {
+      if (motionReduced()) return null;
+      const { view } = viewRef.current;
+      const pages = browserIdsRef.current;
+      // A page on a rail is not showing: it comes in, as from another entry.
+      const open = openLeafIds(view.layout).filter((id) => pages.has(id));
+      const live = moved ? open.filter((id) => moved.has(id)) : open;
+      const coming = incoming.filter(
+        (id) => pages.has(id) && !open.includes(id),
+      );
+      if (!live.length && !coming.length) return null;
+      return holdMotionPages(live, coming);
+    },
+    [],
+  );
   // Bumped for changes whose panes glide to their new places.
   const [paneGlide, setPaneGlide] = useState(0);
   const applyIntent = useCallback(
@@ -2076,15 +2087,33 @@ export default function App({
   );
   const onWorkspaceIntent = useCallback(
     (intent: WorkspaceIntent) => {
-      const holding = MOVING_INTENTS.has(intent.type)
-        ? holdPagesForMotion(workspaceIntentIds(intent))
-        : null;
+      if (!MOVING_INTENTS.has(intent.type)) {
+        applyIntent(intent);
+        return;
+      }
+      const before = viewRef.current;
+      const ids = workspaceIntentIds(intent);
+      const next = applyWorkspaceIntent(before.viewWith(ids), intent).view;
+      // A change that moves no pane holds no page. Zooming draws a pane over
+      // the others without changing the layout, so every page goes with it.
+      if (
+        intent.type !== "zoom" &&
+        JSON.stringify(next) === JSON.stringify(before.view)
+      )
+        return;
+      const holding = holdPagesForMotion(
+        ids,
+        intent.type === "zoom" || !before.view.layout || !next.layout
+          ? undefined
+          : panesMoved(before.view.layout, next.layout),
+      );
       if (!holding) {
         applyIntent(intent);
         return;
       }
       void holding.then((held) => {
-        applyIntent(intent);
+        // Committed now, so the pages' time starts with the panes' motion.
+        flushSync(() => applyIntent(intent));
         releaseMotionPagesAfter(held, ZOOM_GLIDE_MS);
       });
     },
@@ -2129,9 +2158,6 @@ export default function App({
   const [windowStripHost, setWindowStripHost] = useState<HTMLDivElement | null>(
     null,
   );
-  const [surfaceDragging, setSurfaceDragging] = useState(false);
-  const [surfaceDrop, setSurfaceDrop] =
-    useState<WorkspaceSurfaceDropTarget | null>(null);
   const surfaceDropRef = useRef<WorkspaceSurfaceDropTarget | null>(null);
   const onSurfaceDragMove = useCallback(
     (
@@ -2150,10 +2176,7 @@ export default function App({
           ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
           : null;
       surfaceDropRef.current = target;
-      setSurfaceDragging(true);
-      setSurfaceDrop((previous) =>
-        JSON.stringify(previous) === JSON.stringify(target) ? previous : target,
-      );
+      setWorkspaceSurfaceDrag({ dragging: true, target });
     },
     [],
   );
@@ -2167,8 +2190,7 @@ export default function App({
           ? workspaceSurfaceDropAt(stage, x, y, id, surfaceDropRef.current)
           : null;
       surfaceDropRef.current = null;
-      setSurfaceDragging(false);
-      setSurfaceDrop(null);
+      setWorkspaceSurfaceDrag({ dragging: false, target: null });
       if (cancelled) return false;
       // Outside drops cancel. Splits and tab moves stay inside this workspace.
       if (!target) return false;
@@ -5007,7 +5029,7 @@ export default function App({
         return;
       }
       void holding.then((held) => {
-        selectSurfaceNow(id);
+        flushSync(() => selectSurfaceNow(id));
         releaseMotionPagesAfter(held, SWITCH_MS);
       });
     },
@@ -12588,7 +12610,7 @@ export default function App({
                             />
                             {/* Tabs stay in each pane's own header, one pane or
                               several, so the window toolbar stays clean. */}
-                            <WorkspaceStage
+                            <MainWorkspaceStage
                               headers={visibleSurfaceIds
                                 // One header per pane, naming its tab once
                                 // (paneTitleRow).
@@ -12720,9 +12742,7 @@ export default function App({
                               }
                               focusRail={railFocus}
                               landed={paneLanding}
-                              dragging={surfaceDragging}
                               dragLabel="Move tab"
-                              dragTarget={surfaceDrop}
                               surfaces={[
                                 ...tabs
                                   .filter((tab) => !detachedIds.has(tab.id))

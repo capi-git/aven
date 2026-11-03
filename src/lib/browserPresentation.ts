@@ -7,6 +7,7 @@ import {
   type BrowserHole,
 } from "./browser";
 import {
+  BROWSER_MOVING_ATTRIBUTE,
   BROWSER_OVERLAYS,
   MAX_BROWSER_HOLES,
   browserOverlayState,
@@ -604,15 +605,19 @@ export function createBrowserPresentation({
       movingCut: false,
     });
   };
-  /** Whether a moving surface is over the page now. */
+  /**
+   * A moving surface is out anywhere in the window. A still is taken as it
+   * lifts, not when it reaches the page: it can take a while, and the surface
+   * would stay under the page until then.
+   */
+  const movingOut = () =>
+    readState().holesSupported &&
+    !!document.querySelector(`[${BROWSER_MOVING_ATTRIBUTE}]`);
+  /** Whether a moving surface needs a still of the page now. */
   const movingWanted = () => {
     if (disposed || motionHeld || freezeState !== "none") return false;
     const bounds = currentBounds();
-    return (
-      !!bounds &&
-      hasVisibleBrowserArea(bounds) &&
-      browserOverlayState(bounds, readState().holesSupported).moving.length > 0
-    );
+    return !!bounds && hasVisibleBrowserArea(bounds) && movingOut();
   };
   /**
    * Moving surfaces over the page: until a still image of the page is
@@ -628,7 +633,8 @@ export function createBrowserPresentation({
       !hasVisibleBrowserArea(current.bounds)
     )
       return current;
-    if (!current.moving.length) {
+    const out = current.moving.length > 0 || movingOut();
+    if (!out) {
       if (stillSince !== null || stillBeneath !== null) leaveStill();
       return current;
     }
@@ -639,6 +645,7 @@ export function createBrowserPresentation({
       tryStill(current.bounds);
       return current;
     }
+    if (!current.moving.length) return current;
     const holes = [...(current.bounds.holes ?? []), ...current.moving].slice(
       0,
       MAX_BROWSER_HOLES,
@@ -771,7 +778,7 @@ export function createBrowserPresentation({
     ) {
       endBrowserHandoff(surfaceId);
       settleMotion();
-      if (show && stillMounted) releaseStill();
+      if (show && stillMounted && !movingOut()) releaseStill();
       if (following) schedule();
       return;
     }

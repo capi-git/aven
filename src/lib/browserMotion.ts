@@ -1,3 +1,5 @@
+import { isRailed, type LayoutNode } from "./layout";
+
 /**
  * Native browser pages in layout motions. A Chromium page is a native view
  * above the HTML workspace: WebKit cannot move, scale or fade it, so a pane
@@ -21,14 +23,23 @@ const IMAGE_CACHE_SIZE = 6;
 export type MotionPage = {
   /** A picture of the live page now, or null when it is not showing. */
   capture(): Promise<string | null>;
-  /** Put the picture in the page's place and hide the live page. */
-  hold(src: string): Promise<boolean>;
+  /**
+   * Put the picture in the page's place and hide the live page, unless the
+   * motion has stopped waiting for it (`wanted`) by then.
+   */
+  hold(src: string, wanted: () => boolean): Promise<boolean>;
   /** Show the live page at its final bounds, then drop the picture. */
   release(): Promise<void>;
 };
 
 const pages = new Map<string, MotionPage>();
 const images = new Map<string, string>();
+/**
+ * The motion each held page is held for: a second motion takes over a page
+ * still held, and the first one's timer no longer lets it go mid-motion.
+ */
+const holds = new Map<string, number>();
+let lastHold = 0;
 
 /** A browser pane offers its page for motions while it is mounted. */
 export function registerMotionPage(id: string, page: MotionPage): () => void {
@@ -37,7 +48,13 @@ export function registerMotionPage(id: string, page: MotionPage): () => void {
     if (pages.get(id) !== page) return;
     pages.delete(id);
     images.delete(id);
+    holds.delete(id);
   };
+}
+
+/** The page changed: the picture of it no longer stands for it. */
+export function forgetMotionImage(id: string) {
+  images.delete(id);
 }
 
 function remember(id: string, src: string) {
@@ -57,7 +74,8 @@ export function lastMotionImage(id: string): string | undefined {
 
 /**
  * Hold pages still for a motion: `live` pages are captured now, `incoming`
- * pages (not showing yet) use their last image. Resolves with the pages
+ * pages (not showing yet) use their last image. A page a motion still holds
+ * stays held for this one, on the picture it has. Resolves with the pages
  * held by the deadline; any finishing later are let go at once.
  */
 export async function holdMotionPages(
@@ -65,34 +83,44 @@ export async function holdMotionPages(
   incoming: readonly string[] = [],
   deadline = MOTION_CAPTURE_DEADLINE_MS,
 ): Promise<string[]> {
+  const hold = ++lastHold;
   const held: string[] = [];
   let open = true;
+  const taken = [...new Set([...live, ...incoming])].filter(
+    (id) => holds.has(id) && pages.has(id),
+  );
+  for (const id of taken) {
+    holds.set(id, hold);
+    held.push(id);
+  }
+  const free = (id: string) => !taken.includes(id);
   const keep = async (id: string, page: MotionPage, src: string) => {
-    const ok = await page.hold(src).catch(() => false);
+    const ok = await page.hold(src, () => open).catch(() => false);
     if (!ok) return;
     if (!open) {
       void page.release();
       return;
     }
+    holds.set(id, hold);
     held.push(id);
     remember(id, src);
   };
   const tasks = [
-    ...[...new Set(live)].map(async (id) => {
+    ...[...new Set(live)].filter(free).map(async (id) => {
       const page = pages.get(id);
       if (!page) return;
       const src = await page.capture().catch(() => null);
       if (src && open) await keep(id, page, src);
     }),
     ...[...new Set(incoming)]
-      .filter((id) => !live.includes(id))
+      .filter((id) => !live.includes(id) && free(id))
       .map(async (id) => {
         const page = pages.get(id);
         const src = images.get(id);
         if (page && src) await keep(id, page, src);
       }),
   ];
-  if (!tasks.length) return [];
+  if (!tasks.length) return held;
   let timer: ReturnType<typeof setTimeout> | undefined;
   await Promise.race([
     Promise.all(tasks),
@@ -111,16 +139,85 @@ export const MOTION_RELEASE_SLACK_MS = 30;
 /** Hand held pages back live once a motion of `ms` has run. */
 export function releaseMotionPagesAfter(ids: readonly string[], ms: number) {
   if (!ids.length) return;
-  setTimeout(() => releaseMotionPages(ids), ms + MOTION_RELEASE_SLACK_MS);
+  const heldFor = ids.map((id) => holds.get(id));
+  setTimeout(
+    () =>
+      // One that a later motion took over is that motion's to let go.
+      releaseMotionPages(ids.filter((id, at) => holds.get(id) === heldFor[at])),
+    ms + MOTION_RELEASE_SLACK_MS,
+  );
 }
 
 /** Hand held pages back live. */
 export function releaseMotionPages(ids: readonly string[]) {
-  for (const id of ids) void pages.get(id)?.release();
+  for (const id of ids) {
+    holds.delete(id);
+    void pages.get(id)?.release();
+  }
+}
+
+type Box = { left: number; top: number; width: number; height: number };
+
+/** Each open pane's share of the stage; rails take no place of their own. */
+function paneBoxes(
+  node: LayoutNode,
+  box: Box = { left: 0, top: 0, width: 1, height: 1 },
+  boxes = new Map<string, Box>(),
+) {
+  if (isRailed(node)) return boxes;
+  if (node.type === "leaf") {
+    boxes.set(node.id, box);
+    return boxes;
+  }
+  const total = node.sizes.reduce((sum, size) => sum + size, 0) || 1;
+  let start = 0;
+  node.children.forEach((child, index) => {
+    const share = (node.sizes[index] ?? 0) / total;
+    paneBoxes(
+      child,
+      node.dir === "right"
+        ? {
+            ...box,
+            left: box.left + box.width * start,
+            width: box.width * share,
+          }
+        : {
+            ...box,
+            top: box.top + box.height * start,
+            height: box.height * share,
+          },
+      boxes,
+    );
+    start += share;
+  });
+  return boxes;
+}
+
+/**
+ * The panes a layout change moves or resizes. A pane that keeps its place is
+ * left alone, so its page stays live and sharp through the change.
+ */
+export function panesMoved(before: LayoutNode, after: LayoutNode): Set<string> {
+  const was = paneBoxes(before);
+  const moved = new Set<string>();
+  for (const [id, box] of paneBoxes(after)) {
+    const from = was.get(id);
+    if (
+      !from ||
+      Math.abs(from.left - box.left) > 1e-4 ||
+      Math.abs(from.top - box.top) > 1e-4 ||
+      Math.abs(from.width - box.width) > 1e-4 ||
+      Math.abs(from.height - box.height) > 1e-4
+    )
+      moved.add(id);
+  }
+  return moved;
 }
 
 /** Test-only reset. */
 export function resetMotionPages() {
   pages.clear();
   images.clear();
+  holds.clear();
+  lastHold = 0;
 }
