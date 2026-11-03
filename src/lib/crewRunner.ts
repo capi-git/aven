@@ -2394,7 +2394,8 @@ export class CrewRunner {
       return afterMockup(card, {
         mockup: null,
         strayed: true,
-        problem: [...stray, ...unseen].slice(0, 5).join(", "),
+        // A stray top-level file is in the diff and in the listing: once.
+        problem: [...new Set([...stray, ...unseen])].slice(0, 5).join(", "),
         now,
         name,
       });

@@ -652,6 +652,28 @@ describe("a screen for the Designer", () => {
     h.runner.stop();
   });
 
+  it("names a stray file once, though the diff and the listing both show it", async () => {
+    const h = harness({
+      designer: () => {
+        h.setEntries(["src", "aven-stray.txt"]);
+        return {
+          text: fence(target.file),
+          wrote: { [target.file]: GOOD, "aven-stray.txt": "x" },
+        };
+      },
+    });
+    onTeam();
+    const idea = (await addFeatureIdea(PATH, { title: "Timer" }))!;
+    target.file = `aven-mockups/${mockupFileName(idea.id)}`;
+    await askDesigner(PATH, idea, NOON);
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(card(idea.id).stuck?.text).toBe(
+      "Brush wrote outside aven-mockups, so its mock-up wasn't kept: aven-stray.txt",
+    );
+    h.runner.stop();
+  });
+
   it("refuses a link in its folder, which could point anywhere", async () => {
     const h = harness({
       designer: () => {
