@@ -363,6 +363,12 @@ export const PROTECTED_FIX_PATHS = [
   ".cursorrules",
   ".windsurfrules",
   ".clinerules",
+  // Package managers read these as a package's manifest, or build from them.
+  "package.yaml",
+  "package.json5",
+  "binding.gyp",
+  // Decides how git shows and treats every other file.
+  ".gitattributes",
 ] as const;
 
 /** Two-part names refused at any depth: a folder and the file or folder in it. */
@@ -666,13 +672,19 @@ export function crewSandbox(
         : (crew.copy.sources ?? []).map((path) =>
             slash(path).replace(/\/+$/, ""),
           );
+  // A Lead or a helper answers: no package registries, and nothing in the copy.
+  const answers = role === "lead" || role === "helper";
   return {
     ...sandbox,
+    ...(offline || answers
+      ? { network: { ...sandbox.network, allowedDomains: [] } }
+      : {}),
     filesystem: {
       ...sandbox.filesystem,
       denyWrite: [
         ...(sandbox.filesystem?.denyWrite ?? []),
         ...keepOut,
+        ...(answers ? [slash(crew.copy.path).replace(/\/+$/, "")] : []),
         // Mock-ups: the copy's folder is the Designer's alone, and Aven's
         // store of them is no one's to write.
         ...(role === "designer" || !folder ? [] : [folder]),

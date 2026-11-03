@@ -203,6 +203,11 @@ export type CrewMember = {
   routine?: CrewRoutine;
   /** A helper: the teammate that started it, for one job (see `crew.helpers`). */
   helperOf?: string;
+  /**
+   * The Lead has read another agent's words in this chat: anything it proposes
+   * from here on could come from them, so its cards wait for you.
+   */
+  heardOthers?: boolean;
   /** What it is doing, one line, for the crew strip and the sidebar. */
   doing?: { at: number; text: string };
   /**
@@ -792,6 +797,8 @@ export type CrewTalk = {
   routine?: true;
   /** A helper's one job. */
   helper?: true;
+  /** Who it's from in words: a helper is gone by the time its answer arrives. */
+  fromName?: string;
   /** Set once it went: the window carrying it, and its turn. */
   sent?: { at: number; owner: string; turnId: string; sessionId: string };
 };
@@ -1088,6 +1095,7 @@ const FEED_KINDS = new Set<CrewFeedKind>([
   "stopped",
   "findings",
   "mockup",
+  "say",
 ]);
 const HOLDS = new Set<CrewHoldReason>([
   "paused",
@@ -1443,7 +1451,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
 
 export const CREW_INSTRUCTIONS_MAX = 2_000;
 const SCOPE_KEPT = 20;
-const RETIRED_KEPT = 40;
+const RETIRED_KEPT = 200;
 
 function readMember(value: unknown):
   | (Omit<CrewMember, "id"> & {
@@ -1487,6 +1495,7 @@ function readMember(value: unknown):
     ...(scope.length ? { scope } : {}),
     ...(schedule ? { schedule } : {}),
     ...(raw.sweep === "weekly" ? { sweep: "weekly" as const } : {}),
+    ...(raw.heardOthers === true ? { heardOthers: true } : {}),
     ...(raw.routine &&
     typeof raw.routine.text === "string" &&
     raw.routine.text.trim() &&
@@ -1715,7 +1724,7 @@ export function readCrew(value: unknown): Crew | null {
           : [];
       })
     : [];
-  const helperRuns = raw.helperRuns as Crew["helperRuns"];
+  const helperRuns = dayCount(raw.helperRuns);
   const about = text(raw.about, CREW_ABOUT_MAX);
   return {
     ...base,
@@ -1787,11 +1796,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(messages.length ? { messages } : {}),
     ...(talks.length ? { talks } : {}),
     ...(helpers.length ? { helpers } : {}),
-    ...(helperRuns &&
-    typeof helperRuns.day === "string" &&
-    typeof helperRuns.count === "number"
-      ? { helperRuns }
-      : {}),
+    ...(helperRuns ? { helperRuns } : {}),
     ...(about ? { about } : {}),
     cards,
     feed,
@@ -1853,6 +1858,9 @@ function readTalks(value: unknown): CrewTalk[] {
         ...(entry.answer === true ? { answer: true as const } : {}),
         ...(entry.routine === true ? { routine: true as const } : {}),
         ...(entry.helper === true ? { helper: true as const } : {}),
+        ...(text(entry.fromName, 60)
+          ? { fromName: text(entry.fromName, 60) }
+          : {}),
         ...(sent &&
         isTime(sent.at) &&
         typeof sent.owner === "string" &&
