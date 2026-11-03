@@ -1,8 +1,15 @@
 import { memo, type ReactNode } from "react";
+import { Terminal } from "./icons";
 import "./WorkspaceFooter.css";
 
 export type WorkspaceFooterProps = {
   active: boolean;
+  /** The active working copy, including a session worktree when applicable. */
+  cwd: string;
+  onToggleTerminal?: () => void;
+  terminalOpen?: boolean;
+  /** Account usage for the agents in use. */
+  usage?: ReactNode;
   /**
    * The window's shrunk teams (see `TeamWatchPills`): a slot of their own,
    * so they never float over the work area or the side panel.
@@ -17,13 +24,37 @@ export type WorkspaceFooterProps = {
  */
 export const WorkspaceFooter = memo(function WorkspaceFooter({
   active,
+  cwd,
+  onToggleTerminal,
+  terminalOpen = false,
+  usage,
   teams,
 }: WorkspaceFooterProps) {
   if (!active) return null;
+  const terminalEnabled = !!cwd && cwd !== "~" && !!onToggleTerminal;
 
   return (
     <footer className="workspace-footer" aria-label="Workspace status">
+      <div className="workspace-footer-usage">{usage}</div>
       {teams ? <div className="workspace-footer-teams">{teams}</div> : null}
+
+      <div className="workspace-footer-tools">
+        <button
+          type="button"
+          className="workspace-footer-icon"
+          disabled={!terminalEnabled}
+          title={
+            terminalEnabled
+              ? `${terminalOpen ? "Hide" : "Show"} terminal`
+              : "Open a project to use the terminal"
+          }
+          aria-label={`${terminalOpen ? "Hide" : "Show"} terminal`}
+          aria-pressed={terminalOpen}
+          onClick={onToggleTerminal}
+        >
+          <Terminal className="size-3.5" strokeWidth={1.75} aria-hidden />
+        </button>
+      </div>
     </footer>
   );
 });

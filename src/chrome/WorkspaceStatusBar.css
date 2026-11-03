@@ -492,3 +492,26 @@ html:has(.aven-tour)
     transition: none;
   }
 }
+
+/* As MonoCode lays it out: past a pinned sidebar the tabs start where the work
+   does, with back and forward just before them; anything else sits at the end. */
+.personal-shell[data-sidebar-pinned="true"] .workspace-navigation {
+  flex: 0 0
+    calc(var(--aven-sidebar-width, 216px) / var(--aven-toolbar-zoom, 1) - 95px);
+  min-width: 0;
+}
+.personal-shell[data-sidebar-pinned="true"]
+  .workspace-navigation
+  .workspace-status-history {
+  margin-left: auto;
+}
+.personal-shell .workspace-status-bar .workspace-status-strip {
+  order: 2;
+}
+.personal-shell .workspace-status-bar .workspace-status-task,
+.personal-shell .workspace-status-bar .workspace-status-development {
+  order: 3;
+}
+.personal-shell .workspace-status-bar .workspace-status-controls {
+  order: 4;
+}
