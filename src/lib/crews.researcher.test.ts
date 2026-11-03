@@ -62,6 +62,7 @@ describe("the Researcher role", () => {
       "security",
       "scout",
       "researcher",
+      "designer",
       "fixer",
     ]);
     // A reader may run on Claude or Codex, locked down.

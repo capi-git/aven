@@ -58,6 +58,7 @@ describe("a team proposed from your description", () => {
       "builder",
       "security",
       "scout",
+      "designer",
       "fixer",
     ]);
     expect(setup.teammates[0]!.job).toBe("Builds the cards you give the team");
@@ -97,11 +98,16 @@ describe("a team proposed from your description", () => {
             title:
               "Use token sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789",
           },
+          { title: "Timer screen", by: "Designer" },
           { title: "Fine", by: "builder" },
         ],
       }),
     )!;
     expect(JSON.stringify(cleaned)).not.toContain("sk-ant-api03-abcdef");
+    expect(cleaned.ideas.at(-2)).toEqual({
+      title: "Timer screen",
+      by: "designer",
+    });
     expect(cleaned.ideas.at(-1)).toEqual({ title: "Fine" });
   });
 });

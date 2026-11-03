@@ -3,6 +3,7 @@ import {
   launchRefusal,
   type ClaudePermissionRules,
 } from "./harness/sessionPermissions";
+import { basename } from "./fs";
 import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import {
@@ -10,6 +11,8 @@ import {
   crewAccess,
   crewRoleUsesBrowser,
   crewRoleUsesWeb,
+  crewRoleWritesCopy,
+  MOCKUP_DIR,
   crewForChat,
   crewMemberApp,
   type Crew,
@@ -166,7 +169,7 @@ export const TEAM_ALWAYS_LINE =
 
 /** Who Access reaches. */
 export const TEAM_ACCESS_SCOPE_LINE =
-  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser. The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you.";
+  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser. The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you. The Designer never uses the web or the browser, and writes only its mock-up.";
 
 export const ALWAYS_ASKS_LINE =
   "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
@@ -416,7 +419,10 @@ export function crewPermissionRules(
     ...(crew.copy ? { copy: crew.copy } : {}),
   });
   const access = crewAccess(crew);
-  const edits = CREW_ROLE_INFO[role].edits;
+  // The Designer writes one file in its own folder: for every rule here it
+  // is a reader, and the copy's own files are refused one by one (see
+  // `designerDenied`), so the folder stays open.
+  const edits = crewRoleWritesCopy(role);
   const yourFiles = `Edit(${absolutePathRule(crew.path)})`;
   // A copy inside the project (a home folder as the project): refusing your
   // folder would refuse its own copy, so that one rule keeps asking.
@@ -442,10 +448,14 @@ export function crewPermissionRules(
       ...(web ? [] : WEB_TOOLS),
       ...(edits
         ? []
-        : [
-            yourFiles,
-            ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
-          ]),
+        : role === "designer"
+          ? [yourFiles, ...designerDenied(crew)]
+          : [
+              yourFiles,
+              ...(crew.copy
+                ? [`Edit(${absolutePathRule(crew.copy.path)})`]
+                : []),
+            ]),
       ...(refusing
         ? asks.filter((rule) => !(copyInside && rule === yourFiles))
         : []),
@@ -454,6 +464,24 @@ export function crewPermissionRules(
       ? asks.filter((rule) => copyInside && rule === yourFiles)
       : asks,
   };
+}
+
+/**
+ * What the Designer may not edit in the copy: each of its own top-level
+ * entries (the files Git knows), named one by one, so that `aven-mockups/`,
+ * which is none of them, stays the one place it can write.
+ */
+function designerDenied(crew: Pick<Crew, "copy">): string[] {
+  if (!crew.copy) return [];
+  const copy = slash(crew.copy.path).replace(/\/+$/, "");
+  return (crew.copy.sources ?? []).flatMap((source) => {
+    const path = slash(source).replace(/\/+$/, "");
+    if (!path.startsWith(`${copy}/`) || basename(path) === MOCKUP_DIR)
+      return [];
+    const rule = absolutePathRule(path);
+    // A file, and anything under a folder of that name.
+    return [`Edit(${rule.replace(/\/\*\*$/, "")})`, `Edit(${rule})`];
+  });
 }
 
 /**
@@ -475,14 +503,19 @@ export function crewSandbox(
     { copy: crew.copy },
     !offline && crewRoleUsesBrowser(crew, role) ? browserSocket : null,
   );
-  if (CREW_ROLE_INFO[role].edits || !crew.copy?.sources?.length) return sandbox;
+  if (crewRoleWritesCopy(role) || !crew.copy?.sources?.length) return sandbox;
   return {
     ...sandbox,
     filesystem: {
       ...sandbox.filesystem,
       denyWrite: [
         ...(sandbox.filesystem?.denyWrite ?? []),
-        ...crew.copy.sources.map((path) => slash(path).replace(/\/+$/, "")),
+        // The Designer's own folder is never one of these: it may write there.
+        ...crew.copy.sources
+          .map((path) => slash(path).replace(/\/+$/, ""))
+          .filter(
+            (path) => role !== "designer" || basename(path) !== MOCKUP_DIR,
+          ),
       ],
     },
   };
@@ -503,6 +536,8 @@ export function crewChatPermissions(
   // Only the member's role decides what it may do: never its app, model,
   // instructions or scope, which you can change.
   const role = found.member.role;
+  // The Designer writes its one file: not read-only for the app, but every
+  // other path is refused by its rules and sandbox.
   const readOnly = !CREW_ROLE_INFO[role].edits;
   const refuse = found.retired
     ? "This chat's teammate was removed, so it didn't start."

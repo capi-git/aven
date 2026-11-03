@@ -142,6 +142,7 @@ const ROLES = new Set<string>([
   "security",
   "scout",
   "researcher",
+  "designer",
   "fixer",
 ]);
 
@@ -294,6 +295,13 @@ function postOf(
         ...base,
         text: plain(withoutName(entry.text, by.name)),
         handoff: { from: by, to: "you", label: "Findings for you" },
+      };
+    // "Designer mocked up “…”", handed to you to look at.
+    case "mockup":
+      return {
+        ...base,
+        text: plain(withoutName(entry.text, by.name)),
+        handoff: { from: by, to: "you", label: "Mock-up for you" },
       };
     default:
       return { ...base, text: plain(withoutName(entry.text, by.name)) };

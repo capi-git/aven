@@ -15,7 +15,16 @@ import {
   loadFeatureCards,
   moveFeatureCard,
 } from "../lib/featureCards";
-import { listDir } from "../lib/fs";
+import { mockupStorePath } from "../lib/crewMockups";
+import { MOCKUP_DIR } from "../lib/crews";
+import {
+  createPath,
+  deletePath,
+  listDir,
+  readTextFile,
+  writeTextFile,
+} from "../lib/fs";
+import { parentPath } from "../lib/paths";
 import { botCopyHost } from "../lib/projectBotCopy";
 import type { BotSendOptions } from "../lib/projectBotRunner";
 import {
@@ -29,6 +38,31 @@ import { claudeWeeklyUsed } from "./useProjectBots";
 
 /** This window, so two windows never drive the same crew. */
 const OWNER = `window-${Math.random().toString(36).slice(2, 10)}`;
+
+/** A folder made along the way: fine when it is there already. */
+async function ensureFolder(path: string): Promise<void> {
+  const parent = parentPath(path);
+  const name = path.slice(parent.length).replace(/^\/+/, "");
+  if (!name) return;
+  await createPath(parent, name, true).catch(() => undefined);
+}
+
+/**
+ * Where the Designer's mock-ups go once a turn ends: Aven's own data,
+ * beside the team's copies, out of the project and off the branch.
+ */
+async function saveMockup(
+  copyPath: string,
+  cardId: string,
+  html: string,
+): Promise<string> {
+  const target = mockupStorePath(copyPath, cardId);
+  const folder = parentPath(target);
+  await ensureFolder(parentPath(folder));
+  await ensureFolder(folder);
+  await writeTextFile(target, html);
+  return target;
+}
 
 /** The copy's own files: its top-level entries Git doesn't ignore. */
 async function copySources(copy: string): Promise<string[]> {
@@ -117,6 +151,14 @@ export function useCrews(
         return crewMemberName(crew, who, bot ? botName(bot) : undefined);
       },
       onWorking: (ids) => hostRef.current.onWorking(ids),
+      mockups: {
+        read: (path) => readTextFile(path),
+        save: saveMockup,
+        clear: (copy) =>
+          deletePath(`${copy.replace(/\/+$/, "")}/${MOCKUP_DIR}`).catch(
+            () => undefined,
+          ),
+      },
     });
   const runner = runnerRef.current;
 

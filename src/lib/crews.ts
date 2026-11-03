@@ -45,7 +45,13 @@ export const CREWS_KEY = "aven.crews.v1";
  * role this build does not know are kept in storage as they are.
  */
 export type CrewRole =
-  "builder" | "checker" | "security" | "scout" | "researcher" | "fixer";
+  | "builder"
+  | "checker"
+  | "security"
+  | "scout"
+  | "researcher"
+  | "designer"
+  | "fixer";
 
 /** The roles that take turns on cards in the crew's copy. */
 export type CrewLoopRole = "builder" | "checker" | "security";
@@ -54,7 +60,7 @@ export type CrewLoopRole = "builder" | "checker" | "security";
  * Who holds a card: a loop role, or the Researcher reading a research card
  * (one turn, no rounds, nothing to apply).
  */
-export type CrewCardHolder = CrewLoopRole | "researcher";
+export type CrewCardHolder = CrewLoopRole | "researcher" | "designer";
 
 export type CrewRoleInfo = {
   role: CrewRole;
@@ -96,6 +102,14 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     job: "Reads up on a question and writes findings you can turn into ideas",
     edits: false,
   },
+  designer: {
+    role: "designer",
+    label: "Designer",
+    job: "Mocks up a screen or a look before anyone builds it",
+    // It writes one file, only under the copy's mock-ups folder (see
+    // `MOCKUP_DIR`); the project's own files stay read-only to it.
+    edits: true,
+  },
   fixer: {
     role: "fixer",
     label: "Fixer",
@@ -111,6 +125,7 @@ export const CREW_ROLE_ORDER: readonly CrewRole[] = [
   "security",
   "scout",
   "researcher",
+  "designer",
   "fixer",
 ];
 
@@ -192,6 +207,18 @@ export type CrewAgent = (typeof CREW_AGENTS)[number];
  */
 export function crewAgentsFor(role: CrewRole): readonly CrewAgent[] {
   return CREW_ROLE_INFO[role].edits ? ["claude"] : CREW_AGENTS;
+}
+
+/**
+ * The folder, at the top of the team's copy, where the Designer draws its
+ * mock-ups: the only place it may write. Untracked, never stacked or
+ * applied, and emptied once a mock-up is kept by Aven.
+ */
+export const MOCKUP_DIR = "aven-mockups";
+
+/** Whether a role may change the project's own files in the copy. */
+export function crewRoleWritesCopy(role: CrewRole): boolean {
+  return CREW_ROLE_INFO[role].edits && role !== "designer";
 }
 
 /** "If the card mentions ui, css or design, give it to Designer." */
@@ -398,6 +425,22 @@ export type CrewFindings = {
   added?: number;
 };
 
+/**
+ * The Designer's mock-up for a mock-up card: one self-contained HTML file,
+ * kept by Aven in its own data (never the project, never the copy once the
+ * turn ends), with the Designer's one-line note.
+ */
+export type CrewMockup = {
+  /** Where Aven keeps the file: an absolute path in its own data folder. */
+  file: string;
+  /** The Designer's note on what it drew, one line. */
+  note: string;
+  bytes: number;
+  madeAt: number;
+  /** What you did with it: Build it made a card, or you dismissed it. */
+  outcome?: "built" | "dismissed";
+};
+
 /** A turn Aven sent for a card, so a restart and other windows know. */
 export type CrewTurn = {
   role: CrewCardHolder;
@@ -421,9 +464,11 @@ export type CrewCard = {
    * A question for the Researcher: one read-only turn that ends in
    * Findings, never in a change to apply.
    */
-  kind?: "research";
+  kind?: "research" | "mockup";
   /** What the Researcher found, once its turn ended. */
   findings?: CrewFindings;
+  /** The Designer's mock-up, once its turn ended. */
+  mockup?: CrewMockup;
   /** The Scout's size for its idea. */
   size?: CrewIdeaSize;
   /** Where the card came from (an issue, a page): outside words. */
@@ -526,7 +571,9 @@ export type CrewFeedKind =
   | "hold"
   | "stopped"
   /** The Researcher's findings are ready for you. */
-  | "findings";
+  | "findings"
+  /** The Designer's mock-up is ready for you. */
+  | "mockup";
 
 /** One line in the crew's feed: handoffs, verdicts, ideas, your notes. */
 export type CrewFeedEntry = {
@@ -701,6 +748,8 @@ export function crewRoleUsesWeb(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
+  // The Designer draws from the project alone: never the web.
+  if (role === "designer") return false;
   const { web } = crewAccess(crew);
   return (
     web === "everyone" ||
@@ -719,6 +768,8 @@ export function crewRoleUsesBrowser(
 ): boolean {
   const { web } = crewAccess(crew);
   if (role === "researcher") return crewRoleUsesWeb(crew, role);
+  // Nor Aven's browser: a mock-up is a file, drawn without one.
+  if (role === "designer") return false;
   return web === "everyone" || (web === "builders" && role !== "scout");
 }
 
@@ -937,6 +988,7 @@ const FEED_KINDS = new Set<CrewFeedKind>([
   "hold",
   "stopped",
   "findings",
+  "mockup",
 ]);
 const HOLDS = new Set<CrewHoldReason>([
   "paused",
@@ -987,6 +1039,23 @@ export function readFinding(value: unknown): CrewFinding | null {
 
 const RESEARCH_FINDINGS_KEPT = 10;
 const FINDING_IDEAS_KEPT = 5;
+
+/** The Designer's mock-up as stored: its file in Aven's data, and a note. */
+export function readMockup(value: unknown): CrewMockup | undefined {
+  const raw = value as Partial<CrewMockup> | null;
+  const file = text(raw?.file, 1024);
+  if (!raw || typeof raw !== "object" || !file || !isTime(raw.madeAt))
+    return undefined;
+  return {
+    file,
+    note: text(raw.note, 300) ?? "",
+    bytes: finite(raw.bytes, 0, 1e9, 0),
+    madeAt: raw.madeAt,
+    ...(raw.outcome === "built" || raw.outcome === "dismissed"
+      ? { outcome: raw.outcome }
+      : {}),
+  };
+}
 
 /** The Researcher's findings as stored: each field clipped, nothing trusted. */
 export function readFindings(value: unknown): CrewFindings | undefined {
@@ -1140,6 +1209,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
   const fix = readChange(raw.fix);
   const reviewing = readChange(raw.reviewing);
   const findings = readFindings(raw.findings);
+  const mockup = readMockup(raw.mockup);
   const inbox = readReview(raw.inbox);
   const note = text(raw.note, CREW_NOTE_MAX);
   const sourceUrl = text(raw.sourceUrl, 2048);
@@ -1171,8 +1241,11 @@ export function readCrewCard(value: unknown): CrewCard | null {
     ...(raw.from === "member" && text(raw.fromMember, 60)
       ? { fromMember: text(raw.fromMember, 60) }
       : {}),
-    ...(raw.kind === "research" ? { kind: "research" as const } : {}),
+    ...(raw.kind === "research" || raw.kind === "mockup"
+      ? { kind: raw.kind }
+      : {}),
     ...(findings ? { findings } : {}),
+    ...(mockup ? { mockup } : {}),
     ...(SIZES.has(raw.size as CrewIdeaSize)
       ? { size: raw.size as CrewIdeaSize }
       : {}),
@@ -1191,7 +1264,8 @@ export function readCrewCard(value: unknown): CrewCard | null {
     ...(raw.holder === "builder" ||
     raw.holder === "checker" ||
     raw.holder === "security" ||
-    raw.holder === "researcher"
+    raw.holder === "researcher" ||
+    raw.holder === "designer"
       ? { holder: raw.holder }
       : {}),
     rounds,
@@ -1223,7 +1297,8 @@ export function readCrewCard(value: unknown): CrewCard | null {
     (turn.role === "builder" ||
       turn.role === "checker" ||
       turn.role === "security" ||
-      turn.role === "researcher") &&
+      turn.role === "researcher" ||
+      turn.role === "designer") &&
     typeof turn.sessionId === "string" &&
     typeof turn.turnId === "string" &&
     typeof turn.sentAt === "number"
@@ -1351,7 +1426,8 @@ export function readCrew(value: unknown): Crew | null {
         read?.role === "scout" ||
         read?.role === "fixer" ||
         read?.role === "security" ||
-        read?.role === "researcher";
+        read?.role === "researcher" ||
+        read?.role === "designer";
       if (
         read &&
         !(single && members.some((entry) => entry.role === read.role))
@@ -2237,6 +2313,7 @@ export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
   if (card.holder === "security" && !card.turn) return cardSecurity(crew)?.id;
   if (card.holder === "researcher" && !card.turn)
     return cardResearcher(crew)?.id;
+  if (card.holder === "designer" && !card.turn) return cardDesigner(crew)?.id;
   if (card.turn) {
     const by = crew.members.find(
       (member) => member.sessionId === card.turn!.sessionId,
@@ -2248,8 +2325,24 @@ export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
       ? cardBuilder(crew, card)
       : card.holder === "researcher"
         ? cardResearcher(crew)
-        : cardChecker(crew, card)
+        : card.holder === "designer"
+          ? cardDesigner(crew)
+          : cardChecker(crew, card)
   )?.id;
+}
+
+/** The Designer a mock-up card goes to: the crew's, while it is on. */
+export function cardDesigner(
+  crew: Pick<Crew, "members">,
+): CrewMember | undefined {
+  return crew.members.find(
+    (member) => member.role === "designer" && memberOn(member),
+  );
+}
+
+/** A card that is a screen or a look for the Designer to mock up. */
+export function isMockupCard(card: Pick<CrewCard, "kind">): boolean {
+  return card.kind === "mockup";
 }
 
 /** Security for a card: the crew's, while it is on. */
@@ -2647,8 +2740,10 @@ export function crewCard(
  */
 export function cardSteppedAside(card: CrewCard): boolean {
   // A research card has nothing of its own in the copy unless its turn
-  // changed files: stopped for any other reason, it steps aside too.
-  if (card.kind === "research")
+  // changed files: stopped for any other reason, it steps aside too. A
+  // mock-up card the same: its folder is emptied as its turn is read, and
+  // only a turn that wrote elsewhere leaves anything behind.
+  if (card.kind === "research" || card.kind === "mockup")
     return (
       card.stage === "stuck" &&
       !card.turn &&
@@ -2681,7 +2776,10 @@ export function cardInCopy(crew: Pick<Crew, "cards">): CrewCard | undefined {
       HOLDS_COPY.has(card.stage) &&
       !card.stacked &&
       !cardSteppedAside(card) &&
-      !(card.kind === "research" && card.stage === "ready"),
+      !(
+        (card.kind === "research" || card.kind === "mockup") &&
+        card.stage === "ready"
+      ),
   );
 }
 

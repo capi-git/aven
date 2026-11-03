@@ -187,7 +187,7 @@ describe("the gallery's ready-made members", () => {
       "checker",
       "scout",
       "researcher",
-      "Designer",
+      "designer",
       "Tester",
       "Scribe",
       "security",

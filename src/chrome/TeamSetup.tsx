@@ -39,7 +39,9 @@ function sourceLabel(idea: SetupIdeaDraft): string {
     ? "from what you wrote"
     : idea.source === "researcher"
       ? "Researcher"
-      : "suggested";
+      : idea.source === "designer"
+        ? "Designer first"
+        : "suggested";
 }
 
 export function TeamSetup({
@@ -93,7 +95,7 @@ export function TeamSetup({
       ...current.filter((idea) => idea.source === "you"),
       ...found.setup.ideas.map((idea): SetupIdeaDraft => ({
         title: idea.title,
-        source: idea.by === "researcher" ? "researcher" : "setup",
+        source: idea.by ?? "setup",
       })),
     ]);
   };
@@ -119,6 +121,7 @@ export function TeamSetup({
     else setProblem(result.problem);
   };
   const hasResearcher = !!teammates?.some((mate) => mate.role === "researcher");
+  const hasDesigner = !!teammates?.some((mate) => mate.role === "designer");
   const missing = SETUP_ROLES.filter(
     (role) => !teammates?.some((mate) => mate.role === role),
   );
@@ -261,7 +264,8 @@ export function TeamSetup({
                     }
                   />
                   <span className="team-setup-idea-source">
-                    {idea.source === "researcher" && !hasResearcher
+                    {(idea.source === "researcher" && !hasResearcher) ||
+                    (idea.source === "designer" && !hasDesigner)
                       ? "suggested"
                       : sourceLabel(idea)}
                   </span>

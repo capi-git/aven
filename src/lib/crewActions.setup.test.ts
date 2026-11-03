@@ -38,6 +38,7 @@ const MODELS = {
   checker: { harness: "codex" as const, model: "codex:gpt" },
   scout: { harness: "claude" as const, model: "claude:haiku" },
   researcher: { harness: "claude" as const, model: "claude:opus" },
+  designer: { harness: "claude" as const, model: "claude:opus" },
 };
 const DRAFT = {
   description: "An ADHD-friendly planner.\nOne screen.",

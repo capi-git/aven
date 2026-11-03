@@ -24,7 +24,7 @@ export const SECURITY_INSTRUCTIONS = [
 
 /** The roles a ready-made member can have (the Fixer is the project's bot). */
 export type CrewPresetRole =
-  "builder" | "checker" | "security" | "scout" | "researcher";
+  "builder" | "checker" | "security" | "scout" | "researcher" | "designer";
 
 export type CrewPreset = {
   /** Saved on the member, so the gallery knows it's in the crew. */
@@ -74,25 +74,11 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
   },
   {
     key: "designer",
-    role: "builder",
+    role: "designer",
     mark: "designer",
-    label: "Designer",
-    job: "Builds UI cards; follows your design tokens",
+    job: "Mocks up a screen or a look before anyone builds it",
     instructions:
-      "Follow the project's design tokens and existing components. Check light and dark themes and narrow widths. Keep words on screen plain.",
-    scope: [
-      "src/components",
-      "src/styles",
-      "src/ui",
-      "public",
-      "**/*.css",
-      "**/*.scss",
-      "**/*.tsx",
-      "**/*.jsx",
-      "**/*.vue",
-      "**/*.svelte",
-      "**/*.html",
-    ],
+      "Draw the project's own look: read its styles, tokens and components first, and keep to them. Show real states (empty, loading, error, full), real words, no lorem ipsum. One self-contained HTML file, everything inline.",
   },
   {
     key: "tester",

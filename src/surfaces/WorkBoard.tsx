@@ -63,7 +63,11 @@ import { TeamScreen } from "./TeamScreen";
 import {
   addResearchIdeas,
   applyCrewCard,
+  askDesigner,
   askResearcher,
+  buildMockup,
+  designQuestion,
+  dismissMockup,
   crewDeleteNote,
   crewWorkspace,
   deleteBoardCard,
@@ -77,6 +81,7 @@ import {
   stopCrewCard,
 } from "../lib/crewActions";
 import {
+  cardDesigner,
   cardResearcher,
   crewCard,
   crewMemberName,
@@ -100,6 +105,7 @@ import {
 } from "../lib/projectBots";
 import { CrewAnswerBox, CrewCardFace, CrewReadySheet } from "./CrewBoard";
 import { CrewFindingsSheet } from "./TeamFindings";
+import { CrewMockupSheet } from "./TeamMockup";
 // The frame brings the board's styles, loaded with the workspace.
 import { WorkBoardHeading } from "./WorkBoardFrame";
 
@@ -207,6 +213,7 @@ export function WorkBoard({
               scout: crewMemberName(crew, "scout"),
               security: crewMemberName(crew, "security"),
               researcher: crewMemberName(crew, "researcher"),
+              designer: crewMemberName(crew, "designer"),
             },
             (who) => crewMemberName(crew, who),
             today,
@@ -311,6 +318,8 @@ export const WorkBoardView = memo(function WorkBoardView({
   const [readyCard, setReadyCard] = useState<string | null>(null);
   /** The research card whose Findings are open. */
   const [reading, setReading] = useState<string | null>(null);
+  /** The mock-up card whose Mock-up is open. */
+  const [looking, setLooking] = useState<string | null>(null);
   const [answering, setAnswering] = useState<string | null>(null);
   const [crewProblems, setCrewProblems] = useState<
     Readonly<Record<string, string>>
@@ -361,6 +370,27 @@ export const WorkBoardView = memo(function WorkBoardView({
           return;
         case "add-ideas":
           void addResearchIdeas(project, card.id).then((problem) =>
+            noteProblem(card.id, problem),
+          );
+          return;
+        case "design":
+          void askDesigner(project, {
+            id: card.id,
+            title: card.title,
+            ...(card.note ? { note: card.note } : {}),
+            ...(card.source ? { sourceUrl: card.source.url } : {}),
+          }).then((problem) => noteProblem(card.id, problem));
+          return;
+        case "look":
+          setLooking(card.id);
+          return;
+        case "build-mockup":
+          void buildMockup(project, card.id).then((problem) =>
+            noteProblem(card.id, problem),
+          );
+          return;
+        case "dismiss-mockup":
+          void dismissMockup(project, card.id).then((problem) =>
             noteProblem(card.id, problem),
           );
           return;
@@ -566,6 +596,9 @@ export const WorkBoardView = memo(function WorkBoardView({
               researcher={
                 crew && cardResearcher(crew) ? crewName("researcher") : null
               }
+              designer={
+                crew && cardDesigner(crew) ? crewName("designer") : null
+              }
               onProblem={noteProblem}
             />
           ) : null}
@@ -650,6 +683,14 @@ export const WorkBoardView = memo(function WorkBoardView({
           cardId={reading}
           name={crewName}
           onClose={() => setReading(null)}
+        />
+      ) : null}
+      {crew && looking ? (
+        <CrewMockupSheet
+          crew={crew}
+          cardId={looking}
+          name={crewName}
+          onClose={() => setLooking(null)}
         />
       ) : null}
       {throwing ? (
@@ -897,9 +938,12 @@ const BoardCardView = memo(function BoardCardView({
           (crew.label === "Read" &&
             crew.actions.some((action) => action.id === "read"))
         ? "read"
-        : crew.holder
-          ? "open"
-          : null;
+        : crew.label === "Mock-up" &&
+            crew.actions.some((action) => action.id === "look")
+          ? "look"
+          : crew.holder
+            ? "open"
+            : null;
   const open = () => {
     if (crewOpen && onCrewAction) onCrewAction(card, crewOpen);
     else if (card.sessionId) workBoardActions()?.openChat(card.sessionId);
@@ -1112,21 +1156,29 @@ function CardEditor({
 
 /**
  * Ideas' foot: write one down. Enter adds it, Escape clears it. With a
- * Researcher on the team, "Research: …" asks it the question instead.
+ * Researcher on the team, "Research: …" asks it the question instead; with
+ * a Designer, "Design: …" or "Mock up: …" asks it for a mock-up.
  */
 function AddIdea({
   project,
   researcher,
+  designer,
   onProblem,
 }: {
   project: string;
   /** The Researcher's name, while the team has one on. */
   researcher?: string | null;
+  /** The Designer's name, while the team has one on. */
+  designer?: string | null;
   onProblem?: (cardId: string, problem: string | null) => void;
 }) {
   const [text, setText] = useState("");
-  const placeholder = researcher
-    ? `Add an idea, or “Research: …” to ask ${researcher}`
+  const hints = [
+    ...(researcher ? [`“Research: …” to ask ${researcher}`] : []),
+    ...(designer ? [`“Design: …” to ask ${designer}`] : []),
+  ];
+  const placeholder = hints.length
+    ? `Add an idea, or ${hints.join(" or ")}`
     : "Add an idea";
   return (
     <form
@@ -1137,16 +1189,21 @@ function AddIdea({
         if (!title) return;
         setText("");
         const question = researcher ? researchQuestion(title) : null;
-        if (!question) {
+        const screen = designer && !question ? designQuestion(title) : null;
+        if (!question && !screen) {
           void addFeatureIdea(project, { title });
           return;
         }
-        void addFeatureIdea(project, { title: question }).then((card) => {
-          if (!card) return;
-          void askResearcher(project, card).then((problem) =>
-            onProblem?.(card.id, problem),
-          );
-        });
+        void addFeatureIdea(project, { title: question ?? screen! }).then(
+          (card) => {
+            if (!card) return;
+            void (
+              question
+                ? askResearcher(project, card)
+                : askDesigner(project, card)
+            ).then((problem) => onProblem?.(card.id, problem));
+          },
+        );
       }}
     >
       <input

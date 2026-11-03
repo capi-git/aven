@@ -221,6 +221,8 @@ export function crewPipeline(input: {
       held = "waits for you";
     } else if (working.kind === "research")
       sentence = `${name("researcher")} is reading for ${working.title}.`;
+    else if (working.kind === "mockup")
+      sentence = `${name("designer")} is mocking up ${working.title}.`;
     else if (working.holder === "security")
       sentence = `${name("security")} is reviewing ${working.title}${rounds}.`;
     else if (working.holder === "checker" || working.stage === "checking")

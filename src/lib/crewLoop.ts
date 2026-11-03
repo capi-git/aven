@@ -1,10 +1,12 @@
 import {
   CREW_ROLE_INFO,
+  MOCKUP_DIR,
   type CrewCard,
   type CrewCardHolder,
   type CrewChange,
   type CrewFinding,
   type CrewFindings,
+  type CrewMockup,
   type CrewHandoff,
   type CrewIdeaSize,
   type CrewLoopRole,
@@ -116,7 +118,7 @@ export function queueCard(
     /** The member that took it down in its chat (`from: "member"`). */
     fromMember?: string;
     /** A question for the Researcher: one turn, Findings at the end. */
-    kind?: "research";
+    kind?: "research" | "mockup";
     size?: CrewIdeaSize;
     sourceUrl?: string;
     maxRounds: number;
@@ -143,7 +145,7 @@ export function queueCard(
     ...(input.from === "member" && input.fromMember
       ? { fromMember: input.fromMember }
       : {}),
-    ...(input.kind === "research" ? { kind: "research" as const } : {}),
+    ...(input.kind ? { kind: input.kind } : {}),
     ...(input.size ? { size: input.size } : {}),
     ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
     ...(input.builderId ? { builderId: input.builderId } : {}),
@@ -152,10 +154,9 @@ export function queueCard(
     stage: "queued",
     round: 0,
     // A research card is one turn: there is nothing to send back.
-    maxRounds:
-      input.kind === "research"
-        ? 1
-        : Math.min(CREW_MAX_ROUNDS, Math.max(1, input.maxRounds)),
+    maxRounds: input.kind
+      ? 1
+      : Math.min(CREW_MAX_ROUNDS, Math.max(1, input.maxRounds)),
     rounds: [],
     later: [],
     runs: 0,
@@ -171,7 +172,12 @@ export function startCard(card: CrewCard, now: number): CrewCard {
     ...card,
     stage: "building",
     round: 1,
-    holder: card.kind === "research" ? "researcher" : "builder",
+    holder:
+      card.kind === "research"
+        ? "researcher"
+        : card.kind === "mockup"
+          ? "designer"
+          : "builder",
     rounds: [{ n: 1 }],
     startedAt: now,
     updatedAt: now,
@@ -232,6 +238,77 @@ export function afterResearch(
       endedAt: now,
     },
     event: { kind: "ready", round: card.round },
+  };
+}
+
+/**
+ * The Designer's turn ended. Its mock-up (one file Aven kept) makes the
+ * card ready for you (nothing to apply: Mock-up, with Look and Build it).
+ * A turn that wrote outside its folder, or more than one file, or left no
+ * block, or whose file Aven refused, stops the card with why.
+ */
+export function afterMockup(
+  card: CrewCard,
+  input: {
+    mockup: Omit<CrewMockup, "madeAt" | "outcome"> | null;
+    /** Why there is no mock-up: what it wrote, or what Aven refused. */
+    problem?: string;
+    /** The turn wrote files outside its folder: they are still in the copy. */
+    strayed?: boolean;
+    now: number;
+    name?: string;
+  },
+): LoopStep {
+  const { now } = input;
+  const who = input.name ?? NAME("designer");
+  const next: CrewCard = { ...card, turn: undefined, updatedAt: now };
+  if (input.strayed) {
+    const text = `${who} wrote outside ${MOCKUP_DIR}, so its mock-up wasn't kept${input.problem ? `: ${input.problem}` : ""}`;
+    return {
+      card: stuck(next, "checker-edited", text, now),
+      event: { kind: "stuck", reason: "checker-edited", text },
+    };
+  }
+  if (!input.mockup) {
+    const text = input.problem
+      ? `${who}'s mock-up wasn't kept: ${input.problem}`
+      : `${who}'s turn ended without a mock-up`;
+    return {
+      card: stuck(next, "no-verdict", text, now),
+      event: { kind: "stuck", reason: "no-verdict", text },
+    };
+  }
+  return {
+    card: {
+      ...next,
+      stage: "ready",
+      holder: undefined,
+      stuck: undefined,
+      fix: undefined,
+      reviewing: undefined,
+      mockup: { ...input.mockup, madeAt: now },
+      endedAt: now,
+    },
+    event: { kind: "ready", round: card.round },
+  };
+}
+
+/** You pressed Build it or Dismiss on a mock-up: the card is done. */
+export function markMockupDone(
+  card: CrewCard,
+  now: number,
+  outcome: "built" | "dismissed",
+): CrewCard {
+  if (card.stage !== "ready" || card.kind !== "mockup") return card;
+  return {
+    ...card,
+    stage: "applied",
+    holder: undefined,
+    turn: undefined,
+    error: undefined,
+    ...(card.mockup ? { mockup: { ...card.mockup, outcome } } : {}),
+    endedAt: now,
+    updatedAt: now,
   };
 }
 
@@ -671,7 +748,7 @@ export function resumeCard(
     return {
       ...card,
       stage:
-        holder === "builder" || holder === "researcher"
+        holder === "builder" || holder === "researcher" || holder === "designer"
           ? "building"
           : "checking",
       holder,
@@ -686,7 +763,12 @@ export function resumeCard(
   return {
     ...card,
     stage: "building",
-    holder: card.kind === "research" ? "researcher" : "builder",
+    holder:
+      card.kind === "research"
+        ? "researcher"
+        : card.kind === "mockup"
+          ? "designer"
+          : "builder",
     round,
     // A card past its rounds gets exactly one more, kept apart from those it was given.
     ...(round > roundLimit(card) ? { granted: round - card.maxRounds } : {}),
@@ -807,19 +889,26 @@ export function changedSinceLastRound(card: CrewCard): string[] {
 /** Where the card stands, as its Board line says it. */
 export function crewStageLabel(card: CrewCard): string {
   const research = card.kind === "research";
+  const mockup = card.kind === "mockup";
   switch (card.stage) {
     case "queued":
       return "Queued";
     case "building":
-      return research ? "Reading" : card.round > 1 ? "Fixing" : "Building";
+      return research
+        ? "Reading"
+        : mockup
+          ? "Mocking up"
+          : card.round > 1
+            ? "Fixing"
+            : "Building";
     case "checking":
       return card.holder === "security" ? "Security check" : "Checking";
     case "ready":
-      return research ? "Findings" : "Ready";
+      return research ? "Findings" : mockup ? "Mock-up" : "Ready";
     case "stuck":
       return "Needs you";
     case "applied":
-      return research ? "Read" : "Applied";
+      return research ? "Read" : mockup ? "Mock-up" : "Applied";
     case "discarded":
       return "Thrown away";
   }

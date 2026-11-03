@@ -404,6 +404,7 @@ describe("changing a member", () => {
       checker: { harness: "codex", model: "gpt-y" },
       scout: { harness: "claude", model: "claude:haiku" },
       researcher: { harness: "claude", model: "claude:opus" },
+      designer: { harness: "claude", model: "claude:opus" },
     });
     const crew = getCrew(PATH)!;
     expect(crewMemberById(crew, "builder")).toMatchObject({

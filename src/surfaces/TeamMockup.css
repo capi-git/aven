@@ -1,0 +1,13 @@
+/* The Designer's mock-up, as drawn, in a frame of its own. */
+.crew-mockup-frame {
+  max-height: 70vh;
+  overflow: auto;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-fill-quaternary, transparent);
+}
+
+/* The page inside the shadow root keeps its own look; only its box is ours. */
+.crew-mockup-page {
+  min-height: 160px;
+}

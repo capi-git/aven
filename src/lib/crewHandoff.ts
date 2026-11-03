@@ -40,6 +40,23 @@ export const FINDINGS_FENCE = "aven-findings";
 export const MEMORY_FENCE = "aven-memory";
 /** A team proposed from your description of the project (see `parseSetup`). */
 export const SETUP_FENCE = "aven-setup";
+/** The Designer's mock-up for a mock-up card: its file and a note. */
+export const MOCKUP_FENCE = "aven-mockup";
+
+/**
+ * The Designer's block: the mock-up's path (inside its folder, relative to
+ * the copy) and a one-line note. Null without the block or a file.
+ */
+export function parseMockup(
+  text: string,
+): { file: string; note: string } | null {
+  const block = finalFencedBlock(text, MOCKUP_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const file = botLine(fields.file, 300).replace(/^\.\//, "");
+  if (!file) return null;
+  return { file, note: botLine(fields.note, 300) };
+}
 /** Every fence a crew's bot ends a reply with. */
 export const CREW_FENCES = [
   HANDOFF_FENCE,
@@ -48,6 +65,7 @@ export const CREW_FENCES = [
   GOAL_FENCE,
   TASKS_FENCE,
   FINDINGS_FENCE,
+  MOCKUP_FENCE,
   MEMORY_FENCE,
 ] as const;
 
@@ -75,7 +93,7 @@ export function withoutMemory(text: string): string {
 export type SetupTeammate = { role: CrewRole; job: string };
 
 /** A first idea a setup proposes; `by: "researcher"` is a question to read up on. */
-export type SetupIdea = { title: string; by?: "researcher" };
+export type SetupIdea = { title: string; by?: "researcher" | "designer" };
 
 export type TeamSetup = { teammates: SetupTeammate[]; ideas: SetupIdea[] };
 
@@ -125,10 +143,10 @@ export function parseSetup(text: string): TeamSetup | null {
     if (!title) continue;
     if (ideas.some((idea) => idea.title.toLowerCase() === title.toLowerCase()))
       continue;
+    const said = typeof raw?.by === "string" ? raw.by.trim().toLowerCase() : "";
     const by =
-      typeof raw?.by === "string" &&
-      raw.by.trim().toLowerCase() === "researcher"
-        ? ("researcher" as const)
+      said === "researcher" || said === "designer"
+        ? (said as "researcher" | "designer")
         : undefined;
     ideas.push({ title, ...(by ? { by } : {}) });
     if (ideas.length >= SETUP_IDEAS_MAX) break;

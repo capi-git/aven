@@ -699,6 +699,7 @@ describe("crew controls", () => {
       checker: { harness: "codex", model: "codex:gpt" },
       scout: { harness: "claude", model: "claude:haiku" },
       researcher: { harness: "claude", model: "claude:opus" },
+      designer: { harness: "claude", model: "claude:opus" },
     });
     expect(
       pickCrewModels({

@@ -8,6 +8,7 @@ import {
   changedAfterCheck,
   markApplied,
   markDiscarded,
+  markMockupDone,
   markResearchRead,
   queueCard,
   resumeCard,
@@ -19,6 +20,7 @@ import {
   CREW_NOTE_MAX,
   bumpToday,
   cardInCopy,
+  cardDesigner,
   cardResearcher,
   claimCrewJob,
   releaseCrewJob,
@@ -114,7 +116,7 @@ import { plural } from "./words";
 
 /** Models a crew's members run on, picked when it is turned on. */
 export type CrewModels = Record<
-  "builder" | "checker" | "scout" | "researcher",
+  "builder" | "checker" | "scout" | "researcher" | "designer",
   { harness: "claude" | "codex"; model: string }
 >;
 
@@ -145,6 +147,8 @@ export function pickCrewModels(input: {
         : { harness: "claude", model: other ?? builder },
     scout: { harness: "claude", model: lighter },
     researcher: { harness: "claude", model: builder },
+    // It draws a whole screen: the Builder's model, on Claude, as it writes.
+    designer: { harness: "claude", model: builder },
   };
 }
 
@@ -812,6 +816,155 @@ export async function askResearcher(
     );
   });
   await moveFeatureCard(path, card.id, "building", "");
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Screens for the Designer
+
+/**
+ * "Design: the timer screen" or "Mock up: the today list" in the Add an
+ * idea box: the card after the prefix, or null for an ordinary idea. As
+ * for Research:, the prefix ends in a colon or a spaced dash.
+ */
+export function designQuestion(text: string): string | null {
+  const match =
+    /^\s*(?:design|mock(?:\s*-?\s*)up|ask(?:\s+the)?\s+designer)(?:\s*[:：]\s*|\s+[—–-]\s+)(.+)$/is.exec(
+      text,
+    );
+  const asked = match?.[1]?.trim();
+  return asked || null;
+}
+
+export const NO_DESIGNER = "Add a Designer to the team first.";
+const DESIGNER_OFF = "Turn the Designer on first.";
+
+/**
+ * Ask the Designer to mock up a Board card: it waits in Building as Queued
+ * and takes one turn when the team's copy is free, ending in a Mock-up for
+ * you to look at. Resolves with why it couldn't, or null.
+ */
+export async function askDesigner(
+  path: string,
+  card: Pick<FeatureCard, "id" | "title" | "note" | "sourceUrl">,
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  if (!crew?.on) return "Turn the team on first.";
+  if (!cardDesigner(crew))
+    return crew.members.some((member) => member.role === "designer")
+      ? DESIGNER_OFF
+      : NO_DESIGNER;
+  const known = crewCard(crew, card.id);
+  if (known && known.stage !== "applied" && known.stage !== "discarded")
+    return null;
+  const idea = crew.ideas?.[card.id];
+  updateCrew(path, (current) => {
+    const who = crewMemberName(
+      current,
+      cardDesigner(current)?.id ?? "designer",
+    );
+    return withFeed(
+      withCard(
+        withNotNow(withoutCard(current, card.id), card.id, false),
+        queueCard(
+          {
+            id: card.id,
+            title: card.title,
+            brief: featureBrief(card),
+            from: idea?.by ? idea.by : idea ? "scout" : "you",
+            kind: "mockup",
+            ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
+            maxRounds: 1,
+          },
+          now,
+        ),
+      ),
+      {
+        at: now,
+        kind: "note",
+        who: "you",
+        cardId: card.id,
+        title: card.title,
+        text: `You asked ${who} to mock up “${card.title}”`,
+      },
+    );
+  });
+  await moveFeatureCard(path, card.id, "building", "");
+  return null;
+}
+
+const NO_MOCKUP = "This card has no mock-up.";
+
+/**
+ * Build it on a mock-up: an ordinary idea of yours, "Build the mock-up: …",
+ * whose note points a Builder at the file Aven keeps (read-only to it,
+ * never part of the project). The mock-up card is done. Resolves with why
+ * it couldn't, or null.
+ */
+export async function buildMockup(
+  path: string,
+  cardId: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const card = crew ? crewCard(crew, cardId) : undefined;
+  if (!card || card.kind !== "mockup" || card.stage !== "ready")
+    return NOT_READY;
+  if (!card.mockup) return NO_MOCKUP;
+  const who = crewMemberName(crew!, cardDesigner(crew!)?.id ?? "designer");
+  const idea = await addFeatureIdea(path, {
+    title: `Build the mock-up: ${card.title}`,
+    note: [
+      `Build what the mock-up shows. Read it at ${card.mockup.file} (Aven's own copy of ${who}'s mock-up: read it, never change it; it isn't part of the project).`,
+      card.mockup.note ? `${who} says: ${card.mockup.note}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+  if (!idea) return "Couldn't add the card to the Board.";
+  updateCrew(path, (current) => {
+    const known = crewCard(current, cardId);
+    if (!known || known.stage !== "ready") return current;
+    return withFeed(withCard(current, markMockupDone(known, now, "built")), {
+      at: now,
+      kind: "note",
+      who: "you",
+      cardId,
+      title: known.title,
+      text: `You asked for “${known.title}” to be built from ${who}'s mock-up`,
+    });
+  });
+  await moveFeatureCard(path, cardId, "shipped", "");
+  return null;
+}
+
+/** You looked at the mock-up and want nothing built: the card is done. */
+export async function dismissMockup(
+  path: string,
+  cardId: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const card = crew ? crewCard(crew, cardId) : undefined;
+  if (!card || card.kind !== "mockup" || card.stage !== "ready")
+    return NOT_READY;
+  updateCrew(path, (current) => {
+    const known = crewCard(current, cardId);
+    if (!known || known.stage !== "ready") return current;
+    return withFeed(
+      withCard(current, markMockupDone(known, now, "dismissed")),
+      {
+        at: now,
+        kind: "note",
+        who: "you",
+        cardId,
+        title: known.title,
+        text: `You dismissed the mock-up for “${known.title}”`,
+      },
+    );
+  });
+  await moveFeatureCard(path, cardId, "shipped", "");
   return null;
 }
 
@@ -1790,7 +1943,13 @@ export function dismissCrewInbox(
 
 /** What you can add: a role's member, or one of your own that works as a Builder or Checker. */
 export type CrewTemplate =
-  "builder" | "checker" | "security" | "scout" | "researcher" | "custom";
+  | "builder"
+  | "checker"
+  | "security"
+  | "scout"
+  | "researcher"
+  | "designer"
+  | "custom";
 
 export type CrewNewMember = {
   /** For a custom member: whether it builds or checks. */
@@ -1896,7 +2055,10 @@ export function addCrewMember(
   const role: Exclude<CrewRole, "fixer"> =
     template === "custom" ? (input.role ?? "builder") : template;
   if (
-    (role === "scout" || role === "security" || role === "researcher") &&
+    (role === "scout" ||
+      role === "security" ||
+      role === "researcher" ||
+      role === "designer") &&
     crew.members.some((member) => member.role === role)
   )
     return {
@@ -1905,7 +2067,9 @@ export function addCrewMember(
           ? "a Scout"
           : role === "researcher"
             ? "a Researcher"
-            : "Security"
+            : role === "designer"
+              ? "a Designer"
+              : "Security"
       }.`,
     };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
@@ -2200,7 +2364,8 @@ export function addCrewPreset(
   if (
     (preset.role === "scout" ||
       preset.role === "security" ||
-      preset.role === "researcher") &&
+      preset.role === "researcher" ||
+      preset.role === "designer") &&
     crew.members.some((member) => member.role === preset.role)
   )
     return { error: "It's in the team already." };
@@ -2220,12 +2385,13 @@ export type SetupMember = { role: Exclude<CrewRole, "fixer">; job: string };
 
 /**
  * A first idea as the setup sheet has it: yours (`source: "you"`), one Aven
- * suggested (`"setup"`, which waits for your tick on the Board), or a
- * question for the Researcher (`"researcher"`).
+ * suggested (`"setup"`, which waits for your tick on the Board), a question
+ * for the Researcher (`"researcher"`), or a screen for the Designer to mock
+ * up first (`"designer"`).
  */
 export type SetupIdeaDraft = {
   title: string;
-  source: "you" | "setup" | "researcher";
+  source: "you" | "setup" | "researcher" | "designer";
 };
 
 export type TeamSetupDraft = {
@@ -2282,7 +2448,7 @@ export async function startTeamSetup(
   const before = { members: crew.members, about: crew.about };
   // The ideas first, while nothing runs: a suggestion is marked as it
   // lands, so it never reads as yours.
-  const added: { id: string; question: boolean }[] = [];
+  const added: { id: string; ask: "researcher" | "designer" | null }[] = [];
   const undo = async () => {
     for (const { id } of added) await deleteFeatureCard(path, id);
     updateCrew(path, (current) => ({
@@ -2317,7 +2483,13 @@ export async function startTeamSetup(
         problem: "Couldn't add the first ideas to the Board.",
       };
     }
-    added.push({ id: card.id, question: idea.source === "researcher" });
+    added.push({
+      id: card.id,
+      ask:
+        idea.source === "researcher" || idea.source === "designer"
+          ? idea.source
+          : null,
+    });
     if (idea.source === "you") continue;
     updateCrew(path, (current) =>
       withIdea(current, card.id, {
@@ -2351,17 +2523,22 @@ export async function startTeamSetup(
     await undo();
     return { on: false, problem: why };
   }
-  // On now: the questions go to the Researcher. A problem is said in the
-  // feed, and the team keeps going.
-  for (const { id, question } of added) {
-    if (!question || !cardResearcher(getCrew(path)!)) continue;
+  // On now: the questions go to the Researcher, the screens to the
+  // Designer. A problem is said in the feed, and the team keeps going.
+  for (const { id, ask } of added) {
+    if (!ask) continue;
+    const live = getCrew(path)!;
+    if (ask === "researcher" ? !cardResearcher(live) : !cardDesigner(live))
+      continue;
     const card = featureBoardState(path).cards.find((item) => item.id === id);
     if (!card) continue;
-    const problem = await askResearcher(path, card, now).catch((error) =>
-      errorText(error),
-    );
+    const problem = await (
+      ask === "researcher"
+        ? askResearcher(path, card, now)
+        : askDesigner(path, card, now)
+    ).catch((error) => errorText(error));
     if (!problem) continue;
-    const text = `Couldn't ask the Researcher “${card.title}”: ${problem}`;
+    const text = `Couldn't ask the ${ask === "researcher" ? "Researcher" : "Designer"} “${card.title}”: ${problem}`;
     updateCrew(path, (current) =>
       withFeed(current, { at: now, kind: "hold", who: "aven", text }),
     );

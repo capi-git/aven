@@ -9,6 +9,7 @@ import {
   cardBuilder,
   cardChecker,
   cardHolderId,
+  cardDesigner,
   cardResearcher,
   cardSecurity,
   cardSteppedAside,
@@ -227,7 +228,15 @@ export type CrewBoardActionId =
   /** Open the Researcher's findings. */
   | "read"
   /** Put the ideas it proposes in Ideas (each waits for you). */
-  | "add-ideas";
+  | "add-ideas"
+  /** An idea becomes a screen for the Designer to mock up. */
+  | "design"
+  /** Open the Designer's mock-up. */
+  | "look"
+  /** An idea of yours to build what the mock-up shows. */
+  | "build-mockup"
+  /** You looked, and want nothing built. */
+  | "dismiss-mockup";
 
 export type CrewBoardAction = {
   id: CrewBoardActionId;
@@ -280,7 +289,90 @@ const A = {
   open: { id: "open", label: "Open" },
   research: { id: "research", label: "Ask Researcher" },
   read: { id: "read", label: "Read" },
+  design: { id: "design", label: "Ask Designer" },
+  look: { id: "look", label: "Look" },
+  buildMockup: { id: "build-mockup", label: "Build it", primary: true },
+  dismissMockup: { id: "dismiss-mockup", label: "Dismiss" },
 } as const satisfies Record<string, CrewBoardAction>;
+
+/**
+ * A mock-up card: one mark (the Designer), Mocking up while it draws, then
+ * Mock-up in Ready for you with Look, Build it and Dismiss, and Mock-up ·
+ * built or · dismissed once done. Never Apply: nothing of it is a change.
+ */
+function mockupBoardInfo(
+  card: CrewCard,
+  designer: string,
+  member: { id: string; critter?: string } | undefined,
+  holderId: string | undefined,
+): CrewBoardInfo {
+  const base = {
+    column: stageColumn(card),
+    roles: ["designer" as const],
+    ...(member
+      ? {
+          members: [
+            {
+              id: member.id,
+              role: "designer" as const,
+              ...(member.critter ? { critter: member.critter } : {}),
+            },
+          ],
+        }
+      : {}),
+    label: crewStageLabel(card),
+    ...(holderId ? { holderId } : {}),
+  };
+  const turnChat = card.turn?.sessionId;
+  switch (card.stage) {
+    case "queued":
+      return { ...base, label: "Up next", detail: designer, actions: [] };
+    case "building":
+    case "checking":
+      if (card.paused)
+        return {
+          ...base,
+          label: "Paused",
+          detail: designer,
+          actions: [A.resume],
+        };
+      return {
+        ...base,
+        holder: "designer",
+        detail: `${designer} is on it`,
+        ...(turnChat ? { sessionId: turnChat } : {}),
+        ...(card.turn ? { since: card.turn.sentAt } : {}),
+        actions: [],
+      };
+    case "ready":
+      return {
+        ...base,
+        detail: designer,
+        ...(card.mockup?.note ? { line: card.mockup.note } : {}),
+        actions: [A.look, A.buildMockup, A.dismissMockup],
+      };
+    case "stuck":
+      return {
+        ...base,
+        needsYou: true,
+        line: card.stuck?.text,
+        holder: "designer",
+        ...(turnChat ? { sessionId: turnChat } : {}),
+        actions: [
+          cardTriesAgain(card) ? { ...A.more, label: "Try again" } : A.more,
+          A.throwAway,
+        ],
+      };
+    case "applied":
+      return {
+        ...base,
+        detail: card.mockup?.outcome === "built" ? "built" : "dismissed",
+        actions: card.mockup ? [A.look] : [],
+      };
+    case "discarded":
+      return { ...base, actions: [] };
+  }
+}
 
 /** "6 sources", "1 source", "no sources": what the Researcher read. */
 export function sourcesText(count: number): string {
@@ -431,12 +523,14 @@ export function crewBoardInfo(
     checker: string;
     security?: string;
     researcher?: string;
+    designer?: string;
   },
   who?: {
     builder?: { id: string; critter?: string };
     checker?: { id: string; critter?: string };
     security?: { id: string; critter?: string };
     researcher?: { id: string; critter?: string };
+    designer?: { id: string; critter?: string };
     holderId?: string;
   },
 ): CrewBoardInfo {
@@ -445,6 +539,13 @@ export function crewBoardInfo(
       card,
       names.researcher ?? "Researcher",
       who?.researcher,
+      who?.holderId,
+    );
+  if (card.kind === "mockup")
+    return mockupBoardInfo(
+      card,
+      names.designer ?? "Designer",
+      who?.designer,
       who?.holderId,
     );
   // The one mark: whoever has it now, else its Builder.
@@ -589,6 +690,8 @@ export function crewIdeaInfo(
     next?: boolean;
     /** The Researcher's name, when the team has one on. */
     researcher?: string;
+    /** The Designer's name, when the team has one on. */
+    designer?: string;
   } = {},
 ): CrewBoardInfo {
   // An idea Aven suggested at setup wears no mark; its wait line says so.
@@ -608,9 +711,14 @@ export function crewIdeaInfo(
         : idea && idea.by !== "setup"
           ? ["scout"]
           : [];
-  const ask = place.researcher
-    ? [{ ...A.research, label: `Ask ${place.researcher}` }]
-    : [];
+  const ask = [
+    ...(place.researcher
+      ? [{ ...A.research, label: `Ask ${place.researcher}` }]
+      : []),
+    ...(place.designer
+      ? [{ ...A.design, label: `Ask ${place.designer}` }]
+      : []),
+  ];
   if (place.waits)
     return {
       roles,
@@ -641,7 +749,7 @@ export function crewIdeaInfo(
  * Not now while it waits its turn, and the rest of a stopped card's ways on.
  */
 export function crewCardMenu(card: CrewCard): CrewBoardAction[] {
-  const research = card.kind === "research";
+  const research = card.kind === "research" || card.kind === "mockup";
   switch (card.stage) {
     case "queued":
       return [{ ...A.backToIdeas, label: "Not now" }];
@@ -697,6 +805,7 @@ export function crewCardWho(
     checker: string;
     security: string;
     researcher: string;
+    designer: string;
   };
   who: NonNullable<Parameters<typeof crewBoardInfo>[2]>;
 } {
@@ -706,11 +815,13 @@ export function crewCardWho(
     crewMemberById(crew, card.checkerId) ?? cardChecker(crew, card);
   const security = cardSecurity(crew);
   const researcher = cardResearcher(crew);
+  const designer = cardDesigner(crew);
   const names = {
     builder: name(builder?.id ?? "builder"),
     checker: name(checker?.id ?? "checker"),
     security: name(security?.id ?? "security"),
     researcher: name(researcher?.id ?? "researcher"),
+    designer: name(designer?.id ?? "designer"),
   };
   const face = (member: typeof builder) =>
     member
@@ -727,6 +838,7 @@ export function crewCardWho(
       ...(face(checker) ? { checker: face(checker) } : {}),
       ...(face(security) ? { security: face(security) } : {}),
       ...(face(researcher) ? { researcher: face(researcher) } : {}),
+      ...(face(designer) ? { designer: face(designer) } : {}),
       ...(holderId ? { holderId } : {}),
     },
   };
@@ -749,6 +861,7 @@ export function crewBoardColumns<
     scout: string;
     security?: string;
     researcher?: string;
+    designer?: string;
   },
   /** A member's name by id: each card names its own Builder and Checker. */
   name?: (who: string) => string,
@@ -769,14 +882,19 @@ export function crewBoardColumns<
           (card.stage !== "applied" && card.stage !== "discarded") ||
           (card.kind === "research" &&
             card.stage === "applied" &&
-            !!card.findings),
+            !!card.findings) ||
+          (card.kind === "mockup" && card.stage === "applied" && !!card.mockup),
       )
       .map((card) => [card.id, card]),
   );
-  // With a Researcher on, an idea's ⋯ offers Ask Researcher.
+  // With a Researcher or a Designer on, an idea's ⋯ offers to ask them.
   const researcher = cardResearcher(crew);
   const researcherName = researcher
     ? (name?.(researcher.id) ?? names.researcher ?? "Researcher")
+    : undefined;
+  const designer = cardDesigner(crew);
+  const designerName = designer
+    ? (name?.(designer.id) ?? names.designer ?? "Designer")
     : undefined;
   // Ideas build top first: the first that doesn't wait for you is Next,
   // once nothing queued goes before it.
@@ -813,6 +931,7 @@ export function crewBoardColumns<
               waits,
               next: next && !waits,
               ...(researcherName ? { researcher: researcherName } : {}),
+              ...(designerName ? { designer: designerName } : {}),
             },
           ),
         });

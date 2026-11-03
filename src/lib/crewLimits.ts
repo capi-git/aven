@@ -7,6 +7,7 @@ import {
   cardBuilder,
   cardChecker,
   cardInCopy,
+  cardDesigner,
   cardResearcher,
   cardSecurity,
   countToday,
@@ -160,9 +161,11 @@ export function crewHoldGate(input: CrewGateInput): {
   const role: CrewCardHolder =
     waiting?.kind === "research"
       ? "researcher"
-      : waiting?.holder === "checker" || waiting?.holder === "security"
-        ? waiting.holder
-        : "builder";
+      : waiting?.kind === "mockup"
+        ? "designer"
+        : waiting?.holder === "checker" || waiting?.holder === "security"
+          ? waiting.holder
+          : "builder";
   const member = !waiting
     ? undefined
     : role === "checker"
@@ -171,7 +174,9 @@ export function crewHoldGate(input: CrewGateInput): {
         ? cardSecurity(crew)
         : role === "researcher"
           ? cardResearcher(crew)
-          : cardBuilder(crew, waiting);
+          : role === "designer"
+            ? cardDesigner(crew)
+            : cardBuilder(crew, waiting);
   const unmanned =
     !!waiting &&
     (waiting.stage === "queued" ||
