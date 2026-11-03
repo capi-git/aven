@@ -11573,7 +11573,8 @@ export default function App({
         }
         if (!getCrew(path)?.onAt) {
           ensureCrewSaved(path);
-          setCrewSheetPage("add");
+          // Say what the project is first; Pick teammates myself is there.
+          setCrewSheetPage("setup");
           setCrewSheet(path);
           return;
         }

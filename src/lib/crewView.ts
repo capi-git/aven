@@ -566,6 +566,7 @@ const WAITS: Record<IdeaWait, string> = {
   outside: "From outside · waits for you",
   security: "Waits for you",
   researcher: "Waits for you",
+  setup: "From setup · waits for you",
   chat: "Has its own chat · waits for you",
   large: "Large · waits for you",
   cap: "Waits for tomorrow: today's Scout ideas are used",
@@ -590,12 +591,13 @@ export function crewIdeaInfo(
     researcher?: string;
   } = {},
 ): CrewBoardInfo {
+  // An idea Aven suggested at setup wears no mark; its wait line says so.
   const from =
     idea?.by === "security"
       ? `From ${security}`
       : idea?.by === "researcher"
         ? `From ${place.researcher ?? "Researcher"}`
-        : idea
+        : idea && idea.by !== "setup"
           ? `From ${scout}`
           : "";
   const roles: CrewRole[] =
@@ -603,7 +605,7 @@ export function crewIdeaInfo(
       ? ["security"]
       : idea?.by === "researcher"
         ? ["researcher"]
-        : idea
+        : idea && idea.by !== "setup"
           ? ["scout"]
           : [];
   const ask = place.researcher

@@ -5,11 +5,14 @@ import {
 } from "./automationReview";
 import {
   CREW_MEMORY_MAX,
+  CREW_ROLE_INFO,
+  CREW_ROLE_ORDER,
   readFinding,
   readRan,
   type CrewFinding,
   type CrewHandoff,
   type CrewIdeaSize,
+  type CrewRole,
   type CrewVerdict,
 } from "./crews";
 import { cleanUntrusted } from "./memoryKeeperSafety";
@@ -34,6 +37,8 @@ export const TASKS_FENCE = "aven-tasks";
 export const FINDINGS_FENCE = "aven-findings";
 /** A member's notes about the project, rewritten in full (see `parseMemory`). */
 export const MEMORY_FENCE = "aven-memory";
+/** A team proposed from your description of the project (see `parseSetup`). */
+export const SETUP_FENCE = "aven-setup";
 /** Every fence a crew's bot ends a reply with. */
 export const CREW_FENCES = [
   HANDOFF_FENCE,
@@ -81,6 +86,71 @@ export function parseMemory(text: string): string | null {
 /** A reply without its notes block, for the rest of Aven to read as before. */
 export function withoutMemory(text: string): string {
   return onlyFencedBlock(text, MEMORY_FENCE)?.without ?? text;
+}
+
+/** A teammate a setup proposes: a known role and a one-line job. */
+export type SetupTeammate = { role: CrewRole; job: string };
+
+/** A first idea a setup proposes; `by: "researcher"` is a question to read up on. */
+export type SetupIdea = { title: string; by?: "researcher" };
+
+export type TeamSetup = { teammates: SetupTeammate[]; ideas: SetupIdea[] };
+
+/** The most first ideas a setup proposes. */
+export const SETUP_IDEAS_MAX = 6;
+const SETUP_ROLES = new Set<CrewRole>(CREW_ROLE_ORDER);
+
+/**
+ * A team proposed from your words: its one `aven-setup` block, as known
+ * roles (one of each, a Builder always, unknown ones dropped) with a job
+ * each, and at most six first ideas. A model's words: cleaned like any
+ * bot's, and nothing here starts anything until you press Start.
+ */
+export function parseSetup(text: string): TeamSetup | null {
+  const block = onlyFencedBlock(text, SETUP_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const teammates: SetupTeammate[] = [];
+  for (const item of Array.isArray(fields.teammates) ? fields.teammates : []) {
+    const raw =
+      typeof item === "string"
+        ? { role: item }
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+    const role =
+      typeof raw?.role === "string" ? raw.role.trim().toLowerCase() : "";
+    if (!SETUP_ROLES.has(role as CrewRole)) continue;
+    if (teammates.some((mate) => mate.role === role)) continue;
+    const job = botLine(raw?.job, 120) || CREW_ROLE_INFO[role as CrewRole].job;
+    teammates.push({ role: role as CrewRole, job });
+  }
+  if (!teammates.some((mate) => mate.role === "builder"))
+    teammates.unshift({ role: "builder", job: CREW_ROLE_INFO.builder.job });
+  teammates.sort(
+    (a, b) => CREW_ROLE_ORDER.indexOf(a.role) - CREW_ROLE_ORDER.indexOf(b.role),
+  );
+  const ideas: SetupIdea[] = [];
+  for (const item of Array.isArray(fields.ideas) ? fields.ideas : []) {
+    const raw =
+      typeof item === "string"
+        ? { title: item }
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+    const title = botLine(raw?.title, 120);
+    if (!title) continue;
+    if (ideas.some((idea) => idea.title.toLowerCase() === title.toLowerCase()))
+      continue;
+    const by =
+      typeof raw?.by === "string" &&
+      raw.by.trim().toLowerCase() === "researcher"
+        ? ("researcher" as const)
+        : undefined;
+    ideas.push({ title, ...(by ? { by } : {}) });
+    if (ideas.length >= SETUP_IDEAS_MAX) break;
+  }
+  return { teammates, ideas };
 }
 
 /** At most this many must-fix items count; more read as notes for later. */

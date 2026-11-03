@@ -39,6 +39,7 @@ import {
   crewAgentsFor,
   CREW_LIMIT_RANGES,
   CREW_ROLE_INFO,
+  CREW_ROLE_ORDER,
   crewMemberById,
   memberCritter,
   newMemberId,
@@ -2197,7 +2198,9 @@ export function addCrewPreset(
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
     return { error: "A team has at most 8 teammates." };
   if (
-    (preset.role === "scout" || preset.role === "security") &&
+    (preset.role === "scout" ||
+      preset.role === "security" ||
+      preset.role === "researcher") &&
     crew.members.some((member) => member.role === preset.role)
   )
     return { error: "It's in the team already." };
@@ -2207,6 +2210,110 @@ export function addCrewPreset(
     return withPreset(current, preset, app);
   });
   return { id };
+}
+
+// ---------------------------------------------------------------------------
+// A team set up from your description
+
+/** A teammate as the setup sheet has it: a role, and its one-line job. */
+export type SetupMember = { role: Exclude<CrewRole, "fixer">; job: string };
+
+/**
+ * A first idea as the setup sheet has it: yours (`source: "you"`), one Aven
+ * suggested (`"setup"`, which waits for your tick on the Board), or a
+ * question for the Researcher (`"researcher"`).
+ */
+export type SetupIdeaDraft = {
+  title: string;
+  source: "you" | "setup" | "researcher";
+};
+
+export type TeamSetupDraft = {
+  description: string;
+  teammates: readonly SetupMember[];
+  ideas: readonly SetupIdeaDraft[];
+};
+
+/**
+ * Start a team from the setup sheet: the chosen teammates (each its role's
+ * ready-made member, with the job line as given), your description as a
+ * standing note the team reads at every turn, the team turned on the way
+ * Start team turns it on, then the first ideas on the Board: yours as
+ * yours, Aven's suggestions marked so they wait for your tick, and a
+ * question for the Researcher asked of it. Resolves with why it couldn't,
+ * or null. Nothing runs before this.
+ */
+export async function startTeamSetup(
+  path: string,
+  draft: TeamSetupDraft,
+  turnOn: () => Promise<string | null>,
+  models: CrewModels = crewModelsHere(),
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  if (!crew) return "This project has no team.";
+  if (!teamUnstarted(crew))
+    return "This team has started already: add or remove teammates one at a time.";
+  const chosen = draft.teammates.filter(
+    (mate, index, all) =>
+      all.findIndex((other) => other.role === mate.role) === index,
+  );
+  if (!chosen.some((mate) => mate.role === "builder"))
+    return "A team needs a Builder.";
+  const presets = chosen
+    .flatMap((mate) => {
+      const preset = CREW_PRESETS.find((item) => item.key === mate.role);
+      return preset ? [{ mate, preset }] : [];
+    })
+    // In role order, as the team lists them.
+    .sort(
+      (a, b) =>
+        CREW_ROLE_ORDER.indexOf(a.preset.role) -
+        CREW_ROLE_ORDER.indexOf(b.preset.role),
+    );
+  updateCrew(path, (current) => {
+    let next = current;
+    // Who stays: the Fixer, and any teammate you changed (its settings are
+    // yours); the rest give way to the team you chose.
+    for (const member of current.members) {
+      if (member.role === "fixer" || teammateEdited(member, models)) continue;
+      next = withoutMember(next, member.id);
+    }
+    for (const { mate, preset } of presets) {
+      if (next.members.some((member) => member.role === preset.role)) continue;
+      next = withPreset(next, preset, crewModelFor(models, preset.role));
+      const added = next.members.at(-1)!;
+      const job = cleanText(mate.job, 120);
+      if (job && job !== preset.job)
+        next = withMemberId(next, added.id, (member) => ({ ...member, job }));
+    }
+    // Your description: a standing note every teammate reads.
+    const words = draft.description.replace(/\s+/g, " ").trim();
+    return words ? withNote(next, `About this project: ${words}`, now) : next;
+  });
+  const why = await turnOn();
+  if (why) return why;
+  for (const idea of draft.ideas) {
+    const title = idea.title.trim();
+    if (!title) continue;
+    const card = await addFeatureIdea(path, { title });
+    if (!card) return "Couldn't add the first ideas to the Board.";
+    if (idea.source === "you") continue;
+    // Aven's suggestion, not your words: it waits for your tick.
+    updateCrew(path, (current) =>
+      withIdea(current, card.id, {
+        at: now,
+        size: "medium",
+        by: "setup",
+        outside: true,
+      }),
+    );
+    if (idea.source === "researcher" && cardResearcher(getCrew(path)!)) {
+      const problem = await askResearcher(path, card, now);
+      if (problem) return problem;
+    }
+  }
+  return null;
 }
 
 /**

@@ -416,7 +416,7 @@ export type CrewCard = {
   /** What to build: the card's title and note. */
   brief: string;
   /** You, or an idea from the Scout, Security's sweep or the Researcher (quoted as data). */
-  from: "you" | "scout" | "security" | "member" | "researcher";
+  from: "you" | "scout" | "security" | "member" | "researcher" | "setup";
   /**
    * A question for the Researcher: one read-only turn that ends in
    * Findings, never in a change to apply.
@@ -511,7 +511,7 @@ export type CrewIdea = {
   /** It started by itself. */
   autoStarted?: boolean;
   /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
-  by?: "security" | "researcher";
+  by?: "security" | "researcher" | "setup";
 };
 
 export type CrewFeedKind =
@@ -1144,7 +1144,8 @@ export function readCrewCard(value: unknown): CrewCard | null {
       raw.from === "scout" ||
       raw.from === "security" ||
       raw.from === "member" ||
-      raw.from === "researcher"
+      raw.from === "researcher" ||
+      raw.from === "setup"
         ? raw.from
         : "you",
     ...(raw.from === "member" && text(raw.fromMember, 60)
@@ -1398,7 +1399,9 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.outside === true ? { outside: true } : {}),
         ...(idea.declined === true ? { declined: true } : {}),
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
-        ...(idea.by === "security" || idea.by === "researcher"
+        ...(idea.by === "security" ||
+        idea.by === "researcher" ||
+        idea.by === "setup"
           ? { by: idea.by }
           : {}),
       };
