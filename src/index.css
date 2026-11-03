@@ -452,12 +452,6 @@ input,
   pointer-events: none;
 }
 
-html.is-reordering,
-html.is-reordering * {
-  -webkit-user-select: none !important;
-  user-select: none !important;
-}
-
 html.is-resizing,
 html.is-resizing * {
   cursor: col-resize !important;

@@ -151,7 +151,11 @@ export function lastDragEnd(): DragEnd | null {
   return lastEnd;
 }
 
-/** Block native text selection for the duration of a reorder gesture. */
+/**
+ * Block native text selection for the duration of a reorder gesture. Refusing
+ * `selectstart` is enough: a rule on `html *` would also do it, at the price
+ * of restyling every element in the window when a drag starts and ends.
+ */
 export function suppressTextSelection() {
   const onSelectStart = (event: Event) => {
     event.preventDefault();
