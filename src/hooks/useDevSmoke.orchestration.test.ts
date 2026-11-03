@@ -132,6 +132,19 @@ function app(flaws: Flaws = {}) {
     }),
     orchestration: {
       run: (leadId: string) => runs.get(leadId),
+      inspect: () => ({ waking: false, announced: [], blocked: [] }),
+      // Stop run: the run is over, its lead and agents idle.
+      stopRun: vi.fn(async (leadId: string) => {
+        const run = runs.get(leadId);
+        if (!run) return;
+        setRun(leadId, {
+          status: "stopped",
+          tasks: run.tasks.map((task) => ({ ...task, status: "cancelled" })),
+        });
+        for (const task of run.tasks)
+          update(task.sessionId, { busy: false, pendingQuestion: undefined });
+        update(leadId, { busy: false });
+      }),
       submissionError: (id: string) => {
         const open = [...runs.values()].find(
           (run) => run.status === "active" && run.leadId !== id,
@@ -226,7 +239,15 @@ function app(flaws: Flaws = {}) {
       update(workers[1], { busy: false });
       if (flaws.workerFinished)
         entry(`${workers[1]}:done`, workers[1], SMOKE_REPLY);
-      setRun(leadId, { status: "finished" });
+      // Finish accepts every task first, as the orchestrator requires.
+      setRun(leadId, {
+        status: "finished",
+        tasks: runs.get(leadId)!.tasks.map((task) => ({
+          ...task,
+          status: "completed",
+          accepted: true,
+        })),
+      });
       update(leadId, {
         busy: false,
         blocks: [
@@ -378,6 +399,9 @@ async function failure(flaws: Flaws, name = RUN_STEP) {
   expect(step?.passed).toBe(false);
   return step?.detail ?? "";
 }
+/** A failure's own words, before where the run stood. */
+const said = (detail: string) =>
+  detail.replace(/; run (active|paused|stopped|finished)\b.*$/, "");
 
 describe("the real-app check's orchestration steps", () => {
   beforeEach(() => {
@@ -443,43 +467,59 @@ describe("the real-app check's orchestration steps", () => {
   });
 
   it("fails when a worker posts its own Finished, or the run posts two", async () => {
-    expect(await failure({ workerFinished: true })).toBe(
+    expect(said(await failure({ workerFinished: true }))).toBe(
       `Activity also has "${SMOKE_REPLY}" for a worker`,
     );
-    expect(await failure({ twice: true })).toBe(
+    expect(said(await failure({ twice: true }))).toBe(
       'Activity has 2 "Run finished" entries, not one',
     );
   });
 
   it("fails when the lead's own finish call reports a failure", async () => {
-    expect(await failure({ finishFails: true })).toBe(
+    expect(said(await failure({ finishFails: true }))).toBe(
       `The lead's finish call failed: ${SMOKE_REPLY} Finish failed: Lead connection was revoked`,
     );
   });
 
   it("fails when the lead's chat offers a second Stop", async () => {
-    expect(await failure({ twoStops: true })).toBe(
+    expect(said(await failure({ twoStops: true }))).toBe(
       "Timed out waiting for one Stop run, in the bar, while the lead works: the lead's message box has a Stop of its own",
     );
   });
 
   it("fails when the result says nothing of what each agent did", async () => {
-    expect(await failure({ noSummary: true })).toBe(
+    expect(said(await failure({ noSummary: true }))).toBe(
       "Timed out waiting for the result card with what each agent did: the agents have no line on what they did",
     );
   });
 
   it("fails when the card never reads Finished", async () => {
-    expect(await failure({ staleCard: true })).toBe(
+    expect(said(await failure({ staleCard: true }))).toBe(
       "Timed out waiting for the card to read Finished",
     );
   });
 
+  it("names where the run stood, and stops a run it gave up on for the next steps", async () => {
+    // The question reached you: the step fails while the run is active, so
+    // the run is stopped and the stalled-run step after it can start.
+    const steps = await check({ askYou: true });
+    expect(named(steps, RUN_STEP)?.detail).toMatch(
+      /^Activity asks you to answer it \("Which title\?"\), so a banner would too; run active, lead woken 0 times; lead working; agent “\d+-a” running; its working, asking \(requestId 1\); agent “\d+-b” running; its working; wake-up not in flight, lead told of no request, blocked now: none; the run was stopped for the next steps$/,
+    );
+    expect(named(steps, STALL_STEP)?.passed).toBe(true);
+    // A run that is over is left as it is.
+    const stale = await failure({ staleCard: true });
+    expect(stale).toMatch(
+      /^Timed out waiting for the card to read Finished; run finished, lead woken 0 times; lead idle, last said “AVEN_SMOKE_OK Both notes are written\.”; agent “\d+-a” completed, accepted; its idle; agent “\d+-b” completed, accepted; its idle; wake-up not in flight/,
+    );
+    expect(stale).not.toContain("stopped for the next steps");
+  });
+
   it("fails when other chats hear jargon or the bar has no Finish run", async () => {
-    expect(await failure({ jargon: true }, STALL_STEP)).toBe(
+    expect(said(await failure({ jargon: true }, STALL_STEP))).toBe(
       "Another chat in the project is told: This checkout has an active orchestrator.",
     );
-    expect(await failure({ noFinish: true }, STALL_STEP)).toBe(
+    expect(said(await failure({ noFinish: true }, STALL_STEP))).toBe(
       'The bar offers "Ask the lead to wrap up", "Stop run"',
     );
   });

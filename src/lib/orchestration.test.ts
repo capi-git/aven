@@ -1411,6 +1411,59 @@ describe("what only you can move on", () => {
     expect(sessionNeedsUser(worker, deciding())).toBe(false);
   });
 
+  it("lets the real-app check read what it keeps for a lead's wake-up", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    const worker = f.sessions.find(
+      (session) => session.id === f.tasks()[0].sessionId,
+    )!;
+    worker.busy = true;
+    worker.pendingQuestion = {
+      requestId: 9,
+      questions: [
+        {
+          id: "check",
+          prompt: "Which check?",
+          multiSelect: false,
+          allowCustom: false,
+          options: [{ id: "unit", label: "Unit" }],
+        },
+      ],
+    };
+    const key = `${f.tasks()[0].id}:9`;
+    // The lead is busy: the agent is blocked, and the lead not yet told.
+    f.manager.sync();
+    expect(f.manager.inspect("lead")).toEqual({
+      waking: false,
+      announced: [],
+      blocked: [key],
+    });
+    // Idle, a wake-up is in flight until its save lands.
+    let release!: () => void;
+    f.store.save.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    f.lead.busy = false;
+    f.manager.sync();
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    expect(f.manager.inspect("lead")).toMatchObject({ waking: true });
+    release();
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(2));
+    expect(f.manager.inspect("lead")).toEqual({
+      waking: false,
+      announced: [key],
+      blocked: [key],
+    });
+    // A lead with no run has nothing kept.
+    expect(f.manager.inspect("nobody")).toEqual({
+      waking: false,
+      announced: [],
+      blocked: [],
+    });
+  });
+
   it("never hands you a request while the lead is busy deciding", async () => {
     const f = setup();
     await f.start();

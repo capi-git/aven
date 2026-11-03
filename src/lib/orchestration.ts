@@ -1765,6 +1765,24 @@ export class Orchestrator {
     this.actions = result.catch(() => undefined);
     return result;
   }
+  /**
+   * What is kept for a lead beside its run, for the real-app check's report
+   * on a lead that was never woken: whether a wake-up is in flight, which
+   * blocked requests the lead was told about, and which agents are blocked
+   * now. Read only; it changes nothing.
+   */
+  inspect(leadId: string): {
+    waking: boolean;
+    announced: string[];
+    blocked: string[];
+  } {
+    const run = this.run(leadId);
+    return {
+      waking: this.waking.has(leadId),
+      announced: [...(this.announced.get(leadId) ?? [])],
+      blocked: run ? this.blockedKeys(run) : [],
+    };
+  }
   /** `${taskId}:${requestId}` for every worker currently blocked on the lead. */
   private blockedKeys(run: OrchestrationRun): string[] {
     return run.tasks.flatMap((task) => {
