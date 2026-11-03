@@ -411,6 +411,7 @@ import {
   rememberOpenedFile,
   resolveOpenablePath,
 } from "./lib/fileIndex";
+import { visibleProjectCwd } from "./lib/visibleProjectCwd";
 import {
   closeLeaf,
   findSurfacePane,
@@ -2795,10 +2796,11 @@ export default function App({
     warmNativeSkills(activeSkillContext);
   }, [activeSkillCwd, active?.id, active?.harness]);
 
-  const sidebarCwd =
-    active?.cwd ??
-    (activeTab ? focusedFileTab(activeTab)?.cwd : undefined) ??
-    projectCwd;
+  const sidebarCwd = visibleProjectCwd(
+    active?.cwd,
+    activeTab ? focusedFileTab(activeTab)?.cwd : undefined,
+    projectCwd,
+  );
   const sidebarCwdRef = useRef(sidebarCwd);
   sidebarCwdRef.current = sidebarCwd;
   const sidebarCwdKey =
@@ -4083,7 +4085,9 @@ export default function App({
     }
     leaveExpandedPreview();
     closeUtilityViews();
-    const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
+    // The visible project owns the new chat. The first chat in the list may
+    // belong to another project, which would open it out of sight.
+    const cwd = sidebarCwd;
     const session = newDefaultSession(cwd);
     const tab = newTab(session.id);
     setSessions((prev) => [...prev, session]);
@@ -4091,23 +4095,14 @@ export default function App({
     setActiveTabId(tab.id);
     setComposerFocused(true);
     return session.id;
-  }, [
-    profileHome,
-    onNewStandalone,
-    active?.cwd,
-    appendTab,
-    sessionDefaults?.cwd,
-    sessionDefaults?.runtimeMode,
-    projectCwd,
-  ]);
+  }, [profileHome, onNewStandalone, appendTab, sidebarCwd]);
 
   const onStartInboxItem = useCallback(
     (item: InboxItem) => {
       // The Inbox may have been opened over Home; show the new chat.
       showWorkspace();
       setSidebarTab("sessions");
-      const cwd =
-        item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
+      const cwd = item.projectPath || sidebarCwd;
       const session = {
         ...newDefaultSession(cwd),
         title: `#${item.number} ${item.title}`,
@@ -4119,14 +4114,7 @@ export default function App({
       setActiveTabId(tab.id);
       setComposerFocused(true);
     },
-    [
-      active?.cwd,
-      appendTab,
-      sessionDefaults?.cwd,
-      sessionDefaults?.runtimeMode,
-      projectCwd,
-      showWorkspace,
-    ],
+    [appendTab, sidebarCwd, showWorkspace],
   );
 
   const onAddNoteToChat = useCallback(
@@ -4138,10 +4126,7 @@ export default function App({
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
           ? card.sourceCwd
-          : undefined) ||
-        active?.cwd ||
-        sessionDefaults?.cwd ||
-        projectCwd;
+          : undefined) || sidebarCwd;
       const title = card.title.trim();
       const session = {
         ...newDefaultSession(cwd),
@@ -4154,14 +4139,7 @@ export default function App({
       setActiveTabId(tab.id);
       setComposerFocused(true);
     },
-    [
-      active?.cwd,
-      appendTab,
-      sessionDefaults?.cwd,
-      sessionDefaults?.runtimeMode,
-      projectCwd,
-      showWorkspace,
-    ],
+    [appendTab, sidebarCwd, showWorkspace],
   );
 
   useEffect(() => {

@@ -566,7 +566,11 @@ export function stopStreaming(session: Session): Session {
     busy: false,
     waitingOn: undefined,
     pendingQuestion: undefined,
-    blocks: stampTurnDuration(settled.blocks.map(stopBlockProgress)),
+    blocks: stampTurnDuration(
+      settled.blocks
+        .filter((block) => !isBareProseStream(block))
+        .map(stopBlockProgress),
+    ),
   };
 }
 
@@ -1074,8 +1078,27 @@ function sealLastStream(blocks: Block[]): Block[] {
     return blocks.slice();
   }
   const next = blocks.slice();
-  next[next.length - 1] = { ...last, streaming: false };
+  if (isBareProseStream(last)) next.pop();
+  else next[next.length - 1] = { ...last, streaming: false };
   return next;
+}
+
+/** Text with at least one letter, digit or symbol: not just punctuation. */
+export function hasReadableText(text: string): boolean {
+  return /[^\s\p{P}]/u.test(text);
+}
+
+/**
+ * Some models send a bare "." between tool calls, and omp shows each one as
+ * a text part. Such a reply is dropped when it is sealed, completed, or the
+ * turn stops, instead of leaving a "." row before every call.
+ */
+function isBareProseStream(block: Block): boolean {
+  return (
+    block.role === "assistant" &&
+    !!block.streaming &&
+    !hasReadableText(block.text)
+  );
 }
 
 function displayLabel(
@@ -1185,12 +1208,15 @@ function finishRole(
 ): Session {
   return {
     ...session,
-    blocks: session.blocks.map((block) =>
-      block.role === role &&
-      block.streaming &&
-      (!key || block.messageKey === key)
-        ? { ...block, streaming: false }
-        : block,
-    ),
+    blocks: session.blocks.flatMap((block) => {
+      if (
+        block.role !== role ||
+        !block.streaming ||
+        (key && block.messageKey !== key)
+      ) {
+        return [block];
+      }
+      return isBareProseStream(block) ? [] : [{ ...block, streaming: false }];
+    }),
   };
 }

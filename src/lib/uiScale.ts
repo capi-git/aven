@@ -1,7 +1,7 @@
 import { clamp } from "./math";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
-const UI_SCALE_KEY = "monocode.uiScale";
+export const UI_SCALE_KEY = "monocode.uiScale";
 
 export const UI_SCALE_DEFAULT = 1;
 export const UI_SCALE_MIN = 0.5;

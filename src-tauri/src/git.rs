@@ -2944,10 +2944,15 @@ pub(crate) fn resolve_repo_path(root: &Path, relative: &str) -> Result<String, S
 
 /// Every Aven git command prints non-ASCII paths verbatim instead of as
 /// octal escapes, so line-based listings name the real file.
+///
+/// Any git can start a filter: in an LFS repo `status`, `diff`, `add` and
+/// checkouts all run `git-lfs`, which a Finder launch's bare PATH lacks. The
+/// cached search path finds it without waiting on the login shell.
 pub(crate) fn git_cmd() -> Command {
     let mut cmd = Command::new("git");
     crate::hide_window_console(&mut cmd);
     cmd.args(["-c", "core.quotePath=false"]);
+    cmd.env("PATH", crate::harness::cached_gui_search_path());
     cmd
 }
 
@@ -2958,8 +2963,9 @@ fn git_subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
 }
 
 /// Finder and Dock launches inherit launchd's bare PATH. Commands that can run
-/// signers, hooks, credential helpers, or git-lfs get the login-shell PATH;
-/// read-only commands skip it so they never wait on the login shell.
+/// signers, hooks or credential helpers get the full login-shell PATH; every
+/// other git keeps the cached path from `git_cmd` so it never waits on the
+/// login shell.
 fn git_cmd_for_args_with_path(args: &[&str], gui_path: impl FnOnce() -> String) -> Command {
     let mut cmd = git_cmd();
     if matches!(
@@ -4094,15 +4100,35 @@ mod tests {
         git(dir, &["add", "."]) && git(dir, &["commit", "-m", "init"])
     }
 
+    fn git_cmd_path(cmd: &Command) -> Vec<PathBuf> {
+        let path = cmd
+            .get_envs()
+            .find(|(key, _)| *key == std::ffi::OsStr::new("PATH"))
+            .and_then(|(_, value)| value)
+            .expect("git should get an explicit PATH");
+        std::env::split_paths(path).collect()
+    }
+
+    /// git-lfs and other filters live in Homebrew dirs a Finder launch lacks.
     #[test]
-    fn read_only_git_never_resolves_login_shell_path() {
-        for action in ["status", "diff", "rev-parse", "ls-files", "cat-file"] {
+    fn local_git_cmd_path_adds_fixed_dirs_to_the_inherited_path() {
+        let path = git_cmd_path(&git_cmd());
+        assert!(path.contains(&PathBuf::from("/opt/homebrew/bin")));
+        assert!(path.contains(&PathBuf::from("/usr/local/bin")));
+        if let Some(inherited) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&inherited) {
+                assert!(path.contains(&dir), "missing inherited {dir:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn local_git_never_resolves_login_shell_path() {
+        for action in ["status", "diff", "add", "restore", "rev-parse", "cat-file"] {
             let cmd = git_cmd_for_args_with_path(&[action], || {
-                panic!("read-only git must not resolve the login-shell PATH")
+                panic!("local git must not resolve the login-shell PATH")
             });
-            assert!(!cmd
-                .get_envs()
-                .any(|(key, _)| key == std::ffi::OsStr::new("PATH")));
+            assert!(git_cmd_path(&cmd).contains(&PathBuf::from("/opt/homebrew/bin")));
         }
     }
 

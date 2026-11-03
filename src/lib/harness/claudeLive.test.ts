@@ -195,6 +195,39 @@ describe("turn boundaries", () => {
     }
     await turn;
   });
+
+  it("ignores the empty result a resume replays for an old background task", async () => {
+    // The prompt has been echoed, so nothing else guards the turn's end.
+    const { events, turn } = await startTurn("s1");
+    const isDone = settled(turn);
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "t1",
+      status: "stopped",
+    });
+    emit({
+      type: "rate_limit_event",
+      rate_limit_info: { status: "rejected", resetsAt: 1_800_003_600 },
+      session_id: "sess_1",
+    });
+    emit({
+      type: "result",
+      subtype: "success",
+      num_turns: 0,
+      origin: { kind: "task-notification", task_id: "t1" },
+      session_id: "sess_1",
+    });
+    expect(await isDone()).toBe(false);
+    // The replay's limit is not the real turn's.
+    expect(events.at(-1)).toEqual({
+      type: "turn.waiting",
+      clear: ["usageLimit"],
+    });
+
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    expect(await isDone()).toBe(true);
+  });
 });
 
 describe("claude interrupted turns", () => {

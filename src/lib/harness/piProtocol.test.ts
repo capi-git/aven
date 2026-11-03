@@ -10,6 +10,7 @@ import {
   extensionUiResponse,
   extensionUiTitle,
   isAgentSettled,
+  isHiddenCopilotModel,
   mergeToolInput,
   modelsFromRpcData,
   needsExtensionUiReply,
@@ -382,6 +383,42 @@ describe("tools and models", () => {
     expect(models[0]?.settings?.[0]?.id).toBe("thinking");
     expect(models[0]?.contextWindow).toBe(200000);
     expect(models[1]?.settings).toBeUndefined();
+  });
+
+  it("hides Copilot's internal agents and legacy snapshots, by name only", () => {
+    // omp lists Copilot's /models endpoint whole; its own picker hides these.
+    const hidden = [
+      "exec-agent-v1",
+      "copilot-search-fast",
+      "trajectory-compaction",
+      "gpt-3.5-turbo",
+      "gpt-4",
+      "gpt-4-0613",
+      "gpt-4-o-preview",
+      "gpt-4o-mini",
+      "gpt-4o-2024-11-20",
+      "gpt-4.1-2025-04-14",
+    ];
+    for (const id of hidden) {
+      expect(isHiddenCopilotModel("github-copilot", id), id).toBe(true);
+    }
+    for (const id of ["gpt-4o", "gpt-4.1", "gpt-5", "claude-sonnet-4"]) {
+      expect(isHiddenCopilotModel("github-copilot", id), id).toBe(false);
+    }
+    // Another provider's model with the same name stays visible.
+    expect(isHiddenCopilotModel("openai", "gpt-4")).toBe(false);
+
+    const models = modelsFromRpcData(OMP_FLAVOR, {
+      models: [
+        { id: "gpt-4o", name: "GPT-4o", provider: "github-copilot" },
+        { id: "gpt-4", name: "GPT-4", provider: "github-copilot" },
+        { id: "gpt-4", name: "GPT-4", provider: "openai" },
+      ],
+    });
+    expect(models.map((model) => model.id)).toEqual([
+      "omp:openai/gpt-4",
+      "omp:github-copilot/gpt-4o",
+    ]);
   });
 
   it("adds fast mode to omp models without exposing it for Pi", () => {

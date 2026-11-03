@@ -141,7 +141,7 @@ export function buildPiSpawnArgs(
     resume?: string;
     /** Catalog probes and isolated jobs: do not write a session file. */
     noSession?: boolean;
-    /** Catalog probes and throwaway text jobs — never for live chat. */
+    /** Throwaway text jobs — never for live chat or catalog probes. */
     noExtensions?: boolean;
     /** Titles and other one-shot prompts: no tools, skills, or project context. */
     isolated?: boolean;
@@ -668,6 +668,31 @@ export function summarizeToolRequest(
   }
 }
 
+/**
+ * Copilot's /models endpoint also returns internal agents and dated legacy
+ * snapshots that never appear in its own model picker. omp drops the
+ * picker/policy flags, so hide those ids by name.
+ */
+const COPILOT_HIDDEN_MODELS = [
+  /^(exec-agent|copilot-search)-/,
+  /^trajectory-compaction$/,
+  /^gpt-3\.5-turbo/,
+  /^gpt-4(-0613|-o-preview)?$/,
+  /^gpt-4o-mini/,
+  /^gpt-4o-\d{4}-/,
+  /^gpt-4\.1-\d{4}-/,
+];
+
+export function isHiddenCopilotModel(
+  provider: string,
+  modelId: string,
+): boolean {
+  return (
+    provider === "github-copilot" &&
+    COPILOT_HIDDEN_MODELS.some((pattern) => pattern.test(modelId))
+  );
+}
+
 export function modelsFromRpcData(
   flavor: PiFlavor,
   data: unknown,
@@ -686,6 +711,7 @@ export function modelsFromRpcData(
     const modelId = stringField(model, "id");
     const provider = stringField(model, "provider");
     if (!modelId || !provider) continue;
+    if (isHiddenCopilotModel(provider, modelId)) continue;
     const nativeId = piNativeId(provider, modelId);
     if (seen.has(nativeId)) continue;
     seen.add(nativeId);

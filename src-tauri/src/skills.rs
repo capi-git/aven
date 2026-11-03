@@ -301,7 +301,7 @@ fn scan_root(root: &Path, scope: &str, source: &str) -> Vec<DiscoveredSkill> {
         let Ok(bytes) = read_prefix(&skill_md, MAX_FRONTMATTER_BYTES) else {
             continue;
         };
-        let Ok(text) = String::from_utf8(bytes) else {
+        let Some(text) = utf8_prefix(bytes) else {
             continue;
         };
         let fallback = slug_name(folder);
@@ -341,6 +341,23 @@ fn read_prefix(path: &Path, max: usize) -> std::io::Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(max.min(4096));
     file.take(max as u64).read_to_end(&mut buf)?;
     Ok(buf)
+}
+
+/// Decodes the bytes from `read_prefix`, which can stop in the middle of a
+/// multi-byte character. Drops an incomplete character at the end, so a long
+/// SKILL.md with non-ASCII text past the prefix still lists. Other invalid
+/// UTF-8 is still rejected.
+fn utf8_prefix(bytes: Vec<u8>) -> Option<String> {
+    match String::from_utf8(bytes) {
+        Ok(text) => Some(text),
+        Err(err) if err.utf8_error().error_len().is_none() => {
+            let valid = err.utf8_error().valid_up_to();
+            let mut bytes = err.into_bytes();
+            bytes.truncate(valid);
+            String::from_utf8(bytes).ok()
+        }
+        Err(_) => None,
+    }
 }
 
 fn parse_frontmatter(text: &str, fallback: &str) -> (String, String) {
@@ -558,6 +575,40 @@ mod tests {
         assert!(skills.iter().any(|s| s.name == "shared-1399"));
         let codex = skills.iter().find(|s| s.name == "codex-only").unwrap();
         assert_eq!(codex.source, "codex");
+    }
+
+    #[test]
+    fn utf8_prefix_drops_only_a_cut_character() {
+        // 2-, 3- and 4-byte characters, cut at every possible byte.
+        for text in ["abж", "ab€", "ab😀"] {
+            let bytes = text.as_bytes();
+            let last = text.chars().last().unwrap().len_utf8();
+            for removed in 1..last {
+                let cut = bytes[..bytes.len() - removed].to_vec();
+                assert_eq!(utf8_prefix(cut).as_deref(), Some("ab"));
+            }
+            assert_eq!(utf8_prefix(bytes.to_vec()).as_deref(), Some(text));
+        }
+        assert_eq!(utf8_prefix(vec![b'a', 0xff, b'b']), None);
+    }
+
+    /// A long SKILL.md whose 16 KiB prefix ends inside a character used to
+    /// vanish from the catalog without an error.
+    #[test]
+    fn lists_a_large_skill_when_the_prefix_cuts_a_character() {
+        let project = tmp("proj-cut");
+        let home = tmp("home-cut");
+        let mut body = String::from("---\nname: big-cyrillic\ndescription: Big skill\n---\n");
+        // Land the first byte of a 2-byte character on the prefix's last byte.
+        while body.len() < MAX_FRONTMATTER_BYTES - 1 {
+            body.push('x');
+        }
+        body.push_str(&"ж".repeat(1_000));
+        write_skill(&home.0.join(".agents/skills"), "big-cyrillic", &body);
+
+        let skills = list_skills_from(&project.0, Some(&home.0));
+        let skill = skills.iter().find(|s| s.name == "big-cyrillic").unwrap();
+        assert_eq!(skill.description, "Big skill");
     }
 
     #[test]

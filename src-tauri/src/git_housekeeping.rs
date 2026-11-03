@@ -146,6 +146,8 @@ pub async fn git_release_start(
 fn git() -> Command {
     let mut command = Command::new("git");
     crate::hide_window_console(&mut command);
+    // `status` runs git-lfs on LFS files; see `git::git_cmd`.
+    command.env("PATH", crate::harness::cached_gui_search_path());
     command
 }
 

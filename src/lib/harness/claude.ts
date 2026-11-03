@@ -27,6 +27,7 @@ import {
   inputJsonDeltaFromEvent,
   isAgentTaskType,
   isClaudeUltracodeEffort,
+  isReplayedTaskNotificationResult,
   isSubagentMessage,
   isTerminalAgentTaskStatus,
   isTodoTool,
@@ -1013,6 +1014,12 @@ function settleInlineAgentTask(
 
 function handleResult(live: Live, rec: Record<string, unknown>): void {
   if (isSubagentMessage(rec)) return;
+  if (isReplayedTaskNotificationResult(rec)) {
+    // A resume's replay of an old background task ends nothing, and a usage
+    // limit its run reported must not be charged to the real turn.
+    live.onEvent({ type: "turn.waiting", clear: ["usageLimit"] });
+    return;
+  }
   // A /compact result reports the summarizer call's usage, not the rebuilt
   // conversation level. The next real turn will provide the fresh reading.
   if (!live.manualCompaction) {
