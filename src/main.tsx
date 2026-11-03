@@ -161,9 +161,8 @@ function startWorkspace() {
       void listen("quit_requested", () => {
         void handleQuitRequested();
       });
-      const { windowTransfer, resumed, history, historyCwd } =
-        await bootWorkspace;
-      const installedUpdate = windowTransfer ? null : consumeInstalledUpdate();
+      const { resumed, history, historyCwd } = await bootWorkspace;
+      const installedUpdate = consumeInstalledUpdate();
       ReactDOM.createRoot(
         document.getElementById("root") as HTMLElement,
         rootOptions,
@@ -171,7 +170,6 @@ function startWorkspace() {
         <React.StrictMode>
           <BootGate>
             <App
-              windowTransfer={windowTransfer}
               resumed={resumed}
               installedUpdate={installedUpdate}
               history={history}

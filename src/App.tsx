@@ -488,7 +488,6 @@ import {
   removeTabFromGroup,
   tabGroupProject,
 } from "./lib/tabGroups";
-import { type WindowTransferPayload } from "./lib/windowTransfer";
 import {
   confirmCloseTerminal,
   confirmCloseTerminals,
@@ -669,7 +668,7 @@ import {
   teamRunsFrom,
 } from "./lib/teamRuns";
 import { sidebarTeams } from "./lib/teamGrouping";
-import { currentWindowLabel } from "./lib/windowLabel";
+import { currentWindowLabel, isSecondaryWindow } from "./lib/windowLabel";
 import { popOutShownChats } from "./lib/teamWatch";
 import {
   focusedTeamPopOut,
@@ -1081,24 +1080,21 @@ registerBuiltinHarnesses();
 const RUN_SUMMARY_WINDOW_MS = 10 * 60_000;
 
 export default function App({
-  windowTransfer = null,
   resumed = null,
   installedUpdate = null,
   history: bootHistory = [],
   historyCwd: bootHistoryCwd = null,
 }: {
-  windowTransfer?: WindowTransferPayload | null;
   resumed?: ResumedWorkspace | null;
   installedUpdate?: InstalledUpdate | null;
   history?: SessionSummary[];
   historyCwd?: string | null;
 }) {
+  // A File > New Window window: it starts empty and never saves the
+  // workspace layout, which belongs to the main window.
+  const [secondaryWindow] = useState(isSecondaryWindow);
   const [projectCwd, setProjectCwd] = useState(
-    () =>
-      windowTransfer?.projectCwd ??
-      resumed?.projectCwd ??
-      lastProjectPath() ??
-      "~",
+    () => resumed?.projectCwd ?? lastProjectPath() ?? "~",
   );
   const {
     recents,
@@ -1120,7 +1116,7 @@ export default function App({
   const [walkthrough, setWalkthrough] = useState<WalkthroughState | null>(() =>
     shouldOfferWalkthrough(
       Boolean(
-        windowTransfer ||
+        secondaryWindow ||
         lastProjectPath() ||
         recents.length ||
         bootHistory.length ||
@@ -1151,24 +1147,22 @@ export default function App({
     setSessions,
     commitStream,
     flushCommittedSessions,
-  } = useWorkspaceSessions(
-    () => windowTransfer?.sessions ?? resumed?.sessions ?? [seed.session],
-  );
+  } = useWorkspaceSessions(() => resumed?.sessions ?? [seed.session]);
   const [tabs, setTabs] = useState<WorkspaceTab[]>(
-    () => windowTransfer?.tabs ?? resumed?.tabs ?? [seed.tab],
+    () => resumed?.tabs ?? [seed.tab],
   );
   const [projectTerminals, setProjectTerminals] = useState<ProjectTerminal[]>(
-    () => windowTransfer?.projectTerminals ?? resumed?.projectTerminals ?? [],
+    () => resumed?.projectTerminals ?? [],
   );
   const beginNavigation = useNavigationIntent();
   const [projectTerminalFocused, setProjectTerminalFocused] = useState(false);
   const [activeTabId, setActiveTabId] = useState(
-    () => windowTransfer?.activeTabId ?? resumed?.activeTabId ?? seed.tab.id,
+    () => resumed?.activeTabId ?? seed.tab.id,
   );
   const [restoredProjectTabs] = useState(loadProjectFocusedTabs);
   const lastTabByProjectRef = useRef(restoredProjectTabs);
   const [composerFocused, setComposerFocused] = useState(() => {
-    if (windowTransfer) return true;
+    if (secondaryWindow) return true;
     if (!resumed) return false;
     const tab =
       resumed.tabs.find((entry) => entry.id === resumed.activeTabId) ??
@@ -2401,11 +2395,8 @@ export default function App({
   const [editorNavigation, setEditorNavigation] =
     useState<EditorNavigationTarget | null>(null);
   const editorNavigationToken = useRef(0);
-  const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(
-    () => new Set(windowTransfer?.dirtyFileIds ?? []),
-  );
-  // Not carried across a window transfer the way dirty state is: the editor
-  // re-lints whatever it mounts, so the counts rebuild themselves.
+  const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(() => new Set());
+  // The editor re-lints whatever it mounts, so the counts rebuild themselves.
   const [fileErrorCounts, setFileErrorCounts] = useState<Map<string, number>>(
     () => new Map(),
   );
@@ -2502,7 +2493,7 @@ export default function App({
   const inFlightSyncKey = useRef<string | null>(null);
   const sawInFlight = useRef(false);
   const scheduleWorkspaceSnapshot = useWorkspaceSnapshotPersistence(
-    !windowTransfer,
+    !secondaryWindow,
     saveWorkspaceSnapshot,
   );
   const observedSessions = useRef(new Map<string, Session>());
@@ -2521,7 +2512,7 @@ export default function App({
 
   useEffect(() => {
     if (importedSessionsApplied.current) return;
-    const imported = windowTransfer?.sessions ?? resumed?.sessions;
+    const imported = resumed?.sessions;
     if (!imported?.length) return;
     importedSessionsApplied.current = true;
     for (const session of imported) {
@@ -2533,7 +2524,7 @@ export default function App({
         lastBoundProvider.current.set(session.id, session.providerSessionId);
       }
     }
-  }, [windowTransfer, resumed]);
+  }, [resumed]);
 
   const flushHarnessEvents = useCallback(() => {
     cancelScheduledFlush(harnessFlush.current);
@@ -3618,7 +3609,7 @@ export default function App({
   }, [sessions]);
 
   useEffect(() => {
-    if (windowTransfer) return;
+    if (secondaryWindow) return;
     const snapshot = collectWorkspaceSnapshot(
       tabs,
       snapshotSessions,
@@ -3633,12 +3624,12 @@ export default function App({
     activeTabId,
     projectCwd,
     projectTerminals,
-    windowTransfer,
+    secondaryWindow,
     scheduleWorkspaceSnapshot,
   ]);
 
   useEffect(() => {
-    if (windowTransfer) return;
+    if (secondaryWindow) return;
     let timer: number | undefined;
     const unsubscribe = subscribeComposerDrafts(() => {
       window.clearTimeout(timer);
@@ -3657,10 +3648,10 @@ export default function App({
       unsubscribe();
       window.clearTimeout(timer);
     };
-  }, [windowTransfer, scheduleWorkspaceSnapshot]);
+  }, [secondaryWindow, scheduleWorkspaceSnapshot]);
 
   useEffect(() => {
-    if (lastProjectPath() || resumed || windowTransfer) return;
+    if (lastProjectPath() || resumed || secondaryWindow) return;
     const startingCwd = projectCwdRef.current;
     const startingProfile = profilesRef.current.activeProfileId;
     void invoke<string>("default_cwd")
