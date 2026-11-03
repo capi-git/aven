@@ -87,7 +87,11 @@ export function CrewCardFace({
   now: number;
 }) {
   const tone =
-    info.label === "Ready" ? "ready" : info.needsYou ? "needs-you" : undefined;
+    info.label === "Ready" || info.label === "Findings"
+      ? "ready"
+      : info.needsYou
+        ? "needs-you"
+        : undefined;
   return (
     <>
       {info.label ? (

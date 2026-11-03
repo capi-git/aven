@@ -61,7 +61,9 @@ import { BoardIssueImport } from "./BoardIssueImport";
 import { CrewCritters } from "../chrome/CrewCritter";
 import { TeamScreen } from "./TeamScreen";
 import {
+  addResearchIdeas,
   applyCrewCard,
+  askResearcher,
   crewDeleteNote,
   crewWorkspace,
   deleteBoardCard,
@@ -69,11 +71,13 @@ import {
   giveCardToCrew,
   notNowIdea,
   requestCrewReview,
+  researchQuestion,
   resumeCrewCard,
   setCrewCardPaused,
   stopCrewCard,
 } from "../lib/crewActions";
 import {
+  cardResearcher,
   crewCard,
   crewMemberName,
   getCrew,
@@ -95,6 +99,7 @@ import {
   useProjectBot,
 } from "../lib/projectBots";
 import { CrewAnswerBox, CrewCardFace, CrewReadySheet } from "./CrewBoard";
+import { CrewFindingsSheet } from "./TeamFindings";
 // The frame brings the board's styles, loaded with the workspace.
 import { WorkBoardHeading } from "./WorkBoardFrame";
 
@@ -201,6 +206,7 @@ export function WorkBoard({
               checker: crewMemberName(crew, "checker"),
               scout: crewMemberName(crew, "scout"),
               security: crewMemberName(crew, "security"),
+              researcher: crewMemberName(crew, "researcher"),
             },
             (who) => crewMemberName(crew, who),
             today,
@@ -303,6 +309,8 @@ export const WorkBoardView = memo(function WorkBoardView({
   const [deleting, setDeleting] = useState<BoardCard | null>(null);
   const [throwing, setThrowing] = useState<BoardCard | null>(null);
   const [readyCard, setReadyCard] = useState<string | null>(null);
+  /** The research card whose Findings are open. */
+  const [reading, setReading] = useState<string | null>(null);
   const [answering, setAnswering] = useState<string | null>(null);
   const [crewProblems, setCrewProblems] = useState<
     Readonly<Record<string, string>>
@@ -339,6 +347,22 @@ export const WorkBoardView = memo(function WorkBoardView({
           return;
         case "not-now":
           notNowIdea(project, card.id);
+          return;
+        case "research":
+          void askResearcher(project, {
+            id: card.id,
+            title: card.title,
+            ...(card.note ? { note: card.note } : {}),
+            ...(card.source ? { sourceUrl: card.source.url } : {}),
+          }).then((problem) => noteProblem(card.id, problem));
+          return;
+        case "read":
+          setReading(card.id);
+          return;
+        case "add-ideas":
+          void addResearchIdeas(project, card.id).then((problem) =>
+            noteProblem(card.id, problem),
+          );
           return;
         case "watch":
         case "open":
@@ -536,7 +560,15 @@ export const WorkBoardView = memo(function WorkBoardView({
               {showOlder ? "Show this week only" : `${older} older`}
             </button>
           ) : null}
-          {ideas && !loading ? <AddIdea project={project} /> : null}
+          {ideas && !loading ? (
+            <AddIdea
+              project={project}
+              researcher={
+                crew && cardResearcher(crew) ? crewName("researcher") : null
+              }
+              onProblem={noteProblem}
+            />
+          ) : null}
         </section>
       );
     });
@@ -610,6 +642,14 @@ export const WorkBoardView = memo(function WorkBoardView({
             };
           })()}
           onClose={() => setReadyCard(null)}
+        />
+      ) : null}
+      {crew && reading ? (
+        <CrewFindingsSheet
+          crew={crew}
+          cardId={reading}
+          name={crewName}
+          onClose={() => setReading(null)}
         />
       ) : null}
       {throwing ? (
@@ -848,14 +888,18 @@ const BoardCardView = memo(function BoardCardView({
   const label = boardActionLabel;
   const crew = onCrewAction ? card.crew : undefined;
   // A crew card in the loop or Ready opens what it is: the holder's chat,
-  // or the Ready card. Otherwise, as any card.
+  // the Ready card, or the Findings. Otherwise, as any card.
   const crewOpen: CrewBoardActionId | null = !crew?.label
     ? null
     : crew.label === "Ready"
       ? "review"
-      : crew.holder
-        ? "open"
-        : null;
+      : crew.label === "Findings" ||
+          (crew.label === "Read" &&
+            crew.actions.some((action) => action.id === "read"))
+        ? "read"
+        : crew.holder
+          ? "open"
+          : null;
   const open = () => {
     if (crewOpen && onCrewAction) onCrewAction(card, crewOpen);
     else if (card.sessionId) workBoardActions()?.openChat(card.sessionId);
@@ -1066,9 +1110,24 @@ function CardEditor({
   );
 }
 
-/** Ideas' foot: write one down. Enter adds it, Escape clears it. */
-function AddIdea({ project }: { project: string }) {
+/**
+ * Ideas' foot: write one down. Enter adds it, Escape clears it. With a
+ * Researcher on the team, "Research: …" asks it the question instead.
+ */
+function AddIdea({
+  project,
+  researcher,
+  onProblem,
+}: {
+  project: string;
+  /** The Researcher's name, while the team has one on. */
+  researcher?: string | null;
+  onProblem?: (cardId: string, problem: string | null) => void;
+}) {
   const [text, setText] = useState("");
+  const placeholder = researcher
+    ? `Add an idea, or “Research: …” to ask ${researcher}`
+    : "Add an idea";
   return (
     <form
       className="work-board-add"
@@ -1077,13 +1136,23 @@ function AddIdea({ project }: { project: string }) {
         const title = text.trim();
         if (!title) return;
         setText("");
-        void addFeatureIdea(project, { title });
+        const question = researcher ? researchQuestion(title) : null;
+        if (!question) {
+          void addFeatureIdea(project, { title });
+          return;
+        }
+        void addFeatureIdea(project, { title: question }).then((card) => {
+          if (!card) return;
+          void askResearcher(project, card).then((problem) =>
+            onProblem?.(card.id, problem),
+          );
+        });
       }}
     >
       <input
         className="work-board-input work-board-add-input"
         type="text"
-        placeholder="Add an idea"
+        placeholder={placeholder}
         aria-label="Add an idea"
         value={text}
         maxLength={FEATURE_TITLE_MAX}

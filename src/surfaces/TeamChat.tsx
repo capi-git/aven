@@ -21,6 +21,7 @@ import {
   firstCardChatText,
   subscribeCrewTell,
   takeCrewTell,
+  takeCrewTellTo,
   tellTeam,
   teammateChatReady,
   tellTeammate,
@@ -33,6 +34,8 @@ import {
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
   crewMemberById,
+  crewMemberName,
+  getCrew,
   isTime,
   memberCritter,
   stackedCards,
@@ -198,11 +201,19 @@ export function TeamChat({
     setTo(id ? { id, name: name(id) } : null);
   };
   useEffect(() => {
-    // Tell the team… from the sidebar: the cursor goes in the box.
+    // Tell the team… from the sidebar: the cursor goes in the box. A
+    // follow-up for the Researcher (from its Findings) writes to it.
     const take = () => {
       if (!takeCrewTell(project)) return;
+      const toId = takeCrewTellTo();
+      const known = getCrew(project);
+      const member = toId && known ? crewMemberById(known, toId) : undefined;
       setSelected(null);
-      setTo(null);
+      setTo(
+        member && known
+          ? { id: member.id, name: crewMemberName(known, member.id) }
+          : null,
+      );
       requestAnimationFrame(() => input.current?.focus());
     };
     take();

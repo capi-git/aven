@@ -231,7 +231,9 @@ function InstructionsField({
             ? "Like “Always run the end-to-end tests”"
             : member.role === "scout"
               ? "Like “Look for small fixes in the docs”"
-              : "Like “Match the existing styles”"
+              : member.role === "researcher"
+                ? "Like “Prefer official docs over blog posts”"
+                : "Like “Match the existing styles”"
         }
         value={text}
         onChange={(event) => setText(event.target.value)}
