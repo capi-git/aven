@@ -51,6 +51,7 @@ import {
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
+import { checkPinnedTab } from "../lib/devSmokePinTab";
 import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
 import { checkCrew } from "../lib/devSmokeCrew";
 import {
@@ -4081,6 +4082,12 @@ export async function runDevSmoke(
       "the Team sheet's Access choices persist across closing and reopening it",
       () => checkTeamAccess(get, config),
     );
+
+  if (get().loneTab)
+    await step("a tab pins to its mark at the start of the strip", () => {
+      get().motion?.showWorkspace?.();
+      return checkPinnedTab(config.projectPath, get);
+    });
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
   // Settings and Cmd+W closes the open utility rather than a pane.

@@ -20,9 +20,11 @@
 - **Describe a project, and the team sets itself up.** New team opens on one box. Suggest proposes teammates and first ideas from your words and the project folder; you edit, then Start. Suggestions wait for your tick; your own ideas build. The description stays with the team as what it's about.
 - **A new icon.** Rise: a staircase of dots on smoky glass, with the same mark in the title bar and sidebar.
 - **Real-app tests for the team flows** run on every release build.
+- **Pin tabs.** Right-click a tab and choose Pin tab: it becomes a small mark at the start of the strip, with its name on hover. Pins stay put while other tabs scroll, keep their order and come back after a restart. Close Other Tabs leaves them alone.
 
 ### Changed
 
+- Right-click menus show only what applies. Rows that don't apply are gone instead of greyed out, and rarer choices such as Move to folder and Copy ID sit one page in.
 - The goal line says when the goal is waiting on you, instead of always saying the team keeps going.
 - Goal planning stays offline: a web page can't write cards that build on their own. Research happens inside a card, and you review it before Apply.
 - The project ⋯ menu is shorter: Open project (the row does it) and Project memory (it's in Customize) are gone.

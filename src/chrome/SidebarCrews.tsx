@@ -57,7 +57,6 @@ function saveOpen(open: ReadonlySet<string>) {
 /** The crew's right-click menu, its runs today below the line. */
 export function crewMenuItems(crew: SidebarCrew): ExplorerMenuItem[] {
   return [
-    { kind: "item", id: "open", label: "Open team" },
     { kind: "item", id: "tell", label: "Tell the team…" },
     { kind: "sep" },
     crew.paused

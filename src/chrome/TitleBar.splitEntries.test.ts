@@ -303,13 +303,7 @@ describe("a split's menu", () => {
   it("cannot close a split that would leave no chat", async () => {
     await render({ splits: [{ ...split(), closable: false }] });
     await openMenu();
-    const close = menuItem("Close split");
-    expect(
-      close.getAttribute("aria-disabled") === "true" ||
-        (close as HTMLButtonElement).disabled,
-    ).toBe(true);
-    await act(async () => close.click());
-    expect(props.onCloseSplit).not.toHaveBeenCalled();
+    expect(menuItems()).not.toContain("Close split");
   });
 });
 
@@ -728,7 +722,7 @@ describe("dragging with splits", () => {
     it("offers the same from a tab's menu, for the keyboard", async () => {
       await render();
       await openTabMenu("hero");
-      await act(async () => menuItem("Combine with›").click());
+      await act(async () => menuItem("Combine with").click());
       expect(menuItems()).toEqual(
         expect.arrayContaining([
           "Fix the flaky checkout test",
@@ -742,7 +736,7 @@ describe("dragging with splits", () => {
       );
 
       await openTabMenu("hero");
-      await act(async () => menuItem("Combine with›").click());
+      await act(async () => menuItem("Combine with").click());
       await act(async () =>
         menuItem("Add sign-up flow + linking.coaching").click(),
       );

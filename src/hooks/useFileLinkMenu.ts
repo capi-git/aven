@@ -8,14 +8,13 @@ import type { EditorNavigation } from "../lib/search";
 
 type FileLink = { path: string; navigation?: EditorNavigation };
 
-/** What Open and Reveal do; Copy Path copies `file.path` itself. */
+/** What Open and Reveal do; Copy path copies `file.path` itself. */
 type FileLinkActions = { open: () => void; reveal: () => void };
 
 const ITEMS: ExplorerMenuItem[] = [
   { kind: "item", id: "open", label: "Open" },
   { kind: "item", id: "reveal", label: REVEAL_LABEL },
-  { kind: "sep" },
-  { kind: "item", id: "copy-path", label: "Copy Path" },
+  { kind: "item", id: "copy-path", label: "Copy path" },
 ];
 
 /**
