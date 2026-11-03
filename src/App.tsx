@@ -11823,7 +11823,14 @@ export default function App({
     openWebLink: onOpenWebLink,
     board: true,
     ...(botsAvailable()
-      ? { crew: { turnOn: turnOnCrewFor, readFile: readTextFile } }
+      ? {
+          crew: {
+            turnOn: turnOnCrewFor,
+            readFile: readTextFile,
+            newTeam: onAddCrew,
+            listDir,
+          },
+        }
       : {}),
     loneTab: {
       select: onSelectSurface,

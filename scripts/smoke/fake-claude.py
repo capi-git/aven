@@ -11,7 +11,10 @@ lists, a race judge call a pick of the second lane with its reason, and a
 run summary call one line per worker. Markers in a message make it pretend to start a dev server, echo the
 shared-work note it received, agree with what the user added to a
 discussion, write files into its folder as a race lane, or edit one file
-through its Write tool. Asked to plan an
+through its Write tool. As a team's Researcher or Designer it hands back
+findings, or draws one mock-up file in its folder (or strays outside it),
+and can rewrite its notes; asked to set a team up it proposes the same
+four teammates and three ideas. Asked to plan an
 orchestration that carries the orchestration marker, it proposes two tasks;
 as a worker it can ask its lead a question; as the lead it supervises
 through Aven's control command, the same way a real lead does. For the iPhone
@@ -273,14 +276,20 @@ def emit_edit(session, turn, name):
     emit_write(session, turn, name, "edited by the stand-in Claude\n")
 
 
+WRITES = []
+
+
 def emit_write(session, turn, name, content):
     path = os.path.abspath(name)
-    tool_id = "toolu_edit_" + turn[:8]
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    # Each write in a turn is its own tool call.
+    WRITES.append(path)
+    tool_id = f"toolu_edit_{turn[:8]}_{len(WRITES)}"
     emit({
         "type": "assistant",
         "session_id": session,
         "message": {
-            "id": "msg_edit_" + turn[:8],
+            "id": f"msg_edit_{turn[:8]}_{len(WRITES)}",
             "role": "assistant",
             "content": [{
                 "type": "tool_use",
@@ -536,6 +545,107 @@ def crew_turn(session, turn, text, args):
     return None
 
 
+# A team setting itself up (crewSetup.ts): Aven asks the cheapest model, as
+# text only, for an `aven-setup` block from the user's description. The
+# stand-in proposes the same four teammates and three first ideas every time,
+# one for the Researcher and one for the Designer, each carrying the marker
+# that makes their turns answer below once the team is on.
+SETUP_SIGNATURE = "You help a user set up a small team of AI teammates"
+# "AVEN_SMOKE_RESEARCH" on a research card: the Researcher's turn answers
+# with findings (two, each with a link, and two ideas). With
+# "AVEN_SMOKE_NOTES" too, the reply also rewrites the member's notes.
+RESEARCH_WORD = "AVEN_SMOKE_RESEARCH"
+NOTES_WORD = "AVEN_SMOKE_NOTES"
+NOTES_TEXT = "AVEN_SMOKE_NOTES_OK: the check's project keeps its files at the top"
+# What Aven says when the Researcher may not read the web this turn.
+NO_WEB_LINE = "You have no web access this turn"
+# "AVEN_SMOKE_DESIGN" on a mock-up card: the Designer's turn writes one HTML
+# file where Aven's message says (inside aven-mockups/) and answers with its
+# `aven-mockup` block. With "AVEN_SMOKE_STRAY" too, it also writes a file at
+# the top of the copy, outside its folder, which Aven must refuse.
+DESIGN_WORD = "AVEN_SMOKE_DESIGN"
+STRAY_WORD = "AVEN_SMOKE_STRAY"
+STRAY_FILE = "aven-stray.txt"
+MOCKUP_WORD = "AVEN_SMOKE_MOCKUP"
+MOCKUP_FILE_PATTERN = re.compile(r"HTML file at (aven-mockups/[\w.-]+\.html)")
+MOCKUP_HTML = "\n".join([
+    "<!doctype html>",
+    "<html><head><meta charset=\"utf-8\"><title>Mock-up</title>",
+    "<style>body{margin:0;padding:24px;font-family:system-ui;background:#141414;color:#eee}"
+    "h1{font-size:20px;margin:0 0 8px}p{margin:0;color:#aaa}</style></head>",
+    f"<body><h1>{MOCKUP_WORD}</h1><p>The today screen, drawn by the stand-in Designer.</p></body></html>",
+    "",
+])
+SETUP_REPLY = "\n".join([
+    "```aven-setup",
+    json.dumps({
+        "teammates": [
+            {"role": "builder", "job": "Builds each card in a copy of the project"},
+            {"role": "checker", "job": "Checks every build before you see it"},
+            {"role": "researcher", "job": "Reads up on what the user asks"},
+            {"role": "designer", "job": "Mocks up each screen before it is built"},
+        ],
+        "ideas": [
+            {"title": "Keep the today list to five things"},
+            {"title": f"What do similar apps do first? {RESEARCH_WORD}", "by": "researcher"},
+            {"title": f"The today screen {DESIGN_WORD}", "by": "designer"},
+        ],
+    }),
+    "```",
+])
+
+
+def memory_fence():
+    return f"```aven-memory\n{NOTES_TEXT}\n```\n\n"
+
+
+def research_turn(text, args):
+    """The Researcher's findings: two with a link each, two ideas; notes when asked."""
+    web = NO_WEB_LINE not in text
+    notes = "<your-notes>" in text
+    log({"pid": os.getpid(), "crew": "researcher", "web": web, "notes": notes,
+         "launch": crew_launch(args)})
+    reply = crew_fence("aven-findings", {
+        "summary": f"Two things stand out. {RESEARCH_WORD}",
+        "findings": [
+            {"text": "Most such apps open on today's list, not a calendar.",
+             "source": "https://example.com/today-first"},
+            {"text": "A short list beats a long one for getting started.",
+             "source": "https://example.org/short-lists"},
+        ],
+        "ideas": [
+            "Open on today's list",
+            "Cap the list at five",
+        ],
+    })
+    return memory_fence() + reply if NOTES_WORD in text else reply
+
+
+def design_turn(session, turn, text, args):
+    """One HTML file where Aven said; a stray one at the top too when asked."""
+    found = MOCKUP_FILE_PATTERN.search(text)
+    file = found.group(1) if found else "aven-mockups/mockup.html"
+    stray = STRAY_WORD in text
+    log({"pid": os.getpid(), "crew": "designer", "file": file, "stray": stray,
+         "launch": crew_launch(args)})
+    emit_write(session, turn, file, MOCKUP_HTML)
+    if stray:
+        emit_write(session, turn, STRAY_FILE, "written outside the Designer's folder\n")
+    return crew_fence("aven-mockup", {
+        "file": file,
+        "note": f"The today screen as one page. {MOCKUP_WORD}",
+    })
+
+
+def solo_turn(session, turn, text, args):
+    """A Researcher's or Designer's turn; None when the card carries neither marker."""
+    if "`aven-findings` block" in text and RESEARCH_WORD in text:
+        return research_turn(text, args)
+    if "`aven-mockup` block" in text and DESIGN_WORD in text:
+        return design_turn(session, turn, text, args)
+    return None
+
+
 # "AVEN_SMOKE_IPHONE" (dev-aven.py --iphone) makes the turn use the iPhone
 # pane beside its chat as an agent would: through `--aven-simulator` on the
 # scoped connection Aven gave this process. The reply reports what it saw.
@@ -685,7 +795,8 @@ def main():
     wrap_up = wrap_up_call(args)
     judge = helper_call(args, JUDGE_SIGNATURE)
     summary = helper_call(args, RUN_SUMMARY_SIGNATURE)
-    helper = keeper or wrap_up or judge or summary
+    setup = helper_call(args, SETUP_SIGNATURE)
+    helper = keeper or wrap_up or judge or summary or setup
 
     session = option(args, "--session-id") or str(uuid.uuid4())
     emit({"type": "system", "subtype": "init", "session_id": session})
@@ -726,6 +837,9 @@ def main():
             elif summary:
                 log({"pid": os.getpid(), "summaryTurn": turn,
                      "digest": "<run-results>" in text})
+            elif setup:
+                log({"pid": os.getpid(), "setupTurn": turn,
+                     "description": "<project-description>" in text})
             else:
                 log({"pid": os.getpid(), "turn": turn,
                      "sharedWork": "<aven-shared-work>" in text})
@@ -749,6 +863,7 @@ def main():
                 else WRAP_UP_REPLY if wrap_up
                 else judge_reply(text) if judge
                 else run_summary_reply(text) if summary
+                else SETUP_REPLY if setup
                 else REPLY
             )
             if not helper and JUMP_IN_PATTERN.search(text):
@@ -768,6 +883,8 @@ def main():
                 reply = pages_turn(PAGES_PATTERN.search(text).group(1))
             elif not helper and chat_session(args) and CREW_WORD in text:
                 reply = crew_turn(session, turn, text, args) or reply
+            elif not helper and chat_session(args):
+                reply = solo_turn(session, turn, text, args) or reply
             message_id = "msg_smoke_" + turn[:8]
             emit({
                 "type": "stream_event",

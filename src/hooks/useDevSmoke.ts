@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import {
   devSmokeConfig,
   finishDevSmoke,
+  smokeStepRunner,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
   SMOKE_ECHO_NOTE_WORD,
@@ -16,7 +17,6 @@ import {
   SMOKE_WRAP_UP_WORD,
   waitFor,
   type DevSmokeConfig,
-  type SmokeStep,
 } from "../lib/devSmoke";
 import {
   animationProblem,
@@ -52,7 +52,14 @@ import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
 import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
-import { checkCrew, type SmokeCrew } from "../lib/devSmokeCrew";
+import { checkCrew } from "../lib/devSmokeCrew";
+import {
+  checkDesigner,
+  checkResearcher,
+  checkTeamAccess,
+  checkTeamSetup,
+  type SmokeTeam,
+} from "../lib/devSmokeTeam";
 import { checkDividerRail } from "../lib/devSmokeRail";
 import {
   agentOpensProblem,
@@ -131,7 +138,7 @@ type Options = DevPerfOptions & {
   /** The title bar opens the project's board, which the check watches. */
   board?: boolean;
   /** Crews: the check turns one on in its project and has it build a card. */
-  crew?: SmokeCrew;
+  crew?: SmokeTeam;
   /** Moves tabs between panes and the strip, for the lone tab's header. */
   loneTab?: SmokeLoneTab;
   /** A project's browser pages, with the chat whose agent builds on each. */
@@ -2327,20 +2334,9 @@ export async function runDevSmoke(
   config: DevSmokeConfig,
   get: () => Options,
 ): Promise<void> {
-  const steps: SmokeStep[] = [];
-  const step = async (
-    name: string,
-    body: () => Promise<string | void>,
-  ): Promise<boolean> => {
-    try {
-      const detail = await body();
-      steps.push({ name, passed: true, ...(detail ? { detail } : {}) });
-      return true;
-    } catch (error) {
-      steps.push({ name, passed: false, detail: errorText(error) });
-      return false;
-    }
-  };
+  // One budget for every step, so the check always finishes itself and
+  // writes its result before the runner's deadline for the app.
+  const { steps, step } = smokeStepRunner();
 
   // Never send anything unless Claude is the stand-in: a real `claude` would
   // reach the developer's own account.
@@ -4052,6 +4048,32 @@ export async function runDevSmoke(
     await step(
       "a crew builds, checks and secures a card, stacks it on its branch, applies it as reviewed, and stops when off",
       () => checkCrew(get, config.projectPath, crew),
+    );
+
+  // The team family, each step in a Git project of its own beside the
+  // check's, with the stand-in as every teammate: a team sets itself up
+  // from a description, the Researcher's findings put ideas on the Board
+  // and its notes are kept between turns, the Designer's mock-up is kept
+  // (and a stray one refused), and the Team sheet's Access choices stay.
+  if (safe && crew)
+    await step(
+      "a new team sets itself up from a description, with its ideas placed and its about kept",
+      () => checkTeamSetup(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Researcher hands back findings whose ideas go on the Board once, keeps its notes for the next turn, and is told when it has no web",
+      () => checkResearcher(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
+      () => checkDesigner(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Team sheet's Access choices persist across closing and reopening it",
+      () => checkTeamAccess(get, config),
     );
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
