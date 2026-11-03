@@ -1688,10 +1688,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bots);
     }
 
-    // Codex's project settings and hooks are swept too, whatever their case;
-    // a settings folder that is a link stops the turn; and a fix that
-    // changes settings or hook folders is never applied to your files.
-    #[cfg(not(windows))]
     #[test]
     fn install_scripts_and_agent_instructions_stay_out_of_apply() {
         let patch = |line: &str| {
@@ -1734,6 +1730,10 @@ mod tests {
         assert!(protected_paths(&["docs/agents-guide.md"]).is_empty());
     }
 
+    // Codex's project settings and hooks are swept too, whatever their case;
+    // a settings folder that is a link stops the turn; and a fix that
+    // changes settings or hook folders is never applied to your files.
+    #[cfg(not(windows))]
     #[test]
     fn sweeps_codex_settings_refuses_links_and_keeps_settings_out_of_apply() {
         let root = repo();
