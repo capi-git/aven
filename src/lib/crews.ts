@@ -639,6 +639,11 @@ export type Crew = {
      * Checker's or Scout's turn may not write them.
      */
     sources?: string[];
+    /**
+     * Every top-level entry of the copy, ignored ones too (`.git` aside): a
+     * Designer may write none of them, and its turn may add none.
+     */
+    entries?: string[];
   };
   /** Bot turns today, the Builder's, Checker's and Scout's. */
   runs?: { day: string; count: number };

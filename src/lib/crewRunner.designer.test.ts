@@ -9,6 +9,7 @@ import {
 } from "./crewActions";
 import { queueCard } from "./crewLoop";
 import { mockupFileName } from "./crewMockups";
+import { basename } from "./fs";
 import { CrewRunner, resetCrewRunnerSession } from "./crewRunner";
 import {
   cardInCopy,
@@ -75,6 +76,10 @@ function harness(agents: Partial<Record<string, (text: string) => Reply>>) {
     [];
   const fresh: string[] = [];
   let files: Record<string, string> = {};
+  /** Files the turn wrote as links, not files. */
+  const links = new Set<string>();
+  /** The copy's top-level entries, as the host would list them. */
+  let entries = [`${COPY}/src`];
   const kept: Record<string, string> = {};
   const memberOf = new Map<string, string>();
   const diff = (): BotDiff => {
@@ -86,6 +91,7 @@ function harness(agents: Partial<Record<string, (text: string) => Reply>>) {
         additions: 3,
         deletions: 0,
         binary: false,
+        ...(links.has(path) ? { newMode: "120000" } : {}),
       })),
       additions: paths.length * 3,
       deletions: 0,
@@ -108,6 +114,7 @@ function harness(agents: Partial<Record<string, (text: string) => Reply>>) {
     }),
     diff: vi.fn(async () => diff()),
     sources: vi.fn(async () => [`${COPY}/src`]),
+    entries: vi.fn(async () => entries),
     planted: vi.fn(async (): Promise<string[]> => []),
     stack: vi.fn(async () => "c".repeat(40)),
     unstack: vi.fn(async () => {}),
@@ -127,9 +134,14 @@ function harness(agents: Partial<Record<string, (text: string) => Reply>>) {
       kept[target] = html;
       return target;
     }),
-    clear: vi.fn(async () => {
+    clear: vi.fn(async (_copy: string, stray: readonly string[] = []) => {
       for (const path of Object.keys(files))
-        if (path.startsWith("aven-mockups/")) delete files[path];
+        if (
+          path.startsWith("aven-mockups/") ||
+          stray.some((name) => path === name || path.startsWith(`${name}/`))
+        )
+          delete files[path];
+      entries = entries.filter((entry) => !stray.includes(basename(entry)));
     }),
   };
   const runner = new CrewRunner({
@@ -251,6 +263,15 @@ function harness(agents: Partial<Record<string, (text: string) => Reply>>) {
     advance,
     get files() {
       return files;
+    },
+    /** Files already in the copy before the next turn. */
+    seed: (more: Record<string, string>) => {
+      files = { ...files, ...more };
+    },
+    links,
+    /** What the copy's top level holds from now on. */
+    setEntries: (names: string[]) => {
+      entries = names.map((name) => `${COPY}/${name}`);
     },
     get now() {
       return now;
@@ -389,15 +410,23 @@ describe("a screen for the Designer", () => {
     });
 
     // Build it: an idea of yours, pointing a Builder at the file Aven keeps.
-    expect(await buildMockup(PATH, idea.id, h.now)).toBeNull();
+    // Pressed twice before the Board answers, it is still one idea.
+    expect(
+      await Promise.all([
+        buildMockup(PATH, idea.id, h.now),
+        buildMockup(PATH, idea.id, h.now),
+      ]),
+    ).toEqual([null, null]);
     expect(card(idea.id)).toMatchObject({
       stage: "applied",
       mockup: { outcome: "built" },
     });
     expect(boardCard(idea.id)?.column).toBe("shipped");
-    const build = featureBoardState(PATH).cards.find(
+    const builds = featureBoardState(PATH).cards.filter(
       (item) => item.title === "Build the mock-up: Timer: a ring that fills",
-    )!;
+    );
+    expect(builds).toHaveLength(1);
+    const build = builds[0]!;
     expect(build.column).toBe("idea");
     expect(build.note).toContain(drawn.mockup!.file);
     expect(build.note).toContain("never change it");
@@ -521,6 +550,103 @@ describe("a screen for the Designer", () => {
     // A mock-up card never goes to the Builder.
     await h.advance(10 * MINUTE);
     expect(h.sent.every((turn) => turn.memberId === "designer")).toBe(true);
+    h.runner.stop();
+  });
+
+  it("empties the copy however its turn ends, so nothing of it reaches the next card", async () => {
+    const h = harness({
+      designer: () => ({
+        text: fence(target.file),
+        wrote: {
+          [target.file]:
+            '<div><script src="https://cdn.test/x.js"></script></div>',
+        },
+      }),
+    });
+    onTeam();
+    const idea = (await addFeatureIdea(PATH, { title: "Timer" }))!;
+    target.file = `aven-mockups/${mockupFileName(idea.id)}`;
+    await askDesigner(PATH, idea, NOON);
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(card(idea.id).stuck?.reason).toBe("no-verdict");
+    // The refused file is gone and the copy is back at the card's base.
+    expect(h.mockups.clear).toHaveBeenCalledWith(COPY);
+    expect(h.copy.discard).toHaveBeenCalledWith(COPY, BASE, expect.any(String));
+    expect(h.files).toEqual({});
+    expect(cardInCopy(getCrew(PATH)!)).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("starts a Builder's turn with the mock-up folder gone, so it is never stacked", async () => {
+    const h = harness({ builder: () => ({ text: "Building." }) });
+    onTeam();
+    h.seed({ "aven-mockups/old.html": GOOD });
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      cards: [
+        queueCard(
+          {
+            id: "b",
+            title: "Timer",
+            brief: "Timer",
+            from: "you",
+            maxRounds: 3,
+          },
+          NOON,
+        ),
+      ],
+    }));
+    h.runner.start();
+    await h.advance(0);
+    expect(h.sent[0]?.memberId).toBe("builder");
+    expect(h.mockups.clear).toHaveBeenCalledWith(COPY);
+    expect(h.files["aven-mockups/old.html"]).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("stops when its turn added something Git can't see, and removes it at once", async () => {
+    const h = harness({
+      designer: () => {
+        // A new top-level folder, ignored by Git: no diff shows it, only
+        // the copy's own listing does.
+        h.setEntries(["src", "node_modules"]);
+        return { text: fence(target.file), wrote: { [target.file]: GOOD } };
+      },
+    });
+    onTeam();
+    const idea = (await addFeatureIdea(PATH, { title: "Timer" }))!;
+    target.file = `aven-mockups/${mockupFileName(idea.id)}`;
+    await askDesigner(PATH, idea, NOON);
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(card(idea.id).stuck).toMatchObject({
+      reason: "checker-edited",
+      text: "Brush wrote outside aven-mockups, so its mock-up wasn't kept: node_modules",
+    });
+    expect(h.mockups.clear).toHaveBeenCalledWith(COPY, ["node_modules"]);
+    expect(h.mockups.save).not.toHaveBeenCalled();
+    h.runner.stop();
+  });
+
+  it("refuses a link in its folder, which could point anywhere", async () => {
+    const h = harness({
+      designer: () => {
+        h.links.add(target.file);
+        return { text: fence(target.file), wrote: { [target.file]: "" } };
+      },
+    });
+    onTeam();
+    const idea = (await addFeatureIdea(PATH, { title: "Timer" }))!;
+    target.file = `aven-mockups/${mockupFileName(idea.id)}`;
+    await askDesigner(PATH, idea, NOON);
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(card(idea.id).stuck).toMatchObject({
+      reason: "checker-edited",
+      text: `Brush wrote outside aven-mockups, so its mock-up wasn't kept: ${target.file} (a link)`,
+    });
+    expect(h.mockups.read).not.toHaveBeenCalled();
     h.runner.stop();
   });
 

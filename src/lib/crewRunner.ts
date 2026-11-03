@@ -110,6 +110,7 @@ import {
   type CrewLoopRole,
   type CrewRole,
 } from "./crews";
+import { basename } from "./fs";
 import { insideMockupDir, mockupFileName, mockupProblem } from "./crewMockups";
 import { sourcesText } from "./crewView";
 import { errorText, logError } from "./errors";
@@ -196,6 +197,11 @@ export type CrewRunnerDeps = {
     /** The copy's own files: its top-level entries Git doesn't ignore. */
     sources: (copy: string) => Promise<string[]>;
     /**
+     * Every top-level entry of the copy, ignored ones too (`.git` aside):
+     * what a Designer may not write, and what its turn is checked against.
+     */
+    entries?: (copy: string) => Promise<string[]>;
+    /**
      * Settings files an agent left in the copy that an app would run as
      * the user; with `remove`, removed. Checked before every turn.
      */
@@ -250,13 +256,14 @@ export type CrewRunnerDeps = {
   onWorking: (ids: ReadonlySet<string>) => void;
   /**
    * The Designer's mock-ups: read the file it drew in the copy, keep it in
-   * Aven's own data (resolves with where), and empty the copy's folder.
+   * Aven's own data (resolves with where), and empty the copy's folder
+   * (with `stray`, those new top-level entries of the copy as well).
    * Without these, a mock-up card stops and says Aven can't keep one here.
    */
   mockups?: {
     read: (path: string) => Promise<string>;
     save: (copyPath: string, cardId: string, html: string) => Promise<string>;
-    clear: (copyPath: string) => Promise<void>;
+    clear: (copyPath: string, stray?: readonly string[]) => Promise<void>;
   };
   /**
    * Start the chat's agent on a new conversation at its next turn (the chat
@@ -902,6 +909,9 @@ export class CrewRunner {
     const sources = await this.deps.copy
       .sources(copy.path)
       .catch(() => crew.copy?.sources);
+    const entries = this.deps.copy.entries
+      ? await this.deps.copy.entries(copy.path).catch(() => crew.copy?.entries)
+      : undefined;
     let saved = updateCrew(path, (current) => ({
       ...current,
       copy: {
@@ -910,6 +920,7 @@ export class CrewRunner {
         root: copy.root,
         gitDir: copy.gitDir,
         ...(sources ? { sources } : {}),
+        ...(entries ? { entries } : {}),
       },
       lastError: undefined,
     }));
@@ -1104,6 +1115,12 @@ export class CrewRunner {
       // Switched off or removed meanwhile: the next look picks again.
       const member = crewMemberById(crew, memberId);
       if (!member || member.paused) return this.endTurn(path, turn);
+      // A mock-up left in the copy is never this card's work: the folder
+      // goes before a Builder, Checker or Security turn, so nothing of it
+      // is ever stacked or applied to your files.
+      await this.deps.mockups?.clear(crew.copy!.path).catch((error) => {
+        logError("Crew mock-up folder", error);
+      });
       // Settings an agent left in the copy (hooks, MCP servers) would run as
       // you: removed, and this turn doesn't start.
       const planted = await this.deps.copy.planted(crew.copy!.path, true);
@@ -2279,12 +2296,24 @@ export class CrewRunner {
         name,
       });
     else step = await this.readMockup(crew, card, turn, outcome, now, name);
-    // Whatever happened, nothing of the turn's own stays in the copy (a
-    // turn that wrote elsewhere keeps its stray files, for you to see).
-    if (copy && step.event.kind === "ready")
+    // However it ended, nothing of the turn's own stays in the copy: its
+    // folder goes and the copy is put back to the card's base, so the card
+    // steps aside with a clean copy and nothing is ever stacked from it. A
+    // turn that wrote elsewhere keeps its stray files, for you to see (Try
+    // again discards them first).
+    const strayed =
+      step.event.kind === "stuck" && step.event.reason === "checker-edited";
+    if (copy && !strayed) {
       await this.deps.mockups?.clear(copy).catch((error) => {
         logError("Crew mock-up folder", error);
       });
+      if (card.base && crew.copy)
+        await this.deps.copy
+          .discard(copy, card.base, crew.copy.branch)
+          .catch((error) => {
+            logError("Crew copy discard", error);
+          });
+    }
     if (!this.stillOn(path, turn.onAt)) return;
     let saved = false;
     updateCrew(path, (current) => {
@@ -2323,12 +2352,37 @@ export class CrewRunner {
         name,
       });
     const written = diff.files.map((file) => file.path);
-    const stray = written.filter((file) => !insideMockupDir(file));
-    if (stray.length)
+    // Anything outside its folder, or a link (which could point anywhere,
+    // your project included), is a stray: the turn stops with why.
+    const stray = diff.files
+      .filter(
+        (file) => !insideMockupDir(file.path) || file.newMode === "120000",
+      )
+      .map((file) =>
+        file.newMode === "120000" ? `${file.path} (a link)` : file.path,
+      );
+    // New top-level entries Git can't see (ignored ones, `.env`, a folder of
+    // its own): strays too, and gone at once, since no diff would show them.
+    const before = new Set(
+      (crew.copy?.entries ?? []).map((entry) => basename(entry)),
+    );
+    const unseen = this.deps.copy.entries
+      ? (await this.deps.copy.entries(copy).catch(() => []))
+          .map((entry) => basename(entry))
+          .filter(
+            (entry) =>
+              !before.has(entry) && entry !== MOCKUP_DIR && entry !== ".git",
+          )
+      : [];
+    if (unseen.length)
+      await this.deps.mockups?.clear(copy, unseen).catch((error) => {
+        logError("Crew mock-up folder", error);
+      });
+    if (stray.length || unseen.length)
       return afterMockup(card, {
         mockup: null,
         strayed: true,
-        problem: stray.slice(0, 5).join(", "),
+        problem: [...stray, ...unseen].slice(0, 5).join(", "),
         now,
         name,
       });

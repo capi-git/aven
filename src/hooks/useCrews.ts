@@ -72,6 +72,14 @@ async function copySources(copy: string): Promise<string[]> {
     .map((entry) => entry.path);
 }
 
+/** Every top-level entry of the copy, ignored ones too (`.git` aside). */
+async function copyEntries(copy: string): Promise<string[]> {
+  const entries = await listDir(copy);
+  return entries
+    .filter((entry) => entry.name !== ".git")
+    .map((entry) => entry.path);
+}
+
 export type CrewsHost = {
   /**
    * Load a member's chat, or make it, without a tab, in the crew's copy, on
@@ -127,6 +135,7 @@ export function useCrews(
         sync: botCopyHost.sync,
         diff: botCopyHost.diff,
         sources: copySources,
+        entries: copyEntries,
         planted: botCopyHost.planted,
         stack: botCopyHost.stack,
         unstack: botCopyHost.unstack,
@@ -154,10 +163,12 @@ export function useCrews(
       mockups: {
         read: (path) => readTextFile(path),
         save: saveMockup,
-        clear: (copy) =>
-          deletePath(`${copy.replace(/\/+$/, "")}/${MOCKUP_DIR}`).catch(
-            () => undefined,
-          ),
+        clear: async (copy, stray = []) => {
+          const root = copy.replace(/\/+$/, "");
+          for (const name of [MOCKUP_DIR, ...stray])
+            if (name && !name.includes("/") && name !== ".git")
+              await deletePath(`${root}/${name}`).catch(() => undefined);
+        },
       },
     });
   const runner = runnerRef.current;

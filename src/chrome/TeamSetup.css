@@ -11,7 +11,7 @@
 
 /* The sheet is narrower than the Team sheet: a column of words, not tiles. */
 .modal-panel[role="dialog"].team-setup-sheet {
-  width: min(800px, 100%);
+  width: min(800px, 100% - 24px);
   margin-inline: auto;
 }
 

@@ -64,6 +64,7 @@ import {
   type CrewLimitName,
   type CrewMember,
   type CrewMessageKind,
+  type CrewMockup,
   type CrewRole,
   type CrewRoute,
   type CrewScoutSchedule,
@@ -897,10 +898,17 @@ export async function askDesigner(
 const NO_MOCKUP = "This card has no mock-up.";
 
 /**
+ * Cards whose ideas are being added to the Board now (findings, a mock-up
+ * to build): a second press waits.
+ */
+const addingIdeas = new Set<string>();
+
+/**
  * Build it on a mock-up: an ordinary idea of yours, "Build the mock-up: …",
  * whose note points a Builder at the file Aven keeps (read-only to it,
  * never part of the project). The mock-up card is done. Resolves with why
- * it couldn't, or null.
+ * it couldn't, or null. Pressed twice before the Board answers, the second
+ * press does nothing: one idea, not two.
  */
 export async function buildMockup(
   path: string,
@@ -911,8 +919,26 @@ export async function buildMockup(
   const card = crew ? crewCard(crew, cardId) : undefined;
   if (!card || card.kind !== "mockup" || card.stage !== "ready")
     return NOT_READY;
-  if (!card.mockup) return NO_MOCKUP;
-  const who = crewMemberName(crew!, cardDesigner(crew!)?.id ?? "designer");
+  const mockup = card.mockup;
+  if (!mockup) return NO_MOCKUP;
+  const key = `${projectKey(path)}\n${cardId}`;
+  if (addingIdeas.has(key)) return null;
+  addingIdeas.add(key);
+  try {
+    return await buildMockupOnce(path, crew!, { ...card, mockup }, now);
+  } finally {
+    addingIdeas.delete(key);
+  }
+}
+
+async function buildMockupOnce(
+  path: string,
+  crew: Crew,
+  card: CrewCard & { mockup: CrewMockup },
+  now: number,
+): Promise<string | null> {
+  const cardId = card.id;
+  const who = crewMemberName(crew, cardDesigner(crew)?.id ?? "designer");
   const idea = await addFeatureIdea(path, {
     title: `Build the mock-up: ${card.title}`,
     note: [
@@ -969,9 +995,6 @@ export async function dismissMockup(
 }
 
 const NO_FINDINGS = "This card has no findings to read.";
-
-/** Research cards whose ideas are being added now: a second press waits. */
-const addingIdeas = new Set<string>();
 
 /**
  * Put the ideas the Researcher proposed on the Board (those you ticked, or
@@ -2196,13 +2219,17 @@ export function presetInCrew(crew: Crew, preset: CrewPreset): boolean {
   return crew.members.some((member) => memberIsPreset(member, preset));
 }
 
-/** Whether a member is that ready-made one (see `presetInCrew`). */
+/**
+ * Whether a member is that ready-made one (see `presetInCrew`). A key alone
+ * isn't enough: the Designer's key once named a Builder preset, and a member
+ * made from that is still a Builder, not the Designer.
+ */
 export function memberIsPreset(
   member: CrewMember,
   preset: CrewPreset,
 ): boolean {
   return (
-    member.preset === preset.key ||
+    (member.preset === preset.key && member.role === preset.role) ||
     (preset.role === "security" && member.role === "security") ||
     (preset.role === "scout" && member.role === "scout") ||
     (!preset.label &&

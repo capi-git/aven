@@ -2,7 +2,7 @@
 
 /* The sheet is wide enough to read a finding and its source on one line. */
 .modal-panel[role="dialog"].crew-findings {
-  width: min(840px, 100%);
+  width: min(840px, 100% - 24px);
   margin-inline: auto;
 }
 

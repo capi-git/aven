@@ -176,7 +176,15 @@ describe("crew members' names and marks", () => {
     const inCrew = CREW_PRESETS.filter((preset) =>
       presetInCrew(crew, preset),
     ).map((preset) => preset.key);
-    expect(inCrew).toEqual(["builder", "checker", "designer", "security"]);
+    // The old Builder made from the "designer" key is not the Designer: it
+    // stays a Builder with its title, and a Designer can still be added.
+    expect(inCrew).toEqual(["builder", "checker", "security"]);
+    const designer = CREW_PRESETS.find((preset) => preset.key === "designer")!;
+    expect(designer.role).toBe("designer");
+    expect(presetInCrew(crew, designer)).toBe(false);
+    expect(
+      crew.members.find((member) => member.id === "builder-2"),
+    ).toMatchObject({ role: "builder", preset: "designer", label: "Designer" });
   });
 });
 

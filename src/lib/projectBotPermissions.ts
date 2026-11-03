@@ -4,6 +4,7 @@ import {
   type ClaudePermissionRules,
 } from "./harness/sessionPermissions";
 import { basename } from "./fs";
+import { mockupStoreRoot } from "./crewMockups";
 import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import {
@@ -456,6 +457,10 @@ export function crewPermissionRules(
                 ? [`Edit(${absolutePathRule(crew.copy.path)})`]
                 : []),
             ]),
+      // Mock-ups are the Designer's to draw and Aven's to keep: no one else
+      // writes the copy's folder for them, and no one writes Aven's store
+      // (a Builder reads a mock-up there, never changes it).
+      ...mockupsDenied(crew, role),
       ...(refusing
         ? asks.filter((rule) => !(copyInside && rule === yourFiles))
         : []),
@@ -466,22 +471,58 @@ export function crewPermissionRules(
   };
 }
 
+/** The copy's top-level entries a Designer may not write, as paths. */
+function designerKeepsOut(copy: NonNullable<Crew["copy"]>): string[] {
+  const root = slash(copy.path).replace(/\/+$/, "");
+  // Every entry when known (ignored ones too), else the files Git knows.
+  return (copy.entries ?? copy.sources ?? [])
+    .map((entry) => slash(entry).replace(/\/+$/, ""))
+    .filter(
+      (path) => path.startsWith(`${root}/`) && basename(path) !== MOCKUP_DIR,
+    );
+}
+
 /**
- * What the Designer may not edit in the copy: each of its own top-level
- * entries (the files Git knows), named one by one, so that `aven-mockups/`,
- * which is none of them, stays the one place it can write.
+ * What the Designer may not edit in the copy: each of its top-level entries
+ * (ignored ones too, so a cache or a build folder is no way out), named one
+ * by one, so that `aven-mockups/`, which is none of them, stays the one
+ * place it can write. A new top-level entry its turn adds is caught after.
  */
 function designerDenied(crew: Pick<Crew, "copy">): string[] {
   if (!crew.copy) return [];
-  const copy = slash(crew.copy.path).replace(/\/+$/, "");
-  return (crew.copy.sources ?? []).flatMap((source) => {
-    const path = slash(source).replace(/\/+$/, "");
-    if (!path.startsWith(`${copy}/`) || basename(path) === MOCKUP_DIR)
-      return [];
+  return designerKeepsOut(crew.copy).flatMap((path) => {
     const rule = absolutePathRule(path);
     // A file, and anything under a folder of that name.
     return [`Edit(${rule.replace(/\/\*\*$/, "")})`, `Edit(${rule})`];
   });
+}
+
+/** The copy's mock-up folder and Aven's store of mock-ups, as paths. */
+function mockupPlaces(crew: Pick<Crew, "copy">): {
+  folder?: string;
+  store?: string;
+} {
+  if (!crew.copy) return {};
+  const copy = slash(crew.copy.path).replace(/\/+$/, "");
+  return { folder: `${copy}/${MOCKUP_DIR}`, store: mockupStoreRoot(copy) };
+}
+
+/** Edit rules that keep mock-ups to the Designer (the folder) and Aven (the store). */
+function mockupsDenied(
+  crew: Pick<Crew, "copy">,
+  role: Exclude<CrewRole, "fixer">,
+): string[] {
+  const { folder, store } = mockupPlaces(crew);
+  if (!folder || !store) return [];
+  const storeRule = absolutePathRule(store);
+  const folderRule = absolutePathRule(folder);
+  return [
+    `Edit(${storeRule.replace(/\/\*\*$/, "")})`,
+    `Edit(${storeRule})`,
+    ...(role === "designer"
+      ? []
+      : [`Edit(${folderRule.replace(/\/\*\*$/, "")})`, `Edit(${folderRule})`]),
+  ];
 }
 
 /**
@@ -503,19 +544,28 @@ export function crewSandbox(
     { copy: crew.copy },
     !offline && crewRoleUsesBrowser(crew, role) ? browserSocket : null,
   );
-  if (crewRoleWritesCopy(role) || !crew.copy?.sources?.length) return sandbox;
+  if (!crew.copy) return sandbox;
+  const { folder, store } = mockupPlaces(crew);
+  const keepOut =
+    role === "designer"
+      ? // Every top-level entry, ignored ones too; its own folder never.
+        designerKeepsOut(crew.copy)
+      : crewRoleWritesCopy(role)
+        ? []
+        : (crew.copy.sources ?? []).map((path) =>
+            slash(path).replace(/\/+$/, ""),
+          );
   return {
     ...sandbox,
     filesystem: {
       ...sandbox.filesystem,
       denyWrite: [
         ...(sandbox.filesystem?.denyWrite ?? []),
-        // The Designer's own folder is never one of these: it may write there.
-        ...crew.copy.sources
-          .map((path) => slash(path).replace(/\/+$/, ""))
-          .filter(
-            (path) => role !== "designer" || basename(path) !== MOCKUP_DIR,
-          ),
+        ...keepOut,
+        // Mock-ups: the copy's folder is the Designer's alone, and Aven's
+        // store of them is no one's to write.
+        ...(role === "designer" || !folder ? [] : [folder]),
+        ...(store ? [store] : []),
       ],
     },
   };
