@@ -684,19 +684,10 @@ fn readable(bytes: Vec<u8>) -> Option<String> {
 }
 
 /// Everything changed in `worktree` since `base`, new files included, as
-/// one binary patch. The checkout's own index is not touched.
-pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
-    if !is_sha(base) {
-        return Err("Invalid race base".into());
-    }
-    let index = ScratchIndex::seeded_from(worktree)?;
-    run_staged(worktree, &index, &["add", "-A"])?;
-    staged_patch(worktree, &index, base)
-}
-
-/// The changes and the patch of `worktree` since `base`, read from one
-/// staging of the checkout, so the files a check looks at are exactly the
-/// ones the patch holds even while an agent keeps writing there.
+/// one binary patch, with the changes it holds: both read from one staging
+/// of the checkout, so the files a check looks at are exactly the ones the
+/// patch holds even while an agent keeps writing there. The checkout's own
+/// index is not touched.
 pub(crate) fn diff_and_patch(worktree: &Path, base: &str) -> Result<(RaceDiff, Vec<u8>), String> {
     if !is_sha(base) {
         return Err("Invalid race base".into());

@@ -435,7 +435,7 @@ pub fn harness_spawn(
     crate::control::configure_child(&app, caller.window().label(), &session_id, &mut cmd);
     configure_browser_environment(
         &mut cmd,
-        crate::browser_agent::ensure_child_environment(&caller, &session_id),
+        crate::browser_agent::ensure_child_environment(&caller, &session_id, &workdir),
     );
 
     let mut child =

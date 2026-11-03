@@ -10108,6 +10108,7 @@ export default function App({
                 favicon: page.favicon,
                 kept: page.kept,
                 ...(page.agentChat ? { agentChat: page.agentChat } : {}),
+                ...(page.profile ? { profile: page.profile } : {}),
               });
         }
         browserWorkspacesRef.current = next;
@@ -12823,6 +12824,7 @@ export default function App({
                                                   project={project}
                                                   tabId={tab.id}
                                                   url={tab.url}
+                                                  profile={tab.profile}
                                                   attachedNativeId={
                                                     detached.nativeBrowserIds[
                                                       id

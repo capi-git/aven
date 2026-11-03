@@ -26,6 +26,11 @@ export type AgentBrowserOpenOptions = {
    * the window picked, and leaves it alone.
    */
   fresh?: boolean;
+  /**
+   * The browser profile a page this open creates runs in: "agents" for a
+   * sandboxed chat's page, which never shares the user's logins.
+   */
+  profile?: "agents";
 };
 
 export type AgentBrowserPlacement = { activate: false; arrange: boolean };
@@ -374,6 +379,7 @@ export function openAgentBrowserTab(
     url: normalizeBrowserUrl(url),
     kept: true,
     ...(options.chat ? { agentChat: options.chat } : {}),
+    ...(options.profile ? { profile: options.profile } : {}),
   };
   return {
     tab,

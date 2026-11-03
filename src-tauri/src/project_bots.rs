@@ -1057,7 +1057,9 @@ pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), S
     )
 }
 
-fn bots_dir(app: &AppHandle) -> Result<PathBuf, String> {
+/// Where Aven keeps its copies of projects for bots and teams. An agent
+/// started inside it gets a sandboxed browser (see `browser_agent`).
+pub(crate) fn bots_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()
