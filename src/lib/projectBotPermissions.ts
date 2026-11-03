@@ -315,17 +315,23 @@ export const USER_CONFIG_RULES = [
 ];
 
 /**
- * Paths a fix may not bring into your files (Apply refuses it; you can take
- * it over in a chat): settings an app would run as you, and the folders git
- * hook managers run from. Matched by their first part, without case. The
- * host refuses them too (see `PROTECTED` in project_bots.rs).
+ * Names a fix may not bring into your files (Apply refuses it; you can
+ * take it over in a chat): settings an app or editor would run as you, the
+ * folders git hook managers run from, package-manager and shell hooks.
+ * Matched at any depth of a path, without case. The host refuses them too
+ * (see `PROTECTED` in project_bots.rs).
  */
 export const PROTECTED_FIX_PATHS = [
   ".claude",
   ".codex",
   ".agents",
-  ".vscode",
+  ".aven",
   ".mcp.json",
+  ".vscode",
+  ".cursor",
+  ".zed",
+  ".idea",
+  ".devcontainer",
   ".husky",
   ".githooks",
   ".git-hooks",
@@ -333,6 +339,18 @@ export const PROTECTED_FIX_PATHS = [
   "lefthook.yml",
   ".lefthook.yml",
   ".pre-commit-config.yaml",
+  ".yarnrc.yml",
+  ".pnpmfile.cjs",
+  ".npmrc",
+  "bunfig.toml",
+  ".envrc",
+] as const;
+
+/** Two-part names refused at any depth: a folder and the file or folder in it. */
+export const PROTECTED_FIX_PAIRS = [
+  ".cargo/config.toml",
+  ".cargo/config",
+  ".github/workflows",
 ] as const;
 
 /**
@@ -346,21 +364,37 @@ export function foldedName(name: string): string {
 
 /**
  * The protected paths among a fix's files. A name git would have to quote
- * (a quote or a control character in it) is never applied either. The
- * top-level name is matched folded ("ſ" is "s" on a Mac), without the
- * trailing dots and spaces Windows drops; and, as a margin, a dotfile-style
- * name that isn't plain ASCII is kept out too. Ordinary names with accents
- * ("Données", "Résumé.md") are like any other.
+ * (a quote or a control character in it) is never applied either. Every
+ * part of a path is matched folded ("ſ" is "s" on a Mac), without the
+ * trailing dots and spaces Windows drops, so a settings folder is refused
+ * at any depth ("packages/app/.vscode/tasks.json"); and, as a margin, a
+ * dotfile-style part that isn't plain ASCII is kept out too. Ordinary names
+ * with accents ("Données", "Résumé.md") are like any other.
  */
 export function protectedFixPaths(paths: readonly string[]): string[] {
   return paths.filter((path) => {
     // oxlint-disable-next-line no-control-regex -- control characters are what this refuses.
     if (path.startsWith('"') || /[\u0000-\u001f\u007f]/.test(path)) return true;
-    const top = path.replace(/\\/g, "/").split("/")[0]!;
+    const parts = path.replace(/\\/g, "/").split("/");
     // oxlint-disable-next-line no-control-regex -- ASCII is what this keeps.
-    if (top.startsWith(".") && /[^\u0000-\u007f]/.test(top)) return true;
-    const first = foldedName(top).replace(/[. ]+$/, "");
-    return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
+    if (
+      parts.some(
+        (part) => part.startsWith(".") && /[^\u0000-\u007f]/.test(part),
+      )
+    )
+      return true;
+    const folded = parts.map((part) => foldedName(part).replace(/[. ]+$/, ""));
+    if (
+      folded.some((part) =>
+        (PROTECTED_FIX_PATHS as readonly string[]).includes(part),
+      )
+    )
+      return true;
+    return folded.some((part, index) =>
+      (PROTECTED_FIX_PAIRS as readonly string[]).includes(
+        `${part}/${folded[index + 1] ?? ""}`,
+      ),
+    );
   });
 }
 

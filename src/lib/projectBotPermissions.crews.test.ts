@@ -598,4 +598,40 @@ describe("paths Apply never brings into your files", () => {
       ".n\u00f6tes/run.sh",
     ]);
   });
+
+  it("refuses them at any depth, with editor, package-manager and shell hooks, and the pairs", () => {
+    const refused = [
+      "packages/app/.vscode/tasks.json",
+      "apps/web/.cursor/rules.md",
+      "tools/.zed/settings.json",
+      "a/b/.idea/workspace.xml",
+      "docs/.devcontainer/devcontainer.json",
+      "services/api/.aven/bots.json",
+      "packages/ui/.npmrc",
+      "packages/ui/.yarnrc.yml",
+      "packages/ui/.pnpmfile.cjs",
+      "packages/ui/bunfig.toml",
+      "infra/.envrc",
+      "crates/x/.cargo/config.toml",
+      "crates/x/.cargo/config",
+      "packages/app/.github/workflows/ci.yml",
+      "a/.Cargo/Config.TOML",
+      "a/.GitHub/Workflows/x.yml",
+      "src/.husky/pre-commit",
+      "src/lefthook.yml",
+      // A look-alike below the top is a settings folder on a Mac too.
+      "packages/app/.v\u017fcode/tasks.json",
+      "packages/app/.n\u00f6tes/run.sh",
+    ];
+    const fine = [
+      ".cargo/registry/index",
+      ".github/dependabot.yml",
+      ".github/README.md",
+      "src/cargo/config.toml",
+      "src/github/workflows/x.yml",
+      "src/app.ts",
+      "docs/Donn\u00e9es/notes.md",
+    ];
+    expect(protectedFixPaths([...refused, ...fine])).toEqual(refused);
+  });
 });
