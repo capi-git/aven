@@ -7,6 +7,9 @@ import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import {
   CREW_ROLE_INFO,
+  crewAccess,
+  crewRoleUsesBrowser,
+  crewRoleUsesWeb,
   crewForChat,
   crewMemberApp,
   type Crew,
@@ -121,7 +124,15 @@ const DELETING = [
 /** Posting or sending messages. */
 const SENDING = [
   "Bash(curl -X *)",
+  "Bash(curl -X*)",
   "Bash(curl * -X *)",
+  "Bash(curl * -X*)",
+  "Bash(curl -T *)",
+  "Bash(curl * -T *)",
+  "Bash(curl --upload-file*)",
+  "Bash(curl * --upload-file*)",
+  "Bash(curl --json*)",
+  "Bash(curl * --json*)",
   "Bash(curl --request *)",
   "Bash(curl * --request *)",
   "Bash(curl -d *)",
@@ -149,6 +160,14 @@ export function absolutePathRule(folder: string): string {
 }
 
 /** The one line the settings sheet shows for what a bot never does. */
+/** What a team's Access never changes. */
+export const TEAM_ALWAYS_LINE =
+  "Teammates work in their own copy. Pushing, publishing and deploying are refused, and nothing reaches your files until you press Apply.";
+
+/** Who Access reaches. */
+export const TEAM_ACCESS_SCOPE_LINE =
+  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser.";
+
 export const ALWAYS_ASKS_LINE =
   "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
 
@@ -163,6 +182,7 @@ export function botPermissionRules(
     deny: [
       ...NEVER_GIT,
       ...DEPLOY_AND_PUBLISH,
+      ...PUBLISH_CREDENTIALS.map((path) => `Read(${path})`),
       // Settings in its copy that an app would run as the user, and the
       // user's own.
       ...(bot.copy ? copySettingsRules(bot.copy.path) : []),
@@ -197,6 +217,26 @@ export const BOT_ALLOWED_HOSTS = [
   "sum.golang.org",
   "rubygems.org",
   "index.rubygems.org",
+];
+
+/**
+ * Where your tokens for those registries usually live. A bot's commands can
+ * reach the registries so installs work, and installs of public packages
+ * read nothing here. A token kept elsewhere (a shell startup file, a
+ * project's own .env) stays within reach: the publish commands are refused,
+ * not every way to upload.
+ */
+export const PUBLISH_CREDENTIALS = [
+  "~/.npmrc",
+  "~/.yarnrc.yml",
+  "~/.config/pnpm/rc",
+  "~/.bunfig.toml",
+  "~/.pypirc",
+  "~/.netrc",
+  "~/.cargo/credentials",
+  "~/.cargo/credentials.toml",
+  "~/.gem/credentials",
+  "~/.local/share/gem/credentials",
 ];
 
 /**
@@ -300,8 +340,8 @@ export function copySettingsRules(copy: string): string[] {
  */
 export function botSandbox(
   bot: Pick<ProjectBot, "copy">,
-  /** Aven's browser socket: its in-app browser and desktop commands. */
-  browserSocket = agentBrowserSocket(),
+  /** Aven's browser socket: its in-app browser and desktop commands. Null for none. */
+  browserSocket: string | null | undefined = agentBrowserSocket(),
 ): ClaudeSandboxSettings {
   const gitDir = bot.copy
     ? slash(
@@ -316,6 +356,8 @@ export function botSandbox(
     autoAllowBashIfSandboxed: true,
     network: {
       allowedDomains: BOT_ALLOWED_HOSTS,
+      // In auto mode a command can otherwise ask for more hosts for itself.
+      strictAllowlist: true,
       allowLocalBinding: true,
       // Aven's own browser and desktop commands, which keep their own
       // approvals (uploads, desktop consent): one socket, not all of them.
@@ -334,11 +376,14 @@ export function botSandbox(
               `${gitDir}/hooks`,
               `${gitDir}/config`,
               `${gitDir}/worktrees`,
+              // Your history: deleting no longer asks, so it's named here.
+              `${gitDir}/objects`,
               `${copy}/.git`,
               // Settings an app would load from the copy and run as the
               // user: Claude's, MCP servers, the editor's tasks.
               ...COPY_SETTINGS.map((name) => `${copy}/${name}`),
             ],
+            denyRead: PUBLISH_CREDENTIALS,
           },
         }
       : {}),
@@ -359,22 +404,53 @@ export function botSandbox(
 export const WEB_TOOLS = ["WebFetch", "WebSearch"];
 
 export function crewPermissionRules(
-  crew: Pick<Crew, "path" | "copy">,
+  crew: Pick<Crew, "path" | "copy" | "access">,
   role: Exclude<CrewRole, "fixer">,
+  /** It plans the goal now: no web, whatever you set (see `Crew.planning`). */
+  offline = false,
 ): ClaudePermissionRules {
   const rules = botPermissionRules({
     path: crew.path,
     ...(crew.copy ? { copy: crew.copy } : {}),
   });
-  if (CREW_ROLE_INFO[role].edits) return rules;
+  const access = crewAccess(crew);
+  const edits = CREW_ROLE_INFO[role].edits;
+  const yourFiles = `Edit(${absolutePathRule(crew.path)})`;
+  // A copy inside the project (a home folder as the project): refusing your
+  // folder would refuse its own copy, so that one rule keeps asking.
+  const copyInside =
+    !!crew.copy &&
+    `${slash(crew.copy.path)}/`.startsWith(
+      `${slash(crew.path).replace(/\/+$/, "")}/`,
+    );
+  const asks = (rules.ask ?? []).filter(
+    (rule) =>
+      // A Builder deletes as you set it; the sandbox keeps that to its copy
+      // and temp files, and to the Checker's and Security's nothing changes.
+      !(access.deletes && edits && DELETING.includes(rule)) &&
+      // A teammate that only reads never edits: refused below.
+      (edits || !rule.startsWith("Edit(")),
+  );
+  // Told no, it carries on: nothing waits for you while you're away.
+  const refusing = access.others === "refuse";
+  const web = !offline && crewRoleUsesWeb(crew, role);
   return {
     deny: [
       ...(rules.deny ?? []),
-      ...WEB_TOOLS,
-      `Edit(${absolutePathRule(crew.path)})`,
-      ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
+      ...(web ? [] : WEB_TOOLS),
+      ...(edits
+        ? []
+        : [
+            yourFiles,
+            ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
+          ]),
+      ...(refusing
+        ? asks.filter((rule) => !(copyInside && rule === yourFiles))
+        : []),
     ],
-    ask: (rules.ask ?? []).filter((rule) => !rule.startsWith("Edit(")),
+    ask: refusing
+      ? asks.filter((rule) => copyInside && rule === yourFiles)
+      : asks,
   };
 }
 
@@ -387,15 +463,21 @@ export function crewPermissionRules(
  * the verdict (see `afterCheck`).
  */
 export function crewSandbox(
-  crew: Pick<Crew, "copy">,
+  crew: Pick<Crew, "copy" | "access">,
   role: Exclude<CrewRole, "fixer">,
   browserSocket = agentBrowserSocket(),
+  /** It plans the goal now: no browser, whatever you set. */
+  offline = false,
 ): ClaudeSandboxSettings {
-  const sandbox = botSandbox({ copy: crew.copy }, browserSocket);
+  const sandbox = botSandbox(
+    { copy: crew.copy },
+    !offline && crewRoleUsesBrowser(crew, role) ? browserSocket : null,
+  );
   if (CREW_ROLE_INFO[role].edits || !crew.copy?.sources?.length) return sandbox;
   return {
     ...sandbox,
     filesystem: {
+      ...sandbox.filesystem,
       denyWrite: [
         ...(sandbox.filesystem?.denyWrite ?? []),
         ...crew.copy.sources.map((path) => slash(path).replace(/\/+$/, "")),
@@ -427,10 +509,11 @@ export function crewChatPermissions(
       : !crew.copy
         ? "The team's copy isn't ready yet, so its chat didn't start."
         : undefined;
+  const offline = crew.planning === found.member.id;
   return {
     mode: "auto",
-    rules: crewPermissionRules(crew, role),
-    sandbox: crewSandbox(crew, role),
+    rules: crewPermissionRules(crew, role, offline),
+    sandbox: crewSandbox(crew, role, undefined, offline),
     noEscalation: true,
     userSettingsOnly: true,
     noMcp: true,
@@ -438,6 +521,21 @@ export function crewChatPermissions(
     ...(readOnly ? { readOnly: true } : {}),
     ...(refuse ? { refuse } : {}),
   };
+}
+
+/**
+ * A teammate that may not use Aven's browser now: its turns don't offer it,
+ * and its sandbox has no way to reach it.
+ */
+export function crewChatBrowserOff(sessionId: string): boolean {
+  const found = crewForChat(sessionId);
+  if (!found || found.member.role === "fixer") return false;
+  return (
+    // A teammate on Codex works with no network at all.
+    crewMemberApp(found.member).harness === "codex" ||
+    found.crew.planning === found.member.id ||
+    !crewRoleUsesBrowser(found.crew, found.member.role)
+  );
 }
 
 /**

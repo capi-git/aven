@@ -554,7 +554,7 @@ function WhenItWorks({
         >
           <span>Start by themselves</span>
           <NumberPick
-            label="Ideas that start by themselves a day"
+            label="Scout ideas that build by themselves a day"
             value={crew.limits.autoStartsPerDay}
             choices={LIMIT_CHOICES.autoStartsPerDay}
             onChange={(value) => setCrewLimit(path, "autoStartsPerDay", value)}

@@ -10,6 +10,7 @@ import {
   discardCrewCard,
   focusCrewTell,
   giveCardToCrew,
+  giveIdeasToCrew,
   notNowIdea,
   pickCrewModels,
   resumeCrewCard,
@@ -423,12 +424,88 @@ describe("card actions", () => {
     );
   });
 
-  it("Not now keeps a Scout idea from starting by itself", () => {
+  it("Not now keeps an idea from building by itself, until you build it", async () => {
     updateCrew(PATH, (crew) =>
       withIdea({ ...crew, on: true }, "idea-1", { at: 1, size: "small" }),
     );
     notNowIdea(PATH, "idea-1");
     expect(getCrew(PATH)!.ideas?.["idea-1"].declined).toBe(true);
+    // Yours too: the team keeps a list of them.
+    const [board] = await addFeatureCards(PATH, [{ title: "Pricing page" }]);
+    notNowIdea(PATH, board.id);
+    expect(getCrew(PATH)!.notNow).toEqual(["idea-1", board.id]);
+    // Build it takes it off the list.
+    expect(await giveCardToCrew(PATH, board, NOON)).toBeNull();
+    expect(getCrew(PATH)!.notNow).toEqual(["idea-1"]);
+  });
+
+  it("keeps your whole answer when a card that stepped aside goes again", () => {
+    const started = {
+      ...startCard(
+        queueCard(
+          {
+            id: "c1",
+            title: "Reminders",
+            brief: "x",
+            from: "you",
+            maxRounds: 3,
+          },
+          NOON,
+        ),
+        NOON,
+      ),
+      base: "base-1",
+    };
+    const question = "q".repeat(400);
+    const asked = afterBuild(started, {
+      handoff: { summary: "", howToCheck: [], ran: [], question },
+      change: null,
+      now: NOON,
+    }).card;
+    updateCrew(PATH, (crew) => withCard({ ...crew, on: true }, asked));
+    const answer = "a".repeat(300);
+    resumeCrewCard(PATH, "c1", answer, NOON);
+    const card = crewCard(getCrew(PATH)!, "c1")!;
+    expect(card.stage).toBe("queued");
+    expect(card.note).toContain(answer);
+    expect(card.note!.length).toBeLessThanOrEqual(500);
+    expect(card.note).toContain("You asked: qqq");
+  });
+
+  it("gives an ideas block's ideas once: one the team already has isn't made twice", async () => {
+    updateCrew(PATH, (crew) => ({ ...crew, on: true }));
+    // The Scout's idea started by itself, and is in Building now.
+    const [started] = await addFeatureCards(PATH, [
+      { title: "Brain dump: don't read 'am' inside words", column: "building" },
+    ]);
+    updateCrew(PATH, (crew) =>
+      withCard(
+        crew,
+        queueCard(
+          {
+            id: started.id,
+            title: started.title,
+            brief: started.title,
+            from: "scout",
+            maxRounds: 3,
+          },
+          NOON,
+        ),
+      ),
+    );
+    expect(
+      await giveIdeasToCrew(
+        PATH,
+        ["Brain dump: don't read 'AM' inside words", "Keep Dr. in one item"],
+        NOON,
+      ),
+    ).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(crew.cards.map((card) => card.title)).toEqual([
+      "Brain dump: don't read 'am' inside words",
+      "Keep Dr. in one item",
+    ]);
+    expect(featureBoardState(PATH).cards).toHaveLength(2);
   });
 
   it("Back to Ideas throws the work away and frees the copy", async () => {

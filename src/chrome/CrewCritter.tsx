@@ -7,14 +7,16 @@ import {
   type CrewStatus,
 } from "../lib/crewView";
 import { crewMemberSigil } from "../lib/dotSigils";
+import { crewMemberTone } from "../lib/markTones";
 import { DotMark, type DotMarkState } from "./DotMark";
 import "./ChatStatusPill.css";
 import "./CrewCritter.css";
 
 /**
- * A crew member drawn as its mark: its role's sigil (the Builder's two
+ * A team member drawn as its mark: its role's sigil (the Builder's two
  * blocks, the Checker's ring, Security's shield, the Scout's diamond, the
- * Fixer's plus), or the one you chose for it, in its crew's project colour.
+ * Fixer's plus), or the one you chose for it, in the teammate's own colour
+ * (see `crewMemberTone`). The Fixer is its project's bot, in its colour.
  * The sigil says the role, so there is no badge.
  */
 export const CrewCritter = memo(function CrewCritter({
@@ -25,7 +27,7 @@ export const CrewCritter = memo(function CrewCritter({
   state,
   className = "crew-critter",
 }: {
-  /** The crew's project: its members' marks take its colour. */
+  /** The team's project: the Fixer's mark takes its colour. */
   path?: string;
   role: CrewRole;
   /** The mark you chose for this member (or a critter from before marks). */
@@ -36,12 +38,12 @@ export const CrewCritter = memo(function CrewCritter({
   state?: DotMarkState;
   className?: string;
 }) {
-  const tone = useProjectTone(path);
+  const projectTone = useProjectTone(path);
   return (
     <span className="crew-critter-wrap" data-crew-critter={role}>
       <DotMark
         sigil={crewMemberSigil(role, critter)}
-        tone={tone}
+        tone={crewMemberTone(role, critter) ?? projectTone}
         state={state ?? (active ? "working" : "still")}
         className={className}
       />
@@ -72,7 +74,7 @@ export function CrewCritters({
   max = 3,
   className,
 }: {
-  /** The crew's project, whose colour its marks take. */
+  /** The team's project (the Fixer's mark takes its colour). */
   path?: string;
   roles: readonly CrewFace[];
   /** The one that works: its role, or its member id. */
@@ -112,37 +114,6 @@ export function CrewStatusPill({ status }: { status: CrewStatus }) {
       data-stage={CREW_STATUS_STAGE[status]}
     >
       {CREW_STATUS_LABEL[status]}
-    </span>
-  );
-}
-
-/** Round dots: one per round, the current one outlined, earlier ones filled. */
-export function CrewRoundDots({
-  current,
-  total,
-}: {
-  current: number;
-  total: number;
-}) {
-  return (
-    <span
-      className="crew-dots"
-      role="img"
-      aria-label={`Round ${current} of ${total}`}
-    >
-      {Array.from({ length: Math.max(total, current) }, (_, index) => (
-        <span
-          key={index}
-          className="crew-dot"
-          data-state={
-            index + 1 < current
-              ? "done"
-              : index + 1 === current
-                ? "now"
-                : "later"
-          }
-        />
-      ))}
     </span>
   );
 }

@@ -31,11 +31,13 @@ export type ClaudeSandboxSettings = {
   autoAllowBashIfSandboxed: boolean;
   network?: {
     allowedDomains?: string[];
+    /** A command can't widen `allowedDomains` for itself (auto mode lets it). */
+    strictAllowlist?: boolean;
     allowLocalBinding?: boolean;
     /** Unix socket paths commands may connect to. */
     allowUnixSockets?: string[];
   };
-  filesystem?: { denyWrite?: string[] };
+  filesystem?: { denyWrite?: string[]; denyRead?: string[] };
 };
 
 export type SessionPermissions = {

@@ -562,6 +562,16 @@ export type Crew = {
   goal?: CrewGoal;
   /** Replies in member chats already turned into cards: each is read once. */
   asks?: string[];
+  /** Ideas you said Not now to: they wait in Ideas until you build them. */
+  notNow?: string[];
+  /** What teammates may do without stopping to ask you (see `crewAccess`). */
+  access?: Partial<CrewAccess>;
+  /**
+   * The member planning the goal's next cards now. It plans offline, whatever
+   * `access` says: a page it read could otherwise write cards that build
+   * by themselves.
+   */
+  planning?: string;
   /**
    * What you wrote to the team, as you wrote it, the newest last: the team
    * chat shows these as your messages. Older builds drop them on reading.
@@ -586,6 +596,54 @@ export type CrewMessage = {
 };
 
 export type CrewMessageKind = "card" | "rule" | "goal";
+
+/**
+ * What a team's teammates may do without stopping to ask you, all inside
+ * its copy and sandbox. They never push, publish or deploy whatever this
+ * says, and the Checker and Security never change files.
+ */
+export type CrewAccess = {
+  /** Deleting in its copy and temp files: done, or as `others` says. */
+  deletes: boolean;
+  /** Who may search and read the web. */
+  web: "none" | "builders" | "everyone";
+  /**
+   * Anything else that would ask (committing, merging, sending, your own
+   * files): the teammate is told no and carries on, or it waits for you.
+   */
+  others: "refuse" | "ask";
+};
+
+/** Whether a role may search and read the web (its search and fetch tools). */
+export function crewRoleUsesWeb(
+  crew: Pick<Crew, "access">,
+  role: CrewRole,
+): boolean {
+  const { web } = crewAccess(crew);
+  return web === "everyone" || (web === "builders" && role === "builder");
+}
+
+/**
+ * Whether a role may use Aven's browser. The Checker and Security use it to
+ * try the work, so "Builders" leaves it to all but the Scout, whose ideas
+ * build by themselves.
+ */
+export function crewRoleUsesBrowser(
+  crew: Pick<Crew, "access">,
+  role: CrewRole,
+): boolean {
+  const { web } = crewAccess(crew);
+  return web === "everyone" || (web === "builders" && role !== "scout");
+}
+
+/** A team's access, as you set it or as it starts. */
+export function crewAccess(crew: Pick<Crew, "access">): CrewAccess {
+  return {
+    deletes: crew.access?.deletes ?? true,
+    web: crew.access?.web ?? "builders",
+    others: crew.access?.others ?? "refuse",
+  };
+}
 
 /**
  * The crew's goal: it plans its own cards towards it and builds them one
@@ -616,9 +674,12 @@ const FEED_KEPT = 200;
 const NOTES_KEPT = 20;
 const DONE_CARDS_KEPT = 20;
 const IDEAS_KEPT = 60;
+/** Ideas that wait for you: their records outlive the others' (see `keptIdeas`). */
+const HELD_IDEAS_KEPT = 1_000;
 export const CREW_NOTE_MAX = 500;
 export const CREW_GOAL_MAX = 300;
 const ASKS_KEPT = 50;
+const NOT_NOW_KEPT = 200;
 /** Your messages to the team kept: the chat shows these and the Feed's posts. */
 export const CREW_MESSAGES_KEPT = 50;
 export const CREW_MESSAGE_MAX = 2_000;
@@ -702,6 +763,22 @@ export function isSha(value: unknown): value is string {
 
 /** Thrown-away goal cards a goal remembers. */
 const GOAL_DROPPED_KEPT = 30;
+
+/** Only what this build knows: anything else is as a team starts. */
+function readAccess(value: unknown): Partial<CrewAccess> | undefined {
+  const raw = value as Partial<CrewAccess> | null | undefined;
+  if (!raw || typeof raw !== "object") return undefined;
+  const access: Partial<CrewAccess> = {
+    ...(typeof raw.deletes === "boolean" ? { deletes: raw.deletes } : {}),
+    ...(raw.web === "none" || raw.web === "builders" || raw.web === "everyone"
+      ? { web: raw.web }
+      : {}),
+    ...(raw.others === "refuse" || raw.others === "ask"
+      ? { others: raw.others }
+      : {}),
+  };
+  return Object.keys(access).length ? access : undefined;
+}
 
 function readGoal(value: unknown): CrewGoal | undefined {
   const raw = value as Partial<CrewGoal> | null | undefined;
@@ -1193,14 +1270,16 @@ export function readCrew(value: unknown): Crew | null {
         .filter((route): route is CrewRoute => !!route)
         .slice(0, 12)
     : [];
-  const ideas: Record<string, CrewIdea> = {};
+  const read: Record<string, CrewIdea> = {};
   if (raw.ideas && typeof raw.ideas === "object")
-    for (const [id, item] of Object.entries(raw.ideas).slice(-IDEAS_KEPT)) {
+    for (const [id, item] of Object.entries(raw.ideas).slice(
+      -(IDEAS_KEPT + HELD_IDEAS_KEPT),
+    )) {
       const idea = item as Partial<CrewIdea> | null;
       if (!idea || !SIZES.has(idea.size as CrewIdeaSize)) continue;
       const why = text(idea.why, 300);
       const sourceUrl = text(idea.sourceUrl, 2048);
-      ideas[id] = {
+      read[id] = {
         at: finite(idea.at, 0, 8.64e15, 0),
         size: idea.size as CrewIdeaSize,
         ...(why ? { why } : {}),
@@ -1211,6 +1290,7 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.by === "security" ? { by: "security" as const } : {}),
       };
     }
+  const ideas = keptIdeas(read);
   const cards = Array.isArray(raw.cards)
     ? raw.cards.map(readCrewCard).filter((card): card is CrewCard => !!card)
     : [];
@@ -1274,6 +1354,9 @@ export function readCrew(value: unknown): Crew | null {
   const stack = raw.stack as Crew["stack"] | undefined;
   const goal = readGoal(raw.goal);
   const asks = strings(raw.asks, ASKS_KEPT, 200);
+  const notNow = strings(raw.notNow, NOT_NOW_KEPT, 200);
+  const access = readAccess(raw.access);
+  const planning = text(raw.planning, 200);
   const messages = readMessages(raw.messages);
   return {
     ...base,
@@ -1338,6 +1421,9 @@ export function readCrew(value: unknown): Crew | null {
       : {}),
     ...(goal ? { goal } : {}),
     ...(asks.length ? { asks } : {}),
+    ...(notNow.length ? { notNow } : {}),
+    ...(access ? { access } : {}),
+    ...(planning ? { planning } : {}),
     ...(messages.length ? { messages } : {}),
     cards,
     feed,
@@ -2319,11 +2405,37 @@ export function withoutNote(crew: Crew, id: string): Crew {
 }
 
 export function withIdea(crew: Crew, cardId: string, idea: CrewIdea): Crew {
-  const ideas = { ...crew.ideas, [cardId]: idea };
-  const keys = Object.keys(ideas);
-  for (const key of keys.slice(0, Math.max(0, keys.length - IDEAS_KEPT)))
-    delete ideas[key];
-  return { ...crew, ideas };
+  return { ...crew, ideas: keptIdeas({ ...crew.ideas, [cardId]: idea }) };
+}
+
+/** An idea's record says it waits for you: dropping it would let it build. */
+function ideaHeld(idea: CrewIdea): boolean {
+  return (
+    idea.size === "large" ||
+    idea.by === "security" ||
+    !!idea.sourceUrl ||
+    !!idea.outside ||
+    !!idea.declined
+  );
+}
+
+/**
+ * The idea records kept: the newest of the rest, and every one that waits
+ * for you (large, Security's, from outside, Not now), up to a far larger cap, as
+ * its record is what keeps it from building by itself.
+ */
+function keptIdeas(
+  ideas: Readonly<Record<string, CrewIdea>>,
+): Record<string, CrewIdea> {
+  const entries = Object.entries(ideas);
+  const held = entries.filter(([, idea]) => ideaHeld(idea));
+  const rest = entries.filter(([, idea]) => !ideaHeld(idea));
+  const keep = new Set(
+    [...held.slice(-HELD_IDEAS_KEPT), ...rest.slice(-IDEAS_KEPT)].map(
+      ([id]) => id,
+    ),
+  );
+  return Object.fromEntries(entries.filter(([id]) => keep.has(id)));
 }
 
 // ---------------------------------------------------------------------------
@@ -2345,12 +2457,37 @@ export function crewCard(
 }
 
 /**
- * The card in the crew's copy now: being built or checked, Ready, or Stuck.
- * A Ready card stacked on the crew's branch no longer holds it: the next
- * card builds on top.
+ * A Stuck card with nothing of its own in the copy: its Builder changed no
+ * file in any round and stopped (it changed nothing, or asked before it
+ * did). It steps aside, so the team goes on with the next card meanwhile,
+ * and starts again from the top when you answer it or try it again.
+ */
+export function cardSteppedAside(card: CrewCard): boolean {
+  return (
+    card.stage === "stuck" &&
+    !card.turn &&
+    !card.stacked &&
+    (card.stuck?.reason === "no-change" ||
+      (card.stuck?.reason === "question" && card.holder === "builder")) &&
+    !card.fix &&
+    // Its Builder's turn ended and Aven read the copy (a turn still waiting
+    // on an approval, or cut off by turning the team off, never got here).
+    card.rounds.some((round) => round.n === card.round && !!round.builtAt) &&
+    !card.rounds.some((round) => (round.change?.files ?? 0) > 0)
+  );
+}
+
+/**
+ * The card in the crew's copy now: being built or checked, Ready, or Stuck
+ * with work in it. A Ready card stacked on the crew's branch no longer
+ * holds it (the next card builds on top), nor does a Stuck card that
+ * changed nothing.
  */
 export function cardInCopy(crew: Pick<Crew, "cards">): CrewCard | undefined {
-  return crew.cards.find((card) => HOLDS_COPY.has(card.stage) && !card.stacked);
+  return crew.cards.find(
+    (card) =>
+      HOLDS_COPY.has(card.stage) && !card.stacked && !cardSteppedAside(card),
+  );
 }
 
 /**
@@ -2422,15 +2559,30 @@ export function withGoalCardDropped(crew: Crew, card: CrewCard): Crew {
   return { ...crew, goal: { ...crew.goal, dropped } };
 }
 
+/** A title by its words alone, without case or marks. */
+function titleWords(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
 /** Whether a planned title is one you threw away (by its words, without case). */
 export function goalDropped(crew: Pick<Crew, "goal">, title: string): boolean {
-  const words = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .trim();
-  const wanted = words(title);
-  return (crew.goal?.dropped ?? []).some((item) => words(item) === wanted);
+  const wanted = titleWords(title);
+  return (crew.goal?.dropped ?? []).some((item) => titleWords(item) === wanted);
+}
+
+/** The team's card by this title (not thrown away), if it has one. */
+export function crewCardByTitle(
+  crew: Pick<Crew, "cards">,
+  title: string,
+): CrewCard | undefined {
+  const wanted = titleWords(title);
+  if (!wanted) return undefined;
+  return crew.cards.find(
+    (card) => card.stage !== "discarded" && titleWords(card.title) === wanted,
+  );
 }
 
 /** The fingerprint a stacked card's Apply checks: its own change's. */

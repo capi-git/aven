@@ -923,6 +923,7 @@ import {
 import { isHarnessAvailable } from "./lib/harness/availability";
 import { pickerModelsFor } from "./lib/models";
 import {
+  crewChatBrowserOff,
   installBotPermissions,
   teammateChatRefusal,
 } from "./lib/projectBotPermissions";
@@ -3378,8 +3379,11 @@ export default function App({
 
   useEffect(() => {
     const onVisible = () => {
+      // Hidden, the window's animations pause (see DotMark.css).
+      document.documentElement.toggleAttribute("data-hidden", document.hidden);
       if (!document.hidden) flushHarnessEvents();
     };
+    onVisible();
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [flushHarnessEvents]);
@@ -7363,6 +7367,7 @@ export default function App({
                   {
                     worker:
                       !!current.orchestrationLeadId || isBotChat(sessionId),
+                    noBrowser: crewChatBrowserOff(sessionId),
                     typed: options?.typed === true,
                   },
                 );
@@ -7817,6 +7822,7 @@ export default function App({
                 // A bot never commits, so it gets no Git preference either.
                 {
                   worker: !!current.orchestrationLeadId || isBotChat(sessionId),
+                  noBrowser: crewChatBrowserOff(sessionId),
                   typed: options?.typed === true,
                 },
               );

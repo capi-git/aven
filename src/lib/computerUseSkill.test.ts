@@ -158,7 +158,7 @@ describe("desktop control permission guidance", () => {
 
   it("tells agents to build on one page instead of opening more mocks", () => {
     expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "Open keeps one page per site for this chat and builds on it: the same address reloads it, and another route, query or mock file on that site navigates it; it never reloads or navigates a page the user opened, kept or used, or another chat's page.",
+      "Open keeps one preview page for this chat and builds on it: the same address reloads it, and another route, query, mock file or local server navigates it; it never reloads or navigates a page the user opened, kept or used, or another chat's page. Work in one copy of the project with one preview server, and put options or variants in the same page rather than in another copy or server.",
     );
     expect(AVEN_BROWSER_HOST_POLICY).toContain(
       "Iterate on a mock-up or preview in place: edit the same file and reload its page, without mock-v2 files or new tabs unless the user asks for alternatives side by side.",

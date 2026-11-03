@@ -260,22 +260,19 @@ it("leaves the name unchanged when the customize panel is dismissed with Escape"
   );
 });
 
-it("opens the project's memory from the actions menu", async () => {
+it("keeps the actions menu short: the row opens the project, and memory is in Customize", async () => {
   await render();
   await act(async () =>
     host.querySelector<HTMLButtonElement>(".personal-project-more")!.click(),
   );
-  const item = [
+  const labels = [
     ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-  ].find((node) => node.textContent?.includes("Project memory"));
-  expect(item).toBeDefined();
-  await act(async () => item!.click());
-  expect(
-    document.querySelector(
-      '[role="dialog"][aria-label="Project memory for aven-project"]',
-    ),
-  ).not.toBeNull();
-  expect(menu()).toBeNull();
+  ].map((node) => node.textContent ?? "");
+  expect(labels.some((label) => label.includes("Open project"))).toBe(false);
+  expect(labels.some((label) => label.includes("Project memory"))).toBe(false);
+  expect(labels.some((label) => label.includes("Customize project"))).toBe(
+    true,
+  );
 });
 
 it("reaches the memory from the customize panel, keeping a typed name", async () => {
@@ -346,7 +343,12 @@ it("notes Aven's memory update in the tooltip, marked until the memory is opened
   );
   await act(async () =>
     [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((node) => node.textContent?.includes("Project memory"))!
+      .find((node) => node.textContent?.includes("Customize project"))!
+      .click(),
+  );
+  await act(async () =>
+    [...document.querySelectorAll<HTMLButtonElement>("button")]
+      .find((node) => node.textContent?.includes("Project memory…"))!
       .click(),
   );
   // Seen: the mark goes, the tooltip keeps the note for the day.

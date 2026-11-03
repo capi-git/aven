@@ -13,6 +13,7 @@ import {
   teamPosts,
   teamThread,
   type TeamPost,
+  teamWording,
 } from "./teamThread";
 
 const PATH = "/Users/me/pom";
@@ -425,5 +426,31 @@ describe("Yesterday", () => {
         new Date(2026, 10, 1, 23, 30).getTime(),
       ),
     ).toBe("Yesterday");
+  });
+});
+
+describe("lines saved before the crew was a team", () => {
+  it("say team, leaving quoted titles and branch names alone", () => {
+    expect(teamWording("You gave the crew “Crew screen”")).toBe(
+      "You gave the team “Crew screen”",
+    );
+    expect(teamWording("You paused the crew")).toBe("You paused the team");
+    expect(teamWording("Crews pause at 80% of the crew's week")).toBe(
+      "Teams pause at 80% of the team's week",
+    );
+    expect(teamWording("On aven/bot/crew-0f26, the crew-wide cap")).toBe(
+      "On aven/bot/crew-0f26, the crew-wide cap",
+    );
+    // A file's name, and someone's own words after a colon, stay.
+    expect(teamWording("Changed crews.ts for the crew.")).toBe(
+      "Changed crews.ts for the team.",
+    );
+    expect(teamWording("You sent “X” back: tell the crew to stop")).toBe(
+      "You sent “X” back: tell the crew to stop",
+    );
+    // A colon in a quoted title is the title's.
+    expect(teamWording("You gave the crew “Crew settings: add toggle”")).toBe(
+      "You gave the team “Crew settings: add toggle”",
+    );
   });
 });

@@ -101,8 +101,9 @@ export function PersonalProjectRow({
     basename(path) || projectName(path),
   );
   const isPinned = pinned.some((item) => sameProjectPath(item, path));
+  // Short on purpose: the row itself opens the project, and Project memory
+  // is in Customize project.
   const items: ExplorerMenuItem[] = [
-    { kind: "item", id: "open", label: "Open project" },
     ...(onOpenBoard
       ? [{ kind: "item" as const, id: "board", label: "Open board" }]
       : []),
@@ -112,7 +113,6 @@ export function PersonalProjectRow({
       label: isPinned ? "Unpin project" : "Pin project",
     },
     { kind: "item", id: "customize", label: "Customize project…" },
-    { kind: "item", id: "memory", label: "Project memory…" },
     ...(onBotSettings
       ? [
           {

@@ -26,30 +26,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Round dots: done filled, now outlined, later faint. */
-.crew-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  vertical-align: middle;
-}
-
-.crew-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-content) 22%, transparent);
-}
-
-.crew-dot[data-state="done"] {
-  background: var(--color-content);
-}
-
-.crew-dot[data-state="now"] {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--color-content);
-}
-
 /* The sidebar's crew row: marks and project, the fold, and its word. */
 .personal-crew-row {
   display: flex;
@@ -667,4 +643,15 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 
 .crew-settings-heading.crew-blank-heading {
   margin-top: 14px;
+}
+/* Access: its small choices keep to their row. */
+.settings-segmented.crew-settings-access-choice {
+  flex: none;
+  min-width: 0;
+}
+
+.settings-segmented.crew-settings-access-choice button {
+  min-height: 24px;
+  padding-inline: 8px;
+  white-space: nowrap;
 }

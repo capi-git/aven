@@ -124,6 +124,13 @@
   font-weight: 600;
 }
 
+/* A team's Ideas: how they get built. */
+.work-board-column-hint {
+  margin: -2px 2px 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-micro);
+}
+
 .work-board-count {
   color: var(--aven-muted);
   font-weight: 400;
@@ -272,6 +279,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A team's Board reads its cards whole: a title wraps to two lines. */
+.work-board[data-crew] .work-board-card-title {
+  align-items: flex-start;
+}
+
+.work-board[data-crew] .work-board-card-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
 }
 
 .work-board-card-open:hover .work-board-card-name {

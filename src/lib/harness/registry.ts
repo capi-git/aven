@@ -115,8 +115,12 @@ const catalogRefreshes = new Map<HarnessId, CatalogRefresh>();
 export const HARNESS_IDLE_PARK_MS = 30 * 60_000;
 /** While macOS reports memory pressure, idle children park this soon. */
 export const HARNESS_PRESSURE_PARK_MS = 5 * 60_000;
-/** Idle children kept warm at most; the least recently used park first. */
-export const HARNESS_WARM_LIMIT = 8;
+/**
+ * Idle children kept warm at most; the least recently used park first. Three
+ * covers the chats someone switches between; a team's handed-off members
+ * park sooner than they would with a larger pool, so a busy Mac stays cool.
+ */
+export const HARNESS_WARM_LIMIT = 3;
 type IdleChild = {
   harness: HarnessId;
   /** When the child became idle. */

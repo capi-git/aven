@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
+import { CrewCritters } from "../chrome/CrewCritter";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { MoreHorizontal, Pause, Play } from "../chrome/icons";
+import { Modal } from "../chrome/Modal";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { TeamCardButton } from "../chrome/TeamCard";
 import {
@@ -13,6 +15,7 @@ import { useTeamView } from "../hooks/useTeamView";
 import {
   allowMoreRunsToday,
   clearCrewGoal,
+  crewTellWaiting,
   resumeCrewGoal,
   setCrewPaused,
   stopCrewNow,
@@ -22,58 +25,47 @@ import {
   useCrewWorkspace,
 } from "../lib/crewActions";
 import type { Pipeline } from "../lib/crewPipeline";
-import type { Crew } from "../lib/crews";
+import { crewMembers, memberCritter, type Crew } from "../lib/crews";
 import type { CrewBoardActionId } from "../lib/crewView";
 import type { BotStatus } from "../lib/projectBots";
 import type { TeamView } from "../lib/teamView";
-import type { BoardAction, BoardCard, BoardColumnId } from "../lib/workBoard";
+import type { BoardCard, BoardColumnId } from "../lib/workBoard";
+import { CrewFeed } from "./CrewBoard";
 import { Segmented } from "./SettingsControls";
-import { CrewBatchSheet, CrewPipeline } from "./CrewPipeline";
+import { BatchCard, CrewBatchSheet } from "./TeamBatch";
 import { TeamChat } from "./TeamChat";
+import type { BoardTop } from "./WorkBoard";
 import "./TeamScreen.css";
 
 /**
  * A project's team, on its Board while the team is on: one header (its
- * mark, name, one sentence on what it's doing and what needs you, Chat |
- * Cards, Pause and ⋯), then its Chat (a roster and the team thread) or its
- * Cards (the Pipeline). Chat unless you chose Cards for this project.
+ * name, one sentence on what it's doing and what waits for you, Board |
+ * Chat, Team, Pause and ⋯), then the Board's four columns or the team's
+ * chat. The Board unless you chose the Chat for this project.
  */
 export function TeamScreen({
   project,
   crew,
   fixer,
   columns,
+  sections,
   now,
   name,
-  answering,
-  onAnswerDone,
   problems,
-  editing,
   onCrewAction,
-  onMenu,
-  onChoose,
-  boardButtons,
-  editor,
-  addIdea,
 }: {
   project: string;
   crew: Crew;
   /** The team's Fixer (the project bot), while it is on. */
   fixer?: { status: BotStatus; runs: number; sessionId?: string };
   columns: Readonly<Record<BoardColumnId, readonly BoardCard[]>>;
+  /** The Board's four columns, as the Board draws them, with what goes on top. */
+  sections: (top?: BoardTop) => ReactNode;
   now: number;
   /** A member's name, by its id or role. */
   name: (who: string) => string;
-  answering: string | null;
-  onAnswerDone: () => void;
   problems: Readonly<Record<string, string>>;
-  editing: string | null;
   onCrewAction: (card: BoardCard, id: CrewBoardActionId) => void;
-  onMenu: (cardId: string, anchor: HTMLElement) => void;
-  onChoose: (cardId: string, anchor: HTMLElement) => void;
-  boardButtons: (card: BoardCard, actions: readonly BoardAction[]) => ReactNode;
-  editor: (card: BoardCard) => ReactNode;
-  addIdea: ReactNode;
 }) {
   const cards = useMemo(
     () => [
@@ -94,8 +86,8 @@ export function TeamScreen({
   });
   const labels = useProjectLabels();
   const [saved, save] = useTeamView(project);
-  // Answer on its card shows the Cards for now; how this team opens stays
-  // what you chose with the switch.
+  // Answer on its card shows the Board for now, and Tell the team… the
+  // Chat; how this team opens stays what you chose with the switch.
   const [peek, setPeek] = useState<{ project: string; view: TeamView } | null>(
     null,
   );
@@ -105,10 +97,13 @@ export function TeamScreen({
     save(view);
   };
   const [reviewing, setReviewing] = useState(false);
+  const [activity, setActivity] = useState(false);
   useEffect(() => {
-    // Review from the Inbox: the batch's Review opens here.
+    // Review from the Inbox or a Ready card: the batch's Review opens here.
+    // Tell the team… from the sidebar: the Chat shows, and its box takes it.
     const take = () => {
       if (takeCrewReview(project)) setReviewing(true);
+      if (crewTellWaiting(project)) setPeek({ project, view: "chat" });
     };
     take();
     return subscribeCrewTell(take);
@@ -119,14 +114,14 @@ export function TeamScreen({
   useEffect(() => {
     if (reviewing && !hasBatch) setReviewing(false);
   }, [reviewing, hasBatch]);
-  // ⋯ → Set a goal…: the box on screen (the chat's, or the Cards' task box)
-  // takes it.
+  // ⋯ → Set a goal…: the Chat shows, and its box turns to the goal.
   const goal = useRef<{ goal: () => void } | null>(null);
-  const count =
-    (view.batch?.cards.length ?? 0) +
-    view.ready.length +
-    view.inProgress.length +
-    view.upNext.length;
+  const [goalAsked, setGoalAsked] = useState(false);
+  useEffect(() => {
+    if (!goalAsked || mode !== "chat" || !goal.current) return;
+    goal.current.goal();
+    setGoalAsked(false);
+  }, [goalAsked, mode]);
   return (
     <section
       className="team-screen"
@@ -138,10 +133,13 @@ export function TeamScreen({
         project={project}
         view={view}
         mode={mode}
-        count={count}
         dailyCap={dailyCap}
         onMode={setMode}
-        onSetGoal={() => goal.current?.goal()}
+        onSetGoal={() => {
+          setPeek({ project, view: "chat" });
+          setGoalAsked(true);
+        }}
+        onActivity={() => setActivity(true)}
       />
       {mode === "chat" ? (
         <TeamChat
@@ -156,30 +154,30 @@ export function TeamScreen({
           problems={problems}
           onCrewAction={onCrewAction}
           onReview={() => setReviewing(true)}
-          onCards={() => setPeek({ project, view: "cards" })}
+          onCards={() => setPeek({ project, view: "board" })}
           control={goal}
         />
       ) : (
-        <CrewPipeline
-          project={project}
-          crew={crew}
-          view={view}
-          range={range}
-          columns={columns}
-          name={name}
-          answering={answering}
-          onAnswerDone={onAnswerDone}
-          problems={problems}
-          editing={editing}
-          onCrewAction={onCrewAction}
-          onMenu={onMenu}
-          onChoose={onChoose}
-          onReview={() => setReviewing(true)}
-          boardButtons={boardButtons}
-          editor={editor}
-          addIdea={addIdea}
-          taskBox={goal}
-        />
+        <div className="work-board-columns" data-team-board={project}>
+          {sections(
+            view.batch
+              ? {
+                  review: {
+                    node: (
+                      <BatchCard
+                        crew={crew}
+                        batch={view.batch}
+                        range={range}
+                        onReview={() => setReviewing(true)}
+                      />
+                    ),
+                    covers: new Set(view.batch.cards.map((card) => card.id)),
+                    count: view.batch.cards.length,
+                  },
+                }
+              : {},
+          )}
+        </div>
       )}
       {reviewing && view.batch ? (
         <CrewBatchSheet
@@ -188,33 +186,42 @@ export function TeamScreen({
           onClose={() => setReviewing(false)}
         />
       ) : null}
+      {activity ? (
+        <Modal
+          onClose={() => setActivity(false)}
+          title="Activity"
+          description={`${projectDisplayName(project, labels)} team · ${view.limits}`}
+          className="crew-activity"
+        >
+          <CrewFeed crew={crew} name={name} />
+        </Modal>
+      ) : null}
     </section>
   );
 }
 
 /**
- * The team's one header: its mark and name, one sentence (the card it
- * names in bold), its goal, Chat | Cards, Pause and ⋯.
+ * The team's one header: its name, one sentence (the card it names in
+ * bold), its goal, Board | Chat, Team (its marks), Pause and ⋯.
  */
 function TeamHeader({
   crew,
   project,
   view,
   mode,
-  count,
   dailyCap,
   onMode,
   onSetGoal,
+  onActivity,
 }: {
   crew: Crew;
   project: string;
   view: Pipeline;
   mode: TeamView;
-  /** Cards the team has now, for the Cards switch. */
-  count: number;
   dailyCap: boolean;
   onMode: (mode: TeamView) => void;
   onSetGoal: () => void;
+  onActivity: () => void;
 }) {
   const labels = useProjectLabels();
   const workspace = useCrewWorkspace();
@@ -222,15 +229,22 @@ function TeamHeader({
   const [confirmingOff, setConfirmingOff] = useState(false);
   const name = projectDisplayName(crew.path, labels);
   const { sentence, focus, goal } = view;
+  const faces = crewMembers(crew).map((member) => ({
+    id: member.id,
+    role: member.role,
+    ...(member.critter ? { critter: memberCritter(member) } : {}),
+  }));
+  const working = crew.members.find((member) => member.doing)?.id;
+  const goalGoing = !!goal && (goal.state === "on" || goal.state === "waits");
   const items: ExplorerMenuItem[] = [
     { kind: "item", id: "stop", label: "Stop now" },
     ...(dailyCap
       ? [{ kind: "item" as const, id: "more", label: "Allow 10 more today" }]
       : []),
-    goal
+    goalGoing
       ? { kind: "item", id: "clear-goal", label: "Clear the goal" }
       : { kind: "item", id: "goal", label: "Set a goal…" },
-    { kind: "item", id: "settings", label: "Settings…" },
+    { kind: "item", id: "activity", label: "Activity" },
     { kind: "sep" },
     { kind: "item", id: "off", label: "Turn the team off" },
   ];
@@ -240,7 +254,7 @@ function TeamHeader({
     <header className="team-head" data-crew-header={crew.path}>
       <ProjectMark path={project} className="team-head-mark" />
       <div className="team-head-heading">
-        <h1>{name} team</h1>
+        <h1>{name}</h1>
         <p className="team-head-sentence" data-crew-sentence>
           {at >= 0 ? (
             <>
@@ -273,7 +287,9 @@ function TeamHeader({
                 ? " · met"
                 : goal.state === "stopped"
                   ? ` · stopped: ${goal.why ?? ""}`
-                  : " · the team keeps going"}
+                  : goal.state === "waits"
+                    ? ` · ${goal.why ?? "waits"}`
+                    : " · the team keeps going"}
             </span>
             {goal.state === "stopped" ? (
               <button
@@ -293,11 +309,19 @@ function TeamHeader({
           className="team-head-switch"
           value={mode}
           options={[
+            { value: "board", label: "Board" },
             { value: "chat", label: "Chat" },
-            { value: "cards", label: count ? `Cards · ${count}` : "Cards" },
           ]}
           onChange={onMode}
         />
+        <TeamCardButton
+          className="team-head-team"
+          title="Your teammates: add one, or change what one does"
+          onClick={() => workspace?.openSettings(crew.path)}
+        >
+          <CrewCritters path={project} roles={faces} max={4} active={working} />
+          <span>Team</span>
+        </TeamCardButton>
         <TeamCardButton
           onClick={() => setCrewPaused(crew.path, !crew.paused)}
           title={crew.paused ? "Resume the team" : "Pause the team"}
@@ -335,7 +359,7 @@ function TeamHeader({
             else if (id === "more") allowMoreRunsToday(crew.path);
             else if (id === "goal") onSetGoal();
             else if (id === "clear-goal") clearCrewGoal(crew.path);
-            else if (id === "settings") workspace?.openSettings(crew.path);
+            else if (id === "activity") onActivity();
             else if (id === "off") setConfirmingOff(true);
           }}
         />

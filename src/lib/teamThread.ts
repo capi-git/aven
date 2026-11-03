@@ -84,6 +84,32 @@ function plain(text: string): string {
     : flat;
 }
 
+/**
+ * Aven's and your lines as they read now: ones saved before the crew was
+ * called a team ("You gave the crew …") say team. What comes after the
+ * first colon may be someone's own words, so it stays; so do a quoted
+ * title, a file's name (crews.ts) and a branch's (aven/bot/crew-…).
+ */
+export function teamWording(text: string): string {
+  let spoken = false;
+  return text
+    .split(/(“[^”]*”)/)
+    .map((part) => {
+      if (spoken || part.startsWith("“")) return part;
+      const colon = part.indexOf(": ");
+      if (colon >= 0) spoken = true;
+      const words = colon >= 0 ? part.slice(0, colon) : part;
+      return (
+        words.replace(
+          /(?<![\w/.-])([Cc])rew(s?)(?![\w/-]|\.\w)/g,
+          (_match, c: string, plural: string) =>
+            `${c === "C" ? "T" : "t"}eam${plural}`,
+        ) + (colon >= 0 ? part.slice(colon) : "")
+      );
+    })
+    .join("");
+}
+
 /** "Builder started “X”" from Builder: "Started “X”". */
 function withoutName(text: string, name: string): string {
   for (const lead of [`${name} `, `${name}'s `]) {
@@ -188,7 +214,7 @@ function postOf(
       kind: "event",
       id: entry.id,
       at: entry.at,
-      text: plain(entry.text),
+      text: plain(teamWording(entry.text)),
       ...(entry.member ? { about: entry.member } : {}),
     };
   }
@@ -198,7 +224,7 @@ function postOf(
       kind: "event",
       id: entry.id,
       at: entry.at,
-      text: plain(entry.text),
+      text: plain(teamWording(entry.text)),
       ...(entry.member ? { about: entry.member } : {}),
       ...(entry.kind === "stuck" && waiting(entry) ? { needsYou: true } : {}),
     };

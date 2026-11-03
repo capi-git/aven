@@ -2,8 +2,9 @@
    change note in the project memory editor. */
 .memory-keeper-offer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
   min-height: 32px;
   margin: 0 4px 6px;
@@ -21,12 +22,18 @@
   flex: 0 0 auto;
   color: var(--aven-muted);
 }
-/* In a narrow chat the question wraps to a second line; it is never cut. */
+/* In a narrow chat the buttons drop under the question as one row, so the
+   words keep their width and never break letter by letter. */
 .memory-keeper-offer-copy {
-  flex: 1 1 auto;
+  flex: 1 1 150px;
   min-width: 0;
-  overflow-wrap: anywhere;
   text-wrap: pretty;
+}
+.memory-keeper-offer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  margin-left: auto;
 }
 .memory-keeper-offer button {
   display: inline-flex;

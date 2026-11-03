@@ -223,8 +223,7 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 /**
  * Whether two addresses are the same site for an agent's page: the same
  * scheme, host and port, with the loopback names counting as one host. Any
- * route, file, query string or fragment on it is the same work. Another
- * local server is not: it may stop, or be another app.
+ * route, file, query string or fragment on it is the same work.
  */
 export function sameAgentSite(a: string, b: string): boolean {
   try {
@@ -238,6 +237,19 @@ export function sameAgentSite(a: string, b: string): boolean {
       one.protocol === two.protocol &&
       one.port === two.port &&
       host(one) === host(two)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Whether an address is a server on this Mac, whatever its port. */
+export function isLocalAgentSite(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      /^https?:$/.test(parsed.protocol) &&
+      LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())
     );
   } catch {
     return false;
@@ -258,7 +270,9 @@ function pagePath(url: string): string | null {
  * - a page at the same address: the chat's own is reloaded, any other is
  *   only shown (a page the user opened is never navigated by an open);
  * - else the chat's own page on the same site, navigated to the address (the
- *   one in front first, else the newest), so one page is built on.
+ *   one in front first, else the newest), so one page is built on;
+ * - else, for a server on this Mac, the chat's own page on any local server:
+ *   a chat keeps one preview page, whichever port its server is on now.
  * With `newTab` the agent wants a second page: only the chat's own page at
  * the same path on the same site is reused (reloaded, or navigated to a new
  * query or fragment), since a copy of it shows nothing new; any other path
@@ -285,8 +299,13 @@ export function agentPageFor<T extends AgentPageCandidate>(
     (tab) =>
       sameAgentSite(tab.url, target) && (!newTab || pagePath(tab.url) === path),
   );
+  const local =
+    !newTab && !site.length && isLocalAgentSite(target)
+      ? mine.filter((tab) => isLocalAgentSite(tab.url))
+      : [];
+  const pages = site.length ? site : local;
   const page =
-    site.find((tab) => tab.id === preferredId) ?? site[site.length - 1];
+    pages.find((tab) => tab.id === preferredId) ?? pages[pages.length - 1];
   if (newTab) return page ? { tab: page, refresh: "navigate" } : undefined;
   // A page the user opened is shown as it is; one another chat owns is not
   // shared, or that chat would go on navigating it under this one.

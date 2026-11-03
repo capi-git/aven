@@ -1521,32 +1521,6 @@ fn marker_actor(grant: &Grant) -> Value {
     json!({"name": actor.name, "color": actor.color})
 }
 
-const SEPARATE_PAGE_NOTE: &str =
-    "That page showed a different local server, so this opened a new page for it. Use this id.";
-
-/// The scheme and port of a local server's address. The loopback names
-/// localhost, 127.0.0.1 and [::1] count as the same host.
-fn local_server(address: &str) -> Option<(String, u16)> {
-    let url = tauri::Url::parse(address).ok()?;
-    if !matches!(url.scheme(), "http" | "https")
-        || !matches!(url.host_str()?, "localhost" | "127.0.0.1" | "[::1]")
-    {
-        return None;
-    }
-    Some((url.scheme().to_owned(), url.port_or_known_default()?))
-}
-
-/// Moving a page from one local server to another would leave it on a server
-/// that may stop, such as a race lane's private copy of the project, so the
-/// agent gets a new page instead. Route changes on the same server, remote
-/// sites and pages whose address is unknown navigate as usual.
-fn opens_separate_page(current: Option<&str>, target: &str) -> bool {
-    match (current.and_then(local_server), local_server(target)) {
-        (Some(current), Some(target)) => current != target,
-        _ => false,
-    }
-}
-
 /// The address a granted page shows now, from the state the agent can list.
 fn page_url(caller: &Webview, id: &str) -> Option<String> {
     crate::browser::agent_tab_states(caller, &[id.to_owned()])
@@ -2211,8 +2185,6 @@ struct PageTarget {
     /// it over. Every other page shows the presence bar while it is used,
     /// and never takes typed passwords.
     own: bool,
-    /// In the chat's project scope, as before any-tab access.
-    scoped: bool,
     /// The page was asleep (or never shown) and was loaded for this request.
     woke: bool,
     title: String,
@@ -2245,7 +2217,6 @@ fn resolve_page(
             owner: caller.clone(),
             native: id.to_owned(),
             own: grant.own.iter().any(|page| page == id),
-            scoped: true,
             woke: false,
             title: live_title(caller, id),
             place: "In this chat's project".into(),
@@ -2264,7 +2235,7 @@ fn resolve_page(
         .flat_map(|(_, tabs)| tabs)
         .find(|tab| tab.surface_id == surface)
         .ok_or("That tab has closed. Run {\"action\":\"tabs\"} again to find it.")?;
-    let TabAccess { scoped, own } = tab_access(grant, &window, &record)?;
+    let TabAccess { own, .. } = tab_access(grant, &window, &record)?;
     let awake = record
         .native_id
         .clone()
@@ -2282,7 +2253,6 @@ fn resolve_page(
         place: tab_place(&window, &record),
         owner,
         native,
-        scoped,
         woke,
         title,
         _lease: Some(lease),
@@ -2290,6 +2260,8 @@ fn resolve_page(
 }
 
 struct TabAccess {
+    /// In the chat's project scope, as before any-tab access.
+    #[cfg_attr(not(test), allow(dead_code))]
     scoped: bool,
     own: bool,
 }
@@ -2739,6 +2711,10 @@ impl crate::browser_export::ImageSource for PageImages {
 /// One action on a resolved page, in the window that owns it. `using` is the
 /// presence bar's hold on a tab that is not the chat's own.
 fn page_action(
+    #[cfg_attr(
+        not(all(feature = "chromium", target_os = "macos")),
+        allow(unused_variables)
+    )]
     server: &Arc<Server>,
     token: String,
     request: Request,
@@ -2807,23 +2783,8 @@ fn page_action(
             )
         }
         Request::Navigate { url, .. } => {
-            // A page of the chat's project moving to another local server
-            // opens a page of its own; the user's other tabs just navigate.
-            if target.scoped && opens_separate_page(page_url(&caller, &id).as_deref(), &url) {
-                return open_page(
-                    server,
-                    &caller,
-                    grant,
-                    token,
-                    &url,
-                    true,
-                    false,
-                    connected,
-                )
-                .map(
-                    |page| json!({"id":page.id,"url":page.url,"opened":true,"note":SEPARATE_PAGE_NOTE}),
-                );
-            }
+            // The chat's page follows it to another local server too: one
+            // preview page per chat, whichever port its server is on now.
             tauri::async_runtime::block_on(crate::browser::browser_navigate(caller, id, url))?;
             Ok(json!({"navigating":true,"note":"Take a fresh snapshot after the page loads."}))
         }
@@ -3119,13 +3080,15 @@ from this chat on one site take turns, and one that reloads or navigates your
 page returns once the new page has arrived (if it is still loading a few
 seconds later, its note says so). Sleeping pages wake as needed.
 Edit a mock in place and open or reload
-it again rather than making mock-v2 files or new tabs.
+it again rather than making mock-v2 files or new tabs. One copy of the project
+and one preview server: put options in the same page, never in another copy,
+branch or server.
 Use newTab:true only for a second page you need at the same time, such as
 versions side by side the user asked for, at another path. newTab:true at the
 path of a page of yours reuses that page instead of copying it. arrange:false
 is enough to leave the user's view alone. Use reload to refresh a page, and
-navigate to change its address. Navigating a page to a
-different local server opens a new page instead; use the id it returns. Open
+navigate to change its address, another local server included: your page
+follows your preview wherever it runs. Open
 shows a new page beside the chat; arrange:false never moves, splits or selects
 the user's panes (a new page waits as a background tab). Pages work the same
 while hidden.
@@ -3963,65 +3926,6 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<Request>(value).is_err());
         }
-    }
-
-    #[test]
-    fn navigating_to_a_different_local_server_opens_a_separate_page() {
-        let user = Some("http://localhost:5180/");
-        // Another local server: other ports, other schemes, any loopback name.
-        for target in [
-            "http://localhost:5181/",
-            "http://127.0.0.1:5181/",
-            "http://[::1]:5181/",
-            "https://localhost:5180/",
-            "http://localhost/",
-        ] {
-            assert!(opens_separate_page(user, target), "{target}");
-        }
-        // Routes on the same server navigate, whichever loopback name is used.
-        for target in [
-            "http://localhost:5180/settings?tab=a#top",
-            "http://LOCALHOST:5180/",
-            "http://127.0.0.1:5180/",
-            "http://127.1:5180/",
-            "http://[::1]:5180/",
-            "http://[0:0:0:0:0:0:0:1]:5180/",
-        ] {
-            assert!(!opens_separate_page(user, target), "{target}");
-        }
-        // Default ports belong to their scheme.
-        assert!(!opens_separate_page(
-            Some("http://localhost/"),
-            "http://127.0.0.1:80/a"
-        ));
-        assert!(!opens_separate_page(
-            Some("https://[::1]:443/"),
-            "https://localhost/a"
-        ));
-        assert!(opens_separate_page(
-            Some("http://localhost:443/"),
-            "https://localhost/"
-        ));
-        // Remote sites and unreadable addresses navigate as before.
-        for (current, target) in [
-            (user, "https://example.com/"),
-            (user, "http://192.168.1.4:5181/"),
-            (Some("https://example.com/"), "http://localhost:5181/"),
-            (Some("https://example.com/"), "https://example.org/"),
-            (Some("http://192.168.1.4:5180/"), "http://localhost:5181/"),
-            (None, "http://localhost:5181/"),
-            (Some(""), "http://localhost:5181/"),
-            (Some("about:blank"), "http://localhost:5181/"),
-            (Some("not an address"), "http://localhost:5181/"),
-            (user, "not an address"),
-            (user, "localhost:5181"),
-        ] {
-            assert!(
-                !opens_separate_page(current, target),
-                "{current:?} -> {target}"
-            );
-        }
-        assert!(HELP.contains("different local server opens a new page"));
     }
 
     #[test]

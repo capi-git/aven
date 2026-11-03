@@ -51,8 +51,8 @@ export function useBatchRange(project: string, crew: Crew): BatchRange | null {
 }
 
 /**
- * The team's Pipeline as both of its screens show it (Chat and Cards): the
- * one sentence, the batch and every card's row, worked out once.
+ * What the team's header and chat say (see `crewPipeline`): the one
+ * sentence, its goal and the batch, worked out once.
  */
 export function useTeamPipeline(input: {
   project: string;
@@ -69,6 +69,12 @@ export function useTeamPipeline(input: {
 } {
   const { project, crew, cards, now, fixerRuns, name } = input;
   const allRunsCap = useCrewsAllRunsPerDay();
+  // An idea would start, or the goal's next card: a limit holds those too.
+  const pending =
+    cards.some(
+      (card) => card.column === "idea" && card.crew?.label === "Next",
+    ) ||
+    (!!crew.goal && !crew.goal.done);
   const held = crewHoldGate({
     crew,
     now,
@@ -79,6 +85,7 @@ export function useTeamPipeline(input: {
       return bot ? runsToday(bot, now) : 0;
     }),
     allRunsCap,
+    pending,
   });
   const range = useBatchRange(project, crew);
   const hold =
@@ -107,8 +114,9 @@ export function offersRestack(conflict: string | undefined): boolean {
 
 /**
  * Apply all for the batch, exactly as its row reads it (its last commit and
- * fingerprint), and Update onto your files after a conflict. The Cards row
- * and the chat's Ready for you both use this, so both land the same way.
+ * fingerprint), and Update onto your files after a conflict. The Board's
+ * batch card and the chat's Ready for you both use this, so both land the
+ * same way.
  */
 export function useBatchActions(
   crew: Crew,

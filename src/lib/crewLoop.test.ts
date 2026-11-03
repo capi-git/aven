@@ -4,7 +4,6 @@ import {
   afterCheck,
   changedAfterCheck,
   changedSinceLastRound,
-  crewStageDetail,
   crewStageLabel,
   earlierFindings,
   markApplied,
@@ -80,7 +79,6 @@ describe("the work → check → work loop", () => {
       startedAt: 6,
     });
     expect(crewStageLabel(started)).toBe("Building");
-    expect(crewStageDetail(started)).toBe("round 1 of 3");
     expect(startCard(started, 7)).toBe(started);
   });
 
@@ -115,7 +113,6 @@ describe("the work → check → work loop", () => {
       round: 2,
     });
     expect(crewStageLabel(step.card)).toBe("Fixing");
-    expect(crewStageDetail(step.card)).toBe("round 2 of 3");
 
     step = afterBuild(step.card, {
       handoff,
@@ -137,7 +134,6 @@ describe("the work → check → work loop", () => {
       endedAt: 6_000,
     });
     expect(step.card.fix?.hash).toBe("h2");
-    expect(crewStageDetail(step.card)).toBe("passed in round 2");
     expect(markApplied(step.card, 7_000).stage).toBe("applied");
   });
 

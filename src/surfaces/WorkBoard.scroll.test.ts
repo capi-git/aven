@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 
 /**
  * The Board never grows past its pane: each column's list of cards scrolls
- * on its own, and so does the crew's Feed, with Tell the crew pinned below
- * it. happy-dom doesn't lay pages out, so this reads the rules themselves.
+ * on its own, and so does the team's Feed in Activity. happy-dom doesn't lay
+ * pages out, so this reads the rules themselves.
  */
 
 const board = readFileSync("src/surfaces/WorkBoard.css", "utf8");
 const crew = readFileSync("src/surfaces/CrewBoard.css", "utf8");
-const pipeline = readFileSync("src/surfaces/CrewPipeline.css", "utf8");
+const team = readFileSync("src/surfaces/TeamScreen.css", "utf8");
 
 function rule(css: string, selector: string, from = 0): string {
   const at = css.indexOf(`${selector} {`, from);
@@ -54,12 +54,25 @@ describe("the Board's columns scroll on their own", () => {
   });
 });
 
+describe("a team's Board", () => {
+  it("lays out as the plain Board: its columns fill what's left of the pane", () => {
+    // The team screen draws no box of its own on the Board, so the header
+    // and the columns are the Board's own rows.
+    expect(rule(team, '.team-screen[data-team-view="board"]')).toContain(
+      "display: contents;",
+    );
+    expect(
+      rule(team, '.team-screen[data-team-view="board"] > .team-head'),
+    ).toContain("flex-shrink: 0;");
+  });
+});
+
 describe("the Feed scrolls", () => {
   it("scrolls inside Activity's sheet, up to a cap", () => {
     expect(rule(crew, ".crew-feed-scroll")).toContain("overflow-y: auto;");
     expect(rule(crew, ".crew-feed-scroll")).toContain("flex: 0 1 auto;");
     expect(rule(crew, ".crew-feed-scroll-wrap")).toContain("flex: 0 1 auto;");
-    expect(rule(pipeline, ".crew-activity .crew-feed-scroll")).toContain(
+    expect(rule(team, ".crew-activity .crew-feed-scroll")).toContain(
       "max-height: min(64vh, 640px);",
     );
   });

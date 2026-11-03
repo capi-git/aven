@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   crewMemberById,
   crewsAllRunsPerDay,
+  crewAccess,
   getCrew,
   resetCrewsCache,
   updateCrew,
 } from "../lib/crews";
 import { memoryStorage } from "../lib/devSmoke";
-import { ALWAYS_ASKS_LINE } from "../lib/projectBotPermissions";
+import { TEAM_ALWAYS_LINE } from "../lib/projectBotPermissions";
 import { resetProjectBotsCache } from "../lib/projectBots";
 import { installCrewWorkspace } from "../lib/crewActions";
 import { CrewSettingsSheet } from "./CrewSettingsSheet";
@@ -135,8 +136,27 @@ describe("the team's settings", () => {
     for (const item of switches)
       expect(item.getAttribute("data-tone")).toBe("neutral");
     expect(sheet().querySelector("[data-crew-never]")?.textContent).toBe(
-      ALWAYS_ASKS_LINE,
+      TEAM_ALWAYS_LINE,
     );
+  });
+
+  it("lets you decide what teammates may do without asking", async () => {
+    await open();
+    const access = sheet().querySelector<HTMLElement>("[data-crew-access]")!;
+    const toggle = access.querySelector<HTMLButtonElement>(".settings-toggle")!;
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle.click());
+    expect(crewAccess(getCrew(PATH)!).deletes).toBe(false);
+    const choice = (label: string) =>
+      [...access.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+        (item) => item.textContent === label,
+      )!;
+    expect(choice("Builders").getAttribute("aria-checked")).toBe("true");
+    await act(async () => choice("Everyone").click());
+    expect(crewAccess(getCrew(PATH)!).web).toBe("everyone");
+    expect(choice("Say no").getAttribute("aria-checked")).toBe("true");
+    await act(async () => choice("Ask me").click());
+    expect(crewAccess(getCrew(PATH)!).others).toBe("ask");
   });
 
   it("changes a limit after Edit limits, and every crew's ceiling under More", async () => {

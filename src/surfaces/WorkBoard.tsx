@@ -13,7 +13,7 @@ import {
 } from "react";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
-import { ChevronDown, MoreHorizontal } from "../chrome/icons";
+import { MoreHorizontal } from "../chrome/icons";
 import { TeamCardButton, TeamMiniFaces } from "../chrome/TeamCard";
 import { useBoardDrag } from "../hooks/useBoardDrag";
 import { useCardGlide } from "../hooks/useCardGlide";
@@ -59,8 +59,6 @@ import {
 import { homeElapsed } from "../lib/workspaceHome";
 import { BoardIssueImport } from "./BoardIssueImport";
 import { CrewCritters } from "../chrome/CrewCritter";
-import { findModel } from "../lib/models";
-import { CrewGiveChooser } from "./CrewGiveChooser";
 import { TeamScreen } from "./TeamScreen";
 import {
   applyCrewCard,
@@ -79,6 +77,7 @@ import {
   crewCard,
   crewMemberName,
   getCrew,
+  stackedCards,
   useCrew,
   type Crew,
 } from "../lib/crews";
@@ -89,6 +88,7 @@ import {
 } from "../lib/crewView";
 import {
   botName,
+  localDay,
   botStatus,
   botsAvailable,
   runsToday,
@@ -186,6 +186,10 @@ export function WorkBoard({
   const bot = useProjectBot(project);
   const crewOn = !!crew?.on && botsAvailable();
   const fixerName = bot ? botName(bot) : undefined;
+  // The time only matters here to the Scout's daily cap: it moves once a
+  // day, so the minute's tick doesn't draw every card again.
+  const [today, setToday] = useState(now);
+  if (localDay(today) !== localDay(now)) setToday(now);
   const columns = useMemo(
     () =>
       crewOn && crew
@@ -199,10 +203,10 @@ export function WorkBoard({
               security: crewMemberName(crew, "security"),
             },
             (who) => crewMemberName(crew, who),
-            (id) => findModel(id)?.name ?? id,
+            today,
           )
         : shown.columns,
-    [crewOn, crew, shown.columns],
+    [crewOn, crew, shown.columns, today],
   );
   return (
     <WorkBoardView
@@ -291,10 +295,6 @@ export const WorkBoardView = memo(function WorkBoardView({
   ).join("|");
   const { remember } = useCardGlide(scroller, layoutKey);
   /** Give to crew ▾: who builds and checks a card, and how. */
-  const [choosing, setChoosing] = useState<{
-    cardId: string;
-    anchor: HTMLElement;
-  } | null>(null);
   const [menu, setMenu] = useState<{
     cardId: string;
     anchor: HTMLElement;
@@ -348,13 +348,19 @@ export const WorkBoardView = memo(function WorkBoardView({
           );
           return;
         case "review":
-          setReadyCard(card.id);
-          return;
         case "apply": {
-          // A card on the crew's branch lands from the batch's Review.
+          // A card on the team's branch is reviewed, and lands, with the
+          // batch's Review: Apply lands exactly what you saw there.
           const known = getCrew(project);
-          if (known && crewCard(known, card.id)?.stacked) {
+          if (
+            known &&
+            stackedCards(known).some((item) => item.id === card.id)
+          ) {
             requestCrewReview(project);
+            return;
+          }
+          if (id === "review") {
+            setReadyCard(card.id);
             return;
           }
           void applyCrewCard(project, card.id).then((problem) =>
@@ -448,6 +454,92 @@ export const WorkBoardView = memo(function WorkBoardView({
     else if (id.startsWith("move:"))
       move(card.id, id.slice("move:".length) as FeatureColumn);
   };
+  // The four columns. A team's Board puts its batch on top of Ready for
+  // you, as one card for the cards on its branch.
+  const sections = (top: BoardTop = {}) =>
+    BOARD_COLUMNS.map((column) => {
+      const placed = top[column.id];
+      const cards = placed
+        ? columns[column.id].filter((card) => !placed.covers.has(card.id))
+        : columns[column.id];
+      const older = column.id === "shipped" ? olderShipped : 0;
+      const ideas = column.id === "idea";
+      // A team's Board names what waits for you, and what's done, plainly.
+      const title = (crew && TEAM_COLUMN_TITLES[column.id]) || column.title;
+      return (
+        <section
+          key={column.id}
+          className="work-board-column"
+          data-board-column={column.id}
+          aria-label={title}
+        >
+          <h2 className="work-board-column-title">
+            <span>{title}</span>
+            <span className="work-board-count">
+              {cards.length + (placed?.count ?? 0)}
+            </span>
+            {ideas && !loading ? (
+              <BoardIssueImport project={project} visible={live} />
+            ) : null}
+          </h2>
+          {ideas && crew && cards.length ? (
+            <p className="work-board-column-hint">
+              {crew.paused
+                ? "The team is paused: ideas wait"
+                : "Built one by one, top first, while you're away"}
+            </p>
+          ) : null}
+          {cards.length || placed ? (
+            <ul className="work-board-list" role="list">
+              {placed ? (
+                <li className="work-board-item">{placed.node}</li>
+              ) : null}
+              {cards.map((card) => (
+                <li key={card.id} className="work-board-item">
+                  <BoardCardView
+                    project={project}
+                    card={card}
+                    live={live}
+                    now={now}
+                    editing={editing === card.id}
+                    menuOpen={menu?.cardId === card.id}
+                    answering={answering === card.id}
+                    crewProblem={crewProblems[card.id]}
+                    onMenu={openMenu}
+                    onEdit={setEditing}
+                    onEditDone={stopEditing}
+                    onAnswerDone={() => setAnswering(null)}
+                    onCrewAction={crew ? crewAction : undefined}
+                    onPointerDown={startDrag}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p
+              className="work-board-empty"
+              data-invite={(ideas && empty && !loading) || undefined}
+            >
+              {loading
+                ? "Loading…"
+                : ideas && empty
+                  ? BOARD_EMPTY_INVITATION
+                  : column.empty}
+            </p>
+          )}
+          {older || (column.id === "shipped" && showOlder) ? (
+            <button
+              type="button"
+              className="work-board-older"
+              onClick={onShowOlder}
+            >
+              {showOlder ? "Show this week only" : `${older} older`}
+            </button>
+          ) : null}
+          {ideas && !loading ? <AddIdea project={project} /> : null}
+        </section>
+      );
+    });
   return (
     <div
       ref={scroller}
@@ -480,140 +572,15 @@ export const WorkBoardView = memo(function WorkBoardView({
               }
             : {})}
           columns={columns}
+          sections={sections}
           now={now}
           name={crewName}
-          answering={answering}
-          onAnswerDone={() => setAnswering(null)}
           problems={crewProblems}
-          editing={editing}
           onCrewAction={crewAction}
-          onMenu={openMenu}
-          onChoose={(cardId, anchor) =>
-            setChoosing((open) =>
-              open?.cardId === cardId ? null : { cardId, anchor },
-            )
-          }
-          boardButtons={(card, actions) =>
-            actions.map((action) => (
-              <BoardButton
-                key={action.kind}
-                primary={PRIMARY.has(action.kind)}
-                onClick={() => runAction(project, card, action)}
-              >
-                {boardActionLabel(action)}
-              </BoardButton>
-            ))
-          }
-          editor={(card) => (
-            <CardEditor project={project} card={card} onDone={stopEditing} />
-          )}
-          addIdea={loading ? null : <AddIdea project={project} />}
         />
       ) : (
-        <div className="work-board-columns">
-          {BOARD_COLUMNS.map((column) => {
-            const cards = columns[column.id];
-            const older = column.id === "shipped" ? olderShipped : 0;
-            const ideas = column.id === "idea";
-            return (
-              <section
-                key={column.id}
-                className="work-board-column"
-                data-board-column={column.id}
-                aria-label={column.title}
-              >
-                <h2 className="work-board-column-title">
-                  <span>{column.title}</span>
-                  <span className="work-board-count">{cards.length}</span>
-                  {ideas && !loading ? (
-                    <BoardIssueImport project={project} visible={live} />
-                  ) : null}
-                </h2>
-                {cards.length ? (
-                  <ul className="work-board-list" role="list">
-                    {cards.map((card) => (
-                      <li key={card.id} className="work-board-item">
-                        <BoardCardView
-                          project={project}
-                          card={card}
-                          live={live}
-                          now={now}
-                          editing={editing === card.id}
-                          menuOpen={menu?.cardId === card.id}
-                          answering={answering === card.id}
-                          crewProblem={crewProblems[card.id]}
-                          onMenu={openMenu}
-                          onEdit={setEditing}
-                          onEditDone={stopEditing}
-                          onAnswerDone={() => setAnswering(null)}
-                          onCrewAction={crew ? crewAction : undefined}
-                          onCrewChoose={
-                            crew
-                              ? (cardId, anchor) =>
-                                  setChoosing((open) =>
-                                    open?.cardId === cardId
-                                      ? null
-                                      : { cardId, anchor },
-                                  )
-                              : undefined
-                          }
-                          choosing={choosing?.cardId === card.id}
-                          onPointerDown={startDrag}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p
-                    className="work-board-empty"
-                    data-invite={(ideas && empty && !loading) || undefined}
-                  >
-                    {loading
-                      ? "Loading…"
-                      : ideas && empty
-                        ? BOARD_EMPTY_INVITATION
-                        : column.empty}
-                  </p>
-                )}
-                {older || (column.id === "shipped" && showOlder) ? (
-                  <button
-                    type="button"
-                    className="work-board-older"
-                    onClick={onShowOlder}
-                  >
-                    {showOlder ? "Show this week only" : `${older} older`}
-                  </button>
-                ) : null}
-                {ideas && !loading ? <AddIdea project={project} /> : null}
-              </section>
-            );
-          })}
-        </div>
+        <div className="work-board-columns">{sections()}</div>
       )}
-      {crew && choosing && cardById(choosing.cardId) ? (
-        <CrewGiveChooser
-          crew={crew}
-          card={cardById(choosing.cardId)!}
-          anchor={choosing.anchor}
-          onClose={() => setChoosing(null)}
-          onGive={(choice) => {
-            const card = cardById(choosing.cardId)!;
-            setChoosing(null);
-            noteProblem(card.id, null);
-            void giveCardToCrew(
-              project,
-              {
-                id: card.id,
-                title: card.title,
-                ...(card.note ? { note: card.note } : {}),
-                ...(card.source ? { sourceUrl: card.source.url } : {}),
-              },
-              Date.now(),
-              choice,
-            ).then((problem) => noteProblem(card.id, problem));
-          }}
-        />
-      ) : null}
       {menu && menuCard ? (
         <ExplorerMenu
           x={0}
@@ -699,13 +666,16 @@ export function cardMenuItems(
   card: BoardCard,
   held?: Parameters<typeof crewCardMenu>[0],
 ): ExplorerMenuItem[] {
-  const crewItems: ExplorerMenuItem[] = held
-    ? crewCardMenu(held).map((action) => ({
-        kind: "item",
-        id: `crew:${action.id}`,
-        label: action.label,
-      }))
-    : [];
+  // The team's own: a card it has, or an idea's Build it next and Not now.
+  const crewItems: ExplorerMenuItem[] = (
+    held && held.stage !== "applied" && held.stage !== "discarded"
+      ? crewCardMenu(held)
+      : (card.crew?.menu ?? [])
+  ).map((action) => ({
+    kind: "item",
+    id: `crew:${action.id}`,
+    label: action.label,
+  }));
   const live = !!held && held.stage !== "applied" && held.stage !== "discarded";
   return [
     ...crewItems,
@@ -725,7 +695,8 @@ export function cardMenuItems(
           (column): ExplorerMenuItem => ({
             kind: "item",
             id: `move:${column.id}`,
-            label: `Move to ${column.title}`,
+            // A team's card names its columns as the team's Board does.
+            label: `Move to ${(card.crew && TEAM_COLUMN_TITLES[column.id]) || column.title}`,
           }),
         )),
     ...(live ? [] : [{ kind: "sep" } as const]),
@@ -821,6 +792,23 @@ function runAction(project: string, card: BoardCard, action: BoardAction) {
   }
 }
 
+/**
+ * What a team's Board puts on top of a column: the batch on its branch, as
+ * one card standing for the cards it covers, which aren't drawn again.
+ */
+export type BoardTop = Partial<
+  Record<
+    BoardColumnId,
+    { node: ReactNode; covers: ReadonlySet<string>; count: number }
+  >
+>;
+
+/** A team's Board: Review and Shipped, as the team's work reads them. */
+const TEAM_COLUMN_TITLES: Partial<Record<BoardColumnId, string>> = {
+  review: "Ready for you",
+  shipped: "Done",
+};
+
 const BoardCardView = memo(function BoardCardView({
   project,
   card,
@@ -835,8 +823,6 @@ const BoardCardView = memo(function BoardCardView({
   onEditDone,
   onAnswerDone,
   onCrewAction,
-  onCrewChoose,
-  choosing = false,
   onPointerDown,
 }: {
   project: string;
@@ -854,10 +840,6 @@ const BoardCardView = memo(function BoardCardView({
   onEditDone: () => void;
   onAnswerDone?: () => void;
   onCrewAction?: (card: BoardCard, action: CrewBoardActionId) => void;
-  /** Give to crew ▾: choose who builds and checks it. */
-  onCrewChoose?: (cardId: string, anchor: HTMLElement) => void;
-  /** Its chooser is open. */
-  choosing?: boolean;
   onPointerDown: (
     event: ReactPointerEvent<HTMLElement>,
     cardId: string,
@@ -879,13 +861,13 @@ const BoardCardView = memo(function BoardCardView({
     else if (card.sessionId) workBoardActions()?.openChat(card.sessionId);
     else onEdit(card.id);
   };
-  const detail = crew?.label
+  // A team card says where it stands in its own face.
+  const detail = crew
     ? undefined
     : (card.line ?? (card.column === "idea" ? card.note : undefined));
   const source = card.source;
-  // A Scout idea is the crew's to start: Give to crew and Not now, no Build.
-  const boardActions =
-    crew?.roles.includes("scout") || crew?.label ? [] : card.actions;
+  // With a team on, it builds the ideas and owns its cards' buttons: no Build.
+  const boardActions = crew ? [] : card.actions;
   // The crew's stage places a card it holds: it can't be dragged elsewhere.
   const fixed = !!crew?.column;
   return (
@@ -976,48 +958,22 @@ const BoardCardView = memo(function BoardCardView({
               {boardActions.map((action) => (
                 <BoardButton
                   key={action.kind}
-                  // With a crew, Give to crew leads; Build is still there.
-                  primary={PRIMARY.has(action.kind) && !crew}
+                  primary={PRIMARY.has(action.kind)}
                   onClick={() => runAction(project, card, action)}
                 >
                   {label(action)}
                 </BoardButton>
               ))}
               {crew && !answering
-                ? crew.actions.map((action) =>
-                    action.id === "give" && onCrewChoose ? (
-                      <span key="crew:give" className="crew-give-split">
-                        <BoardButton
-                          primary={!!action.primary}
-                          onClick={() => onCrewAction?.(card, action.id)}
-                        >
-                          {action.label}
-                        </BoardButton>
-                        <button
-                          type="button"
-                          className="crew-give-more"
-                          data-crew-give-more
-                          aria-label={`Choose who builds “${card.title}”`}
-                          title="Choose who builds and checks it"
-                          aria-haspopup="dialog"
-                          aria-expanded={choosing || false}
-                          onClick={(event) =>
-                            onCrewChoose(card.id, event.currentTarget)
-                          }
-                        >
-                          <ChevronDown size={12} />
-                        </button>
-                      </span>
-                    ) : (
-                      <BoardButton
-                        key={`crew:${action.id}`}
-                        primary={!!action.primary}
-                        onClick={() => onCrewAction?.(card, action.id)}
-                      >
-                        {action.label}
-                      </BoardButton>
-                    ),
-                  )
+                ? crew.actions.map((action) => (
+                    <BoardButton
+                      key={`crew:${action.id}`}
+                      primary={!!action.primary}
+                      onClick={() => onCrewAction?.(card, action.id)}
+                    >
+                      {action.label}
+                    </BoardButton>
+                  ))
                 : null}
               {source ? (
                 <TeamCardButton

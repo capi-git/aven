@@ -7,14 +7,18 @@ import {
   crewLimitsLine,
   crewRunsLine,
   ideaMayAutoStart,
+  ideaWaits,
   ideasLeft,
-  nextAutoStart,
+  ideasToBuild,
   nextCardToStart,
+  nextIdeaToBuild,
   scoutShouldLook,
 } from "./crewLimits";
 import {
   CREW_ALL_RUNS_PER_DAY,
+  cardInCopy,
   newCrew,
+  readCrew,
   withCard,
   withIdea,
   type Crew,
@@ -142,30 +146,165 @@ describe("one card at a time", () => {
     expect(
       nextCardToStart(withCard(withCard(crew(), ready), queued("b", 3))),
     ).toBeNull();
-    const stuck = { ...ready, stage: "stuck" as const };
+    // Stuck with work in the copy: it holds it until you act.
+    const change = {
+      base: "b",
+      hash: "h",
+      files: 1,
+      additions: 1,
+      deletions: 0,
+      paths: [],
+    };
+    const stuck = {
+      ...ready,
+      stage: "stuck" as const,
+      stuck: { reason: "failed" as const, text: "It failed" },
+      rounds: [{ n: 1, change }],
+    };
     expect(
       nextCardToStart(withCard(withCard(crew(), stuck), queued("b", 3))),
     ).toBeNull();
   });
+
+  it("goes on past a Stuck card that changed nothing: it steps aside", () => {
+    const started = startCard(queued("a", 1), 2);
+    const nothing = afterBuild(started, {
+      handoff: { summary: "Already done", howToCheck: [], ran: [] },
+      change: null,
+      now: 3,
+    }).card;
+    expect(nothing.stage).toBe("stuck");
+    const current = withCard(withCard(crew(), nothing), queued("b", 4));
+    expect(cardInCopy(current)).toBeUndefined();
+    expect(nextCardToStart(current)).toBe("b");
+    // No read of the copy (a turn cut off while it waited on an approval,
+    // by turning the team off): its work may be there, so it holds the copy.
+    const cutOff = {
+      ...started,
+      stage: "stuck" as const,
+      holder: "builder" as const,
+      stuck: { reason: "question" as const, text: "Builder is waiting" },
+    };
+    expect(cardInCopy(withCard(crew(), cutOff))?.id).toBe("a");
+    // A question asked before changing anything steps aside too.
+    const asked = afterBuild(started, {
+      handoff: { summary: "", howToCheck: [], ran: [], question: "Which one?" },
+      change: null,
+      now: 3,
+    }).card;
+    expect(cardInCopy(withCard(crew(), asked))).toBeUndefined();
+    // Asked after changing files: it holds them, so it holds the copy.
+    const change = {
+      base: "b",
+      hash: "h",
+      files: 2,
+      additions: 4,
+      deletions: 0,
+      paths: [],
+    };
+    const askedWithWork = afterBuild(started, {
+      handoff: { summary: "", howToCheck: [], ran: [], question: "Which one?" },
+      change,
+      now: 3,
+    }).card;
+    expect(cardInCopy(withCard(crew(), askedWithWork))?.id).toBe("a");
+  });
 });
 
-describe("Scout ideas start themselves, within limits", () => {
+describe("ideas build themselves, top first", () => {
+  const board = (id: string, createdAt: number, patch = {}) => ({
+    id,
+    column: "idea" as const,
+    createdAt,
+    ...patch,
+  });
   const idea = (at: number, patch = {}) => ({
     at,
     size: "small" as const,
     ...patch,
   });
-  const allInIdeas = () => true;
 
-  it("starts the oldest small idea while the team is idle", () => {
-    let current = withIdea(crew(), "late", idea(20));
-    current = withIdea(current, "early", idea(10));
-    expect(nextAutoStart(current, NOON, allInIdeas)).toBe("early");
+  it("builds yours and the Scout's alike, oldest first, as the Board shows them", () => {
+    const current = withIdea(crew(), "scout", idea(5, { size: "medium" }));
+    const cards = [board("late", 30), board("scout", 20), board("early", 10)];
+    expect(ideasToBuild(current, cards, NOON).map((card) => card.id)).toEqual([
+      "early",
+      "scout",
+      "late",
+    ]);
+    expect(nextIdeaToBuild(current, cards, NOON)?.id).toBe("early");
   });
 
-  it("never starts a medium or large idea, a declined one, or one from outside", () => {
-    expect(ideaMayAutoStart(idea(1, { size: "medium" }))).toBe(false);
+  it("waits on Not now, outside material, Security's sweep and a used-up day", () => {
+    let current = crew({ notNow: ["held"] });
+    current = withIdea(current, "declined", idea(1, { declined: true }));
+    current = withIdea(current, "sweep", idea(1, { by: "security" as const }));
+    current = withIdea(current, "linked", idea(1, { outside: true }));
+    expect(ideaWaits(current, { id: "held" }, NOON)).toBe("not-now");
+    expect(ideaWaits(current, { id: "declined" }, NOON)).toBe("not-now");
+    expect(ideaWaits(current, { id: "sweep" }, NOON)).toBe("security");
+    expect(ideaWaits(current, { id: "linked" }, NOON)).toBe("outside");
+    // An issue brought in from GitHub, say.
+    expect(
+      ideaWaits(current, { id: "issue", sourceUrl: "https://x.test/1" }, NOON),
+    ).toBe("outside");
+    expect(ideaWaits(current, { id: "yours" }, NOON)).toBeNull();
+    // The day's cap on Scout ideas; yours never count.
+    current = withIdea(current, "scout", idea(1));
+    current = { ...current, autoStarts: { day: localDay(NOON), count: 3 } };
+    expect(autoStartsLeft(current, NOON)).toBe(0);
+    expect(ideaWaits(current, { id: "scout" }, NOON)).toBe("cap");
+    expect(ideaWaits(current, { id: "yours" }, NOON)).toBeNull();
+  });
+
+  it("keeps the records of ideas that wait, however many come after", () => {
+    let current = withIdea(
+      crew(),
+      "sweep",
+      idea(1, { by: "security" as const }),
+    );
+    current = withIdea(current, "linked", idea(1, { outside: true }));
+    current = withIdea(current, "declined", idea(1, { declined: true }));
+    current = withIdea(current, "big", idea(1, { size: "large" as const }));
+    for (let n = 0; n < 100; n += 1)
+      current = withIdea(current, `new-${n}`, idea(n));
+    expect(ideaWaits(current, { id: "sweep" }, NOON)).toBe("security");
+    expect(ideaWaits(current, { id: "linked" }, NOON)).toBe("outside");
+    expect(ideaWaits(current, { id: "declined" }, NOON)).toBe("not-now");
+    expect(ideaWaits(current, { id: "big" }, NOON)).toBe("large");
+    // The rest stay at their cap.
+    expect(Object.keys(current.ideas ?? {}).length).toBe(64);
+    // And they survive a save and a read.
+    const read = readCrew(JSON.parse(JSON.stringify(current)));
+    expect(ideaWaits(read!, { id: "sweep" }, NOON)).toBe("security");
+  });
+
+  it("waits on a card the team built or threw away, a large Scout idea and one a chat has", () => {
+    const thrown = {
+      ...startCard(
+        queueCard(
+          { id: "old", title: "Old", brief: "x", from: "you", maxRounds: 3 },
+          1,
+        ),
+        2,
+      ),
+      stage: "discarded" as const,
+    };
+    const current = withIdea(
+      withCard(crew(), thrown),
+      "big",
+      idea(1, { size: "large" }),
+    );
+    expect(ideaWaits(current, { id: "old" }, NOON)).toBe("not-now");
+    expect(ideaWaits(current, { id: "big" }, NOON)).toBe("large");
+    expect(
+      ideaWaits(current, { id: "drafted", chatIds: ["chat-1"] }, NOON),
+    ).toBe("chat");
+  });
+
+  it("never starts a declined Scout idea, a large one, one from outside, or one that already started", () => {
     expect(ideaMayAutoStart(idea(1, { size: "large" }))).toBe(false);
+    expect(ideaMayAutoStart(idea(1, { size: "medium" }))).toBe(true);
     expect(ideaMayAutoStart(idea(1, { declined: true }))).toBe(false);
     expect(
       ideaMayAutoStart(idea(1, { sourceUrl: "https://example.com/issue" })),
@@ -173,32 +312,36 @@ describe("Scout ideas start themselves, within limits", () => {
     expect(ideaMayAutoStart(idea(1, { autoStarted: true }))).toBe(false);
     // Aven's own check found a link or an issue in its words.
     expect(ideaMayAutoStart(idea(1, { outside: true }))).toBe(false);
-    expect(ideaMayAutoStart(idea(1))).toBe(true);
   });
 
-  it("stops at the day's cap of 3", () => {
-    let current = withIdea(crew(), "idea", idea(1));
-    current = { ...current, autoStarts: { day: localDay(NOON), count: 2 } };
-    expect(autoStartsLeft(current, NOON)).toBe(1);
-    expect(nextAutoStart(current, NOON, allInIdeas)).toBe("idea");
-    current = { ...current, autoStarts: { day: localDay(NOON), count: 3 } };
-    expect(nextAutoStart(current, NOON, allInIdeas)).toBeNull();
-  });
-
-  it("waits while a card is in the copy or queued, and skips ideas no longer in Ideas", () => {
-    const busy = withCard(
-      withIdea(crew(), "idea", idea(1)),
-      startCard(
-        queueCard(
-          { id: "x", title: "x", brief: "x", from: "you", maxRounds: 3 },
-          1,
-        ),
-        2,
+  it("waits while a card is in the copy or queued, and skips one the team has", () => {
+    const started = startCard(
+      queueCard(
+        { id: "x", title: "x", brief: "x", from: "you", maxRounds: 3 },
+        1,
       ),
+      2,
     );
-    expect(nextAutoStart(busy, NOON, allInIdeas)).toBeNull();
     expect(
-      nextAutoStart(withIdea(crew(), "idea", idea(1)), NOON, () => false),
+      nextIdeaToBuild(withCard(crew(), started), [board("a", 1)], NOON),
+    ).toBeNull();
+    // The team has it already (built, then put back by hand): not twice.
+    const ready = {
+      ...started,
+      id: "a",
+      stage: "ready" as const,
+      stacked: { commit: "c", parent: "p", hash: "h" },
+    };
+    expect(
+      nextIdeaToBuild(withCard(crew(), ready), [board("a", 1)], NOON),
+    ).toBeNull();
+    // Not in Ideas any more.
+    expect(
+      nextIdeaToBuild(
+        crew(),
+        [{ ...board("a", 1), column: "building" as const }],
+        NOON,
+      ),
     ).toBeNull();
   });
 

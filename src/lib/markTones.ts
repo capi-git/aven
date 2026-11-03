@@ -1,5 +1,5 @@
 import { hexToHsl } from "./colorUtils";
-import { SIGIL_CRITTERS, appearanceSigil } from "./dotSigils";
+import { SIGIL_CRITTERS, appearanceSigil, crewMemberSigil } from "./dotSigils";
 import type { ProjectAppearance } from "./projectAppearance";
 import {
   TAB_GROUP_COLORS,
@@ -47,6 +47,36 @@ export function markToneColor(tone: MarkTone): string {
   return tone === "grey"
     ? "color-mix(in srgb, var(--color-content) 55%, transparent)"
     : `var(--aven-mark-${tone})`;
+}
+
+/**
+ * Each teammate's own colour, so you can tell at a glance who has a card.
+ * By its role, or by a mark with a job of its own (a Tester, a Scribe).
+ * Never yellow, green or red: those say what's happening (Needs you, Ready,
+ * failed), and a teammate's colour says only who it is.
+ */
+const ROLE_TONES: Readonly<Record<string, MarkTone>> = {
+  builder: "blue",
+  checker: "purple",
+  security: "pink",
+  scout: "teal",
+};
+const MARK_TEAM_TONES: Readonly<Record<string, MarkTone>> = {
+  tester: "orange",
+  scribe: "grey",
+};
+
+/** A teammate's colour; none for the Fixer, which wears its project's. */
+export function crewMemberTone(
+  role: string,
+  mark?: string | null,
+): MarkTone | undefined {
+  if (role === "fixer") return undefined;
+  return (
+    MARK_TEAM_TONES[crewMemberSigil(role, mark).key] ??
+    ROLE_TONES[role] ??
+    "grey"
+  );
 }
 
 /** Where Grey sits among the choices; saving it keeps the mark plain. */
