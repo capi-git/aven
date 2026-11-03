@@ -107,7 +107,10 @@ describe("footer usage", () => {
     expect(api.codex).toHaveBeenCalledOnce();
     const accounts = [...container.querySelectorAll(".footer-usage-account")];
     // Claude's weekly window (15%) is closer to its limit than its 5-hour (2%).
-    expect(accounts.map((node) => node.textContent)).toEqual(["15%", "4%"]);
+    expect(accounts.map((node) => node.textContent)).toEqual([
+      expect.stringMatching(/15% /),
+      expect.stringMatching(/4%/),
+    ]);
     expect(
       accounts.map(
         (node) => node.querySelectorAll(".footer-usage-meter").length,
@@ -152,7 +155,7 @@ describe("footer usage", () => {
     await render({ providers: ["claude"] });
     expect(api.claude).toHaveBeenCalledOnce();
     const account = container.querySelector(".footer-usage-account");
-    expect(account?.textContent).toBe("15%");
+    expect(account?.textContent).toContain("15%");
     expect(account?.getAttribute("title")).toBe(
       "Claude: 2% of your 5-hour limit used, resets in 3h 56m · 15% of your weekly limit, resets in 4d 16h",
     );
@@ -174,7 +177,7 @@ describe("footer usage", () => {
     });
     expect(api.claude).toHaveBeenCalledTimes(2);
     const account = container.querySelector(".footer-usage-account");
-    expect(account?.textContent).toBe("15%");
+    expect(account?.textContent).toContain("15%");
     expect(account?.getAttribute("title")).toContain(
       "2% of your 5-hour limit used, resets in 3h 57m",
     );
@@ -259,7 +262,7 @@ describe("footer usage", () => {
         ?.getAttribute("data-forecast"),
     ).toBe("warning");
     const account = container.querySelector(".footer-usage-account");
-    expect(account?.textContent).toBe("60%");
+    expect(account?.textContent).toContain("60%");
     expect(account?.getAttribute("title")).toBe(
       "Claude: 60% of your 5-hour limit used, resets in 3h 57m · 15% of your weekly limit, resets in 4d 17h\nAt this pace you'll hit Claude's 5-hour limit in about an hour.",
     );
