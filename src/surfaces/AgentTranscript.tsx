@@ -125,6 +125,7 @@ import {
   foldedBlocks,
   groupTurnItems,
   groupTurns,
+  joinedTurnStart,
   hasRunningSubagent,
   initialThinkingIndex,
   isFoldableWorkItem,
@@ -799,6 +800,7 @@ function AgentTranscriptComponent({
                     entering={entrances.current?.rises(turn[0].id) ?? false}
                     fadeReplies={isLastTurn && fadeReplies}
                     managed={managed}
+                    joinedStartedAt={joinedTurnStart(turns, turnAt)}
                     botProject={botProject}
                     busy={busy}
                     visible={visible}
@@ -903,6 +905,8 @@ type TranscriptTurnProps = Pick<
   /** Replies that start while this turn is live fade in. */
   fadeReplies: boolean;
   managed: boolean;
+  /** For a message sent mid-turn: when the turn it joined started. */
+  joinedStartedAt?: number;
   busy?: boolean;
   visible: boolean;
   preparingHandoff: boolean;
@@ -955,6 +959,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   entering,
   fadeReplies,
   managed,
+  joinedStartedAt,
   botProject,
   busy,
   visible,
@@ -1105,7 +1110,9 @@ const TranscriptTurn = memo(function TranscriptTurn({
   // more work. Only the last one can still be the live group.
   const foldedAt = lastActivityIndex(items);
   const initialThinkingAt = initialThinkingIndex(items);
-  const startedAt = userBlock?.startedAt;
+  // A message sent mid-turn has no start of its own; the clock runs from
+  // the turn it joined, so it does not restart when the chat comes back.
+  const startedAt = userBlock?.startedAt ?? joinedStartedAt;
   // The agent starting its answer is the end of the work: fold the
   // groups then, not when the turn finally settles, so the collapse
   // never lands under the text you have already started reading.

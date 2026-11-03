@@ -13,6 +13,7 @@ import {
   hasRunningSubagent,
   initialThinkingIndex,
   isFoldableWorkItem,
+  joinedTurnStart,
   lastActivityIndex,
   nestedScrollAbsorbsWheel,
   proseSummary,
@@ -365,6 +366,46 @@ describe("groupTurns", () => {
       ["h1"],
       ["u2"],
     ]);
+  });
+});
+
+describe("joinedTurnStart", () => {
+  const started = 1_700_000_000_000;
+  it("gives a message sent mid-turn the start of the turn it joined", () => {
+    const turns = groupTurns([
+      { id: "u1", role: "user", text: "go", startedAt: started },
+      { id: "a1", role: "assistant", text: "working" },
+      // Sent while the turn runs: no start of its own.
+      { id: "u2", role: "user", text: "also check the tests" },
+      { id: "u3", role: "user", text: "and the docs" },
+    ]);
+    expect(turns).toHaveLength(3);
+    expect(joinedTurnStart(turns, 1)).toBe(started);
+    expect(joinedTurnStart(turns, 2)).toBe(started);
+    expect(joinedTurnStart(turns, 0)).toBe(started);
+  });
+
+  it("stops at a finished turn, a handoff, or the start of the chat", () => {
+    const finished = groupTurns([
+      { id: "u1", role: "user", text: "go", startedAt: started, durationMs: 5 },
+      { id: "a1", role: "assistant", text: "done" },
+      { id: "u2", role: "user", text: "legacy message without a start" },
+    ]);
+    // u1 already has its start; only u2 walks back, and u1 is over.
+    expect(joinedTurnStart(finished, 1)).toBeUndefined();
+
+    const handoff = groupTurns([
+      { id: "u1", role: "user", text: "go", startedAt: started },
+      {
+        id: "h1",
+        role: "handoff",
+        text: "Goal: go",
+        handoff: { from: "cursor", to: "claude", status: "ready" },
+      },
+      { id: "u2", role: "user", text: "continue" },
+    ]);
+    expect(joinedTurnStart(handoff, 2)).toBeUndefined();
+    expect(joinedTurnStart([], 0)).toBeUndefined();
   });
 });
 
