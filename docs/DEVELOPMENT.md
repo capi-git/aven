@@ -52,6 +52,8 @@ To find out why an interaction is slow:
 
 - Each switching scenario also prints a breakdown of its input-to-frame time (script, style and layout, paint), React render time by component (the perf build uses React's profiling build), the calls that forced WebKit to style and lay out early, with the source file and line that made them, and DOM changes.
 - `-- --perf-only switching,sidebar` runs only the scenarios whose names contain those words, after the shared setup, so an experiment takes about a minute.
+- **Limits.** An input's first visible response and any frame in motion stay within 33 ms, on any display. The run ends by listing what is over them, splitting a drag's long frames into lift, motion and drop, with the forced layouts inside the longest ones. It also lists components over their render budget while one chat streams. The list does not fail the run: load on the machine moves these numbers a lot, so compare runs that alternate the builds.
+- `-- --perf-idle 120` stays on the idle scenario that long, so the window can be recorded or driven from outside. `scripts/record-window-frames.swift <window id> <pid> <ms>` prints which frames of one window changed pixels, without taking the screen: the way to compare Aven with another app on the same moves. macOS stops drawing a window that is fully covered or on another Space, so keep it visible.
 - `-- --perf-only restyle` records every attribute an interaction changes, then replays each one alone and times the style and layout it costs, and lists the largest subtrees added or removed.
 - `-- --perf-sample Settings` profiles the interface's WebKit processes with macOS `sample` during that scenario and prints the functions most often on the stack.
 

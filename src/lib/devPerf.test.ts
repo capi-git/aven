@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { processUse, spread, type ProcessSample } from "./devPerf";
+import { describe, expect, it, vi } from "vitest";
+import {
+  processUse,
+  recordFrames,
+  spread,
+  type ProcessSample,
+} from "./devPerf";
 
 function sample(
   pid: number,
@@ -60,5 +65,26 @@ describe("processUse", () => {
       "webkit-content",
     ]);
     expect(use.busiest).toMatchObject({ name: "aven", cpuPct: 10 });
+  });
+});
+
+describe("recordFrames's limits", () => {
+  it("counts frames over the limit by the part they fell in", async () => {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
+      callbacks.push(callback),
+    );
+    vi.stubGlobal("cancelAnimationFrame", () => undefined);
+    const start = performance.now();
+    const recorder = recordFrames(8);
+    recorder.mark("lift");
+    callbacks.shift()!(start + 10);
+    callbacks.shift()!(start + 18);
+    callbacks.shift()!(start + 78);
+    const stats = recorder.stop();
+    vi.unstubAllGlobals();
+    expect(stats.over).toBe(1);
+    expect(stats.overByPart.lift).toEqual({ n: 1, maxMs: 60 });
+    expect(stats.longFrames).toHaveLength(1);
   });
 });

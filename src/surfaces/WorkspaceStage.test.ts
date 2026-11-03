@@ -1258,7 +1258,7 @@ describe("workspace stage", () => {
     const hint = container.querySelector<HTMLElement>(
       ".workspace-stage-drop-hint",
     )!;
-    expect(hint.parentElement).toBe(body("browser"));
+    expect(hint.parentElement?.parentElement).toBe(body("browser"));
     // That half of the body, inset 4px (Cydonia's preview).
     expect(hint.style.left).toBe("calc(0% + 4px)");
     expect(hint.style.top).toBe("calc(50% + 4px)");

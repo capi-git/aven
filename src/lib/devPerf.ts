@@ -39,28 +39,66 @@ export function round(value: number, places = 1): number {
 export type FrameStats = Spread & {
   /** Frames that took longer than 1.5 display refreshes. */
   slow: number;
+  /** Frames over `FRAME_LIMIT_MS`, in all and by the part of the scenario. */
+  over: number;
+  overByPart: Record<string, { n: number; maxMs: number }>;
+  /** When each of those started on the page's clock, to set against `slowLayouts`. */
+  longFrames: { at: number; ms: number }[];
 };
 
 /** Frame-to-frame times while recording. Keeps the page drawing every frame. */
+/**
+ * DESIGN.md's limits, on any display: a frame in motion and an input's first
+ * visible response, in ms. Two frames at 60 Hz, one hitch you can see.
+ */
+export const FRAME_LIMIT_MS = 33.4;
+export const RESPONSE_LIMIT_MS = 33.4;
+
 export function recordFrames(refreshMs: number) {
   const deltas: number[] = [];
+  const started = performance.now();
+  const marks: { atMs: number; label: string }[] = [];
+  const over: { atMs: number; ms: number }[] = [];
+  const longFrames: { at: number; ms: number }[] = [];
   let last = 0;
   let frame = 0;
   let running = true;
   const tick = (now: number) => {
     if (!running) return;
-    if (last) deltas.push(now - last);
+    if (last) {
+      const delta = now - last;
+      deltas.push(delta);
+      if (delta > FRAME_LIMIT_MS)
+        over.push({ atMs: last - started, ms: delta });
+      if (delta > FRAME_LIMIT_MS)
+        longFrames.push({ at: round(last), ms: round(delta) });
+    }
     last = now;
     frame = requestAnimationFrame(tick);
   };
   frame = requestAnimationFrame(tick);
   return {
+    /** What the scenario does from now on, to tell which part a long frame fell in. */
+    mark(label: string) {
+      marks.push({ atMs: performance.now() - started, label });
+    },
     stop(): FrameStats {
       running = false;
       cancelAnimationFrame(frame);
+      const during = (atMs: number) =>
+        marks.filter((mark) => mark.atMs <= atMs + 1).at(-1)?.label ?? "other";
+      const byPart: Record<string, { n: number; maxMs: number }> = {};
+      for (const { atMs, ms } of over) {
+        const part = (byPart[during(atMs)] ??= { n: 0, maxMs: 0 });
+        part.n += 1;
+        part.maxMs = Math.max(part.maxMs, Math.round(ms));
+      }
       return {
         ...spread(deltas),
         slow: deltas.filter((delta) => delta > refreshMs * 1.5).length,
+        over: over.length,
+        overByPart: byPart,
+        longFrames,
       };
     },
   };
@@ -242,6 +280,8 @@ export function pause(ms: number): Promise<void> {
 export type HotCalls = {
   /** Calls that make WebKit style and lay out the page right away. */
   forcedLayout: { calls: number; ms: number; byCaller: Record<string, number> };
+  /** The forced layouts over 2 ms, on the page's clock. */
+  slowLayouts?: { at: number; ms: number; where: string }[];
   json: { calls: number; ms: number };
   storage: { calls: number; ms: number };
   /** DOM changes that took noticeable time, by kind. */
@@ -285,6 +325,12 @@ export function recordHotCalls() {
       const where = caller() || "unknown";
       totals.forcedLayout.byCaller[where] =
         (totals.forcedLayout.byCaller[where] ?? 0) + ms;
+      if (ms > 2)
+        (totals.slowLayouts ??= []).push({
+          at: round(performance.now() - ms),
+          ms: round(ms),
+          where,
+        });
     }
   };
   const wrapMethod = (
