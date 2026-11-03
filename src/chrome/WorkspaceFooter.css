@@ -11,8 +11,6 @@
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
   font-size: var(--text-ui-caption);
   background: var(--aven-toolbar-surface, transparent);
-  box-shadow: inset 0 1px
-    color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 
 .workspace-footer-usage {
@@ -78,9 +76,4 @@
       calc(var(--status-bar-opacity, 0.65) * 100%),
     transparent
   );
-}
-
-/* Only while a team has shrunk into it: otherwise there is no bottom bar. */
-.workspace-footer:not(:has(.workspace-footer-teams > *)) {
-  display: none;
 }

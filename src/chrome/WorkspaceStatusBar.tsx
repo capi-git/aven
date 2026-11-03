@@ -29,7 +29,6 @@ import {
   PanelRight,
   Search,
   X,
-  Terminal,
 } from "./icons";
 import {
   HARNESS_TITLE,
@@ -40,8 +39,6 @@ import "./Menu.css";
 import "./WorkspaceStatusBar.css";
 
 export type WorkspaceStatusBarProps = {
-  onToggleTerminal?: () => void;
-  terminalOpen?: boolean;
   sessions: readonly Session[];
   onSelectSession: (id: string) => boolean | Promise<boolean>;
   onToggleSidebar?: () => void;
@@ -409,8 +406,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   homeOpen,
   onToggleInspector,
   inspectorOpen,
-  onToggleTerminal,
-  terminalOpen,
   settingsView,
   stripHost,
 }: WorkspaceStatusBarProps) {
@@ -520,17 +515,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               data-tauri-drag-region="false"
             >
               <X size={14} aria-hidden />
-            </button>
-          ) : null}
-          {onToggleTerminal && !settingsView ? (
-            <button
-              type="button"
-              aria-label={`${terminalOpen ? "Hide" : "Show"} terminal`}
-              title={`${terminalOpen ? "Hide" : "Show"} terminal`}
-              aria-pressed={!!terminalOpen}
-              onClick={onToggleTerminal}
-            >
-              <Terminal size={14} aria-hidden />
             </button>
           ) : null}
           {onToggleInspector && !settingsView ? (

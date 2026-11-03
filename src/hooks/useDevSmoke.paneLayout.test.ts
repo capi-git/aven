@@ -145,7 +145,7 @@ describe("paneLayoutProblem", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one 32px strip per pane above its content, each over a hairline, and no title row naming the tab again; square panes flush with the workspace, divided by a 0.5px hairline; chat and file tabs 26px tall, 6px corners",
+      "one 32px strip per pane above its content, with no line under it, and no title row naming the tab again; square panes flush with the workspace, divided by a 0.5px hairline; chat and file tabs 26px tall, 6px corners",
     );
     // Under Increase contrast, or on a 1x screen, the hairline is a full pixel.
     expect(paneLayoutProblem(layout({ divider: 1 })).problem).toBeNull();
@@ -169,7 +169,7 @@ describe("paneLayoutProblem", () => {
     );
   });
 
-  it("names a strip over content, the old cards, missing hairlines and mismatched tabs", () => {
+  it("names a strip over content, the old cards and mismatched tabs", () => {
     const file = layout();
     at("[data-chat-content]", { left: 0, top: 44, width: 500, height: 400 });
     expect(paneLayoutProblem(file).problem).toBe(
@@ -187,9 +187,6 @@ describe("paneLayoutProblem", () => {
     );
     expect(paneLayoutProblem(layout({ divider: 8 })).problem).toBe(
       "the divider between the panes is 8px thick",
-    );
-    expect(paneLayoutProblem(layout({ hairlines: false })).problem).toBe(
-      "the chat's strip has no hairline under it",
     );
     expect(paneLayoutProblem(layout({ stripHeight: 24 })).problem).toBe(
       "the chat's strip is 24px and the file's 32px",

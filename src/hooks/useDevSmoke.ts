@@ -2111,8 +2111,6 @@ export function paneLayoutProblem(file: HTMLElement): {
       return fail(
         `the ${who}'s strip covers ${Math.round(overlap)}px of its content`,
       );
-    if (!hasHairlineBelow(strip))
-      return fail(`the ${who}'s strip has no hairline under it`);
     strips.push(strip);
   }
   const [chatStrip, fileStrip] = strips;
@@ -2175,7 +2173,7 @@ export function paneLayoutProblem(file: HTMLElement): {
     );
   return {
     problem: null,
-    summary: `one ${height(chatStrip)}px strip per pane above its content, each over a hairline, and no title row naming the tab again; square panes flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
+    summary: `one ${height(chatStrip)}px strip per pane above its content, with no line under it, and no title row naming the tab again; square panes flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
   };
 }
 

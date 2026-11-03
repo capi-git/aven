@@ -914,3 +914,22 @@ html:not(.theme-light)
     );
   }
 }
+
+/* Menus, panels and sheets are the window's own glass, as MonoCode's are, with
+   soft cards inside. Reduced transparency and more contrast make the token solid
+   and turn the blur off. */
+html:not(.theme-light)
+  :is(
+    .aven-glass-overlay,
+    .aven-sheet,
+    .popover-backdrop,
+    .aven-popover-panel-backdrop,
+    .modal-panel[role="dialog"],
+    .workspace-action-dialog,
+    .settings-search-results,
+    .workspace-theme-popover
+  ) {
+  background: var(--aven-glass-overlay);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}

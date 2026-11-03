@@ -95,7 +95,6 @@ import {
 } from "../lib/sessionFilters";
 import type { HarnessId } from "../lib/session";
 import type { LiveAgent } from "../lib/liveAgents";
-import type { SidebarUsage } from "../lib/usageMeter";
 import { projectStatusFor, type ProjectStatusMap } from "../lib/projectStatus";
 import type { SessionSummary } from "../lib/sessionStore";
 import type { SettingsSectionId } from "../lib/settings";
@@ -280,8 +279,6 @@ export type SidebarProps = {
   /** Per-project activity and changed files, keyed by `projectKey(path)`. */
   projectStatus?: ProjectStatusMap;
   liveAgents?: LiveAgent[];
-  /** How much of the account is used, for the footer's one line. */
-  usage?: SidebarUsage | null;
   /** Chats discussing with each other; their rows talk and are linked. */
   discussions?: readonly SidebarDiscussion[];
   /**
@@ -463,7 +460,6 @@ function SidebarComponent({
   onNewProjectTask,
   projectStatus,
   liveAgents = [],
-  usage = null,
   discussions = NO_DISCUSSIONS,
   onOpenDiscussion,
   bots = NO_BOTS,
@@ -2469,18 +2465,6 @@ function SidebarComponent({
         onDismissUpdate={onDismissUpdate}
       />
       <div className="personal-sidebar-footer">
-        {open && !settingsOpen && usage ? (
-          <div
-            className="personal-sidebar-usage"
-            data-sidebar-usage
-            title={usage.title}
-          >
-            <i>
-              <b style={{ width: `${usage.percent}%` }} />
-            </i>
-            {usage.text}
-          </div>
-        ) : null}
         {open && !settingsOpen ? (
           <PersonalWorkspaceSwitcher
             profiles={profiles}
@@ -2602,6 +2586,16 @@ function SidebarComponent({
     </aside>
   );
 
+  // The top row's tabs start where the work does, past a pinned sidebar.
+  const dockedWidth = floating ? null : resize.width;
+  useLayoutEffect(() => {
+    if (dockedWidth == null) return;
+    document.documentElement.style.setProperty(
+      "--aven-sidebar-width",
+      `${dockedWidth}px`,
+    );
+  }, [dockedWidth]);
+
   return (
     <div
       className="personal-sidebar-slot flex h-full shrink-0"
@@ -2634,7 +2628,6 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "recents",
   "projectStatus",
   "liveAgents",
-  "usage",
   "discussions",
   "bots",
   "teams",

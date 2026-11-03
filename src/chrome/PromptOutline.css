@@ -61,3 +61,11 @@
   .prompt-outline-bar {
   visibility: visible;
 }
+
+/* No marks at rest: they come back when you point at that edge. */
+.prompt-outline:not(:hover, :focus-within, [data-dragging="true"]) {
+  opacity: 0;
+}
+.prompt-outline {
+  transition: opacity 120ms ease-out;
+}

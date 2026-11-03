@@ -369,6 +369,7 @@ import { FilePicker } from "./chrome/FilePicker";
 import { hasWorkspaceOverlay } from "./lib/workspaceKeyboard";
 import { WorkspaceStatusBar, dragStatusBar } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
+import { FooterUsage } from "./chrome/FooterUsage";
 import {
   WorkspaceActionDialog,
   type WorkspaceActionKind,
@@ -708,8 +709,6 @@ import {
   liveAgentsFromSessions,
   workerAgentsByLead,
 } from "./lib/liveAgents";
-import { sidebarUsage } from "./lib/usageMeter";
-import { useUsageForecasts } from "./hooks/useUsageForecasts";
 import {
   activeSessionAgents,
   uncertainSessionAgents,
@@ -3320,11 +3319,6 @@ export default function App({
   const unseenFinishedRef = useRef(unseenFinishedIds);
   unseenFinishedRef.current = unseenFinishedIds;
 
-  const usageForecasts = useUsageForecasts();
-  const usage = useMemo(
-    () => sidebarUsage(usageForecasts, Date.now()),
-    [usageForecasts],
-  );
   const liveAgents = useMemo(
     () =>
       liveAgentsEnabled
@@ -11649,7 +11643,6 @@ export default function App({
     recents: profiles.profileProjects,
     projectStatus,
     liveAgents,
-    usage,
     discussions: discussions.sidebar,
     bots: sidebarBots,
     onOpenBot,
@@ -12379,12 +12372,6 @@ export default function App({
               homeOpen={homeViewOpen || profileHome}
               onToggleInspector={onToggleInspector}
               inspectorOpen={inspector.open}
-              {...(footerShown && !profileHome && gitCwd && gitCwd !== "~"
-                ? {
-                    onToggleTerminal: onToggleProjectTerminal,
-                    terminalOpen: dockVisible,
-                  }
-                : {})}
               stripHost={setWindowStripHost}
             />
             {windowStripHost && windowStrip
@@ -13005,6 +12992,17 @@ export default function App({
                   active={footerShown}
                   teams={
                     <TeamWatchPills panel={teamWatch} sessions={sessions} />
+                  }
+                  cwd={profileHome ? "~" : gitCwd}
+                  onToggleTerminal={() => {
+                    if (!profileHome) onToggleProjectTerminal();
+                  }}
+                  terminalOpen={!profileHome && dockVisible}
+                  usage={
+                    <FooterUsage
+                      providers={usageProviders}
+                      context={profileHome ? null : active?.context}
+                    />
                   }
                 />
               </div>
