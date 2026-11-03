@@ -877,6 +877,16 @@ html.is-mac .personal-shell[data-unified-toolbar] > .workspace-status-bar {
    drawn behind either, and no line between them. */
 html .personal-shell[data-unified-toolbar],
 html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
+  /* The inset layout, from MonoCode (MIT): one outer layer around a rounded
+     card that is the deepest plane. Over the window's blur the outer layer
+     is 80% and the card 40%, so nothing behind the window reads through. */
+  --aven-inset-surface: #0d0d0d;
+  --aven-inset-panel: #060606;
+  --aven-inset-wash: hsl(0 0% 92% / 0.05);
+  /* Every rule that's left, no brighter than the card's own edge. */
+  --aven-separator: color-mix(in srgb, var(--color-content) 4%, transparent);
+  --aven-line: color-mix(in srgb, var(--color-content) 4%, transparent);
+  --personal-line: color-mix(in srgb, var(--color-content) 4%, transparent);
   --aven-toolbar-surface: transparent;
   --personal-chrome-surface: transparent;
   --personal-docked-panel-surface: transparent;
@@ -884,6 +894,21 @@ html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
 }
 html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
   background: transparent;
+}
+html .personal-shell[data-unified-toolbar] {
+  background:
+    linear-gradient(var(--aven-inset-wash), var(--aven-inset-wash)),
+    var(--aven-inset-surface);
+}
+html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
+  background:
+    linear-gradient(var(--aven-inset-wash), var(--aven-inset-wash)),
+    color-mix(in srgb, var(--aven-inset-surface) 80%, transparent);
+}
+html.theme-light .personal-shell[data-unified-toolbar] {
+  --aven-inset-surface: #f5f5f5;
+  --aven-inset-panel: #ffffff;
+  --aven-inset-wash: hsl(0 0% 10% / 0.01);
 }
 html
   .personal-shell[data-unified-toolbar]
@@ -909,10 +934,17 @@ html .personal-shell[data-unified-toolbar] .personal-main.body-glass,
 html.has-native-glass.glass-body:not(.theme-light)
   .personal-shell[data-unified-toolbar]
   .personal-main.body-glass {
-  margin: 0 8px 8px;
+  margin: 0 6px 6px;
   border: 0;
   border-radius: 10px;
-  background: color-mix(in srgb, #000 48%, transparent);
+  background: var(--aven-inset-panel);
+}
+html.has-native-glass.glass-body:not(.theme-light)
+  .personal-shell[data-unified-toolbar]
+  .personal-main.body-glass {
+  background: color-mix(in srgb, var(--aven-inset-panel) 72%, transparent);
+  /* Its own backing surface, so repaints keep the same clip and tint. */
+  transform: translateZ(0);
 }
 html
   .personal-shell[data-unified-toolbar][data-sidebar-pinned="true"]
@@ -1007,5 +1039,20 @@ html.theme-light .personal-shell[data-unified-toolbar] {
       var(--color-content) 5%,
       var(--color-background-base)
     );
+  }
+}
+
+/* No lines: a pane's header, its tab row and a page's toolbar sit in the card
+   with nothing under them. */
+html .personal-shell[data-unified-toolbar] .aven-tab-bar,
+html .personal-shell[data-unified-toolbar] .aven-tab-strip,
+html .personal-shell[data-unified-toolbar] .workspace-stage-header,
+html .personal-shell[data-unified-toolbar] .personal-titlebar {
+  border-bottom: 0;
+  box-shadow: none;
+}
+@media (prefers-contrast: more) {
+  html .personal-shell[data-unified-toolbar] {
+    --aven-separator: var(--aven-line);
   }
 }

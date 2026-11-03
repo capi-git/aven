@@ -28,8 +28,6 @@
   min-height: 40px;
   padding: 4px 8px;
   flex-shrink: 0;
-  border-bottom: var(--aven-hairline, 1px) solid
-    var(--aven-separator, var(--aven-line));
   background: var(--aven-toolbar-surface, transparent);
 }
 /* In a workspace pane's header (one header per pane): one 32px row with

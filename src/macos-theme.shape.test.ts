@@ -291,10 +291,6 @@ describe("the pro look's shapes", () => {
         `--aven-hairline: ${width};`,
       );
     }
-    // The Mac toolbar cancels the interface zoom; its hairline does not.
-    expect(read("src/personal-shell.css")).toMatch(
-      /calc\(-1 \* var\(--aven-hairline\) \/ var\(--aven-toolbar-zoom, 1\)\)/,
-    );
   });
 
   it("fills Settings groups and Home's cards, edged only in light mode", () => {

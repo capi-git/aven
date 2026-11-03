@@ -103,8 +103,6 @@
 .personal-shell .personal-work-fold::after {
   content: "";
   flex: 1 1 24px;
-  height: 1px;
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 .personal-shell .personal-work-fold::before {
   order: 0;
@@ -203,12 +201,6 @@
   font-size: var(--text-ui-caption);
   line-height: 18px;
   color: color-mix(in srgb, var(--color-content) 58%, transparent);
-}
-.personal-shell .personal-turn-receipt::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 /* Earlier replies keep their actions and time out of the way until you point
    at the turn or tab onto them; the latest reply always shows its own. Only
