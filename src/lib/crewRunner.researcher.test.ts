@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { holdIdeaStarts } from "./crewLimits";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addQuestionCard,
@@ -626,6 +627,35 @@ describe("a question for the Researcher", () => {
     expect(h.sent[0]!.text).toContain("<researcher-idea>");
     expect(h.sent[0]!.text).toContain("an idea from your own earlier findings");
     expect(h.sent[0]!.text).not.toContain("The user's question for you:");
+    h.runner.stop();
+  });
+
+  it("never starts its ideas as your own while they are being added", async () => {
+    const h = harness({
+      researcher: () => ({ text: findings(["One", "Two"]) }),
+    });
+    onTeam();
+    const idea = (await addFeatureIdea(PATH, { title: "Q" }))!;
+    await askResearcher(PATH, idea, NOON);
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(card(idea.id).stage).toBe("ready");
+    // The Board has them before they are marked; the idle team looks then.
+    const release = holdIdeaStarts(PATH);
+    await addFeatureIdea(PATH, { title: "Unmarked" });
+    await h.advance(MINUTE);
+    expect(
+      featureBoardState(PATH).cards.find((item) => item.title === "Unmarked")
+        ?.column,
+    ).toBe("idea");
+    release();
+    await addResearchIdeas(PATH, idea.id, undefined, h.now);
+    await h.advance(MINUTE);
+    for (const title of ["One", "Two"])
+      expect(
+        featureBoardState(PATH).cards.find((item) => item.title === title)
+          ?.column,
+      ).toBe("idea");
     h.runner.stop();
   });
 

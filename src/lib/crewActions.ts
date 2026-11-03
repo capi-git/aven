@@ -1,3 +1,4 @@
+import { holdIdeaStarts } from "./crewLimits";
 import { useSyncExternalStore } from "react";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
 import { claudeCheckerModel } from "./crewModels";
@@ -1130,6 +1131,8 @@ async function addResearchIdeasOnce(
   );
   const who = crewMemberName(crew, cardResearcher(crew)?.id ?? "researcher");
   let added: readonly FeatureCard[] = [];
+  // Not to start as your own before they are marked as the Researcher's.
+  const releaseIdeas = holdIdeaStarts(path);
   if (titles.length) {
     try {
       added = await addFeatureCards(
@@ -1137,11 +1140,14 @@ async function addResearchIdeasOnce(
         titles.map((title) => ({ title, column: "idea" as const })),
       );
     } catch (error) {
+      releaseIdeas();
       logError("Add research ideas", error);
       return errorText(error);
     }
-    if (added.length < titles.length)
+    if (added.length < titles.length) {
+      releaseIdeas();
       return "Couldn't add the ideas to the Board.";
+    }
   }
   updateCrew(path, (current) => {
     const known = crewCard(current, cardId);
@@ -1170,6 +1176,7 @@ async function addResearchIdeasOnce(
         : `You read ${who}'s findings for “${known.title}”`,
     });
   });
+  releaseIdeas();
   await moveFeatureCard(path, cardId, "shipped", "");
   return null;
 }
