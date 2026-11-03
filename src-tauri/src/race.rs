@@ -691,8 +691,26 @@ pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
     }
     let index = ScratchIndex::seeded_from(worktree)?;
     run_staged(worktree, &index, &["add", "-A"])?;
+    staged_patch(worktree, &index, base)
+}
+
+/// The changes and the patch of `worktree` since `base`, read from one
+/// staging of the checkout, so the files a check looks at are exactly the
+/// ones the patch holds even while an agent keeps writing there.
+pub(crate) fn diff_and_patch(worktree: &Path, base: &str) -> Result<(RaceDiff, Vec<u8>), String> {
+    if !is_sha(base) {
+        return Err("Invalid race base".into());
+    }
+    let index = ScratchIndex::seeded_from(worktree)?;
+    run_staged(worktree, &index, &["add", "-A"])?;
+    let changes = read_changes(worktree, Some(&index), &["--cached", base])?;
+    let patch = staged_patch(worktree, &index, base)?;
+    Ok((changes, patch))
+}
+
+fn staged_patch(worktree: &Path, index: &ScratchIndex, base: &str) -> Result<Vec<u8>, String> {
     run_git(
-        diff_git(worktree, Some(&index)),
+        diff_git(worktree, Some(index)),
         &[
             "diff",
             "--cached",
