@@ -25,3 +25,12 @@ html.aven-floating-sidebar-overlay
   > .personal-sidebar {
   box-shadow: none;
 }
+
+/* The window's own buttons sit over the card's top corner: its content starts
+   below them. */
+html.is-mac.aven-floating-sidebar-overlay
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar.personal-navigation {
+  padding-top: 30px;
+}

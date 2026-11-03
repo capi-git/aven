@@ -705,16 +705,6 @@ html.theme-light .personal-shell [role="treeitem"] > .text-red-400 {
 }
 
 /* Each header belongs to its panel, so navigation and task status follow resizing. */
-.personal-shell
-  .personal-workspace-column[data-settings-open="true"]
-  .personal-main.body-glass {
-  margin-inline: 0;
-  border: 0;
-  border-radius: 0;
-}
-.personal-shell .workspace-status-bar[data-settings="true"] {
-  border-bottom: 1px solid var(--aven-line);
-}
 .personal-shell .personal-workspace-column {
   position: relative;
   padding-top: 40px;
@@ -905,6 +895,12 @@ html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
     linear-gradient(var(--aven-inset-wash), var(--aven-inset-wash)),
     color-mix(in srgb, var(--aven-inset-surface) 62%, transparent);
 }
+/* macOS already fills the shell's tint across the window: only the wash goes
+   on top, so the wallpaper keeps showing through the frame. */
+html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
+  .personal-shell[data-unified-toolbar] {
+  background: linear-gradient(var(--aven-inset-wash), var(--aven-inset-wash));
+}
 html.theme-light .personal-shell[data-unified-toolbar] {
   --aven-inset-surface: #f5f5f5;
   --aven-inset-panel: #ffffff;
@@ -1018,7 +1014,7 @@ html.theme-light .personal-shell[data-unified-toolbar] {
   height: 100%;
   margin: 0;
   border-radius: 0;
-  box-shadow: var(--aven-panel-tint);
+  background: transparent;
 }
 .personal-shell[data-unified-toolbar]
   .personal-inspector-slot:not([data-floating="true"])

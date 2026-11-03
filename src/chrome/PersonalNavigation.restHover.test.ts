@@ -262,7 +262,7 @@ describe("one grid for every sidebar row", () => {
 });
 
 describe("the pinned tiles", () => {
-  it("are flat neutral tiles on the 8px rhythm, taller than a row, with no wash or edge", () => {
+  it("are flat neutral tiles on the 8px rhythm, taller than a row, with a soft edge and no wash", () => {
     const row = ruleFor(nav, ".personal-shell .personal-library-nav");
     expect(row.get("display")).toBe("grid");
     expect(row.get("gap")).toBe("8px");
@@ -276,6 +276,11 @@ describe("the pinned tiles", () => {
     expect(tile.get("background")).toBe("var(--aven-fill-quaternary)");
     expect(tile.get("border")).toBe("0");
     expect(tile.has("box-shadow")).toBe(false);
+    expect(
+      ruleFor(nav, ".personal-shell .personal-library-nav > *").get(
+        "box-shadow",
+      ),
+    ).toMatch(/inset 0 0 0 1px/);
     // Hover and the open one are firmer greys, never the accent.
     expect(
       ruleFor(nav, ".personal-shell .personal-library-nav > button:hover").get(

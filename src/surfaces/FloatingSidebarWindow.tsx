@@ -439,9 +439,10 @@ export function FloatingSidebarWindow() {
           style={{
             position: "absolute",
             left: snapshot.body.x,
-            top: snapshot.body.y + offset,
+            // From the window's top, over the top row, as Arc's card floats.
+            top: offset,
             width: snapshot.body.width,
-            height: snapshot.body.height,
+            height: snapshot.body.height + snapshot.body.y,
           }}
         >
           <Sidebar
