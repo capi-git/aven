@@ -60,7 +60,7 @@ it("shows three plain switches that apply as you flip them, and nothing else to 
     "Start fixes on its own",
   ]);
   const text = dialog().textContent ?? "";
-  expect(text).toContain("orbit's teammate");
+  expect(text).toContain("orbit's bot");
   expect(text).toContain(
     "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.",
   );

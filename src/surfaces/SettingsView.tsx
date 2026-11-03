@@ -497,7 +497,7 @@ function GitPage() {
   );
   return (
     <SettingsGroup
-      title="Agents and Git"
+      title="Agents & Git"
       description="Applies to every agent in every project from your next message. Asking for something different in a chat still wins."
     >
       <Row label={SETTINGS.gitFinish.label} description={selected?.description}>
@@ -789,7 +789,7 @@ function PreferencesPage({
     return (
       <>
         <SettingsGroup
-          title="Agents and your tabs"
+          title="Agents & your tabs"
           description="Whether agents can use pages you have open in Aven."
         >
           <Row {...SETTINGS.agentsReadAnyTab.row}>
@@ -813,7 +813,7 @@ function PreferencesPage({
           </Row>
         </SettingsGroup>
         <SettingsGroup
-          title="Memory"
+          title="Memory use"
           description="Keep browser tabs ready while managing memory."
         >
           <Row {...SETTINGS.browserMemorySaver.row}>
@@ -1436,8 +1436,8 @@ function KeybindingsPage() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find a command or key…"
-            aria-label="Filter keybindings"
+            placeholder="Find a command or key"
+            aria-label="Filter keyboard shortcuts"
             spellCheck={false}
             autoComplete="off"
           />
@@ -1570,7 +1570,7 @@ function ProvidersPage() {
               Other providers <span>{otherProviders.length}</span>
             </summary>
             <p className="settings-section-note">
-              Additional tools you can install and connect.
+              Additional providers you can install and connect.
             </p>
             {otherProviders.map(renderProvider)}
           </details>
@@ -1875,8 +1875,8 @@ function ArchivePage({
       >
         {archivedProjects.length === 0 ? (
           <p className="py-4 text-ui-label text-content/50">
-            Archive a project from the rail to keep its chats without listing it
-            in the sidebar.
+            Archive a project from its sidebar menu to keep its chats without
+            listing it in the sidebar.
           </p>
         ) : (
           archivedProjects.map((project) => (

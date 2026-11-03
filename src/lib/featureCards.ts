@@ -319,6 +319,8 @@ async function change(
 }
 
 export type FeatureCardDraft = {
+  /** Its id, when the team made the card first (see `addQuestionCard`). */
+  id?: string;
   title: string;
   note?: string;
   sourceUrl?: string;
@@ -335,7 +337,7 @@ function newCard(draft: FeatureCardDraft, at: number): FeatureCard | null {
   const sourceUrl = draft.sourceUrl?.trim();
   const column = draft.column ?? "idea";
   return {
-    id: crypto.randomUUID(),
+    id: draft.id?.trim() || crypto.randomUUID(),
     title,
     ...(note ? { note } : {}),
     column,
@@ -395,7 +397,10 @@ export function boardProjectFor(cwd: string | undefined): string | null {
 /** Write down an idea: a new card in Ideas. */
 export async function addFeatureIdea(
   project: string,
-  draft: Pick<FeatureCardDraft, "title" | "note" | "sourceUrl">,
+  draft: Pick<
+    FeatureCardDraft,
+    "id" | "title" | "note" | "sourceUrl" | "column"
+  >,
 ): Promise<FeatureCard | null> {
   return (await addFeatureCards(project, [draft]))[0] ?? null;
 }

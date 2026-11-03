@@ -63,6 +63,13 @@ export function CrewFenceCard({
         A note for the team
       </p>
     );
+  // Its notes are its own, read on its teammate page: one quiet line here.
+  if (view.kind === "memory")
+    return (
+      <p className="crew-fence-quiet" data-crew-fence={language}>
+        {view.label}
+      </p>
+    );
   if (view.kind === "tasks")
     return <MemberTasksCard view={view} code={code} language={language} />;
   const crew = view.kind === "ideas" ? crewForFolder(cwd) : undefined;

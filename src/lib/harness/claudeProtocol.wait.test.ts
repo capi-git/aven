@@ -87,6 +87,13 @@ describe("claudeWaitEvent", () => {
     { status: "allowed_warning", utilization: 0.9, resetsAt: 1_800_003_600 },
     { status: "rejected", overageStatus: "allowed", isUsingOverage: true },
     { status: "rejected", overageStatus: "allowed_warning" },
+    // Extra-usage credits used up: fast mode is refused, the plan carries on.
+    {
+      status: "rejected",
+      rateLimitType: "overage",
+      overageStatus: "rejected",
+      resetsAt: 1_802_000_000,
+    },
   ])("clears the usage limit for %o", (info) => {
     expect(claudeWaitEvent(rateLimit(info), NOW)).toEqual({
       type: "turn.waiting",

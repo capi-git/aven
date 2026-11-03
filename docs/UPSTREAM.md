@@ -2,6 +2,40 @@
 
 Aven is maintained independently. Its version numbers do not imply feature parity with MonoCode, and its updater uses Aven releases only. Compatible upstream changes are reviewed and adapted with their attribution intact.
 
+## Aven 0.1.165 — review to MonoCode main, 2 November 2026
+
+Reviewed the [744 commits after the previous review point](https://github.com/hardbeat920/monocode/compare/5f950ec4...5a31951) (647 changes and 97 merges), through MonoCode main `5a31951` (after MonoCode 0.16.0 and its native previews). In this period MonoCode rewrote its desktop app in GPUI (a native Rust UI), added a mobile companion, a remote host service and resident "Mono" agents; most of the 744 commits belong to those. Aven stays a Tauri and React app with its own Teams and project bots, so the review looked for fixes to the shared provider protocols, the Tauri commands and the transcript model. Every candidate was confirmed in Aven's own code before porting, and each change was adapted rather than copied.
+
+Adapted changes, one Aven commit per upstream change or tight group:
+
+| Area | Upstream commits | Aven integration |
+| --- | --- | --- |
+| Claude Code | 0abb2c8 (#958), 2e0c5e4 (#532) | A `rate_limit_event` rejection whose window is the extra-usage pool (`rateLimitType` "overage", a refused fast mode) no longer holds the chat back until the monthly reset. A resume's replayed background-task result (`origin.kind` "task-notification", zero turns) never ends the real turn, and a limit it reported is cleared. |
+| Codex | db006a4 (#878) | `resolve_codex` asks the login shell first, as `resolve_claude` already did, so Aven runs the same `codex` as the terminal instead of the ChatGPT app's older wrapper in `~/.local/bin`. |
+| Skills | 33c23f4 (#978) | A SKILL.md whose 16 KiB prefix ends inside a multi-byte character is listed instead of silently dropped. |
+| Pi and omp | a7e3b6d (#921), 41b7243 (#846), 5aef862 (#766) | The Pi probe polls until extension providers have registered their models (five-second window, one quiet second, 45-second deadline that keeps what it collected). omp probes with extensions loaded. Copilot's internal agents and legacy snapshots are hidden by name. |
+| Cursor | 6a5b8d1 | Model discovery no longer sends `authenticate` with `cursor_login`, which could open a browser sign-in from a background refresh. |
+| Transcript | 190902f (#763, partial), fd10730 (#882) | Punctuation-only assistant replies (a bare "." between tool calls) are dropped when sealed, completed or stopped. An opened thinking row is titled "Thinking" instead of repeating its first paragraph. |
+| Git | 6e09ab8 (#1004) | Every local git command gets `cached_gui_search_path()` (the login-shell PATH only once it has been read, then the inherited PATH and the fixed dirs), so git-lfs filters resolve from a Finder launch without a status refresh waiting on the shell. |
+| Windows | 6793b0e (#908) | `open_new_window` is an async command, so WebView2 builds the window off the main thread instead of deadlocking into a blank frame. |
+| Styles | 51b561b (#876), b3bf7b4 | Markdown table cells keep a readable minimum width, and the `group-focus-within` variant is redefined so WebKit keys it on `.group` instead of re-checking the whole page on every focus move. |
+| New chats | 7fdd048 (#896) | A new chat, and one started from the Inbox or a note, opens in the project the sidebar shows (`visibleProjectCwd`: the active chat, else the focused file tab, else the chosen project), not in the project of the first chat in the list. Aven has no per-session worktrees, so the worktree-focus part does not apply. |
+| Turn clock | 4630908 (#1021) | A message sent mid-turn has no start of its own; `joinedTurnStart` walks back to the turn it joined, so the live clock no longer restarts at 0 whenever the chat comes back on screen. |
+| Windows of the app | fb1aa9b (#909) | Appearance changes made in Settings (status bar opacity, chat background, sidebar glass, UI scale, scheme and tint) reach every other open window through the storage event, as workspace themes already did. |
+
+Not imported:
+
+- **Already in Aven:** the Codex `collaborationMode` omission until a model is known (c2b479d), keyed Pi status rows (b74e803), the 5,000-skill catalog cap (07f29c1), Pi probes with extensions (c7de48f), async Codex questions over `turn/steer` (98da85a), ephemeral text threads and deleted text sessions (3e157b7), the ETXTBSY spawn retry (e96c926), idle warm-agent caps (e7e19fe), live remaining-usage meters (3ab724d), literal git pathspecs and quoted-path handling (60102ab, 7a040c0), the `hasLiveCatalog` refresh guard (eb14d1a), the parked composer runner loop (92708f0), the consumed-handoff flush (73a7aa9: Aven's `setSessions` settles its ref synchronously) and saved Claude versions resolving to the live alias's settings (834e5b9: Aven's `pickerAliases`).
+- **Not applicable to Aven:** turn token totals (2296c09), provider accounts (8e4da94, 5f1cc6e, 5fda02d), the host service's Pi detection (e9fd233), Hermes (081b1bc), remote sessions, tray behaviour (1a28c17), Linux-only fixes (624e603), sound cues (b859824), the shortcut recorder (05e5bb7), the Inbox, artifacts and lazy surfaces. Windows checkpoint overlap comparisons (735f2db): Aven's checkpoint matches a manifest to a project with `same_cwd`, which compares the two expanded paths component-wise (so `/` and `\` agree on Windows) and never compares saved parent and child workspaces. The 0700 selection directories (7d099eb): Aven creates no git selection directory; its race scratch index is a file git writes under the per-user temp dir.
+- **Separate product decisions, not ported in this review:** Monos (resident agents with SOUL.md, memory, habits, their chat, triggers, Codex store and everything built only for them), the GPUI native app and its previews, the mobile companion and phone pairing, the remote host service, OpenCode 2.x servers (0eb2773 (#434): a new service URL/password transport, v2 endpoints and event stream, about 3,000 lines; it needs its own pull request and an OpenCode 2.x install to verify), the Devin and Antigravity providers, session worktrees, the Inbox integrations, Git-backed turn checkpoint reviews, HTML artifacts, per-project themes, the inset layout, and `CLAUDE_CODE_ENTRYPOINT` relabeling (59e0c42, 50a6f88: an opt-in experiment upstream; Aven sets nothing).
+- **Skipped as upstream-only:**
+  - MonoCode release, packaging, CI, notarization and changelog work.
+  - Its transcript scrolling, pacing, pool and retention rewrites (214283c, 3e05e03, 7933972, 002d393, 53777ef, 51abda1, 5a73595, aa2ee18 and related): Aven keeps its own reading anchor, batching (#49) and performance program.
+  - Its React-era UI fixes in areas Aven does not share (Notes slugs, file editor view modes, diff gutters and scrollbar markers, the Changes list, composer file drops, context menus, resource pressure notices, model picker labels) and its GPUI-era fixes.
+  - Changes that depend on any of these.
+
+Aven keeps its own interface, persistent state, provider support, branding and release feed. Validation was source and headless: `TZ=UTC npm run check:web` (Prettier, oxlint, Vitest, TypeScript) and `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test --lib`. The redefined CSS variant was confirmed in the built stylesheet. Packaged-app checks follow the next release.
+
 ## Aven 0.1.117 — review to MonoCode main, 2 October 2026
 
 Reviewed the [106 commits after the previous review point](https://github.com/hardbeat920/monocode/compare/0d3db9c26a460f1354dcf350969d87a6896b8bf0...5f950ec4), through MonoCode main `5f950ec4` (after MonoCode 0.6.0). Each candidate bug was confirmed in Aven's own code before porting, and every change was adapted rather than copied, since MonoCode reorganized its source tree.

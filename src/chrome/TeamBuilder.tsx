@@ -45,8 +45,9 @@ import "./TeamBuilder.css";
  * Build a team: start from a suggested team (before the team has started),
  * or add teammates one at a time, each a role with one job; on the right,
  * who is in the team, each opening its own page, and Start team. Every
- * role's rules stay: a team needs a Builder and a Checker, one Scout and
- * one Security, the Fixer joins from the project's bot, at most eight.
+ * role's rules stay: a team needs a Builder and a Checker, one Scout, one
+ * Researcher and one Security, the Fixer joins from the project's bot, at
+ * most eight.
  */
 
 /** The roles to add, in the order they're offered. */
@@ -55,6 +56,7 @@ const ROLE_ORDER = [
   "checker",
   "security",
   "scout",
+  "researcher",
   "designer",
   "tester",
   "scribe",

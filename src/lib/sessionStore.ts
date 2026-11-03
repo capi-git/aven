@@ -168,6 +168,54 @@ const confirmedTranscripts = new Map<
 >();
 const MAX_TRANSCRIPT_BASES = 64;
 
+/**
+ * Chats whose stored transcript holds turns this window does not: another
+ * window wrote them since this one last did. Every save of such a chat
+ * reads the store first and keeps both sides, until this window has
+ * everything the store has.
+ */
+const divergedSessions = new Set<string>();
+
+/**
+ * The stored transcript with this window's version of each block it holds,
+ * and this window's new blocks after them. A block is matched by its id, so
+ * a turn another window added is never dropped and one this window is
+ * still streaming is updated in place.
+ */
+export function mergeTranscripts(stored: Block[], ours: Block[]): Block[] {
+  const mine = new Map(ours.map((block) => [block.id, block]));
+  const storedIds = new Set(stored.map((block) => block.id));
+  return [
+    ...stored.map((block) => mine.get(block.id) ?? block),
+    ...ours.filter((block) => !storedIds.has(block.id)),
+  ];
+}
+
+/** Whether the store holds a block this window's transcript does not. */
+function transcriptDiverged(stored: Block[], ours: Block[]): boolean {
+  const ids = new Set(ours.map((block) => block.id));
+  return stored.some((block) => !ids.has(block.id));
+}
+
+/**
+ * Save a chat another window may have changed: read the stored transcript
+ * and write it back with this window's changes on top, never over it.
+ */
+async function writeMergedSnapshot(
+  payload: SessionUpsertPayload,
+): Promise<{ summary: SessionSummary; merged: boolean }> {
+  const record = await invoke<SessionRecord | null>("session_get", {
+    sessionId: payload.id,
+  });
+  const stored = Array.isArray(record?.blocks) ? record.blocks : [];
+  const merged = transcriptDiverged(stored, payload.blocks);
+  const session = merged
+    ? { ...payload, blocks: mergeTranscripts(stored, payload.blocks) }
+    : payload;
+  const summary = await invoke<SessionSummary>("session_upsert", { session });
+  return { summary, merged };
+}
+
 async function writeSessionSnapshot(
   payload: SessionUpsertPayload,
 ): Promise<SessionSummary> {
@@ -176,7 +224,10 @@ async function writeSessionSnapshot(
   const base = confirmedTranscripts.get(payload.id);
   try {
     let summary: SessionSummary;
-    if (base) {
+    let merged = false;
+    if (divergedSessions.has(payload.id)) {
+      ({ summary, merged } = await writeMergedSnapshot(payload));
+    } else if (base) {
       const blocksDelta = {
         baseRevision: base.revision,
         blockCount: blocks.length,
@@ -191,13 +242,11 @@ async function writeSessionSnapshot(
       } catch (error) {
         if (!String(error).includes("TRANSCRIPT_REVISION_MISMATCH"))
           throw error;
-        // Another window, a deleted/recreated row or a legacy writer changed the
-        // base. Retry exactly once with the authoritative complete snapshot,
+        // Another window, a deleted/recreated row or a legacy writer changed
+        // the base. Its turns are read back and kept, never overwritten,
         // inside this session's ordered queue.
         confirmedTranscripts.delete(payload.id);
-        summary = await invoke<SessionSummary>("session_upsert", {
-          session: payload,
-        });
+        ({ summary, merged } = await writeMergedSnapshot(payload));
       }
     } else {
       summary = await invoke<SessionSummary>("session_upsert", {
@@ -205,6 +254,13 @@ async function writeSessionSnapshot(
       });
     }
     confirmedTranscripts.delete(payload.id);
+    if (merged) {
+      // This window still lacks the other's turns: its next save merges
+      // again rather than sending a delta against a transcript it never saw.
+      divergedSessions.add(payload.id);
+      return summary;
+    }
+    divergedSessions.delete(payload.id);
     if (
       typeof summary?.transcriptRevision === "string" &&
       summary.transcriptRevision
@@ -290,7 +346,10 @@ export async function upsertSession(
       pendingSessionSnapshots.delete(session.id);
     }
   };
-  void promise.then(clear, clear);
+  void promise.then((summary) => {
+    if (summary) storedFingerprints.set(session.id, fingerprint);
+    clear();
+  }, clear);
   return promise;
 }
 
@@ -316,6 +375,17 @@ export function persistFingerprint(session: Session): string {
   return `${JSON.stringify(persistableMeta(session))}|${session.orchestrationLeadId ?? ""}|${session.blocks
     .map(blockToken)
     .join(",")}`;
+}
+
+/**
+ * Each chat as this window last read it from the store or wrote it there.
+ * A quit writes only the chats this window changed since, so a chat another
+ * window is working on is never written back from a stale copy here.
+ */
+const storedFingerprints = new Map<string, string>();
+
+export function sessionChangedSinceStored(session: Session): boolean {
+  return storedFingerprints.get(session.id) !== persistFingerprint(session);
 }
 
 export async function listSessionsByProject(
@@ -380,13 +450,17 @@ export async function getSession(sessionId: string): Promise<Session | null> {
     sessionId,
   });
   if (!record) return null;
-  return recordToSession(record);
+  const session = recordToSession(record);
+  storedFingerprints.set(session.id, persistFingerprint(session));
+  return session;
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
   // Deleting a lead also changes how queued worker snapshots are sanitized.
   pendingSessionSnapshots.clear();
   confirmedTranscripts.clear();
+  divergedSessions.delete(sessionId);
+  storedFingerprints.delete(sessionId);
   deletedSessionIds.add(sessionId);
   try {
     // Drain worker snapshots before native deletion strips their lead ownership.

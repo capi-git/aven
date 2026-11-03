@@ -13,6 +13,7 @@ import { agentGitInstructions } from "./gitPreference";
 import { isRaceLanePath } from "./recents";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
+import { agentBrowserWeb } from "./projectBotPermissions";
 
 export type AgentBrowserContext = {
   sessionId: string;
@@ -60,6 +61,24 @@ export type AgentBrowserHost = {
   reach?(surfaceId: string): Promise<void> | void;
 };
 type Binding = { executablePath: string; socketPath: string };
+/** What `browser_agent_bind` is told; the host decides the rest from the chat. */
+type BindArgs = {
+  sessionId: string;
+  simulatorProject?: string;
+  actor?: { harness: string; title?: string };
+  browserIds: string[];
+  ownBrowserIds?: string[];
+  anyTab: boolean;
+  workDir: string;
+  userTyped?: true;
+  /**
+   * A sandboxed chat (a bot's or teammate's, in its copy) may reach any
+   * http(s) host; without it, only its own pages. Read at every bind, so
+   * Access in the Team sheet holds from the next turn. A chat of your own
+   * isn't sandboxed, and the host leaves it as it is.
+   */
+  web: boolean;
+};
 type OpenRequest = {
   requestId: string;
   sessionId: string;
@@ -68,6 +87,12 @@ type OpenRequest = {
   arrange?: boolean;
   /** A new page whatever the chat has; see `AgentBrowserOpenOptions`. */
   fresh?: boolean;
+  /**
+   * A sandboxed chat's open (a bot's or a teammate's): its page opens in
+   * the throwaway browser profile, with none of the user's logins. Aven
+   * checks the page's profile before the chat may use it.
+   */
+  restricted?: boolean;
 };
 type OpenFileRequest = {
   requestId: string;
@@ -272,7 +297,7 @@ function bind(
         const id = own.has(surface) ? nativePages.get(surface) : undefined;
         return id ? [id] : [];
       });
-      return invoke<Binding>("browser_agent_bind", {
+      const args: BindArgs = {
         sessionId: context.sessionId,
         ...(simulatorProject ? { simulatorProject } : {}),
         ...(userTurn && context.harness
@@ -283,7 +308,9 @@ function bind(
         anyTab: SETTINGS.agentsReadAnyTab.load(),
         workDir: context.cwd,
         ...(userTurn && typed ? { userTyped: true } : {}),
-      });
+        web: agentBrowserWeb(context.sessionId),
+      };
+      return invoke<Binding>("browser_agent_bind", args);
     });
   bindingTails.set(context.sessionId, operation);
   void operation
@@ -353,6 +380,9 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
                 newTab: payload.newTab === true || payload.fresh === true,
                 ...(payload.arrange === false ? { arrange: false } : {}),
                 ...(payload.fresh === true ? { fresh: true } : {}),
+                ...(payload.restricted === true
+                  ? { profile: "agents" as const }
+                  : {}),
               },
             );
             const { id: surfaceId, refresh } =

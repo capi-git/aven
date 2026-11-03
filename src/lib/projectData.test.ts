@@ -200,4 +200,75 @@ describe("a project's open work", () => {
       ),
     ).toEqual(["/work/site/README.md"]);
   });
+
+  it("names each thing that keeps the project from being deleted, as Delete judges it", async () => {
+    const { newFileTab, newEditorPane, newTab } = await import("./layout");
+    const { projectOpenWork } = await import("./projectData");
+    const { newSession } = await import("./session");
+    const blank = { ...newSession("claude", "/work/site"), title: "Blank" };
+    const chatty = {
+      ...newSession("claude", "/work/site"),
+      title: "Chatty",
+      blocks: [{ id: "b1", role: "user" as const, text: "hi" }],
+    };
+    const busy = {
+      ...newSession("claude", "/work/site"),
+      title: "Busy",
+      busy: true,
+    };
+    const seeded = {
+      ...newSession("claude", "/work/site"),
+      title: "Seeded",
+      composerSeed: "Say hello",
+    };
+    const elsewhere = {
+      ...newSession("claude", "/work/other"),
+      title: "Elsewhere",
+      blocks: [{ id: "b1", role: "user" as const, text: "hi" }],
+    };
+    const readme = newFileTab("/work/site/README.md", "/work/site");
+    const withFile = {
+      ...newTab("x"),
+      layout: { type: "leaf" as const, id: "pane" },
+      focusedId: "pane",
+      editorPanes: [{ ...newEditorPane(readme), id: "pane" }],
+    };
+    const drafts: Record<string, { text: string; attachments: never[] }> = {
+      [blank.id]: { text: "", attachments: [] },
+    };
+    expect(
+      projectOpenWork({
+        sessions: [blank, chatty, busy, seeded, elsewhere],
+        tabs: [withFile],
+        project: "/work/site",
+        draft: (id) => drafts[id],
+        terminals: [newFileTab("/work/site", "/work/site")],
+      }),
+    ).toEqual([
+      "chat “Chatty” (1 message)",
+      "chat “Busy” (at work)",
+      "chat “Seeded” (a seeded message)",
+      "file /work/site/README.md",
+      "terminal /work/site",
+    ]);
+    drafts[blank.id] = { text: "typed", attachments: [] };
+    expect(
+      projectOpenWork({
+        sessions: [blank],
+        tabs: [],
+        project: "/work/site",
+        draft: (id) => drafts[id],
+        terminals: [],
+      }),
+    ).toEqual(["chat “Blank” (a draft)"]);
+    expect(
+      projectOpenWork({
+        sessions: [blank],
+        tabs: [],
+        project: "/work/site",
+        draft: () => null,
+        terminals: [],
+      }),
+    ).toEqual([]);
+  });
 });

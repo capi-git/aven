@@ -61,6 +61,7 @@ describe("agent browser session connection", () => {
       browserIds: ["native-mine"],
       anyTab: true,
       workDir: "/project",
+      web: false,
     });
     expect(text).toContain("--aven-browser");
     expect(text).toContain("<aven-browser>");
@@ -207,6 +208,7 @@ describe("agent browser session connection", () => {
       browserIds: ["new"],
       anyTab: true,
       workDir: "/p",
+      web: false,
     });
   });
   it("opens in the owning workspace, binds the created native page, then acknowledges", async () => {
@@ -485,6 +487,33 @@ describe("agent browser session connection", () => {
       requestId: "r",
       browserId: "native-woken",
       refresh: "loaded",
+    });
+  });
+  it("opens a sandboxed chat's page in the agents' browser profile", async () => {
+    const api = await import("./agentBrowser");
+    let pages: string[] = [];
+    const open = vi.fn(async (..._args: unknown[]) => {
+      pages = ["sandbox-surface"];
+      api.registerAgentBrowserPage("sandbox-surface", "native-sandbox");
+      return { id: "sandbox-surface" };
+    });
+    dispose = api.installAgentBrowserHost({ surfaces: () => pages, open });
+    await api.prepareAgentBrowserPrompt("Preview", {
+      sessionId: "s",
+      cwd: "/project",
+    });
+    await mocks.handlers.get("browser-agent-open")!({
+      payload: {
+        requestId: "r",
+        sessionId: "s",
+        url: "http://localhost:3000/",
+        restricted: true,
+      },
+    });
+    expect(open.mock.calls[0][2]).toEqual({ newTab: false, profile: "agents" });
+    expect(mocks.invoke).toHaveBeenCalledWith("browser_agent_open_result", {
+      requestId: "r",
+      browserId: "native-sandbox",
     });
   });
   it("asks for a fresh page when Aven found the user using the chat's page", async () => {
@@ -933,6 +962,7 @@ it.each(["codex", "claude"])(
       actor: { harness, title: "Fix desktop control" },
       anyTab: true,
       workDir: "/p",
+      web: false,
     });
     await api.refreshAgentBrowserScopes();
     expect(mocks.invoke).toHaveBeenLastCalledWith("browser_agent_bind", {
@@ -940,6 +970,7 @@ it.each(["codex", "claude"])(
       browserIds: [],
       anyTab: true,
       workDir: "/p",
+      web: false,
     });
   },
 );

@@ -468,7 +468,7 @@ export function ModelChooser({
           favorites={favorites.map((id) => findPickerModel(id)?.id ?? id)}
           emptyLabel={
             visibleTab === "favorites" && !query.trim()
-              ? "No favorite models"
+              ? "No favourite models"
               : visibleTab !== "favorites" && !isHarnessAvailable(visibleTab)
                 ? harnessUnavailableHint(visibleTab)
                 : visibleTab !== "favorites" &&

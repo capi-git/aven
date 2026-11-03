@@ -1,3 +1,4 @@
+import { loadPinnedTabs } from "./lib/pinnedTabs";
 import { errorText, failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
 import { useIosSimAvailability } from "./hooks/useIosSimAvailability";
@@ -273,6 +274,7 @@ import {
   AgentPageNotices,
   type AgentPageNotice,
 } from "./chrome/AgentPageNotices";
+import { SaveProblemNotice } from "./chrome/SaveProblemNotice";
 import type {
   PaletteChatRequest,
   PaletteRaceRequest,
@@ -410,6 +412,7 @@ import {
   rememberOpenedFile,
   resolveOpenablePath,
 } from "./lib/fileIndex";
+import { visibleProjectCwd } from "./lib/visibleProjectCwd";
 import {
   closeLeaf,
   findSurfacePane,
@@ -488,7 +491,6 @@ import {
   removeTabFromGroup,
   tabGroupProject,
 } from "./lib/tabGroups";
-import { type WindowTransferPayload } from "./lib/windowTransfer";
 import {
   confirmCloseTerminal,
   confirmCloseTerminals,
@@ -586,7 +588,7 @@ import {
   rebasePath,
   resolveWorkspacePath,
 } from "./lib/paths";
-import { openProjectFiles, removeProjectData } from "./lib/projectData";
+import { projectOpenWork, removeProjectData } from "./lib/projectData";
 import {
   lastProjectPath,
   looksLikeProject,
@@ -669,7 +671,7 @@ import {
   teamRunsFrom,
 } from "./lib/teamRuns";
 import { sidebarTeams } from "./lib/teamGrouping";
-import { currentWindowLabel } from "./lib/windowLabel";
+import { currentWindowLabel, isSecondaryWindow } from "./lib/windowLabel";
 import { popOutShownChats } from "./lib/teamWatch";
 import {
   focusedTeamPopOut,
@@ -1081,24 +1083,21 @@ registerBuiltinHarnesses();
 const RUN_SUMMARY_WINDOW_MS = 10 * 60_000;
 
 export default function App({
-  windowTransfer = null,
   resumed = null,
   installedUpdate = null,
   history: bootHistory = [],
   historyCwd: bootHistoryCwd = null,
 }: {
-  windowTransfer?: WindowTransferPayload | null;
   resumed?: ResumedWorkspace | null;
   installedUpdate?: InstalledUpdate | null;
   history?: SessionSummary[];
   historyCwd?: string | null;
 }) {
+  // A File > New Window window: it starts empty and never saves the
+  // workspace layout, which belongs to the main window.
+  const [secondaryWindow] = useState(isSecondaryWindow);
   const [projectCwd, setProjectCwd] = useState(
-    () =>
-      windowTransfer?.projectCwd ??
-      resumed?.projectCwd ??
-      lastProjectPath() ??
-      "~",
+    () => resumed?.projectCwd ?? lastProjectPath() ?? "~",
   );
   const {
     recents,
@@ -1120,7 +1119,7 @@ export default function App({
   const [walkthrough, setWalkthrough] = useState<WalkthroughState | null>(() =>
     shouldOfferWalkthrough(
       Boolean(
-        windowTransfer ||
+        secondaryWindow ||
         lastProjectPath() ||
         recents.length ||
         bootHistory.length ||
@@ -1151,24 +1150,22 @@ export default function App({
     setSessions,
     commitStream,
     flushCommittedSessions,
-  } = useWorkspaceSessions(
-    () => windowTransfer?.sessions ?? resumed?.sessions ?? [seed.session],
-  );
+  } = useWorkspaceSessions(() => resumed?.sessions ?? [seed.session]);
   const [tabs, setTabs] = useState<WorkspaceTab[]>(
-    () => windowTransfer?.tabs ?? resumed?.tabs ?? [seed.tab],
+    () => resumed?.tabs ?? [seed.tab],
   );
   const [projectTerminals, setProjectTerminals] = useState<ProjectTerminal[]>(
-    () => windowTransfer?.projectTerminals ?? resumed?.projectTerminals ?? [],
+    () => resumed?.projectTerminals ?? [],
   );
   const beginNavigation = useNavigationIntent();
   const [projectTerminalFocused, setProjectTerminalFocused] = useState(false);
   const [activeTabId, setActiveTabId] = useState(
-    () => windowTransfer?.activeTabId ?? resumed?.activeTabId ?? seed.tab.id,
+    () => resumed?.activeTabId ?? seed.tab.id,
   );
   const [restoredProjectTabs] = useState(loadProjectFocusedTabs);
   const lastTabByProjectRef = useRef(restoredProjectTabs);
   const [composerFocused, setComposerFocused] = useState(() => {
-    if (windowTransfer) return true;
+    if (secondaryWindow) return true;
     if (!resumed) return false;
     const tab =
       resumed.tabs.find((entry) => entry.id === resumed.activeTabId) ??
@@ -2401,11 +2398,8 @@ export default function App({
   const [editorNavigation, setEditorNavigation] =
     useState<EditorNavigationTarget | null>(null);
   const editorNavigationToken = useRef(0);
-  const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(
-    () => new Set(windowTransfer?.dirtyFileIds ?? []),
-  );
-  // Not carried across a window transfer the way dirty state is: the editor
-  // re-lints whatever it mounts, so the counts rebuild themselves.
+  const [dirtyFiles, setDirtyFiles] = useState<Set<string>>(() => new Set());
+  // The editor re-lints whatever it mounts, so the counts rebuild themselves.
   const [fileErrorCounts, setFileErrorCounts] = useState<Map<string, number>>(
     () => new Map(),
   );
@@ -2502,7 +2496,7 @@ export default function App({
   const inFlightSyncKey = useRef<string | null>(null);
   const sawInFlight = useRef(false);
   const scheduleWorkspaceSnapshot = useWorkspaceSnapshotPersistence(
-    !windowTransfer,
+    !secondaryWindow,
     saveWorkspaceSnapshot,
   );
   const observedSessions = useRef(new Map<string, Session>());
@@ -2521,7 +2515,7 @@ export default function App({
 
   useEffect(() => {
     if (importedSessionsApplied.current) return;
-    const imported = windowTransfer?.sessions ?? resumed?.sessions;
+    const imported = resumed?.sessions;
     if (!imported?.length) return;
     importedSessionsApplied.current = true;
     for (const session of imported) {
@@ -2533,7 +2527,7 @@ export default function App({
         lastBoundProvider.current.set(session.id, session.providerSessionId);
       }
     }
-  }, [windowTransfer, resumed]);
+  }, [resumed]);
 
   const flushHarnessEvents = useCallback(() => {
     cancelScheduledFlush(harnessFlush.current);
@@ -2803,10 +2797,11 @@ export default function App({
     warmNativeSkills(activeSkillContext);
   }, [activeSkillCwd, active?.id, active?.harness]);
 
-  const sidebarCwd =
-    active?.cwd ??
-    (activeTab ? focusedFileTab(activeTab)?.cwd : undefined) ??
-    projectCwd;
+  const sidebarCwd = visibleProjectCwd(
+    active?.cwd,
+    activeTab ? focusedFileTab(activeTab)?.cwd : undefined,
+    projectCwd,
+  );
   const sidebarCwdRef = useRef(sidebarCwd);
   sidebarCwdRef.current = sidebarCwd;
   const sidebarCwdKey =
@@ -3618,7 +3613,7 @@ export default function App({
   }, [sessions]);
 
   useEffect(() => {
-    if (windowTransfer) return;
+    if (secondaryWindow) return;
     const snapshot = collectWorkspaceSnapshot(
       tabs,
       snapshotSessions,
@@ -3633,12 +3628,12 @@ export default function App({
     activeTabId,
     projectCwd,
     projectTerminals,
-    windowTransfer,
+    secondaryWindow,
     scheduleWorkspaceSnapshot,
   ]);
 
   useEffect(() => {
-    if (windowTransfer) return;
+    if (secondaryWindow) return;
     let timer: number | undefined;
     const unsubscribe = subscribeComposerDrafts(() => {
       window.clearTimeout(timer);
@@ -3657,10 +3652,10 @@ export default function App({
       unsubscribe();
       window.clearTimeout(timer);
     };
-  }, [windowTransfer, scheduleWorkspaceSnapshot]);
+  }, [secondaryWindow, scheduleWorkspaceSnapshot]);
 
   useEffect(() => {
-    if (lastProjectPath() || resumed || windowTransfer) return;
+    if (lastProjectPath() || resumed || secondaryWindow) return;
     const startingCwd = projectCwdRef.current;
     const startingProfile = profilesRef.current.activeProfileId;
     void invoke<string>("default_cwd")
@@ -4091,7 +4086,9 @@ export default function App({
     }
     leaveExpandedPreview();
     closeUtilityViews();
-    const cwd = active?.cwd ?? sessionDefaults?.cwd ?? projectCwd;
+    // The visible project owns the new chat. The first chat in the list may
+    // belong to another project, which would open it out of sight.
+    const cwd = sidebarCwd;
     const session = newDefaultSession(cwd);
     const tab = newTab(session.id);
     setSessions((prev) => [...prev, session]);
@@ -4099,23 +4096,14 @@ export default function App({
     setActiveTabId(tab.id);
     setComposerFocused(true);
     return session.id;
-  }, [
-    profileHome,
-    onNewStandalone,
-    active?.cwd,
-    appendTab,
-    sessionDefaults?.cwd,
-    sessionDefaults?.runtimeMode,
-    projectCwd,
-  ]);
+  }, [profileHome, onNewStandalone, appendTab, sidebarCwd]);
 
   const onStartInboxItem = useCallback(
     (item: InboxItem) => {
       // The Inbox may have been opened over Home; show the new chat.
       showWorkspace();
       setSidebarTab("sessions");
-      const cwd =
-        item.projectPath || active?.cwd || sessionDefaults?.cwd || projectCwd;
+      const cwd = item.projectPath || sidebarCwd;
       const session = {
         ...newDefaultSession(cwd),
         title: `#${item.number} ${item.title}`,
@@ -4127,14 +4115,7 @@ export default function App({
       setActiveTabId(tab.id);
       setComposerFocused(true);
     },
-    [
-      active?.cwd,
-      appendTab,
-      sessionDefaults?.cwd,
-      sessionDefaults?.runtimeMode,
-      projectCwd,
-      showWorkspace,
-    ],
+    [appendTab, sidebarCwd, showWorkspace],
   );
 
   const onAddNoteToChat = useCallback(
@@ -4146,10 +4127,7 @@ export default function App({
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
           ? card.sourceCwd
-          : undefined) ||
-        active?.cwd ||
-        sessionDefaults?.cwd ||
-        projectCwd;
+          : undefined) || sidebarCwd;
       const title = card.title.trim();
       const session = {
         ...newDefaultSession(cwd),
@@ -4162,14 +4140,7 @@ export default function App({
       setActiveTabId(tab.id);
       setComposerFocused(true);
     },
-    [
-      active?.cwd,
-      appendTab,
-      sessionDefaults?.cwd,
-      sessionDefaults?.runtimeMode,
-      projectCwd,
-      showWorkspace,
-    ],
+    [appendTab, sidebarCwd, showWorkspace],
   );
 
   useEffect(() => {
@@ -4686,8 +4657,11 @@ export default function App({
     const current = tabsRef.current;
     const activeId = activeTabIdRef.current;
     if (!current.some((tab) => tab.id === activeId)) return;
+    const pinned = loadPinnedTabs();
     onCloseTabs(
-      current.filter((tab) => tab.id !== activeId).map((tab) => tab.id),
+      current
+        .filter((tab) => tab.id !== activeId && !pinned.has(tab.id))
+        .map((tab) => tab.id),
       activeId,
     );
   }, [onCloseTabs]);
@@ -6621,38 +6595,24 @@ export default function App({
             panelTerminals.map((file) => file.id),
           );
           // A terminal opened while the deletion runs is new work.
-          const hasProjectTerminals = () =>
-            projectPanelTerminals(projectTerminalsRef.current, normalized).some(
-              (file) => !closingTerminals.has(file.id),
-            );
+          const newProjectTerminals = () =>
+            projectPanelTerminals(
+              projectTerminalsRef.current,
+              normalized,
+            ).filter((file) => !closingTerminals.has(file.id));
           const assertWorkspaceReady = () => {
             // A removal can leave an empty replacement chat. Keep any new
-            // work or file panes opened while an earlier deletion awaited IO.
-            const currentSessions = sessionsRef.current;
-            const newWork = currentSessions.some((session) => {
-              if (!sameProjectPath(session.cwd, normalized)) return false;
-              const draft = readComposerDraft(session.id);
-              return (
-                session.blocks.length > 0 ||
-                isInFlightSession(session) ||
-                uncertainSessionAgents(session).length > 0 ||
-                !!session.queuedMessages?.length ||
-                !!draft?.text ||
-                !!draft?.attachments.length ||
-                !!session.composerSeed ||
-                !!session.inboxCard ||
-                !!session.noteCard ||
-                !!session.handoffCard
-              );
+            // work or file panes opened while an earlier deletion awaited
+            // IO. Its board and race overviews are views, not work: they
+            // close with the project below.
+            const work = projectOpenWork({
+              sessions: sessionsRef.current,
+              tabs: tabsRef.current,
+              project: normalized,
+              draft: readComposerDraft,
+              terminals: newProjectTerminals(),
             });
-            // Its board and race overviews are views, not work: they close
-            // with the project below.
-            const remainingFiles = openProjectFiles(
-              tabsRef.current,
-              currentSessions,
-              normalized,
-            );
-            if (newWork || remainingFiles.length || hasProjectTerminals()) {
+            if (work.length) {
               throw new Error(
                 "The project still has open work. Save and close its remaining tabs, then retry.",
               );
@@ -10117,6 +10077,7 @@ export default function App({
                 favicon: page.favicon,
                 kept: page.kept,
                 ...(page.agentChat ? { agentChat: page.agentChat } : {}),
+                ...(page.profile ? { profile: page.profile } : {}),
               });
         }
         browserWorkspacesRef.current = next;
@@ -11573,7 +11534,8 @@ export default function App({
         }
         if (!getCrew(path)?.onAt) {
           ensureCrewSaved(path);
-          setCrewSheetPage("add");
+          // Say what the project is first; Pick teammates myself is there.
+          setCrewSheetPage("setup");
           setCrewSheet(path);
           return;
         }
@@ -11772,6 +11734,8 @@ export default function App({
     // The sidebar's own New chat, as its project rows (and the floating
     // sidebar, by name) call it.
     newProjectTask: sidebarProps.onNewProjectTask ?? onNewProjectTask,
+    selectProject: onSelectProject,
+    currentProject: () => projectCwdRef.current,
     submit: (sessionId, text) => void onSubmit(sessionId, text, []),
     stop: (sessionId) => stopSessionRef.current(sessionId),
     utilities: {
@@ -11799,6 +11763,15 @@ export default function App({
         ),
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
+    // As Delete judges it, its panel terminals aside (Delete closes those).
+    openWork: (path) =>
+      projectOpenWork({
+        sessions: sessionsRef.current,
+        tabs: tabsRef.current,
+        project: path,
+        draft: readComposerDraft,
+        terminals: [],
+      }),
     discussion: discussions.host,
     projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,
@@ -11821,7 +11794,14 @@ export default function App({
     openWebLink: onOpenWebLink,
     board: true,
     ...(botsAvailable()
-      ? { crew: { turnOn: turnOnCrewFor, readFile: readTextFile } }
+      ? {
+          crew: {
+            turnOn: turnOnCrewFor,
+            readFile: readTextFile,
+            newTeam: onAddCrew,
+            listDir,
+          },
+        }
       : {}),
     loneTab: {
       select: onSelectSurface,
@@ -12832,6 +12812,7 @@ export default function App({
                                                   project={project}
                                                   tabId={tab.id}
                                                   url={tab.url}
+                                                  profile={tab.profile}
                                                   attachedNativeId={
                                                     detached.nativeBrowserIds[
                                                       id
@@ -13238,6 +13219,7 @@ export default function App({
                 )
               }
             />
+            <SaveProblemNotice />
             {whatsNewVersion ? (
               <LazyViewSlot label="release notes" quiet>
                 <WhatsNewDialog

@@ -146,6 +146,50 @@ function finalFence(
 const finalReviewFence = (text: string) => finalFence(text, REVIEW_FENCE);
 
 /**
+ * The one top-level `name` block anywhere in a reply, as its body and the
+ * reply without it. Null when there is none or more than one. For a block
+ * that may sit before or after a reply's closing block (a crew member's
+ * notes), where `finalFencedBlock` would be too strict.
+ */
+export function onlyFencedBlock(
+  text: string,
+  name: string,
+): { body: string; without: string } | null {
+  const found = fencedBlocksNamed(text, name);
+  return found.bodies.length === 1
+    ? { body: found.bodies[0]!, without: found.without }
+    : null;
+}
+
+/**
+ * Every top-level `name` block in a reply, in order, and the reply with all
+ * of them taken out (so whatever else it ends with still reads as its
+ * closing block).
+ */
+export function fencedBlocksNamed(
+  text: string,
+  name: string,
+): { bodies: string[]; without: string } {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const fences = topLevelFences(lines).filter(fenceNamed(name.toLowerCase()));
+  if (!fences.length) return { bodies: [], without: text };
+  const kept: string[] = [];
+  let at = 0;
+  for (const fence of fences) {
+    kept.push(...lines.slice(at, fence.start));
+    at = fence.end + 1;
+  }
+  kept.push(...lines.slice(at));
+  return {
+    bodies: fences.map((fence) => fence.body),
+    without: kept
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  };
+}
+
+/**
  * The one fenced `name` block that ends a reply, as its body and the reply
  * before it; null by the same rules as a review card (see `finalFence`).
  * Crews read their bots' handoff notes and verdicts this way.

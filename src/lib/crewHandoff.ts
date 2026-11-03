@@ -1,10 +1,19 @@
-import { finalFencedBlock, reviewUrl } from "./automationReview";
 import {
+  fencedBlocksNamed,
+  finalFencedBlock,
+  onlyFencedBlock,
+  reviewUrl,
+} from "./automationReview";
+import {
+  CREW_MEMORY_MAX,
+  CREW_ROLE_INFO,
+  CREW_ROLE_ORDER,
   readFinding,
   readRan,
   type CrewFinding,
   type CrewHandoff,
   type CrewIdeaSize,
+  type CrewRole,
   type CrewVerdict,
 } from "./crews";
 import { cleanUntrusted } from "./memoryKeeperSafety";
@@ -25,6 +34,29 @@ export const IDEAS_FENCE = "aven-ideas";
 export const GOAL_FENCE = "aven-goal";
 /** Work a member queues from its own chat, through Aven: cards, or a goal. */
 export const TASKS_FENCE = "aven-tasks";
+/** The Researcher's findings for a research card. */
+export const FINDINGS_FENCE = "aven-findings";
+/** A member's notes about the project, rewritten in full (see `parseMemory`). */
+export const MEMORY_FENCE = "aven-memory";
+/** A team proposed from your description of the project (see `parseSetup`). */
+export const SETUP_FENCE = "aven-setup";
+/** The Designer's mock-up for a mock-up card: its file and a note. */
+export const MOCKUP_FENCE = "aven-mockup";
+
+/**
+ * The Designer's block: the mock-up's path (inside its folder, relative to
+ * the copy) and a one-line note. Null without the block or a file.
+ */
+export function parseMockup(
+  text: string,
+): { file: string; note: string } | null {
+  const block = finalFencedBlock(text, MOCKUP_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const file = botLine(fields.file, 300).replace(/^\.\//, "");
+  if (!file) return null;
+  return { file, note: botLine(fields.note, 300) };
+}
 /** Every fence a crew's bot ends a reply with. */
 export const CREW_FENCES = [
   HANDOFF_FENCE,
@@ -32,7 +64,95 @@ export const CREW_FENCES = [
   IDEAS_FENCE,
   GOAL_FENCE,
   TASKS_FENCE,
+  FINDINGS_FENCE,
+  MOCKUP_FENCE,
+  MEMORY_FENCE,
 ] as const;
+
+/**
+ * A member's notes from its reply: the one `aven-memory` block, wherever it
+ * sits, as plain lines with secrets redacted, lines aimed at a model
+ * dropped and the rest clipped. Null without the block, or with nothing
+ * left in it. A member's own words about the project: data, kept for it
+ * alone and read back as notes.
+ */
+export function parseMemory(text: string): string | null {
+  // Written twice, the last is the one it meant.
+  const body = fencedBlocksNamed(text, MEMORY_FENCE).bodies.at(-1);
+  if (body === undefined) return null;
+  const clean = cleanUntrusted(body, CREW_MEMORY_MAX);
+  return clean || null;
+}
+
+/** A reply without its notes blocks, for the rest of Aven to read as before. */
+export function withoutMemory(text: string): string {
+  return fencedBlocksNamed(text, MEMORY_FENCE).without;
+}
+
+/** A teammate a setup proposes: a known role and a one-line job. */
+export type SetupTeammate = { role: CrewRole; job: string };
+
+/** A first idea a setup proposes; `by: "researcher"` is a question to read up on. */
+export type SetupIdea = { title: string; by?: "researcher" | "designer" };
+
+export type TeamSetup = { teammates: SetupTeammate[]; ideas: SetupIdea[] };
+
+/** The most first ideas a setup proposes. */
+export const SETUP_IDEAS_MAX = 6;
+const SETUP_ROLES = new Set<CrewRole>(CREW_ROLE_ORDER);
+
+/**
+ * A team proposed from your words: its one `aven-setup` block, as known
+ * roles (one of each, a Builder always, unknown ones dropped) with a job
+ * each, and at most six first ideas. A model's words: cleaned like any
+ * bot's, and nothing here starts anything until you press Start.
+ */
+export function parseSetup(text: string): TeamSetup | null {
+  const block = onlyFencedBlock(text, SETUP_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const teammates: SetupTeammate[] = [];
+  for (const item of Array.isArray(fields.teammates) ? fields.teammates : []) {
+    const raw =
+      typeof item === "string"
+        ? { role: item }
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+    const role =
+      typeof raw?.role === "string" ? raw.role.trim().toLowerCase() : "";
+    if (!SETUP_ROLES.has(role as CrewRole)) continue;
+    if (teammates.some((mate) => mate.role === role)) continue;
+    const job = botLine(raw?.job, 120) || CREW_ROLE_INFO[role as CrewRole].job;
+    teammates.push({ role: role as CrewRole, job });
+  }
+  if (!teammates.some((mate) => mate.role === "builder"))
+    teammates.unshift({ role: "builder", job: CREW_ROLE_INFO.builder.job });
+  teammates.sort(
+    (a, b) => CREW_ROLE_ORDER.indexOf(a.role) - CREW_ROLE_ORDER.indexOf(b.role),
+  );
+  const ideas: SetupIdea[] = [];
+  for (const item of Array.isArray(fields.ideas) ? fields.ideas : []) {
+    const raw =
+      typeof item === "string"
+        ? { title: item }
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+    const title = botLine(raw?.title, 120);
+    if (!title) continue;
+    if (ideas.some((idea) => idea.title.toLowerCase() === title.toLowerCase()))
+      continue;
+    const said = typeof raw?.by === "string" ? raw.by.trim().toLowerCase() : "";
+    const by =
+      said === "researcher" || said === "designer"
+        ? (said as "researcher" | "designer")
+        : undefined;
+    ideas.push({ title, ...(by ? { by } : {}) });
+    if (ideas.length >= SETUP_IDEAS_MAX) break;
+  }
+  return { teammates, ideas };
+}
 
 /** At most this many must-fix items count; more read as notes for later. */
 export const MUST_FIX_MAX = 5;
@@ -379,6 +499,82 @@ export function parseGoal(
     met,
     summary: botLine(fields.summary, 300),
     next: met ? [] : tasksFrom(fields.next, GOAL_CARDS_PER_TURN),
+  };
+}
+
+/** The most findings, and the most ideas, one research turn hands back. */
+export const FINDINGS_PER_TURN = 10;
+export const FINDING_IDEAS_PER_TURN = 5;
+
+export type ResearchFindings = {
+  summary: string;
+  findings: { text: string; source?: string }[];
+  ideas: string[];
+  /** Distinct links the findings cite, counted by Aven. */
+  sources: number;
+};
+
+/** Distinct links among the findings' sources: what the Researcher cites. */
+export function countSources(findings: readonly { source?: string }[]): number {
+  return new Set(
+    findings
+      .map((finding) => finding.source?.toLowerCase())
+      .filter((source): source is string => /^https?:\/\//.test(source ?? "")),
+  ).size;
+}
+
+/**
+ * The Researcher's findings: a summary, numbered findings each with where
+ * it was read (a link, or a project file in words), and ideas it proposes.
+ * Null when its reply ends without the block. Every field is a bot's words:
+ * clipped and kept as data.
+ */
+export function parseFindings(text: string): ResearchFindings | null {
+  const block = finalFencedBlock(text, FINDINGS_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const findings: ResearchFindings["findings"] = [];
+  for (const item of Array.isArray(fields.findings) ? fields.findings : []) {
+    const raw =
+      typeof item === "string"
+        ? { text: item }
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+    if (!raw) continue;
+    const body = botLine(raw.text, 400);
+    if (!body) continue;
+    // A link stays a link; anything else ("project file", "src/app.ts") is a
+    // short label.
+    const link = reviewUrl(raw.source ?? raw.url);
+    const label = link ? "" : botLine(raw.source, 120);
+    const source = link ?? label;
+    findings.push({ text: body, ...(source ? { source } : {}) });
+    if (findings.length >= FINDINGS_PER_TURN) break;
+  }
+  const ideas: string[] = [];
+  for (const item of Array.isArray(fields.ideas) ? fields.ideas : []) {
+    const title = botLine(
+      typeof item === "string"
+        ? item
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>).title
+          : "",
+      120,
+    );
+    if (!title) continue;
+    if (ideas.some((idea) => idea.toLowerCase() === title.toLowerCase()))
+      continue;
+    ideas.push(title);
+    if (ideas.length >= FINDING_IDEAS_PER_TURN) break;
+  }
+  const summary = botLine(fields.summary, 600);
+  if (!summary && !findings.length) return null;
+  return {
+    summary,
+    findings,
+    ideas,
+    sources: countSources(findings),
   };
 }
 

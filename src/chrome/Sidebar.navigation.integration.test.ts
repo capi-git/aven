@@ -161,11 +161,8 @@ describe("sidebar workspace navigation", () => {
   it("never offers to delete Personal from its right-click menu", async () => {
     await act(async () => root.render(createElement(ProjectNavigationSidebar)));
     await rightClick(button("Personal workspace"));
-    const remove = item(actions("Personal"), "Delete workspace…");
-    expect(
-      remove?.disabled ?? remove?.getAttribute("aria-disabled"),
-    ).toBeTruthy();
-    expect(item(actions("Personal"), "Switch to")).toBeUndefined();
+    // Nothing to offer on the workspace you're in, so no menu at all.
+    expect(actions("Personal")).toBeNull();
   });
 
   it("opens workspace actions from the header and from a switcher row", async () => {
@@ -309,7 +306,7 @@ describe("sidebar workspace navigation", () => {
     await click(trigger);
     expect(menu()).not.toBeNull();
     expect(menu()!.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
-    expect(document.querySelector('[aria-label^="Customize"]')).toBeNull();
+    expect(document.querySelector('[aria-label^="Customise"]')).toBeNull();
     expect(document.querySelector('input[type="color"]')).toBeNull();
     const work = [
       ...menu()!.querySelectorAll<HTMLButtonElement>("button"),

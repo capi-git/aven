@@ -23,7 +23,8 @@ export const SECURITY_INSTRUCTIONS = [
 ].join("\n");
 
 /** The roles a ready-made member can have (the Fixer is the project's bot). */
-export type CrewPresetRole = "builder" | "checker" | "security" | "scout";
+export type CrewPresetRole =
+  "builder" | "checker" | "security" | "scout" | "researcher" | "designer";
 
 export type CrewPreset = {
   /** Saved on the member, so the gallery knows it's in the crew. */
@@ -64,26 +65,20 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
       "Look for small, safe improvements: rough edges, missing empty states, small bugs. Skip anything big or risky.",
   },
   {
-    key: "designer",
-    role: "builder",
-    mark: "designer",
-    label: "Designer",
-    job: "Builds UI cards; follows your design tokens",
+    key: "researcher",
+    role: "researcher",
+    mark: "researcher",
+    job: "Reads up on a question and writes findings you can turn into ideas",
     instructions:
-      "Follow the project's design tokens and existing components. Check light and dark themes and narrow widths. Keep words on screen plain.",
-    scope: [
-      "src/components",
-      "src/styles",
-      "src/ui",
-      "public",
-      "**/*.css",
-      "**/*.scss",
-      "**/*.tsx",
-      "**/*.jsx",
-      "**/*.vue",
-      "**/*.svelte",
-      "**/*.html",
-    ],
+      "Answer the question with what you can verify: read the project first, then the web when you have it. Give every finding its source, say what you couldn't confirm, and propose only small ideas.",
+  },
+  {
+    key: "designer",
+    role: "designer",
+    mark: "designer",
+    job: "Mocks up a screen or a look before anyone builds it",
+    instructions:
+      "Draw the project's own look: read its styles, tokens and components first, and keep to them. Show real states (empty, loading, error, full), real words, no lorem ipsum. One self-contained HTML file, everything inline.",
   },
   {
     key: "tester",

@@ -82,7 +82,7 @@ export function BotSettingsSheet({
           }}
         />
       }
-      description={`${project}'s teammate`}
+      description={`${project}'s bot`}
       size="sm"
       className="bot-sheet"
       leading={

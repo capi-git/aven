@@ -200,6 +200,16 @@ jobs:
       - run: npm ci
       - name: Run the real-app check
         run: python3 -B scripts/dev-aven.py --smoke
+      # The throwaway folder is gone with the runner: the check copies its
+      # logs and result to target/smoke, so a failure can be read.
+      - name: Upload the check's logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: real-app-check-logs
+          path: target/smoke/
+          if-no-files-found: warn
+          retention-days: 7
 
   windows:
     needs: validate-source

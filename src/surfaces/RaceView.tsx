@@ -287,7 +287,7 @@ function RaceBody({
           label: currentPath,
           binary: stats.binary,
           emptyMessage: unreadable
-            ? "No text preview for this file."
+            ? (result.note ?? "No text preview for this file.")
             : undefined,
           additions: unified?.additions ?? stats.additions,
           deletions: unified?.deletions ?? stats.deletions,

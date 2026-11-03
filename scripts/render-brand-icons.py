@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Render Aven's mark and app icon source images.
 
-The mark is the Pixel A: a 7 x 8 pixel-art capital A in off-white with one
-accent-blue pixel at the apex, the summit. It sits on a charcoal glass tile: a
-soft top-to-bottom gradient, a sheen on the upper half and a rim that catches
-light along the top edge, matching macOS dark icons.
+The mark is Rise: a 5 x 5 staircase of round off-white dots, one more on each
+row down, climbing to the top-left. Icons of 16 px and under draw four steps
+in bigger dots instead, so the steps stay countable. On the app icon the
+mark sits on a tile of
+smoky glass: dark grey at 70% opacity so the wallpaper shows through, a sheen
+that lightens the top, a thin bright rim along the top edge, a soft shadow
+inside the bottom and a soft drop shadow, like macOS icons on glass. The dots
+carry a faint white glow there; in the interface they are plain.
 
-Every image is drawn at its own output size. The tile is supersampled, but the
-glyph's cells are exact rectangles snapped to whole pixels, so the A stays
-crisp at every size instead of being blurred by a downscale. Outputs:
+Every image is drawn at its own output size, supersampled, so the tile's
+corners and the dots stay smooth at every size instead of being resampled
+from a larger one. Outputs:
 
 - public/aven-mark.png and public/aven.png (256 px tiles for the interface)
-- public/aven-mark.svg (the browser's crisp 14 px fallback tab icon)
+- public/aven-mark.svg (the browser's 14 px fallback tab icon)
 - target/brand/app-icon-1024.png (source for `npx tauri icon`)
 - src-tauri/macos/AppIcon.icon/Assets/icon.png (1024 px glyph layer)
 
@@ -19,7 +23,7 @@ Run from the repository root, then regenerate the bundle icons with
 `npx tauri icon target/brand/app-icon-1024.png -o src-tauri/icons` and run
 this script again with `--bundle`. That redraws each desktop bundle PNG at its
 own size and rebuilds `icon.icns` (with `iconutil`, macOS only) and
-`icon.ico`, replacing Tauri's resampled copies, which soften the pixels.
+`icon.ico`, replacing Tauri's resampled copies.
 """
 import argparse
 import io
@@ -34,29 +38,36 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 ICONS = ROOT / "src-tauri/icons"
-SCALE = 4  # supersampling factor for the tile
-TOP = (46, 46, 50)
-BOTTOM = (12, 12, 14)
-WHITE = (242, 242, 240, 255)  # #f2f2f0
-BLUE = (87, 181, 255, 255)  # #57b5ff, Aven's accent
-# The Pixel A, one character per cell: "#" white, "B" the blue summit. Keep it
-# in step with AVEN_MARK_ROWS in src/lib/avenMark.ts.
-PIXEL_A = (
-    "...B...",
-    "..###..",
-    ".##.##.",
-    ".#...#.",
-    "#######",
-    "##...##",
-    "#.....#",
-    "#.....#",
+SCALE = 4  # supersampling factor
+GLASS = (42, 43, 48)  # #2a2b30
+GLASS_ALPHA = 0.70
+WHITE = (242, 242, 240)  # #f2f2f0
+# Rise, one character per cell: "#" a lit dot. Keep it in step with
+# AVEN_MARK_ROWS in src/lib/avenMark.ts.
+RISE = (
+    "#....",
+    "##...",
+    "###..",
+    "####.",
+    "#####",
 )
-COLUMNS, ROWS = len(PIXEL_A[0]), len(PIXEL_A)
-# Glyph width as a share of the tile width: 63 px in a 120 px tile in the
-# approved concept. The interface tile uses a slightly heavier A because it is
-# usually shown small.
-APP_SHARE = 0.525
+# Four steps for icons of 16 px and under, where five dots a row would blur.
+RISE_SMALL = (
+    "#...",
+    "##..",
+    "###.",
+    "####",
+)
+SMALL_ICON = 16
+# The mark's width as a share of the tile's, and a dot's diameter as a share
+# of its cell. Both grow as the tile shrinks (see `glyph_metrics`) so the
+# stairs still read at Dock and tab sizes.
+APP_SHARE = 0.53
 INTERFACE_SHARE = 0.56
+DOT = 0.68
+# The in-app mark and the browser's fallback icon draw the same dot, 0.68 of
+# a cell (AVEN_MARK_DOT_RADIUS in src/lib/avenMark.ts).
+SVG_DOT_RADIUS = 0.34
 # Sizes in each bundle container, in the order Tauri writes them.
 ICO_SIZES = (32, 16, 24, 48, 64, 256)
 ICONSET = {
@@ -73,160 +84,173 @@ ICONSET = {
 }
 
 
-def column(size, values):
-    """A full-canvas image whose rows follow `values(t)` for t in [0, 1]."""
-    strip = Image.new("L", (1, size))
-    for y in range(size):
-        strip.putpixel((0, y), max(0, min(255, round(values(y / (size - 1))))))
-    return strip.resize((size, size))
+def ramp(n, box, values):
+    """An n x n "L" image from `values(u, v)`, u and v across and down `box`.
+
+    Sampled on a coarse grid and resized, so a smooth gradient costs little
+    even on a 4096 px canvas.
+    """
+    samples = 96
+    left, top, right, bottom = box
+    width, height = right - left, bottom - top
+    data = []
+    for j in range(samples):
+        y = (j + 0.5) / samples * n
+        v = min(1, max(0, (y - top) / height))
+        for i in range(samples):
+            x = (i + 0.5) / samples * n
+            u = min(1, max(0, (x - left) / width))
+            data.append(max(0, min(255, round(255 * values(u, v)))))
+    strip = Image.new("L", (samples, samples))
+    strip.putdata(data)
+    return strip.resize((n, n), Image.BILINEAR)
+
+
+def smoothstep(edge0, edge1, x):
+    t = min(1, max(0, (x - edge0) / (edge1 - edge0)))
+    return t * t * (3 - 2 * t)
 
 
 def tile(n, box, radius, shadow=True):
-    """Charcoal glass tile inside `box` on an n x n transparent canvas."""
+    """Smoky glass tile inside `box` on an n x n transparent canvas."""
     out = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    side = box[2] - box[0]
     if shadow:
         drop = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-        offset = n * 0.012
+        offset = side * 0.035
         ImageDraw.Draw(drop).rounded_rectangle(
-            (box[0], box[1] + offset, box[2], box[3] + offset), radius=radius, fill=(0, 0, 0, 150)
+            (box[0], box[1] + offset, box[2], box[3] + offset), radius=radius, fill=(0, 0, 0, 125)
         )
-        out = Image.alpha_composite(out, drop.filter(ImageFilter.GaussianBlur(n * 0.014)))
+        out = Image.alpha_composite(out, drop.filter(ImageFilter.GaussianBlur(side * 0.045)))
     body = Image.new("L", (n, n), 0)
     ImageDraw.Draw(body).rounded_rectangle(box, radius=radius, fill=255)
-    top, bottom = box[1], box[3]
-    span = bottom - top
 
-    def within(y):
-        return min(1, max(0, (y * (n - 1) - top) / span))
+    def masked(color, alpha):
+        layer = Image.new("RGBA", (n, n), color + (0,))
+        layer.putalpha(ImageChops.multiply(alpha, body))
+        return layer
 
-    fill = Image.merge(
-        "RGB",
-        [column(n, lambda t, i=i: TOP[i] + (BOTTOM[i] - TOP[i]) * within(t)) for i in range(3)],
+    # The glass itself: dark grey the wallpaper shows through.
+    glass = masked(GLASS, Image.new("L", (n, n), round(255 * GLASS_ALPHA)))
+    # Sheen: white at the top, gone by 45% of the way down, slanted a little
+    # (CSS `linear-gradient(165deg, ...)`).
+    sheen = masked(
+        (255, 255, 255),
+        ramp(n, box, lambda u, v: 0.28 * max(0, 1 - (0.2588 * u + 0.9659 * v) / 1.2247 / 0.45)),
     )
-    layer = Image.new("RGBA", (n, n), (0, 0, 0, 0))
-    layer.paste(fill, (0, 0), body)
-    # Sheen: a faint white wash over the upper half.
-    sheen = Image.new("RGBA", (n, n), (255, 255, 255, 0))
-    sheen.putalpha(
-        ImageChops.multiply(column(n, lambda t: 26 * max(0, 1 - within(t) / 0.55)), body)
-    )
-    layer = Image.alpha_composite(layer, sheen)
-    # Rim: bright along the top edge, fading towards the bottom.
+    # A soft shadow inside the bottom edge, so the glass has depth.
+    inner = masked((0, 0, 0), ramp(n, box, lambda u, v: 0.18 * smoothstep(0.55, 1, v)))
+    # Rim: a thin light edge, brightest along the top.
     rim = Image.new("L", (n, n), 0)
-    ImageDraw.Draw(rim).rounded_rectangle(box, radius=radius, outline=255, width=max(2, round(n * 0.0045)))
+    ImageDraw.Draw(rim).rounded_rectangle(box, radius=radius, outline=255, width=max(2, round(side * 0.009)))
     rim_layer = Image.new("RGBA", (n, n), (255, 255, 255, 0))
-    rim_layer.putalpha(ImageChops.multiply(rim, column(n, lambda t: 95 - 70 * within(t))))
-    return Image.alpha_composite(out, Image.alpha_composite(layer, rim_layer))
+    rim_layer.putalpha(ImageChops.multiply(rim, ramp(n, box, lambda u, v: 0.6 - 0.34 * v)))
+    for layer in (glass, sheen, inner, rim_layer):
+        out = Image.alpha_composite(out, layer)
+    return out
 
 
-def layout(size, tile_side, share):
-    """Snap the tile and glyph to whole pixels on a `size` canvas.
+def glyph_metrics(tile_side, share, rows):
+    """The mark's share of the tile and a dot's share of its cell at this size.
 
-    Returns the tile box, the cell size and the glyph's top-left corner. The
-    tile side is rounded to the glyph width's parity so the A centres exactly
-    across. Down the tile the A sits a quarter cell high, because its lone
-    summit pixel makes it look low when centred by its bounds; an odd
-    remainder at small sizes leaves it half a pixel high instead.
+    With five steps both grow as the tile shrinks below 96 px (the mark up to
+    0.1 more, the dot up to 0.06 more at 16 px), so the stairs stay legible
+    where the dots would be a pixel wide. The four-step mark has its own
+    fixed, bigger proportions.
     """
-    cell = max(1, round(tile_side * share / COLUMNS))
-    width, height = COLUMNS * cell, ROWS * cell
-    side = round(tile_side)
-    if (side - width) % 2:
-        side += 1 if tile_side > side else -1
-    left = top = (size - side) // 2
-    lift = cell // 4
-    origin = (left + (side - width) // 2, top + (side - height) // 2 - lift)
-    return (left, top, left + side, top + side), cell, origin
+    if rows is RISE_SMALL:
+        return 0.66, 0.72
+    small = max(0.0, min(1.0, (96 - tile_side) / 80))
+    return share + 0.1 * small, DOT + 0.06 * small
 
 
-def draw_glyph(image, cell, origin, glow=False):
-    """The Pixel A with its cells as exact rectangles; `glow` adds a soft halo."""
+def draw_dots(image, box, share, glow=False, rows=RISE):
+    """Rise centred in `box`, round dots; `glow` adds a soft white halo."""
+    side = box[2] - box[0]
+    share, dot = glyph_metrics(side / SCALE, share, rows)
+    width = side * share
+    cell = width / len(rows)
+    left = box[0] + (side - width) / 2
+    top = box[1] + (side - width) / 2
+    radius = cell * dot / 2
     layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    for row, cells in enumerate(PIXEL_A):
+    for row, cells in enumerate(rows):
         for col, mark in enumerate(cells):
-            if mark == ".":
+            if mark != "#":
                 continue
-            x, y = origin[0] + col * cell, origin[1] + row * cell
-            draw.rectangle((x, y, x + cell - 1, y + cell - 1), fill=BLUE if mark == "B" else WHITE)
+            cx, cy = left + (col + 0.5) * cell, top + (row + 0.5) * cell
+            draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=WHITE + (255,))
     if glow:
-        halo = layer.copy()
-        halo.putalpha(halo.getchannel("A").point(lambda a: a * 50 // 255))
-        image = Image.alpha_composite(image, halo.filter(ImageFilter.GaussianBlur(image.width * 0.02)))
+        for blur, strength in ((radius * 0.8, 0.9), (radius * 2.8, 0.5)):
+            halo = layer.copy()
+            halo.putalpha(halo.getchannel("A").point(lambda a, s=strength: round(a * s)))
+            image = Image.alpha_composite(image, halo.filter(ImageFilter.GaussianBlur(blur)))
     return Image.alpha_composite(image, layer)
 
 
-def tile_image(size, box, radius, shadow):
-    """The tile rendered at `size`, supersampled so its corners stay smooth."""
+def render(size, tile_side, radius_share, share, shadow, glow):
+    """A tile with the mark on it, drawn at `size` x SCALE and downsampled."""
     n = size * SCALE
-    scaled = tuple(v * SCALE for v in box)
-    # Pillow boxes include their far edge; stop one subpixel short so the
-    # tile's straight sides land exactly on pixel boundaries.
-    body = tile(n, (scaled[0], scaled[1], scaled[2] - 1, scaled[3] - 1), radius * SCALE, shadow)
-    return body.resize((size, size), Image.LANCZOS)
+    side = tile_side * SCALE
+    left = (n - side) / 2
+    box = (left, left, left + side, left + side)
+    image = tile(n, box, side * radius_share, shadow)
+    rows = RISE_SMALL if size <= SMALL_ICON else RISE
+    image = draw_dots(image, box, share, glow, rows)
+    return image.resize((size, size), Image.LANCZOS)
 
 
 def app_icon(size):
     """macOS icon grid: an 824 of 1024 px rounded square with a drop shadow."""
-    box, cell, origin = layout(size, size * 824 / 1024, APP_SHARE)
-    side = box[2] - box[0]
-    image = tile_image(size, box, side * 185 / 824, shadow=True)
-    return draw_glyph(image, cell, origin, glow=size >= 128)
+    return render(size, size * 824 / 1024, 185 / 824, APP_SHARE, shadow=True, glow=size >= 128)
 
 
 def interface_mark(size):
-    """Interface tile: nearly full bleed, no shadow, a heavier glyph."""
-    box, cell, origin = layout(size, size * 0.94, INTERFACE_SHARE)
-    side = box[2] - box[0]
-    image = tile_image(size, box, side * 0.245, shadow=False)
-    return draw_glyph(image, cell, origin, glow=size >= 128)
+    """Interface tile: nearly full bleed, no shadow, a slightly bigger mark."""
+    return render(size, size * 0.94, 0.245, INTERFACE_SHARE, shadow=False, glow=size >= 128)
 
 
 def glyph_layer(size):
-    """Icon Composer layer: the glyph alone; icon.json supplies the fill.
+    """Icon Composer layer: the dots alone; icon.json supplies the fill.
 
-    Icon Composer's canvas is the whole tile, so the A takes the same share
-    of the canvas as it takes of the tile in the app icon.
+    Icon Composer's canvas is the whole tile, so the mark takes the same
+    share of the canvas as it takes of the tile in the app icon.
     """
-    _, cell, origin = layout(size, size, APP_SHARE)
-    return draw_glyph(Image.new("RGBA", (size, size), (0, 0, 0, 0)), cell, origin)
+    n = size * SCALE
+    image = draw_dots(Image.new("RGBA", (n, n), (0, 0, 0, 0)), (0, 0, n, n), APP_SHARE)
+    return image.resize((size, size), Image.LANCZOS)
 
 
-def glyph_path(mark, dx=0, dy=0):
-    """Cells of one colour as an SVG path of unit squares, one run per row."""
-    path = ""
-    for y, cells in enumerate(PIXEL_A):
-        x = 0
-        while x < len(cells):
-            if cells[x] != mark:
-                x += 1
-                continue
-            run = 1
-            while x + run < len(cells) and cells[x + run] == mark:
-                run += 1
-            path += f"M{x + dx} {y + dy}h{run}v1h-{run}z"
-            x += run
-    return path
+def dot_circles(radius):
+    """The lit cells as SVG circles over the grid, one unit a cell."""
+    return "".join(
+        f'<circle cx="{x + 0.5}" cy="{y + 0.5}" r="{radius}"/>'
+        for y, cells in enumerate(RISE)
+        for x, mark in enumerate(cells)
+        if mark == "#"
+    )
 
 
 def fallback_svg():
-    """The browser's fallback tab icon, shown at 14 px with one-pixel cells.
+    """The browser's fallback tab icon, shown at 14 px.
 
-    A 7-cell A cannot centre on whole pixels in an even tile, so the tile is
-    13 px in the corner of the 14 px box: every edge and cell then lands on a
-    whole pixel at 1x as well as 2x, and the A sits half a pixel high.
+    The glass tile fills the box; the mark spans 9 of the 14 px, so its five
+    columns are 1.8 px apart with dots just over a pixel wide.
     """
     hex_color = "#{:02x}{:02x}{:02x}".format
+    tile_attrs = 'x="0.5" y="0.5" width="13" height="13" rx="3.2"'
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">'
-        '<defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0" stop-color="{hex_color(*TOP)}"/>'
-        f'<stop offset="1" stop-color="{hex_color(*BOTTOM)}"/>'
+        '<defs><linearGradient id="s" x1="0" y1="0" x2="0.26" y2="0.97">'
+        '<stop offset="0" stop-color="#fff" stop-opacity="0.28"/>'
+        '<stop offset="0.45" stop-color="#fff" stop-opacity="0"/>'
         "</linearGradient></defs>"
-        '<rect width="13" height="13" rx="3.2" fill="url(#t)"/>'
-        '<g shape-rendering="crispEdges" transform="translate(3 2)">'
-        f'<path fill="{hex_color(*WHITE[:3])}" d="{glyph_path("#")}"/>'
-        f'<path fill="{hex_color(*BLUE[:3])}" d="{glyph_path("B")}"/>'
+        f'<rect {tile_attrs} fill="{hex_color(*GLASS)}" fill-opacity="{GLASS_ALPHA}"/>'
+        f'<rect {tile_attrs} fill="url(#s)"/>'
+        f'<rect {tile_attrs} fill="none" stroke="#fff" stroke-opacity="0.42"/>'
+        f'<g fill="{hex_color(*WHITE)}" transform="translate(2.5 2.5) scale(1.8)">'
+        f"{dot_circles(SVG_DOT_RADIUS)}"
         "</g></svg>\n"
     )
 

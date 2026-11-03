@@ -3,6 +3,8 @@ import {
   subscribeActivity,
   type ActivityEntry,
 } from "./activity";
+import { parseMemory, withoutMemory } from "./crewHandoff";
+import { getCrew, updateCrew, withMemberMemory } from "./crews";
 import { subscribeDevServerStops, type DevServerStop } from "./devServerStops";
 import { errorText, logError } from "./errors";
 import type { SessionActivityEvent } from "./notifications";
@@ -151,6 +153,30 @@ function lastUserBlockId(session: Session | undefined): string | undefined {
     if (block.role === "user") return block.id;
   }
   return undefined;
+}
+
+/** The Fixer's notes: on its crew member, when the project has a crew. */
+function fixerMemory(path: string): { memory?: string } {
+  const memory = getCrew(path)?.members.find(
+    (member) => member.role === "fixer",
+  )?.memory;
+  return memory ? { memory } : {};
+}
+
+/** The Fixer rewrote its notes: kept on its crew member, for it alone. */
+function rememberFixer(path: string, reply: string, now: number) {
+  let memory: string | null;
+  try {
+    memory = parseMemory(reply);
+  } catch (error) {
+    logError("Fixer notes", error);
+    return;
+  }
+  if (!memory) return;
+  updateCrew(path, (crew) => {
+    const fixer = crew.members.find((member) => member.role === "fixer");
+    return fixer ? withMemberMemory(crew, fixer.id, memory, now) : crew;
+  });
 }
 
 function lastReply(session: Session | undefined): string {
@@ -443,6 +469,7 @@ export class BotRunner {
         sync: ready.sync,
         canFix: ready.bot.can.fix,
         brief: this.briefFor(ready.bot, chat.id),
+        ...fixerMemory(bot.path),
       });
       turn.turnId = this.newId();
       const sent = this.deps.send(chat.id, text, {
@@ -625,6 +652,7 @@ export class BotRunner {
           text,
           sync: ready?.sync ?? null,
           brief: this.briefFor(ready?.bot ?? bot, sessionId),
+          ...fixerMemory(bot.path),
         });
       },
       onSettled: (outcome) => void this.afterTurn(bot.path, turn, outcome),
@@ -720,8 +748,13 @@ export class BotRunner {
       const turnId = turn.turnId ?? lastUserBlockId(chat);
       if (!turnId || !this.markHandled(turnId)) return;
       // Its last message: earlier ones in the turn are its working notes.
-      const reply = lastReply(chat) || outcome?.text.trim() || "";
+      const said = lastReply(chat) || outcome?.text.trim() || "";
       const now = this.deps.now();
+      // Its notes, rewritten at the end of a turn that finished, are the
+      // Fixer's own (on its crew member); the rest reads as before.
+      if (outcome?.status !== "failed" && outcome?.status !== "cancelled")
+        rememberFixer(path, said, now);
+      const reply = withoutMemory(said);
       let diff: BotDiff | null = null;
       if (bot.copy && bot.base)
         diff = await this.deps.copy

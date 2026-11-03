@@ -1,0 +1,211 @@
+/* A new team from your words. Neutral surfaces; colour only on the marks. */
+.team-setup {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 22px;
+  padding: 8px 18px 18px;
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+}
+
+/* The sheet is narrower than the Team sheet: a column of words, not tiles. */
+.modal-panel[role="dialog"].team-setup-sheet {
+  width: min(800px, 100% - 24px);
+  margin-inline: auto;
+}
+
+/* Say what it is: Suggest sits inside the box, bottom right. */
+.team-setup-describe {
+  position: relative;
+}
+
+.team-setup-describe [data-crew-setup-suggest] {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
+
+.modal-panel[role="dialog"] .team-setup-text {
+  width: 100%;
+  min-height: 84px;
+  padding: 12px 14px 48px;
+  border-radius: var(--aven-radius-lg);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+}
+
+.team-build-label > span {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Your team: a tile per teammate. */
+.team-setup-tiles {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-setup-tile {
+  --dot-mark-surface: var(--aven-fill-quaternary);
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-xl);
+  background: var(--aven-fill-quaternary, transparent);
+}
+
+.team-setup-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dot-mark.team-setup-tile-mark {
+  width: 22px;
+  height: 22px;
+}
+
+.team-setup-tile-name {
+  flex: 1 1 auto;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.team-setup-tile-job {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.4;
+}
+
+/* × on a tile or a row: quiet until hovered. */
+.team-setup-x {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--aven-muted);
+}
+
+.team-setup-x:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+/* + Add teammate: the roles not in yet, as small buttons. */
+.team-setup-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-setup-add-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.team-setup-add-role {
+  padding: 3px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-fill-quaternary, transparent);
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-label);
+}
+
+.team-setup-add-role:hover {
+  background: var(--aven-hover);
+}
+
+/* First ideas: a row each, the last one the box for your own. */
+.team-setup-ideas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-setup-idea {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 8px 2px 4px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-fill-quaternary, transparent);
+}
+
+.team-setup-idea[data-crew-setup-new-idea] {
+  border-style: dashed;
+  background: transparent;
+}
+
+/* The row is the field: the input inside has no edge, ring or fill of its
+   own (the sheet gives every input one, so this says so with its weight). */
+.modal-panel[role="dialog"] .team-setup-idea-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+}
+
+.modal-panel[role="dialog"] .team-setup-idea-title:focus-visible {
+  outline: none;
+}
+
+.team-setup-idea:focus-within {
+  border-color: color-mix(in srgb, var(--color-content) 32%, transparent);
+}
+
+.team-setup-idea-source {
+  flex: none;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  white-space: nowrap;
+}
+
+.team-setup-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--aven-line);
+}
+
+.team-setup-note {
+  flex: 1 1 240px;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
+}
+
+.team-setup-actions {
+  display: flex;
+  gap: 8px;
+}

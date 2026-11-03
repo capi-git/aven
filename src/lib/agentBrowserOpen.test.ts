@@ -152,6 +152,38 @@ describe("agent browser open", () => {
     expect(create).toHaveBeenCalledOnce();
   });
 
+  it("keeps a sandboxed chat's page in the agents' profile and reuses it", () => {
+    const create = vi.fn(() => "one");
+    const first = openAgentBrowserTab(
+      EMPTY_BROWSER,
+      url,
+      { chat: "bot", profile: "agents" },
+      create,
+    );
+    expect(first.tab).toEqual({
+      id: "one",
+      url,
+      kept: true,
+      agentChat: "bot",
+      profile: "agents",
+    });
+    const again = openAgentBrowserTab(
+      first.workspace,
+      url,
+      { chat: "bot", profile: "agents" },
+      create,
+    );
+    expect(again.tab.id).toBe("one");
+    expect(again.tab.profile).toBe("agents");
+    // Saved and read back, the profile stays; any other value is dropped.
+    expect(
+      normalizeBrowserWorkspace({
+        ...first.workspace,
+        tabs: [first.workspace.tabs[0], { id: "two", url, profile: "Default" }],
+      }).tabs.map((tab) => tab.profile),
+    ).toEqual(["agents", undefined]);
+  });
+
   it("selects the live tab and preserves URL, title and favicon without replacing it", () => {
     const saved = {
       ...EMPTY_BROWSER,

@@ -501,6 +501,31 @@ describe("the team's copy is held while the branch moves", () => {
     expect(await dropStackedCard(PATH, settings, "ideas", NOW)).toBeTruthy();
     expect(getCrew(PATH)!.job).toBeUndefined();
   });
+
+  it("holds the copy while the team is off too, so two moves never overlap", async () => {
+    const [, settings] = await crewWithBatch();
+    updateCrew(PATH, (crew) => ({ ...crew, on: false }));
+    let finish: () => void = () => {};
+    host.discard.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const first = dropStackedCard(PATH, settings, "ideas", NOW);
+    await Promise.resolve();
+    // The lease is written for an off team as well: a second move waits.
+    expect(jobIsLive(getCrew(PATH)!.job, NOW)).toBe(true);
+    expect(await restackCrew(PATH, NOW)).toBe(
+      "The team is at work in its copy. Try again once its turn ends.",
+    );
+    expect(host.restack).not.toHaveBeenCalled();
+    finish();
+    expect(await first).toBeNull();
+    expect(getCrew(PATH)!.job).toBeUndefined();
+    // Off, the runner still never claims it.
+    expect(claimCrewJob(PATH, "runner", NOW)).toBe(false);
+  });
 });
 
 describe("taking a card off the branch", () => {

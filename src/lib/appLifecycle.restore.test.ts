@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   replaceInFlightSessions: vi.fn(),
   restoreSessionCheckout: vi.fn(),
   invoke: vi.fn(),
+  secondary: false,
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
@@ -25,8 +26,9 @@ vi.mock("./harness", () => ({
   forgetHarnessSession: vi.fn(),
   killAllChildren: vi.fn(),
 }));
-vi.mock("./windowTransferBootstrap", () => ({
-  loadWindowTransfer: vi.fn().mockResolvedValue(null),
+vi.mock("./windowLabel", () => ({
+  currentWindowLabel: () => (mocks.secondary ? "window-1" : "main"),
+  isSecondaryWindow: () => mocks.secondary,
 }));
 vi.mock("./fs", async (original) => ({
   ...(await original<typeof import("./fs")>()),
@@ -46,6 +48,7 @@ vi.mock("./sessionStore", async (original) => ({
 beforeEach(() => {
   vi.resetModules();
   vi.resetAllMocks();
+  mocks.secondary = false;
   mocks.getSession.mockResolvedValue(null);
   mocks.loadWorkspaceSnapshot.mockResolvedValue(null);
   mocks.listInFlightSessions.mockResolvedValue([]);
@@ -66,6 +69,36 @@ function savedWorkspace(sessions: Session[]) {
   mocks.loadWorkspaceSnapshot.mockResolvedValue(snapshot);
   return snapshot;
 }
+
+describe("a second window", () => {
+  it("starts empty instead of restoring the main window's chats", async () => {
+    const saved = newSession("cursor", "/project/one");
+    saved.blocks = [{ id: "user", role: "user", text: "Main window's chat" }];
+    savedWorkspace([saved]);
+    mocks.getSession.mockResolvedValue(saved);
+    mocks.secondary = true;
+    const { loadBootWorkspace } = await import("./appLifecycle");
+    const boot = await loadBootWorkspace();
+    expect(boot.resumed).toBeNull();
+    expect(mocks.loadWorkspaceSnapshot).not.toHaveBeenCalled();
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.upsertSession).not.toHaveBeenCalled();
+  });
+
+  it("never writes the saved workspace or the unfinished-chat list on quit", async () => {
+    mocks.secondary = true;
+    const { persistQuitState } = await import("./appLifecycle");
+    const session = newSession("cursor", "/project/two");
+    session.blocks = [{ id: "user", role: "user", text: "Second window" }];
+    const tab = newTab(session.id);
+    await persistQuitState([session], [tab], tab.id, session.cwd, "quit");
+    expect(mocks.upsertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: session.id }),
+    );
+    expect(mocks.saveWorkspaceSnapshot).not.toHaveBeenCalled();
+    expect(mocks.replaceInFlightSessions).not.toHaveBeenCalled();
+  });
+});
 
 describe("safe workspace restoration", () => {
   it("rejects an unread transcript before hydrating or writing any session", async () => {

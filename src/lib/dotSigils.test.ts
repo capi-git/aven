@@ -65,6 +65,7 @@ describe("sigils", () => {
       "checker",
       "security",
       "scout",
+      "researcher",
       "designer",
       "tester",
       "scribe",

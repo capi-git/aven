@@ -1,0 +1,111 @@
+/* The Researcher's findings. Dark and grey; colour only on the mark. */
+
+/* The sheet is wide enough to read a finding and its source on one line. */
+.modal-panel[role="dialog"].crew-findings {
+  width: min(840px, 100% - 24px);
+  margin-inline: auto;
+}
+
+.crew-findings-summary {
+  margin: 0;
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+}
+
+.crew-findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 20px;
+  list-style: decimal;
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
+}
+
+.crew-findings-list li {
+  padding-left: 2px;
+}
+
+.crew-findings-list li::marker {
+  color: var(--aven-muted);
+}
+
+.crew-findings-text {
+  overflow-wrap: anywhere;
+}
+
+/* A source: a small chip after the finding; a link underlines on hover. */
+.crew-findings-source {
+  display: inline-block;
+  max-width: 100%;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-glass-surface, var(--aven-hover));
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-micro);
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.crew-findings-source[data-link]:hover {
+  color: var(--color-content);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.crew-findings-ideas {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-ui-label);
+}
+
+/* Each idea is a row of its own, boxed like a setup idea; the tick has an
+   edge of its own, so it reads on the dark sheet before it is ticked. */
+.crew-findings-idea {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-fill-quaternary, transparent);
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.crew-findings-idea:hover {
+  background: var(--aven-hover);
+}
+
+.crew-findings-idea input {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  appearance: auto;
+  outline: 1px solid var(--aven-line);
+  outline-offset: -1px;
+  border-radius: 3px;
+  accent-color: var(--color-content);
+}
+
+.crew-findings-idea input:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 1px;
+}
+
+.crew-findings-idea input:disabled + span {
+  color: var(--aven-muted);
+}

@@ -238,16 +238,13 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
       {step === "choose" ? (
         <>
           <div className="provider-setup-lead">
-            <h3>Which agent apps would you like to use?</h3>
+            <h3>Which providers would you like to use?</h3>
             <p>
               Choose one or more; you can add others later. Nothing is installed
               until you ask.
             </p>
           </div>
-          <div
-            className="provider-setup-choices"
-            aria-label="Choose agent apps"
-          >
+          <div className="provider-setup-choices" aria-label="Choose providers">
             {HARNESSES.slice(0, 2).map((harness) => (
               <ProviderChoice
                 key={harness}
@@ -264,8 +261,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
               }
             >
               <summary>
-                More agent apps{" "}
-                <ChevronRight className="size-3.5" aria-hidden />
+                More providers <ChevronRight className="size-3.5" aria-hidden />
               </summary>
               <div>
                 {HARNESSES.slice(2).map((harness) => (
@@ -280,7 +276,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
             </details>
           </div>
           <p className="provider-setup-note">
-            Aven runs the agent apps installed on this computer. Your accounts
+            Aven runs the providers installed on this computer. Your accounts
             and usage stay with each app’s maker.
           </p>
           <footer className="provider-setup-footer">
@@ -316,7 +312,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
       {step === "connect" ? (
         <>
           <div className="provider-setup-lead">
-            <h3>Connect your agent apps</h3>
+            <h3>Connect your providers</h3>
             <p>
               Aven checks only the ones you chose. Installing, signing in and a
               test message each start when you ask.
@@ -596,7 +592,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
                   className="provider-setup-primary"
                   onClick={() => setStep("choose")}
                 >
-                  Choose agent apps
+                  Choose providers
                 </button>
               )}
             </div>

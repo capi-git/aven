@@ -146,7 +146,7 @@ async function copyText(text: string) {
   }
 }
 
-function explorerItems(
+export function explorerItems(
   target: MenuTarget,
   clip: Clip | null,
   canOpenTerminal: boolean,
@@ -156,73 +156,63 @@ function explorerItems(
     !clip ||
     (clip.isDir &&
       (pasteParent === clip.path || pasteParent.startsWith(`${clip.path}/`)));
-  return [
-    { kind: "item", id: "new-file", label: "New File" },
-    { kind: "item", id: "new-folder", label: "New Folder" },
+  const isFile = !target.isDir && !target.isRoot;
+  const rows: (ExplorerMenuItem | false)[] = [
+    // New things go in folders, and a terminal opens in one.
+    !isFile && { kind: "item", id: "new-file", label: "New file" },
+    !isFile && { kind: "item", id: "new-folder", label: "New folder" },
+    !target.isRoot && {
+      kind: "item",
+      id: "rename",
+      label: "Rename",
+      shortcut: "F2",
+    },
+    !target.isRoot && { kind: "item", id: "duplicate", label: "Duplicate" },
     { kind: "sep" },
-    {
+    !target.isRoot && {
       kind: "item",
       id: "cut",
       label: "Cut",
       shortcut: `${MOD}X`,
-      disabled: target.isRoot,
     },
-    {
+    !target.isRoot && {
       kind: "item",
       id: "copy",
       label: "Copy",
       shortcut: `${MOD}C`,
-      disabled: target.isRoot,
     },
-    {
+    !pasteBlocked && {
       kind: "item",
       id: "paste",
       label: "Paste",
       shortcut: `${MOD}V`,
-      disabled: pasteBlocked,
-    },
-    {
-      kind: "item",
-      id: "duplicate",
-      label: "Duplicate",
-      disabled: target.isRoot,
     },
     { kind: "sep" },
     {
       kind: "item",
       id: "copy-path",
-      label: "Copy Path",
+      label: "Copy path",
       shortcut: `${MOD}${SHIFT}C`,
     },
-    { kind: "item", id: "copy-relative-path", label: "Copy Relative Path" },
+    { kind: "item", id: "copy-relative-path", label: "Copy relative path" },
     { kind: "sep" },
-    {
-      kind: "item",
-      id: "rename",
-      label: "Rename",
-      shortcut: "F2",
-      disabled: target.isRoot,
-    },
-    {
+    { kind: "item", id: "reveal", label: REVEAL_LABEL },
+    canOpenTerminal &&
+      !isFile && {
+        kind: "item",
+        id: "open-terminal",
+        label: "Open in Terminal",
+      },
+    { kind: "sep" },
+    !target.isRoot && {
       kind: "item",
       id: "delete",
       label: "Delete",
       shortcut: "⌫",
-      disabled: target.isRoot,
       danger: true,
     },
-    { kind: "sep" },
-    ...(canOpenTerminal
-      ? [
-          {
-            kind: "item" as const,
-            id: "open-terminal",
-            label: "Open in Terminal",
-          },
-        ]
-      : []),
-    { kind: "item", id: "reveal", label: REVEAL_LABEL },
   ];
+  return rows.filter((row): row is ExplorerMenuItem => Boolean(row));
 }
 
 // Chat updates rerender the sidebar even when Files is hidden. Keep its tree

@@ -192,6 +192,18 @@ pub(crate) fn parse_url(caller: &Webview, value: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// The user's own profile; this engine has no other.
+pub(crate) const DEFAULT_PROFILE: &str = "default";
+/// The sandboxed chats' profile, which this engine never opens.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) const AGENTS_PROFILE: &str = "agents";
+
+/// The profile a page runs in: always the user's here.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn page_profile(caller: &Webview, id: &str) -> Result<&'static str, String> {
+    preview(caller, id).map(|_| DEFAULT_PROFILE)
+}
+
 pub(crate) fn preview(caller: &Webview, id: &str) -> Result<Webview, String> {
     let root = label(caller, id)?;
     let view = caller
@@ -1098,9 +1110,18 @@ pub async fn browser_create(
     id: String,
     url: String,
     bounds: BrowserBounds,
+    profile: Option<String>,
 ) -> Result<(), String> {
     let _work =
         crate::update_restart::begin_runtime_work(caller.app_handle(), "opening a browser page")?;
+    // This engine has one profile, the user's: a sandboxed chat's page,
+    // which must not share it, never opens here.
+    if profile
+        .as_deref()
+        .is_some_and(|name| name != DEFAULT_PROFILE)
+    {
+        return Err("A sandboxed chat's page needs Aven's Chromium browser".into());
+    }
     let view_label = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     let rect = bounds.rect()?;

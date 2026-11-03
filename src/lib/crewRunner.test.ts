@@ -2230,6 +2230,29 @@ describe("a goal: the team keeps going", () => {
     h.runner.stop();
   });
 
+  it("stops the goal when it can't check the copy after planning, and says why", async () => {
+    const h = harness({
+      scout: () => {
+        h.copy.diff.mockRejectedValueOnce(new Error("boom"));
+        return { text: fence("aven-goal", { met: true, summary: "Done." }) };
+      },
+    });
+    onCrew({ goal: { text: "Build the whole Pom app", at: NOON } });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.runner.start();
+    await h.advance(5 * MINUTE);
+    expect(h.sent).toHaveLength(1);
+    const crew = getCrew(PATH)!;
+    expect(crew.goal?.done).toMatchObject({
+      met: false,
+      text: "Aven couldn't check the team's copy after Fox's planning, so the team stopped. Look over the copy, then Keep going to try again.",
+    });
+    expect(crew.feed.at(-1)).toMatchObject({ kind: "hold", who: "aven" });
+    expect(h.copy.discard).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+    h.runner.stop();
+  });
+
   it("stops when a planning turn fails, until you ask it to keep going", async () => {
     const h = harness({
       scout: () => ({ text: "", status: "failed", error: "boom" }),

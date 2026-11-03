@@ -206,7 +206,12 @@ def launch():
 
 
 SMOKE_MARKER = '.aven-smoke'
-SMOKE_TIMEOUT = 360
+# The app's deadline. The check gives its own steps less (SMOKE_BUDGET_MS in
+# src/lib/devSmoke.ts, kept below this by test-dev-aven.py), so it finishes
+# itself and writes its result before the runner has to stop it.
+SMOKE_TIMEOUT = 600
+# Where the check's logs and result are copied for a CI workflow to upload.
+SMOKE_EVIDENCE = ROOT / 'target/smoke'
 
 
 def prepare_smoke_folder():
@@ -282,6 +287,28 @@ def offer_check_page(root, page_url):
     (root / 'page.json').write_text(json.dumps({'pageUrl': page_url}))
 
 
+# What a failed check needs explaining, copied out of the throwaway folder
+# (a runner keeps no folder) to one stable place the workflow uploads.
+SMOKE_EVIDENCE_FILES = ('app.log', 'result.json', 'home/.local/bin/fake-claude.log',
+                        'home/.local/bin/fake-grok.log',
+                        'home/Library/Application Support/com.capi.aven.dev/browser/chromium/chromium.log')
+
+
+def keep_smoke_evidence(root, into=None):
+    """Copy the run's logs and result into `into` (target/smoke); the names copied."""
+    into = Path(into) if into else SMOKE_EVIDENCE
+    shutil.rmtree(into, ignore_errors=True)
+    kept = []
+    for relative in SMOKE_EVIDENCE_FILES:
+        source = root / relative
+        if not source.is_file():
+            continue
+        into.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, into / Path(relative).name)
+        kept.append(Path(relative).name)
+    return kept
+
+
 def remove_smoke_folder(root):
     # Only a folder this runner created and marked.
     if root.is_dir() and (root / SMOKE_MARKER).is_file():
@@ -326,9 +353,11 @@ def smoke(keep=False):
                 app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], env=app_env,
                                        stdout=log, stderr=subprocess.STDOUT,
                                        start_new_session=True)
+                timed_out = False
                 try:
                     app.wait(timeout=SMOKE_TIMEOUT)
                 except subprocess.TimeoutExpired:
+                    timed_out = True
                     os.killpg(app.pid, signal.SIGTERM)
                     try:
                         app.wait(timeout=10)
@@ -336,9 +365,12 @@ def smoke(keep=False):
                         os.killpg(app.pid, signal.SIGKILL)
                     print(f'The check did not finish within {SMOKE_TIMEOUT} seconds.', file=sys.stderr)
         stop_stand_ins(root)
-        passed = report_smoke(root, app.returncode)
+        passed = report_smoke(root, app.returncode, timed_out=timed_out)
         return passed
     finally:
+        kept = keep_smoke_evidence(root)
+        if kept:
+            print(f'Copied {", ".join(kept)} to {SMOKE_EVIDENCE}', flush=True)
         if passed and not keep:
             remove_smoke_folder(root)
         else:
@@ -739,17 +771,20 @@ def report_perf(root, launched_at, compare):
     return result.get('passed') is True
 
 
-def report_smoke(root, exit_code):
+def report_smoke(root, exit_code, timed_out=False):
     result_path = root / 'result.json'
     try:
         result = json.loads(result_path.read_text())
     except (OSError, ValueError):
-        print(f'No result was written (app exit status {exit_code}); see {root / "app.log"}.', file=sys.stderr)
+        why = (f'the app was stopped at the {SMOKE_TIMEOUT} s deadline' if timed_out
+               else f'app exit status {exit_code}')
+        print(f'No result was written ({why}); see {root / "app.log"}.', file=sys.stderr)
         return False
     for step in result.get('steps', []):
         mark = 'PASS' if step.get('passed') else 'FAIL'
+        took = f' ({step["ms"] / 1000:.1f} s)' if isinstance(step.get('ms'), (int, float)) else ''
         detail = f' - {step["detail"]}' if step.get('detail') else ''
-        print(f'  {mark}  {step.get("name")}{detail}', flush=True)
+        print(f'  {mark}  {step.get("name")}{took}{detail}', flush=True)
     # Evidence that the turn went through Aven's own native harness spawn.
     log_path = root / 'home/.local/bin/fake-claude.log'
     spawned = []

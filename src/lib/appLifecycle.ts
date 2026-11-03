@@ -33,6 +33,7 @@ import {
   loadWorkspaceSnapshot,
   replaceInFlightSessions,
   saveWorkspaceSnapshot,
+  sessionChangedSinceStored,
   shouldPersistSession,
   upsertSession,
   type SessionSummary,
@@ -43,9 +44,8 @@ import {
   hydrateWorkspaceSnapshot,
   parseWorkspaceSnapshot,
 } from "./workspaceSnapshot";
-import { loadWindowTransfer } from "./windowTransferBootstrap";
 import { registerBuiltinHarnesses } from "./harness/register";
-import type { WindowTransferPayload } from "./windowTransfer";
+import { isSecondaryWindow } from "./windowLabel";
 import {
   lastProjectPath,
   normalizeProjectPath,
@@ -56,7 +56,6 @@ export type { ResumedWorkspace };
 export { hasInFlightSessions };
 
 export type BootWorkspace = {
-  windowTransfer: WindowTransferPayload | null;
   resumed: ResumedWorkspace | null;
   /** Sidebar rows listed before first paint, so the rail is not empty. */
   history: SessionSummary[];
@@ -187,7 +186,7 @@ export function loadResumedWorkspace(): Promise<ResumedWorkspace | null> {
   return resumedPromise;
 }
 
-/** Transfer and restore run once; callers share the same promise. */
+/** Restore runs once; callers share the same promise. */
 export function loadBootWorkspace(): Promise<BootWorkspace> {
   if (!bootPromise) {
     bootPromise = (async () => {
@@ -196,22 +195,11 @@ export function loadBootWorkspace(): Promise<BootWorkspace> {
       registerBuiltinHarnesses();
       const hintedCwd = lastProjectPath();
       const historyHint = listProjectHistory(hintedCwd);
-      const windowTransfer = await loadWindowTransfer();
-      if (windowTransfer) {
-        const listed = await historyForCwd(
-          windowTransfer.projectCwd,
-          hintedCwd,
-          historyHint,
-        );
-        return {
-          windowTransfer,
-          resumed: null,
-          history: listed?.rows ?? [],
-          historyCwd: listed?.cwd ?? null,
-        };
-      }
+      // A second window starts empty: the saved workspace belongs to the
+      // main window, and two windows holding the same chats would write
+      // them back over each other.
       const [resumed, hinted] = await Promise.all([
-        loadResumedWorkspace(),
+        isSecondaryWindow() ? null : loadResumedWorkspace(),
         historyHint,
       ]);
       const listed = await historyForCwd(
@@ -220,7 +208,6 @@ export function loadBootWorkspace(): Promise<BootWorkspace> {
         Promise.resolve(hinted),
       );
       return {
-        windowTransfer: null,
         resumed,
         history: listed?.rows ?? [],
         historyCwd: listed?.cwd ?? null,
@@ -422,9 +409,13 @@ export async function persistQuitState(
   }
   const refs = inFlightRefs(sessions, tabs);
   const interrupted = new Set(refs.map((ref) => ref.sessionId));
+  // Only chats this window changed are written: a chat open in another
+  // window too is never written back from this window's older copy.
   await Promise.all(
     sessions.map(async (session) => {
       if (!shouldPersistSession(session)) return;
+      if (!interrupted.has(session.id) && !sessionChangedSinceStored(session))
+        return;
       const payload = interrupted.has(session.id)
         ? markTurnInterrupted(session)
         : session;
@@ -434,6 +425,9 @@ export async function persistQuitState(
       });
     }),
   );
+  // The saved workspace and the list of unfinished chats are the main
+  // window's: a second window's chats stay in its project's history.
+  if (isSecondaryWindow()) return;
   await saveWorkspaceSnapshot(
     collectWorkspaceSnapshot(
       tabs,

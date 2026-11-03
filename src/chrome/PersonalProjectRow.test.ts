@@ -170,12 +170,12 @@ it("customizes the name and mark from the actions menu, and resets", async () =>
   await act(async () => button.click());
   const item = [
     ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-  ].find((node) => node.textContent?.includes("Customize project"));
+  ].find((node) => node.textContent?.includes("Customise project"));
   expect(item).toBeDefined();
   await act(async () => item!.click());
   const dialog = () =>
     document.querySelector<HTMLElement>(
-      '[role="dialog"][aria-label^="Customize"]',
+      '[role="dialog"][aria-label^="Customise"]',
     );
   expect(dialog()).not.toBeNull();
 
@@ -213,7 +213,7 @@ it("customizes the name and mark from the actions menu, and resets", async () =>
   await act(async () => button.click());
   await act(async () =>
     [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((node) => node.textContent?.includes("Customize project"))!
+      .find((node) => node.textContent?.includes("Customise project"))!
       .click(),
   );
   await act(async () =>
@@ -236,7 +236,7 @@ it("leaves the name unchanged when the customize panel is dismissed with Escape"
   await act(async () => button.click());
   await act(async () =>
     [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((node) => node.textContent?.includes("Customize project"))!
+      .find((node) => node.textContent?.includes("Customise project"))!
       .click(),
   );
   const name = document.querySelector<HTMLInputElement>(
@@ -260,7 +260,7 @@ it("leaves the name unchanged when the customize panel is dismissed with Escape"
   );
 });
 
-it("keeps the actions menu short: the row opens the project, and memory is in Customize", async () => {
+it("keeps the actions menu short: the row opens the project, and memory is in Customise", async () => {
   await render();
   await act(async () =>
     host.querySelector<HTMLButtonElement>(".personal-project-more")!.click(),
@@ -270,7 +270,7 @@ it("keeps the actions menu short: the row opens the project, and memory is in Cu
   ].map((node) => node.textContent ?? "");
   expect(labels.some((label) => label.includes("Open project"))).toBe(false);
   expect(labels.some((label) => label.includes("Project memory"))).toBe(false);
-  expect(labels.some((label) => label.includes("Customize project"))).toBe(
+  expect(labels.some((label) => label.includes("Customise project"))).toBe(
     true,
   );
 });
@@ -282,7 +282,7 @@ it("reaches the memory from the customize panel, keeping a typed name", async ()
   );
   await act(async () =>
     [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((node) => node.textContent?.includes("Customize project"))!
+      .find((node) => node.textContent?.includes("Customise project"))!
       .click(),
   );
   const name = document.querySelector<HTMLInputElement>(
@@ -301,7 +301,7 @@ it("reaches the memory from the customize panel, keeping a typed name", async ()
   expect(row?.textContent).toContain("Empty");
   await act(async () => row!.click());
   expect(
-    document.querySelector('[role="dialog"][aria-label^="Customize"]'),
+    document.querySelector('[role="dialog"][aria-label^="Customise"]'),
   ).toBeNull();
   expect(
     document.querySelector(
@@ -343,7 +343,7 @@ it("notes Aven's memory update in the tooltip, marked until the memory is opened
   );
   await act(async () =>
     [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((node) => node.textContent?.includes("Customize project"))!
+      .find((node) => node.textContent?.includes("Customise project"))!
       .click(),
   );
   await act(async () =>

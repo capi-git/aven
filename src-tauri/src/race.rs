@@ -72,6 +72,10 @@ pub struct RaceDiff {
 pub struct RaceFileDiff {
     pub original: Option<String>,
     pub current: Option<String>,
+    /// Why the current file is shown as it is: it is a link, too large, or
+    /// not a regular file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -586,6 +590,7 @@ pub(crate) fn range_file_diff(
     Ok(RaceFileDiff {
         original: show(from),
         current: show(to),
+        note: None,
     })
 }
 
@@ -679,15 +684,24 @@ fn readable(bytes: Vec<u8>) -> Option<String> {
 }
 
 /// Everything changed in `worktree` since `base`, new files included, as
-/// one binary patch. The checkout's own index is not touched.
-pub(crate) fn patch(worktree: &Path, base: &str) -> Result<Vec<u8>, String> {
+/// one binary patch, with the changes it holds: both read from one staging
+/// of the checkout, so the files a check looks at are exactly the ones the
+/// patch holds even while an agent keeps writing there. The checkout's own
+/// index is not touched.
+pub(crate) fn diff_and_patch(worktree: &Path, base: &str) -> Result<(RaceDiff, Vec<u8>), String> {
     if !is_sha(base) {
         return Err("Invalid race base".into());
     }
     let index = ScratchIndex::seeded_from(worktree)?;
     run_staged(worktree, &index, &["add", "-A"])?;
+    let changes = read_changes(worktree, Some(&index), &["--cached", base])?;
+    let patch = staged_patch(worktree, &index, base)?;
+    Ok((changes, patch))
+}
+
+fn staged_patch(worktree: &Path, index: &ScratchIndex, base: &str) -> Result<Vec<u8>, String> {
     run_git(
-        diff_git(worktree, Some(&index)),
+        diff_git(worktree, Some(index)),
         &[
             "diff",
             "--cached",
@@ -725,9 +739,62 @@ pub fn file_diff(worktree: &Path, base: &str, path: &str) -> Result<RaceFileDiff
     )
     .ok()
     .and_then(readable);
-    let current = std::fs::read(worktree.join(&path)).ok().and_then(readable);
-    Ok(RaceFileDiff { original, current })
+    let (current, note) = read_current(&worktree.join(&path));
+    Ok(RaceFileDiff {
+        original,
+        current,
+        note,
+    })
 }
+
+/// The file in the copy as a review shows it. A link shows where it points,
+/// never what is there (a copy could point one at any file of yours); only
+/// a regular file is read, and only up to `MAX_DIFF_TEXT`, so a pipe never
+/// hangs the review and a huge or endless file never fills memory.
+fn read_current(abs: &Path) -> (Option<String>, Option<String>) {
+    let Ok(meta) = std::fs::symlink_metadata(abs) else {
+        return (None, None);
+    };
+    if meta.file_type().is_symlink() {
+        let target = std::fs::read_link(abs)
+            .map(|target| target.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        return (
+            Some(format!("{LINK_PREFIX}{target}\n")),
+            Some(format!(
+                "This file is a link to {target}; Aven shows where it points, not what is there."
+            )),
+        );
+    }
+    if !meta.is_file() {
+        return (
+            None,
+            Some(
+                "This is not a regular file (a pipe, socket or device), so Aven didn't read it."
+                    .into(),
+            ),
+        );
+    }
+    let mut bytes = Vec::new();
+    let read = std::fs::File::open(abs).and_then(|file| {
+        std::io::Read::read_to_end(
+            &mut std::io::Read::take(file, MAX_DIFF_TEXT as u64 + 1),
+            &mut bytes,
+        )
+    });
+    if read.is_err() {
+        return (None, None);
+    }
+    if bytes.len() > MAX_DIFF_TEXT {
+        return (None, Some(TOO_LARGE_NOTE.into()));
+    }
+    (readable(bytes), None)
+}
+
+/// How a link is shown in a review: the text a reader can diff.
+const LINK_PREFIX: &str = "link \u{2192} ";
+const TOO_LARGE_NOTE: &str =
+    "Aven didn't read this file: it is larger than 2 MB. Open it in the copy to review it.";
 
 pub fn apply(root: &Path, races: &Path, base: &str, choices: &[RaceChoice]) -> Result<(), String> {
     if !is_sha(base) {
@@ -1117,5 +1184,55 @@ mod tests {
         git_ok(&plain, &["init", "-q"]);
         assert!(prepare(&plain).unwrap_err().contains("commit"));
         let _ = std::fs::remove_dir_all(&plain);
+    }
+
+    #[test]
+    fn a_file_review_shows_a_links_target_and_never_reads_through_it() {
+        let root = repo();
+        let base = text(run(&root, &["rev-parse", "HEAD"]).unwrap());
+        let secret = temp_dir("secret").join("id_rsa");
+        std::fs::write(&secret, "PRIVATE KEY\n").unwrap();
+        std::fs::remove_file(root.join("a.txt")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&secret, root.join("a.txt")).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&secret, root.join("a.txt")).unwrap();
+        let shown = file_diff(&root, &base, "a.txt").unwrap();
+        assert_eq!(shown.original.as_deref(), Some("one\ntwo\n"));
+        let current = shown.current.unwrap();
+        assert!(current.starts_with(LINK_PREFIX), "{current}");
+        assert!(current.contains("id_rsa"));
+        assert!(!current.contains("PRIVATE KEY"));
+        assert!(shown.note.unwrap().contains("link"));
+        let _ = std::fs::remove_dir_all(secret.parent().unwrap());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_file_review_caps_what_it_reads_and_skips_special_files() {
+        let root = repo();
+        let base = text(run(&root, &["rev-parse", "HEAD"]).unwrap());
+        let big = std::fs::File::create(root.join("b.txt")).unwrap();
+        big.set_len(MAX_DIFF_TEXT as u64 + 1).unwrap();
+        let shown = file_diff(&root, &base, "b.txt").unwrap();
+        assert_eq!(shown.original.as_deref(), Some("keep\n"));
+        assert!(shown.current.is_none());
+        assert!(shown.note.unwrap().contains("larger than"));
+        // A file exactly at the cap is still shown.
+        std::fs::write(root.join("b.txt"), vec![b'a'; MAX_DIFF_TEXT]).unwrap();
+        let shown = file_diff(&root, &base, "b.txt").unwrap();
+        assert_eq!(shown.current.map(|text| text.len()), Some(MAX_DIFF_TEXT));
+        assert!(shown.note.is_none());
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(root.join("b.txt")).unwrap();
+            let fifo =
+                std::ffi::CString::new(root.join("b.txt").to_string_lossy().into_owned()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+            let shown = file_diff(&root, &base, "b.txt").unwrap();
+            assert!(shown.current.is_none());
+            assert!(shown.note.unwrap().contains("not a regular file"));
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

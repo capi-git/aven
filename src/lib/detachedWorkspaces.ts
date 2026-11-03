@@ -75,6 +75,8 @@ export type DetachedBrowser = {
   kept?: boolean;
   /** The chat whose agent keeps building on this page (`BrowserTab`). */
   agentChat?: string;
+  /** The browser profile the page runs in (`BrowserTab.profile`). */
+  profile?: "agents";
   nativeId?: string;
 };
 export type DetachedWorkspaceState = {
@@ -958,6 +960,7 @@ export function useDetachedWorkspaces(options: Options) {
               url,
               project,
               ...(options?.chat ? { agentChat: options.chat } : {}),
+              ...(options?.profile ? { profile: options.profile } : {}),
             };
             const reservation = reserveAgentBrowserOpen(
               browser.id,

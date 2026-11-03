@@ -1,5 +1,12 @@
 import { useSyncExternalStore } from "react";
+import { logError } from "./errors";
 import { isEqualOrInside, projectKey } from "./paths";
+import {
+  FOREIGN_STORE_WHY,
+  clearSaveProblem,
+  reportSaveProblem,
+  saveFailureWhy,
+} from "./saveProblems";
 import {
   BOT_DEFAULT_QUIET,
   BOT_JOB_STALE_MS,
@@ -44,10 +51,23 @@ export const CREWS_KEY = "aven.crews.v1";
  * here, to `CREW_ROLE_INFO`, and to the runner's wake rules; members of a
  * role this build does not know are kept in storage as they are.
  */
-export type CrewRole = "builder" | "checker" | "security" | "scout" | "fixer";
+export type CrewRole =
+  | "builder"
+  | "checker"
+  | "security"
+  | "scout"
+  | "researcher"
+  | "designer"
+  | "fixer";
 
 /** The roles that take turns on cards in the crew's copy. */
 export type CrewLoopRole = "builder" | "checker" | "security";
+
+/**
+ * Who holds a card: a loop role, or the Researcher reading a research card
+ * (one turn, no rounds, nothing to apply).
+ */
+export type CrewCardHolder = CrewLoopRole | "researcher" | "designer";
 
 export type CrewRoleInfo = {
   role: CrewRole;
@@ -83,6 +103,20 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     job: "Finds small ideas worth building",
     edits: false,
   },
+  researcher: {
+    role: "researcher",
+    label: "Researcher",
+    job: "Reads up on a question and writes findings you can turn into ideas",
+    edits: false,
+  },
+  designer: {
+    role: "designer",
+    label: "Designer",
+    job: "Mocks up a screen or a look before anyone builds it",
+    // It writes one file, only under the copy's mock-ups folder (see
+    // `MOCKUP_DIR`); the project's own files stay read-only to it.
+    edits: true,
+  },
   fixer: {
     role: "fixer",
     label: "Fixer",
@@ -97,6 +131,8 @@ export const CREW_ROLE_ORDER: readonly CrewRole[] = [
   "checker",
   "security",
   "scout",
+  "researcher",
+  "designer",
   "fixer",
 ];
 
@@ -150,7 +186,19 @@ export type CrewMember = {
   paused?: boolean;
   /** What it is doing, one line, for the crew strip and the sidebar. */
   doing?: { at: number; text: string };
+  /**
+   * What it has learned about this project, in its own words, rewritten at
+   * the end of a turn (see `parseMemory`) or by you. Its own: never shared
+   * with another member or project. Read at every turn as notes, never as
+   * instructions.
+   */
+  memory?: string;
+  /** When its notes last changed. */
+  memoryAt?: number;
 };
+
+/** A member's notes, at most: enough for conventions and gotchas, not a log. */
+export const CREW_MEMORY_MAX = 4_000;
 
 export type CrewScoutSchedule = "off" | "daily" | "weekly";
 
@@ -166,6 +214,18 @@ export type CrewAgent = (typeof CREW_AGENTS)[number];
  */
 export function crewAgentsFor(role: CrewRole): readonly CrewAgent[] {
   return CREW_ROLE_INFO[role].edits ? ["claude"] : CREW_AGENTS;
+}
+
+/**
+ * The folder, at the top of the team's copy, where the Designer draws its
+ * mock-ups: the only place it may write. Untracked, never stacked or
+ * applied, and emptied once a mock-up is kept by Aven.
+ */
+export const MOCKUP_DIR = "aven-mockups";
+
+/** Whether a role may change the project's own files in the copy. */
+export function crewRoleWritesCopy(role: CrewRole): boolean {
+  return CREW_ROLE_INFO[role].edits && role !== "designer";
 }
 
 /** "If the card mentions ui, css or design, give it to Designer." */
@@ -349,9 +409,48 @@ export type CrewRound = {
   securedAt?: number;
 };
 
+/** One thing the Researcher found, with where it read it. */
+export type CrewFindingSource = {
+  text: string;
+  /** A link, or "project file" and the like: where it comes from. */
+  source?: string;
+};
+
+/**
+ * What the Researcher handed back for a research card: a short summary,
+ * numbered findings each with a source, and ideas it proposes (each waits
+ * for you in Ideas once added; none ever builds by itself).
+ */
+export type CrewFindings = {
+  summary: string;
+  findings: CrewFindingSource[];
+  ideas: string[];
+  /** Distinct links it read, counted by Aven from its reply. */
+  sources: number;
+  readAt: number;
+  /** Ideas you put on the Board from it (0 once read and dismissed). */
+  added?: number;
+};
+
+/**
+ * The Designer's mock-up for a mock-up card: one self-contained HTML file,
+ * kept by Aven in its own data (never the project, never the copy once the
+ * turn ends), with the Designer's one-line note.
+ */
+export type CrewMockup = {
+  /** Where Aven keeps the file: an absolute path in its own data folder. */
+  file: string;
+  /** The Designer's note on what it drew, one line. */
+  note: string;
+  bytes: number;
+  madeAt: number;
+  /** What you did with it: Build it made a card, or you dismissed it. */
+  outcome?: "built" | "dismissed";
+};
+
 /** A turn Aven sent for a card, so a restart and other windows know. */
 export type CrewTurn = {
-  role: CrewLoopRole;
+  role: CrewCardHolder;
   sessionId: string;
   /** The message that started it. */
   turnId: string;
@@ -366,8 +465,17 @@ export type CrewCard = {
   title: string;
   /** What to build: the card's title and note. */
   brief: string;
-  /** You, or an idea from the Scout or Security's sweep (quoted as data). */
-  from: "you" | "scout" | "security" | "member";
+  /** You, or an idea from the Scout, Security's sweep or the Researcher (quoted as data). */
+  from: "you" | "scout" | "security" | "member" | "researcher" | "setup";
+  /**
+   * A question for the Researcher: one read-only turn that ends in
+   * Findings, never in a change to apply.
+   */
+  kind?: "research" | "mockup";
+  /** What the Researcher found, once its turn ended. */
+  findings?: CrewFindings;
+  /** The Designer's mock-up, once its turn ended. */
+  mockup?: CrewMockup;
   /** The Scout's size for its idea. */
   size?: CrewIdeaSize;
   /** Where the card came from (an issue, a page): outside words. */
@@ -388,7 +496,7 @@ export type CrewCard = {
   anywhere?: boolean;
   paused?: boolean;
   /** Who holds it now. */
-  holder?: CrewLoopRole;
+  holder?: CrewCardHolder;
   rounds: CrewRound[];
   /** Notes for later: they never send a card back. */
   later: string[];
@@ -454,8 +562,8 @@ export type CrewIdea = {
   declined?: boolean;
   /** It started by itself. */
   autoStarted?: boolean;
-  /** Security's sweep found it: it never starts by itself. */
-  by?: "security";
+  /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
+  by?: "security" | "researcher" | "setup";
 };
 
 export type CrewFeedKind =
@@ -468,7 +576,11 @@ export type CrewFeedKind =
   | "note"
   | "applied"
   | "hold"
-  | "stopped";
+  | "stopped"
+  /** The Researcher's findings are ready for you. */
+  | "findings"
+  /** The Designer's mock-up is ready for you. */
+  | "mockup";
 
 /** One line in the crew's feed: handoffs, verdicts, ideas, your notes. */
 export type CrewFeedEntry = {
@@ -510,6 +622,11 @@ export type Crew = {
    */
   otherMembers?: unknown[];
   /**
+   * Cards at a stage this build doesn't know (a later build's), kept as
+   * they were and written back with the rest.
+   */
+  otherCards?: unknown[];
+  /**
    * Chats of members you removed: still the crew's, so they never start as
    * ordinary chats in its copy (each is refused, see `crewChatPermissions`).
    */
@@ -534,6 +651,11 @@ export type Crew = {
      * Checker's or Scout's turn may not write them.
      */
     sources?: string[];
+    /**
+     * Every top-level entry of the copy, ignored ones too (`.git` aside): a
+     * Designer may write none of them, and its turn may add none.
+     */
+    entries?: string[];
   };
   /** Bot turns today, the Builder's, Checker's and Scout's. */
   runs?: { day: string; count: number };
@@ -577,7 +699,27 @@ export type Crew = {
    * chat shows these as your messages. Older builds drop them on reading.
    */
   messages?: CrewMessage[];
+  /**
+   * What this project is and what you want, as you wrote it when the team
+   * set itself up: your own words, read by every teammate at every turn.
+   */
+  about?: string;
 };
+
+/** How long `about` may be: the setup box's own limit. */
+export const CREW_ABOUT_MAX = 2_000;
+
+/** The team's `about`, replaced (clipped) or cleared with an empty text. */
+export function withAbout(crew: Crew, about: string | null): Crew {
+  const clean = about?.replace(/\r\n?/g, "\n").trim().slice(0, CREW_ABOUT_MAX);
+  if (!clean) {
+    if (crew.about === undefined) return crew;
+    const rest = { ...crew };
+    delete rest.about;
+    return rest;
+  }
+  return { ...crew, about: clean };
+}
 
 /** A message you wrote to the team: to everyone, or to one teammate. */
 export type CrewMessage = {
@@ -614,25 +756,37 @@ export type CrewAccess = {
   others: "refuse" | "ask";
 };
 
-/** Whether a role may search and read the web (its search and fetch tools). */
+/**
+ * Whether a role may search and read the web (its search and fetch tools).
+ * The Researcher reads it whenever anyone may: reading is its job, and its
+ * ideas always wait for you.
+ */
 export function crewRoleUsesWeb(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
+  // The Designer draws from the project alone: never the web.
+  if (role === "designer") return false;
   const { web } = crewAccess(crew);
-  return web === "everyone" || (web === "builders" && role === "builder");
+  return (
+    web === "everyone" ||
+    (web === "builders" && (role === "builder" || role === "researcher"))
+  );
 }
 
 /**
  * Whether a role may use Aven's browser. The Checker and Security use it to
  * try the work, so "Builders" leaves it to all but the Scout, whose ideas
- * build by themselves.
+ * build by themselves. The Researcher has it exactly when it has the web.
  */
 export function crewRoleUsesBrowser(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
   const { web } = crewAccess(crew);
+  if (role === "researcher") return crewRoleUsesWeb(crew, role);
+  // Nor Aven's browser: a mock-up is a file, drawn without one.
+  if (role === "designer") return false;
   return web === "everyone" || (web === "builders" && role !== "scout");
 }
 
@@ -850,6 +1004,8 @@ const FEED_KINDS = new Set<CrewFeedKind>([
   "applied",
   "hold",
   "stopped",
+  "findings",
+  "mockup",
 ]);
 const HOLDS = new Set<CrewHoldReason>([
   "paused",
@@ -895,6 +1051,54 @@ export function readFinding(value: unknown): CrewFinding | null {
     ...(how ? { how } : {}),
     ...(about ? { about } : {}),
     ...(raw?.regression === true ? { regression: true } : {}),
+  };
+}
+
+const RESEARCH_FINDINGS_KEPT = 10;
+const FINDING_IDEAS_KEPT = 5;
+
+/** The Designer's mock-up as stored: its file in Aven's data, and a note. */
+export function readMockup(value: unknown): CrewMockup | undefined {
+  const raw = value as Partial<CrewMockup> | null;
+  const file = text(raw?.file, 1024);
+  if (!raw || typeof raw !== "object" || !file || !isTime(raw.madeAt))
+    return undefined;
+  return {
+    file,
+    note: text(raw.note, 300) ?? "",
+    bytes: finite(raw.bytes, 0, 1e9, 0),
+    madeAt: raw.madeAt,
+    ...(raw.outcome === "built" || raw.outcome === "dismissed"
+      ? { outcome: raw.outcome }
+      : {}),
+  };
+}
+
+/** The Researcher's findings as stored: each field clipped, nothing trusted. */
+export function readFindings(value: unknown): CrewFindings | undefined {
+  const raw = value as Partial<CrewFindings> | null;
+  if (!raw || typeof raw !== "object" || !isTime(raw.readAt)) return undefined;
+  const findings = Array.isArray(raw.findings)
+    ? raw.findings
+        .map((item): CrewFindingSource | null => {
+          const entry = item as Partial<CrewFindingSource> | null;
+          const body = text(entry?.text, 400);
+          if (!body) return null;
+          const source = text(entry?.source, 2048);
+          return { text: body, ...(source ? { source } : {}) };
+        })
+        .filter((item): item is CrewFindingSource => !!item)
+        .slice(0, RESEARCH_FINDINGS_KEPT)
+    : [];
+  return {
+    summary: text(raw.summary) ?? "",
+    findings,
+    ideas: strings(raw.ideas, FINDING_IDEAS_KEPT, 200),
+    sources: finite(raw.sources, 0, 1_000, 0),
+    readAt: raw.readAt,
+    ...(typeof raw.added === "number"
+      ? { added: finite(raw.added, 0, FINDING_IDEAS_KEPT, 0) }
+      : {}),
   };
 }
 
@@ -982,6 +1186,22 @@ function readReview(value: unknown): AutomationReview | undefined {
   };
 }
 
+/**
+ * A stored card this build can't read only because its stage is one it
+ * doesn't know (a later build's): kept as it is, never dropped on save.
+ */
+function cardOfUnknownStage(value: unknown): boolean {
+  const raw = value as Partial<CrewCard> | null;
+  return (
+    !!raw &&
+    typeof raw === "object" &&
+    !!text(raw.id, 100) &&
+    !!text(raw.title, 200) &&
+    typeof raw.stage === "string" &&
+    !STAGES.has(raw.stage as CrewStage)
+  );
+}
+
 export function readCrewCard(value: unknown): CrewCard | null {
   const raw = value as Partial<CrewCard> | null;
   if (!raw || typeof raw !== "object") return null;
@@ -1021,6 +1241,8 @@ export function readCrewCard(value: unknown): CrewCard | null {
   const turn = raw.turn as CrewTurn | undefined;
   const fix = readChange(raw.fix);
   const reviewing = readChange(raw.reviewing);
+  const findings = readFindings(raw.findings);
+  const mockup = readMockup(raw.mockup);
   const inbox = readReview(raw.inbox);
   const note = text(raw.note, CREW_NOTE_MAX);
   const sourceUrl = text(raw.sourceUrl, 2048);
@@ -1042,12 +1264,21 @@ export function readCrewCard(value: unknown): CrewCard | null {
     title,
     brief: text(raw.brief, CREW_BRIEF_MAX) ?? title,
     from:
-      raw.from === "scout" || raw.from === "security" || raw.from === "member"
+      raw.from === "scout" ||
+      raw.from === "security" ||
+      raw.from === "member" ||
+      raw.from === "researcher" ||
+      raw.from === "setup"
         ? raw.from
         : "you",
     ...(raw.from === "member" && text(raw.fromMember, 60)
       ? { fromMember: text(raw.fromMember, 60) }
       : {}),
+    ...(raw.kind === "research" || raw.kind === "mockup"
+      ? { kind: raw.kind }
+      : {}),
+    ...(findings ? { findings } : {}),
+    ...(mockup ? { mockup } : {}),
     ...(SIZES.has(raw.size as CrewIdeaSize)
       ? { size: raw.size as CrewIdeaSize }
       : {}),
@@ -1065,7 +1296,9 @@ export function readCrewCard(value: unknown): CrewCard | null {
     ...(raw.paused === true ? { paused: true } : {}),
     ...(raw.holder === "builder" ||
     raw.holder === "checker" ||
-    raw.holder === "security"
+    raw.holder === "security" ||
+    raw.holder === "researcher" ||
+    raw.holder === "designer"
       ? { holder: raw.holder }
       : {}),
     rounds,
@@ -1096,7 +1329,9 @@ export function readCrewCard(value: unknown): CrewCard | null {
     ...(turn &&
     (turn.role === "builder" ||
       turn.role === "checker" ||
-      turn.role === "security") &&
+      turn.role === "security" ||
+      turn.role === "researcher" ||
+      turn.role === "designer") &&
     typeof turn.sessionId === "string" &&
     typeof turn.turnId === "string" &&
     typeof turn.sentAt === "number"
@@ -1157,6 +1392,7 @@ function readMember(value: unknown):
   const doing = raw.doing as CrewMember["doing"] | undefined;
   const fallback = raw.fallback as CrewMember["fallback"] | undefined;
   const fallbackModel = text(fallback?.model, 200);
+  const memory = text(raw.memory, CREW_MEMORY_MAX);
   return {
     ...(id ? { id } : {}),
     role: raw.role as CrewRole,
@@ -1188,6 +1424,8 @@ function readMember(value: unknown):
     ...(doing && typeof doing.at === "number" && typeof doing.text === "string"
       ? { doing: { at: doing.at, text: doing.text.slice(0, 200) } }
       : {}),
+    ...(memory ? { memory } : {}),
+    ...(memory && isTime(raw.memoryAt) ? { memoryAt: raw.memoryAt } : {}),
   };
 }
 
@@ -1215,11 +1453,14 @@ export function readCrew(value: unknown): Crew | null {
   if (Array.isArray(raw.members))
     for (const item of raw.members) {
       const read = readMember(item);
-      // Several Builders and Checkers; one Scout and one Fixer.
+      // Several Builders and Checkers; one Scout, one Researcher, one
+      // Security and one Fixer.
       const single =
         read?.role === "scout" ||
         read?.role === "fixer" ||
-        read?.role === "security";
+        read?.role === "security" ||
+        read?.role === "researcher" ||
+        read?.role === "designer";
       if (
         read &&
         !(single && members.some((entry) => entry.role === read.role))
@@ -1287,13 +1528,22 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.outside === true ? { outside: true } : {}),
         ...(idea.declined === true ? { declined: true } : {}),
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
-        ...(idea.by === "security" ? { by: "security" as const } : {}),
+        ...(idea.by === "security" ||
+        idea.by === "researcher" ||
+        idea.by === "setup"
+          ? { by: idea.by }
+          : {}),
       };
     }
   const ideas = keptIdeas(read);
-  const cards = Array.isArray(raw.cards)
-    ? raw.cards.map(readCrewCard).filter((card): card is CrewCard => !!card)
-    : [];
+  const cards: CrewCard[] = [];
+  const otherCards: unknown[] = [];
+  if (Array.isArray(raw.cards))
+    for (const item of raw.cards) {
+      const card = readCrewCard(item);
+      if (card) cards.push(card);
+      else if (cardOfUnknownStage(item)) otherCards.push(item);
+    }
   const feed = Array.isArray(raw.feed)
     ? raw.feed
         .map((item): CrewFeedEntry | null => {
@@ -1358,6 +1608,7 @@ export function readCrew(value: unknown): Crew | null {
   const access = readAccess(raw.access);
   const planning = text(raw.planning, 200);
   const messages = readMessages(raw.messages);
+  const about = text(raw.about, CREW_ABOUT_MAX);
   return {
     ...base,
     on: raw.on === true,
@@ -1369,6 +1620,7 @@ export function readCrew(value: unknown): Crew | null {
       ? { defaultBuilder: raw.defaultBuilder }
       : {}),
     ...(otherMembers.length ? { otherMembers: otherMembers.slice(0, 20) } : {}),
+    ...(otherCards.length ? { otherCards: otherCards.slice(0, 50) } : {}),
     ...(retired.length ? { retired } : {}),
     limits: {
       runsPerDay: limit("runsPerDay"),
@@ -1425,6 +1677,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(access ? { access } : {}),
     ...(planning ? { planning } : {}),
     ...(messages.length ? { messages } : {}),
+    ...(about ? { about } : {}),
     cards,
     feed,
     notes,
@@ -1597,10 +1850,16 @@ function emit() {
 
 /** A crew as storage keeps it: members of unknown roles back among its members. */
 function stored(crew: Crew): unknown {
-  if (!crew.otherMembers?.length) return crew;
-  const { otherMembers, ...rest } = crew;
-  return { ...rest, members: [...crew.members, ...otherMembers] };
+  if (!crew.otherMembers?.length && !crew.otherCards?.length) return crew;
+  const { otherMembers, otherCards, ...rest } = crew;
+  return {
+    ...rest,
+    members: [...crew.members, ...(otherMembers ?? [])],
+    cards: [...crew.cards, ...(otherCards ?? [])],
+  };
 }
+
+const CREWS_WHAT = "your teams";
 
 function write(store: Store) {
   const crews: Record<string, unknown> = {};
@@ -1620,18 +1879,25 @@ function write(store: Store) {
     // Another version's crews: never overwritten. Changes last as long as
     // this window.
     if (!foreignWarned)
-      console.error(
-        `Crews: ${CREWS_KEY} holds data this version can't read; it is kept as it is (and copied to ${CREWS_BACKUP_KEY}), and nothing is saved.`,
+      logError(
+        "Crews",
+        new Error(
+          `${CREWS_KEY} holds data this version can't read; it is kept as it is (and copied to ${CREWS_BACKUP_KEY}), and nothing is saved.`,
+        ),
       );
     foreignWarned = true;
+    reportSaveProblem(CREWS_KEY, CREWS_WHAT, FOREIGN_STORE_WHY);
     emit();
     return;
   }
   try {
     localStorage.setItem(CREWS_KEY, raw);
     cacheRaw = raw;
-  } catch {
+    clearSaveProblem(CREWS_KEY);
+  } catch (error) {
     // Without storage crews still work in this window until it closes.
+    logError("Crews save", error);
+    reportSaveProblem(CREWS_KEY, CREWS_WHAT, saveFailureWhy(error));
   }
   emit();
 }
@@ -2097,6 +2363,9 @@ export function cardBuilder(
 export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
   if (!card.holder) return undefined;
   if (card.holder === "security" && !card.turn) return cardSecurity(crew)?.id;
+  if (card.holder === "researcher" && !card.turn)
+    return cardResearcher(crew)?.id;
+  if (card.holder === "designer" && !card.turn) return cardDesigner(crew)?.id;
   if (card.turn) {
     const by = crew.members.find(
       (member) => member.sessionId === card.turn!.sessionId,
@@ -2106,8 +2375,26 @@ export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
   return (
     card.holder === "builder"
       ? cardBuilder(crew, card)
-      : cardChecker(crew, card)
+      : card.holder === "researcher"
+        ? cardResearcher(crew)
+        : card.holder === "designer"
+          ? cardDesigner(crew)
+          : cardChecker(crew, card)
   )?.id;
+}
+
+/** The Designer a mock-up card goes to: the crew's, while it is on. */
+export function cardDesigner(
+  crew: Pick<Crew, "members">,
+): CrewMember | undefined {
+  return crew.members.find(
+    (member) => member.role === "designer" && memberOn(member),
+  );
+}
+
+/** A card that is a screen or a look for the Designer to mock up. */
+export function isMockupCard(card: Pick<CrewCard, "kind">): boolean {
+  return card.kind === "mockup";
 }
 
 /** Security for a card: the crew's, while it is on. */
@@ -2115,6 +2402,20 @@ export function cardSecurity(crew: Crew): CrewMember | undefined {
   return crew.members.find(
     (member) => member.role === "security" && memberOn(member),
   );
+}
+
+/** The Researcher a research card goes to: the crew's, while it is on. */
+export function cardResearcher(
+  crew: Pick<Crew, "members">,
+): CrewMember | undefined {
+  return crew.members.find(
+    (member) => member.role === "researcher" && memberOn(member),
+  );
+}
+
+/** A card that is a question for the Researcher. */
+export function isResearchCard(card: Pick<CrewCard, "kind">): boolean {
+  return card.kind === "research";
 }
 
 /** The Checker checking a card: the one it was given to while on, else the first on. */
@@ -2332,6 +2633,33 @@ export function withCrewRun(crew: Crew, now: number): Crew {
   };
 }
 
+/**
+ * A member's notes replaced (clipped to `CREW_MEMORY_MAX`), or cleared with
+ * null or an empty text. Only this member's: nothing else changes.
+ */
+export function withMemberMemory(
+  crew: Crew,
+  memberId: string,
+  memory: string | null,
+  now: number,
+): Crew {
+  const clean = memory
+    ?.replace(/\r\n?/g, "\n")
+    .trim()
+    .slice(0, CREW_MEMORY_MAX);
+  return withMemberId(crew, memberId, (member) => {
+    if (!clean) {
+      if (member.memory === undefined && member.memoryAt === undefined)
+        return member;
+      const rest = { ...member };
+      delete rest.memory;
+      delete rest.memoryAt;
+      return rest;
+    }
+    return { ...member, memory: clean, memoryAt: now };
+  });
+}
+
 /** Extra runs you allowed today. */
 export function crewExtraToday(crew: Pick<Crew, "extra">, now: number): number {
   return crew.extra?.day === localDay(now) ? crew.extra.count : 0;
@@ -2412,7 +2740,7 @@ export function withIdea(crew: Crew, cardId: string, idea: CrewIdea): Crew {
 function ideaHeld(idea: CrewIdea): boolean {
   return (
     idea.size === "large" ||
-    idea.by === "security" ||
+    !!idea.by ||
     !!idea.sourceUrl ||
     !!idea.outside ||
     !!idea.declined
@@ -2463,6 +2791,16 @@ export function crewCard(
  * and starts again from the top when you answer it or try it again.
  */
 export function cardSteppedAside(card: CrewCard): boolean {
+  // A research card has nothing of its own in the copy unless its turn
+  // changed files: stopped for any other reason, it steps aside too. A
+  // mock-up card the same: its folder is emptied as its turn is read, and
+  // only a turn that wrote elsewhere leaves anything behind.
+  if (card.kind === "research" || card.kind === "mockup")
+    return (
+      card.stage === "stuck" &&
+      !card.turn &&
+      card.stuck?.reason !== "checker-edited"
+    );
   return (
     card.stage === "stuck" &&
     !card.turn &&
@@ -2481,12 +2819,19 @@ export function cardSteppedAside(card: CrewCard): boolean {
  * The card in the crew's copy now: being built or checked, Ready, or Stuck
  * with work in it. A Ready card stacked on the crew's branch no longer
  * holds it (the next card builds on top), nor does a Stuck card that
- * changed nothing.
+ * changed nothing, nor Findings waiting to be read (nothing of theirs is in
+ * the copy).
  */
 export function cardInCopy(crew: Pick<Crew, "cards">): CrewCard | undefined {
   return crew.cards.find(
     (card) =>
-      HOLDS_COPY.has(card.stage) && !card.stacked && !cardSteppedAside(card),
+      HOLDS_COPY.has(card.stage) &&
+      !card.stacked &&
+      !cardSteppedAside(card) &&
+      !(
+        (card.kind === "research" || card.kind === "mockup") &&
+        card.stage === "ready"
+      ),
   );
 }
 
@@ -2665,10 +3010,16 @@ export function withoutCard(crew: Crew, id: string): Crew {
 // ---------------------------------------------------------------------------
 // The lease: one window drives a crew's turns at a time
 
-export function claimCrewJob(path: string, owner: string, now = Date.now()) {
+export function claimCrewJob(
+  path: string,
+  owner: string,
+  now = Date.now(),
+  /** Claim it for an off team too: a branch move needs the copy to itself. */
+  whileOff = false,
+) {
   let claimed = false;
   updateCrew(path, (crew) => {
-    if (!crew.on) return crew;
+    if (!crew.on && !whileOff) return crew;
     if (jobIsLive(crew.job, now) && crew.job?.owner !== owner) return crew;
     claimed = true;
     return {

@@ -1,26 +1,38 @@
 import {
-  AVEN_MARK_BODY_PATH,
+  AVEN_MARK_DOT_RADIUS,
   AVEN_MARK_GRID,
-  AVEN_MARK_SUMMIT_COLOR,
-  AVEN_MARK_SUMMIT_PATH,
+  avenMarkDots,
 } from "../lib/avenMark";
 
+const DOTS = avenMarkDots();
+
 /**
- * Aven's Pixel A on the page rather than on the app icon's tile: the body
- * takes the text colour so it reads in light and dark themes, and the summit
- * pixel stays Aven's blue. Size it in whole multiples of the 7 × 8 grid, such
- * as the default 14 × 16 px, so every cell lands on whole pixels.
+ * Aven's mark, Rise, on the page rather than on the app icon's tile: the
+ * staircase of dots alone, in the text colour so it reads in light and dark
+ * themes, with no tile or glow. Size it in whole multiples of the 5 × 5
+ * grid, such as the default 15 px (three pixels a cell, like the project
+ * marks), so every dot centres on a whole device pixel at 2×.
  */
-export function AvenMark({ className = "h-4 w-3.5" }: { className?: string }) {
+export function AvenMark({
+  className = "size-[15px]",
+}: {
+  className?: string;
+}) {
   return (
     <svg
       aria-hidden
       viewBox={`0 0 ${AVEN_MARK_GRID.width} ${AVEN_MARK_GRID.height}`}
-      shapeRendering="crispEdges"
+      fill="currentColor"
       className={className}
     >
-      <path d={AVEN_MARK_BODY_PATH} fill="currentColor" />
-      <path d={AVEN_MARK_SUMMIT_PATH} fill={AVEN_MARK_SUMMIT_COLOR} />
+      {DOTS.map((dot) => (
+        <circle
+          key={`${dot.cx},${dot.cy}`}
+          cx={dot.cx}
+          cy={dot.cy}
+          r={AVEN_MARK_DOT_RADIUS}
+        />
+      ))}
     </svg>
   );
 }

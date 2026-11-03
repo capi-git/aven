@@ -50,6 +50,7 @@ vi.mock("../lib/sessionStore", () => ({
 
 it("does not open an old search hit while the next query is pending", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.useFakeTimers();
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -81,7 +82,7 @@ it("does not open an old search hit while the next query is pending", async () =
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 230));
+      await vi.advanceTimersByTimeAsync(230);
     });
     expect(container.textContent).toContain("alpha.ts");
 
@@ -103,6 +104,7 @@ it("does not open an old search hit while the next query is pending", async () =
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   }
 });
 
@@ -200,6 +202,7 @@ it("lets a nested dialog handle Escape before closing Search", async () => {
 
 it("marks a project hit with the project's own logo, not its folder path", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.useFakeTimers();
   const data = new Map([
     [
       "monocode:tab-group:logos",
@@ -246,7 +249,7 @@ it("marks a project hit with the project's own logo, not its folder path", async
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 230));
+      await vi.advanceTimersByTimeAsync(230);
     });
     const sources = [...container.querySelectorAll("img")].map(
       (image) => image.getAttribute("src") ?? "",
@@ -261,5 +264,6 @@ it("marks a project hit with the project's own logo, not its folder path", async
     await act(async () => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
   }
 });

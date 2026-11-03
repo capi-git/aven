@@ -62,7 +62,7 @@ describe("settings navigation", () => {
         navigation
           .querySelector('[aria-current="page"]')
           ?.getAttribute("aria-description"),
-      ).toBe("Colors & transparency");
+      ).toBe("Colour & transparency");
 
       for (const [index, button] of buttons.entries()) {
         await act(async () => button.click());

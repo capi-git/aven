@@ -660,7 +660,7 @@ describe("Your agents", () => {
     await act(async () => button("New chat in site", site).click());
     expect(value.onNewProjectTask).toHaveBeenCalledExactlyOnceWith(SITE);
 
-    const customize = button("Customize app", app);
+    const customize = button("Customise app", app);
     await act(async () => customize.click());
     expect(customize.getAttribute("aria-expanded")).toBe("true");
     expect(

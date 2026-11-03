@@ -88,6 +88,17 @@ import { WindowControls } from "./WindowControls";
 import { ALT, CTRL, IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
+import { DotMark } from "./DotMark";
+import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import type { DotSigil } from "../lib/dotSigils";
+import { appearanceTone } from "../lib/markTones";
+import {
+  loadPinnedTabs,
+  pinnedFirst,
+  pinnedTabSigils,
+  setTabPinned,
+  subscribePinnedTabs,
+} from "../lib/pinnedTabs";
 import { mergePreviewTabOrder, previewTabIds } from "../lib/previewTabs";
 import {
   SURFACE_GROUP_COLORS,
@@ -479,6 +490,10 @@ export function titleTabContextCloseIds(
 }
 
 type SortableApi = ReturnType<typeof useSortable>;
+/** The first pinned tab draws the backing the others stand on. */
+type PinAttribute = "first" | "true";
+/** A pinned tab's width and the gap after it, as `TitleBar.css` has them. */
+const PINNED_TAB_STEP = 34;
 
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 
@@ -495,6 +510,35 @@ function TabDeck({ children }: { children: ReactNode }) {
 }
 
 /** A tab's mark as the strip draws it: its agents, a board, a file, a terminal. */
+/**
+ * A pinned chat wears a dot mark of its own in its project's colour: the strip
+ * holds one project's tabs, so neither the project's mark nor a row of the same
+ * provider's could tell one pin from another. It sweeps while the chat works.
+ */
+function PinnedIdentity({
+  tab,
+  active,
+  sigil,
+}: {
+  tab: Tab;
+  active: boolean;
+  sigil?: DotSigil;
+}) {
+  const appearance = useProjectAppearance(tab.projectPath);
+  if (!sigil || tab.botPath || !tab.harnesses.length)
+    return <TabIdentity tab={tab} active={active} />;
+  return (
+    <span className="personal-title-tab-identity">
+      <DotMark
+        sigil={sigil}
+        tone={appearance ? appearanceTone(appearance) : "grey"}
+        state={tab.busyHarnesses.length > 0 ? "working" : "still"}
+        className="aven-tab-pinned-mark"
+      />
+    </span>
+  );
+}
+
 export function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
   const fileIcon = tab.files[0];
   return (
@@ -553,6 +597,8 @@ function TitleTabItem({
   tabStop,
   visible,
   closable,
+  pinned = false,
+  pinSigil,
   canDrag,
   sortable,
   onSelect,
@@ -571,6 +617,9 @@ function TitleTabItem({
   tabStop: boolean;
   visible: boolean;
   closable: boolean;
+  /** Pinned to the start of the strip: its mark alone. */
+  pinned?: boolean;
+  pinSigil?: DotSigil;
   canDrag: boolean;
   sortable: SortableApi;
   onSelect: (id: string) => void;
@@ -592,7 +641,11 @@ function TitleTabItem({
   const { headline, tooltip } = tabCopy(tab, projectless);
   const tabRef = useRef<HTMLDivElement | null>(null);
   useTurnEndFlash(tabRef, tab.sessionIds);
-  const identity = <TabIdentity tab={tab} active={active} />;
+  const identity = pinned ? (
+    <PinnedIdentity tab={tab} active={active} sigil={pinSigil} />
+  ) : (
+    <TabIdentity tab={tab} active={active} />
+  );
   const showStart =
     canDrag &&
     sortable.draggingId &&
@@ -680,7 +733,13 @@ function TitleTabItem({
           role={deck ? undefined : "tab"}
           tabIndex={tabStop ? 0 : -1}
           aria-selected={deck ? undefined : active}
-          aria-description={visible && !active ? "Visible in split" : undefined}
+          aria-description={
+            pinned
+              ? "Pinned"
+              : visible && !active
+                ? "Visible in split"
+                : undefined
+          }
           data-sortable-glass
           data-tauri-drag-region="false"
           data-morph={combineInto ? undefined : `tab:${tab.id}`}
@@ -723,7 +782,7 @@ function TitleTabItem({
           <button
             type="button"
             tabIndex={tabStop ? 0 : -1}
-            title="Close Tab"
+            title="Close tab"
             aria-label={`Close ${headline}`}
             data-no-drag
             data-tauri-drag-region="false"
@@ -1204,6 +1263,8 @@ const WORKSPACE_TAB_LINK = "aven-workspace-tabs";
 
 function BrowserTitleTabItem({
   id,
+  pinned,
+  pinStyle,
   title,
   favicon,
   index,
@@ -1260,6 +1321,9 @@ function BrowserTitleTabItem({
   separator?: boolean;
   /** A lone title row draws the page's icon on a deck. */
   deck?: boolean;
+  /** Pinned to the start of the strip: its icon alone. */
+  pinned?: PinAttribute;
+  pinStyle?: CSSProperties;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
   /**
@@ -1297,7 +1361,8 @@ function BrowserTitleTabItem({
       data-combine-near={combineNear || undefined}
       data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
-      style={groupStyle}
+      data-pinned={pinned}
+      style={pinStyle ?? groupStyle}
       data-motion-slot={id}
       data-tab-opening={opening || undefined}
       {...{ [TAB_TRACK_ID_ATTRIBUTE]: id }}
@@ -1360,13 +1425,15 @@ function BrowserTitleTabItem({
           tabIndex={tabStop ? 0 : -1}
           aria-selected={deck ? undefined : active}
           aria-description={
-            preview
-              ? "Preview tab. The next page you open takes its place unless you keep it open."
-              : agentChatName
-                ? `Opened by ${agentChatName}. The chat reuses this page for its next one unless you keep it.`
-                : visible && !active
-                  ? "Visible in split"
-                  : undefined
+            pinned
+              ? "Pinned"
+              : preview
+                ? "Preview tab. The next page you open takes its place unless you keep it open."
+                : agentChatName
+                  ? `Opened by ${agentChatName}. The chat reuses this page for its next one unless you keep it.`
+                  : visible && !active
+                    ? "Visible in split"
+                    : undefined
           }
           aria-label={label === "Browser" ? "Browser" : `Browser: ${label}`}
           data-sortable-glass
@@ -1610,8 +1677,14 @@ function TabStripChevron({
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
       className={`absolute top-1/2 z-40 grid size-6.5 -translate-y-1/2 place-items-center rounded-md bg-(--aven-control-bg) backdrop-blur-xl text-content/70 hover:bg-(--aven-control-hover) hover:text-content ${
-        side === "left" ? "left-1" : "right-1"
+        side === "left" ? "" : "right-1"
       }`}
+      // The left arrow stands just past any pinned tabs.
+      style={
+        side === "left"
+          ? { left: "calc(var(--aven-tab-pin-width, 0px) + 4px)" }
+          : undefined
+      }
     >
       <Icon className="size-3.5" strokeWidth={1.75} />
     </button>
@@ -1891,10 +1964,30 @@ function TitleBarComponent({
     () => new Map((splits ?? []).map((split) => [split.id, split])),
     [splits],
   );
-  const allOrderedIds = titleSurfaceOrder(
-    tabIds,
-    [...browserEntries.map((tab) => tab.id), ...splitEntries.keys()],
-    surfaceOrder,
+  const pinStore = useSyncExternalStore(
+    subscribePinnedTabs,
+    loadPinnedTabs,
+    loadPinnedTabs,
+  );
+  // Pins live on the window's strip. A pinned tab now inside a split or a
+  // pane is an ordinary tab there, and pinned again when it comes back.
+  const pinnedIds: ReadonlySet<string> = new Set(
+    variant === "title"
+      ? []
+      : [...tabIds, ...browserEntries.map((tab) => tab.id)].filter(
+          (id) => pinStore.has(id) && !splitEntries.has(id),
+        ),
+  );
+  const pinSigils = pinnedTabSigils(
+    [...pinStore].filter((id) => pinnedIds.has(id)),
+  );
+  const allOrderedIds = pinnedFirst(
+    titleSurfaceOrder(
+      tabIds,
+      [...browserEntries.map((tab) => tab.id), ...splitEntries.keys()],
+      surfaceOrder,
+    ),
+    pinnedIds,
   );
   const focusedId = unified
     ? activeId
@@ -1913,6 +2006,7 @@ function TitleBarComponent({
   const previewEnabled = Boolean(onKeepBrowser);
   const keptIds = new Set([
     ...tabIds,
+    ...pinnedIds,
     ...splitEntries.keys(),
     ...browserEntries
       .filter((tab) => tab.kept || (shown.has(tab.id) && tab.id !== focusedId))
@@ -1939,7 +2033,20 @@ function TitleBarComponent({
     loadSurfaceGroups,
     loadSurfaceGroups,
   );
-  const segments = stripSegments(orderedIds, groupState);
+  // A tab grouped in a pane and pinned on the strip stands alone here.
+  const segments = stripSegments(
+    orderedIds,
+    pinnedIds.size
+      ? {
+          ...groupState,
+          members: Object.fromEntries(
+            Object.entries(groupState.members).filter(
+              ([id]) => !pinnedIds.has(id),
+            ),
+          ),
+        }
+      : groupState,
+  );
   const titleRow = variant === "title";
   const frontId = orderedIds.includes(focusedId) ? focusedId : orderedIds[0];
   // A title row whose pane holds two tabs or more lays them side by side on
@@ -2015,7 +2122,7 @@ function TitleBarComponent({
     ? trackSeparators(
         displayIds.map((id) => ({
           id,
-          tab: !chipGroupId(id) && !splitEntries.has(id),
+          tab: !chipGroupId(id) && !splitEntries.has(id) && !pinnedIds.has(id),
         })),
         focusedId,
       )
@@ -2094,9 +2201,13 @@ function TitleBarComponent({
   const tearSlotAt = (pointerX: number) => {
     const strip = tabStripRef.current;
     if (!strip) return null;
+    // Nothing lands among the pinned tabs: it would only move on past them.
     const slots = [
       ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
-    ].filter((slot) => !chipGroupId(slot.dataset.motionSlot ?? ""));
+    ].filter((slot) => {
+      const id = slot.dataset.motionSlot ?? "";
+      return !chipGroupId(id) && !pinnedIds.has(id);
+    });
     return stripSlotAt(strip, slots, pointerX);
   };
   /** A single tab of the window's strip: a chat, file, iPhone or page. */
@@ -2199,11 +2310,28 @@ function TitleBarComponent({
                 !split.segments.some((segment) => segment.id === moving) &&
                 !split.members?.includes(moving)
               );
-            return stripTab(target) && (Boolean(onCombineTabs) || pairs);
+            return (
+              stripTab(target) &&
+              !pinnedIds.has(target) &&
+              (Boolean(onCombineTabs) || pairs)
+            );
           }
         : undefined,
     onDrop: dropOn,
     describe: joinFor,
+  };
+  const underPinnedTabs = (id: string) => {
+    const strip = tabStripRef.current;
+    if (!strip?.scrollLeft || !pinnedIds.size) return false;
+    const slot = strip.querySelector<HTMLElement>(
+      `:scope > [data-motion-slot="${CSS.escape(id)}"]`,
+    );
+    if (!slot) return false;
+    const box = slot.getBoundingClientRect();
+    return (
+      (box.left + box.right) / 2 <
+      strip.getBoundingClientRect().left + pinnedIds.size * PINNED_TAB_STEP
+    );
   };
   const sortable = useSortable(
     sortableIds,
@@ -2212,7 +2340,7 @@ function TitleBarComponent({
       // A title row draws no group labels, so moving a tab along it leaves
       // its group alone, and the tabs in its "+N" keep their places.
       const joined =
-        movedId && !paneTabs
+        movedId && !paneTabs && !pinnedIds.has(movedId)
           ? groupAfterDrop(ids, movedId, members)
           : undefined;
       if (movedId && joined !== undefined) {
@@ -2225,7 +2353,10 @@ function TitleBarComponent({
         ? mergePreviewTabOrder(orderedIds, ids)
         : orderFromDisplay(ids, members, orderedIds);
       const moved = movedId && !chipGroupId(movedId) ? movedId : undefined;
-      const complete = mergePreviewTabOrder(allOrderedIds, order);
+      const complete = pinnedFirst(
+        mergePreviewTabOrder(allOrderedIds, order),
+        pinnedIds,
+      );
       if (onReorderSurfaces) onReorderSurfaces(complete, moved);
       else
         onReorder(
@@ -2245,6 +2376,14 @@ function TitleBarComponent({
       isDropTarget: (dragged, target, part) => {
         if (chipGroupId(dragged) || chipGroupId(target)) return false;
         const moving = part ?? dragged;
+        // A pinned tab stands alone: it neither joins nor takes others in,
+        // and a tab scrolled away under the pins can't be aimed at.
+        if (
+          pinnedIds.has(moving) ||
+          pinnedIds.has(target) ||
+          underPinnedTabs(target)
+        )
+          return false;
         if (splitEntries.has(target))
           return Boolean(onAddToSplit) && !splitEntries.has(moving);
         if (!stripTab(target)) return false;
@@ -2327,19 +2466,24 @@ function TitleBarComponent({
     tabStripRef,
     { morphed: sortable.morphed },
   );
-  const highlightRef = useTabHighlight(tabStripRef, track ? focusedId : null, {
-    // Off while a tab is dragged, and while the front tab's copy is still
-    // flying to its place: it shows its own fill and hands over on landing.
-    // Off too while a tab from another bar would join the front tab: its
-    // preview draws the split's fill.
-    enabled:
-      track &&
-      !sortable.draggingId &&
-      sortable.landingId !== focusedId &&
-      sortable.dropTarget?.id !== focusedId,
-    layoutKey: displayIds.join("\n"),
-    glideFrom: sortable.takeOrigin,
-  });
+  const highlightRef = useTabHighlight(
+    tabStripRef,
+    // A pinned tab stays put while the strip scrolls, so it draws its own fill.
+    track && !pinnedIds.has(focusedId) ? focusedId : null,
+    {
+      // Off while a tab is dragged, and while the front tab's copy is still
+      // flying to its place: it shows its own fill and hands over on landing.
+      // Off too while a tab from another bar would join the front tab: its
+      // preview draws the split's fill.
+      enabled:
+        track &&
+        !sortable.draggingId &&
+        sortable.landingId !== focusedId &&
+        sortable.dropTarget?.id !== focusedId,
+      layoutKey: displayIds.join("\n"),
+      glideFrom: sortable.takeOrigin,
+    },
+  );
   // What a dragged tab (or a segment pulled out of its split) would bring to
   // an entry it joins; a tab dragged from another bar says so itself.
   const dragContentId = sortable.draggingPartId ?? sortable.draggingId;
@@ -2710,6 +2854,8 @@ function TitleBarComponent({
     if (previousSelectedId.current === focusedId) return;
     previousSelectedId.current = focusedId;
     if (sortable.draggingId) return;
+    // A pinned tab is always in view; asking would only move the strip.
+    if (activeTabRef.current?.closest("[data-pinned]")) return;
     activeTabRef.current?.scrollIntoView({
       inline: "nearest",
       block: "nearest",
@@ -2855,15 +3001,25 @@ function TitleBarComponent({
     const tab = sessionTabs.get(id);
     return tab ? [tab] : [];
   });
+  // Closing "the others" leaves pinned tabs where they are.
+  const closableSessions = contextTab
+    ? orderedSessions.filter(
+        (tab) => tab.id === contextTab.id || !pinnedIds.has(tab.id),
+      )
+    : [];
   const contextCloseIds = contextTab
     ? {
         others: titleTabContextCloseIds(
-          orderedSessions,
+          closableSessions,
           contextTab.id,
           "others",
         ),
-        right: titleTabContextCloseIds(orderedSessions, contextTab.id, "right"),
-        left: titleTabContextCloseIds(orderedSessions, contextTab.id, "left"),
+        right: titleTabContextCloseIds(
+          closableSessions,
+          contextTab.id,
+          "right",
+        ),
+        left: titleTabContextCloseIds(closableSessions, contextTab.id, "left"),
       }
     : null;
   const groupName = (group: SurfaceGroup) =>
@@ -2911,15 +3067,10 @@ function TitleBarComponent({
         label: paneLocal ? "Combine all tabs" : "Return to single view",
       });
   }
-  if (contextId && onUndoLayout && splitItems.length)
+  if (contextId && onUndoLayout && canUndoLayout && splitItems.length)
     splitItems.push(
       { kind: "sep" },
-      {
-        kind: "item",
-        id: "undo-layout",
-        label: "Undo layout change",
-        disabled: !canUndoLayout,
-      },
+      { kind: "item", id: "undo-layout", label: "Undo layout change" },
     );
   const moveItems: ExplorerMenuItem[] = [];
   // A pane's tab can leave for a pane of its own beside it (Cydonia's deck
@@ -2941,7 +3092,8 @@ function TitleBarComponent({
   const combineItems: ExplorerMenuItem[] =
     contextId && menuKind === "tab" && onCombineTabs && stripTab(contextId)
       ? displayIds.flatMap((id): ExplorerMenuItem[] => {
-          if (id === contextId || chipGroupId(id)) return [];
+          if (id === contextId || chipGroupId(id) || pinnedIds.has(id))
+            return [];
           const split = splitEntries.get(id);
           if (split)
             return onAddToSplit
@@ -3040,28 +3192,40 @@ function TitleBarComponent({
       }`,
     })),
   ];
-  const closeItems: ExplorerMenuItem[] = contextTab
+  // Only what would close something.
+  const closeItems: ExplorerMenuItem[] = contextCloseIds
     ? [
-        {
-          kind: "item",
-          id: "others",
-          label: unified ? "Close other chats" : "Close other tabs",
-          disabled: contextCloseIds?.others.length === 0,
-        },
-        {
-          kind: "item",
-          id: "right",
-          label: unified
-            ? "Close chats to the right"
-            : "Close tabs to the right",
-          disabled: contextCloseIds?.right.length === 0,
-        },
-        {
-          kind: "item",
-          id: "left",
-          label: unified ? "Close chats to the left" : "Close tabs to the left",
-          disabled: contextCloseIds?.left.length === 0,
-        },
+        ...(contextCloseIds.others.length
+          ? [
+              {
+                kind: "item" as const,
+                id: "others",
+                label: unified ? "Close other chats" : "Close other tabs",
+              },
+            ]
+          : []),
+        ...(contextCloseIds.right.length
+          ? [
+              {
+                kind: "item" as const,
+                id: "right",
+                label: unified
+                  ? "Close chats to the right"
+                  : "Close tabs to the right",
+              },
+            ]
+          : []),
+        ...(contextCloseIds.left.length
+          ? [
+              {
+                kind: "item" as const,
+                id: "left",
+                label: unified
+                  ? "Close chats to the left"
+                  : "Close tabs to the left",
+              },
+            ]
+          : []),
       ]
     : [];
   /** One item stays inline; several collapse behind a page entry. */
@@ -3075,6 +3239,11 @@ function TitleBarComponent({
     if (choices.length === 1) return choices;
     return [{ kind: "item", id: `page:${page}`, label, shortcut: "›" }];
   };
+  const contextPinned = Boolean(contextId && pinnedIds.has(contextId));
+  // The window's strip only, and a tab of its own rather than a split.
+  const contextPinnable = Boolean(
+    contextId && !titleRow && menuKind === "tab" && stripTab(contextId),
+  );
   const tabRootItems: ExplorerMenuItem[] = [];
   if (contextId) {
     if (contentItems.length)
@@ -3092,24 +3261,27 @@ function TitleBarComponent({
         id: "bar-open-iphone",
         label: "iPhone",
       });
+    if (contextPinnable)
+      tabRootItems.push({
+        kind: "item",
+        id: "pin-tab",
+        label: contextPinned ? "Unpin tab" : "Pin tab",
+      });
     // An agent's page is kept as a tab but still the agent's to reuse:
     // keeping it makes it the user's, and the chat opens a page of its own.
     if (contextBrowser?.agentChatName && onKeepAgentPage)
-      tabRootItems.push(
-        {
-          kind: "item",
-          id: "keep-open",
-          label: "Keep this page",
-          description: `${contextBrowser.agentChatName} will open its own page instead of reusing this one`,
-        },
-        { kind: "sep" },
-      );
+      tabRootItems.push({
+        kind: "item",
+        id: "keep-open",
+        label: "Keep this page",
+        description: `${contextBrowser.agentChatName} will open its own page instead of reusing this one`,
+      });
     else if (contextBrowser && onKeepBrowser && !contextBrowser.kept)
-      tabRootItems.push(
-        { kind: "item", id: "keep-open", label: "Keep open" },
-        { kind: "sep" },
-      );
-    if (joinableGroups.length)
+      tabRootItems.push({ kind: "item", id: "keep-open", label: "Keep open" });
+    tabRootItems.push({ kind: "sep" });
+    if (contextPinned) {
+      // A pinned tab stands alone: no groups, no combining.
+    } else if (joinableGroups.length)
       tabRootItems.push({
         kind: "item",
         id: "page:group",
@@ -3123,7 +3295,9 @@ function TitleBarComponent({
         label: "Add to new group",
       });
     const onlyCombine = combineItems.length === 1 ? combineItems[0] : null;
-    if (onlyCombine?.kind === "item")
+    if (contextPinned) {
+      // Nothing to combine with.
+    } else if (onlyCombine?.kind === "item")
       tabRootItems.push({
         ...onlyCombine,
         label: `Combine with ${onlyCombine.label}`,
@@ -3147,14 +3321,6 @@ function TitleBarComponent({
       ...paneHideItems,
       { kind: "sep" },
     );
-    if (onReopenClosedTab)
-      tabRootItems.push({
-        kind: "item",
-        id: "reopen-tab",
-        label: "Reopen closed tab",
-        shortcut: `${MOD}${SHIFT}T`,
-        disabled: !canReopenClosedTab,
-      });
     if (contextTab?.race && onOpenRaceOverview)
       tabRootItems.push({
         kind: "item",
@@ -3227,13 +3393,12 @@ function TitleBarComponent({
             ]
           : []),
         { kind: "sep" },
-        ...(onCloseSplit
+        ...(onCloseSplit && menuSplit.closable !== false
           ? [
               {
                 kind: "item" as const,
                 id: "split-close",
                 label: "Close split",
-                disabled: menuSplit.closable === false,
               },
             ]
           : []),
@@ -3267,20 +3432,18 @@ function TitleBarComponent({
       label: "Unfold all groups",
     });
   barItems.push({ kind: "sep" });
-  if (onReopenClosedTab)
+  if (onReopenClosedTab && canReopenClosedTab)
     barItems.push({
       kind: "item",
       id: "reopen-tab",
       label: "Reopen closed tab",
       shortcut: `${MOD}${SHIFT}T`,
-      disabled: !canReopenClosedTab,
     });
-  if (onUndoLayout)
+  if (onUndoLayout && canUndoLayout)
     barItems.push({
       kind: "item",
       id: "undo-layout",
       label: "Undo layout change",
-      disabled: !canUndoLayout,
     });
   if (groupId && onReturnGroupToWindow) {
     barItems.push({ kind: "sep" });
@@ -3325,6 +3488,35 @@ function TitleBarComponent({
       contextMenuItems[index - 1].kind === "sep"
     )
       contextMenuItems.splice(index, 1);
+
+  /** Where a pinned tab stays when the strip scrolls under it. */
+  const pinStyle = (id: string): CSSProperties | undefined =>
+    pinnedIds.has(id)
+      ? ({
+          "--aven-tab-pin-index": displayIds.indexOf(id),
+        } as CSSProperties)
+      : undefined;
+  const pinAttribute = (id: string): PinAttribute | undefined =>
+    pinnedIds.has(id)
+      ? displayIds.indexOf(id) === 0
+        ? "first"
+        : "true"
+      : undefined;
+  /** Pins or unpins a tab, which glides to or from the start of the strip. */
+  const togglePin = (id: string) => {
+    const pin = !pinnedIds.has(id);
+    sortable.captureStripMorph();
+    if (pin) {
+      if (groupState.members[id]) setSurfaceGroupMembership({ [id]: null });
+      // A pinned page must not be replaced by the next one opened.
+      const page = browsers.get(id);
+      if (page?.agentChatName && onKeepAgentPage) onKeepAgentPage(id);
+      else if (page && !page.kept) onKeepBrowser?.(id);
+    }
+    const order = pinnedFirst(allOrderedIds, setTabPinned(id, pin));
+    if (onReorderSurfaces) onReorderSurfaces(order);
+    else onReorder(order.filter((tabId) => sessionTabs.has(tabId)));
+  };
 
   const onPickTabMenu = (id: string) => {
     if (id.startsWith("page:")) {
@@ -3443,6 +3635,8 @@ function TitleBarComponent({
     } else if (id.startsWith("strip-join:")) {
       sortable.captureStripMorph();
       onAddToSplit?.(id.slice("strip-join:".length), contextId);
+    } else if (id === "pin-tab") {
+      togglePin(contextId);
     } else if (id === "keep-open") {
       if (contextBrowser?.agentChatName && onKeepAgentPage)
         onKeepAgentPage(contextId);
@@ -3612,7 +3806,7 @@ function TitleBarComponent({
       );
     const tab = sessionTabs.get(id);
     const browser = browsers.get(id);
-    const memberOf = groupState.members[id];
+    const memberOf = pinnedIds.has(id) ? undefined : groupState.members[id];
     const memberGroup = stripGroups.find(
       (segment) => segment.group.id === memberOf,
     )?.group;
@@ -3659,7 +3853,8 @@ function TitleBarComponent({
           {...{ [TAB_TRACK_ID_ATTRIBUTE]: id }}
           data-tab-separator={separators.has(id) || undefined}
           data-tab-group={groupRun}
-          style={groupStyle}
+          data-pinned={pinAttribute(id)}
+          style={pinStyle(id) ?? groupStyle}
           data-active={id === focusedId}
           data-tauri-drag-region="false"
         >
@@ -3670,7 +3865,11 @@ function TitleBarComponent({
             active={id === focusedId}
             tabStop={id === tabStopId}
             visible={shown.has(id)}
-            closable={titleTabClosable(tab, sessionTabCount)}
+            closable={
+              !pinnedIds.has(id) && titleTabClosable(tab, sessionTabCount)
+            }
+            pinned={pinnedIds.has(id)}
+            pinSigil={pinSigils.get(id)}
             canDrag={canDrag}
             sortable={sortable}
             onSelect={onSelect}
@@ -3732,6 +3931,8 @@ function TitleBarComponent({
       <BrowserTitleTabItem
         key={id}
         id={id}
+        pinned={pinAttribute(id)}
+        pinStyle={pinStyle(id)}
         title={browser.title}
         favicon={browser.favicon}
         index={index}
@@ -3746,7 +3947,7 @@ function TitleBarComponent({
         sortable={sortable}
         onSelect={() => onSelectBrowser?.(unified ? id : undefined)}
         onClose={
-          onCloseBrowser
+          onCloseBrowser && !pinnedIds.has(id)
             ? () => {
                 setBrowserMenu(null);
                 setTabMenu(null);
@@ -3758,7 +3959,9 @@ function TitleBarComponent({
         // A title row's page opens the same menu from a right-click or the
         // pane's "…", so it draws no layout arrow of its own.
         onMenu={
-          !titleRow && (hasSurfaceMenu || onBrowserModeChange)
+          !titleRow &&
+          !pinnedIds.has(id) &&
+          (hasSurfaceMenu || onBrowserModeChange)
             ? (button) => {
                 const rect = button.getBoundingClientRect();
                 if (hasSurfaceMenu) {
@@ -3943,6 +4146,14 @@ function TitleBarComponent({
         ) : (
           <div
             className="relative h-full min-w-0 flex-1 overflow-hidden"
+            style={
+              pinnedIds.size
+                ? ({
+                    // Each pin and the gap after it.
+                    "--aven-tab-pin-width": `${pinnedIds.size * PINNED_TAB_STEP}px`,
+                  } as CSSProperties)
+                : undefined
+            }
             onWheel={(event) => {
               const el = tabStripRef.current;
               if (!el || el.scrollWidth <= el.clientWidth) return;
@@ -3974,6 +4185,7 @@ function TitleBarComponent({
                 titleRow && !paneTabs ? undefined : "horizontal"
               }
               data-tab-track={track || undefined}
+              data-scrolled={tabOverflow.left || undefined}
               onWheel={wheelTabs}
               className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
               onFocusCapture={(event) => {
@@ -4154,7 +4366,7 @@ function TitleBarComponent({
               {onOpenIphone && !titleRow ? (
                 <button
                   type="button"
-                  aria-label="iPhone"
+                  aria-label="Open iPhone simulator"
                   title="Run this project's app on an iPhone simulator"
                   data-tauri-drag-region="false"
                   data-strip-tool

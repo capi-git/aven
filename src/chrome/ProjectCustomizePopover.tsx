@@ -130,7 +130,7 @@ function ProjectAppearancePopover({
       gap={6}
       width={256}
       role="dialog"
-      aria-label={`Customize ${appearance.label}`}
+      aria-label={`Customise ${appearance.label}`}
       onDismiss={(reason) => {
         if (reason === "escape") discarded.current = true;
         else commitName();

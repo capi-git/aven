@@ -124,7 +124,7 @@ describe("AgentMarkdown file link menu", () => {
     });
 
     await rightClick(host.querySelector("a")!);
-    await pick("Copy Path");
+    await pick("Copy path");
     expect(clipboard.copyText).toHaveBeenCalledWith(`${CWD}/notes/plan.md`);
   });
 

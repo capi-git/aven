@@ -90,6 +90,11 @@ export type BrowserPaneProps = {
   attachedNativeId?: string;
   onNativeReady?: (id: string) => void;
   initialUrl?: string;
+  /**
+   * The browser profile the page runs in: "agents" for a sandboxed chat's
+   * page, kept apart from the user's logins; otherwise the user's own.
+   */
+  profile?: "agents";
   visible?: boolean;
   agentRequested?: boolean;
   onClose?: () => void;
@@ -181,6 +186,7 @@ export function BrowserPane(props: BrowserPaneProps) {
 function BrowserPaneSession({
   id,
   initialUrl,
+  profile,
   visible = true,
   agentRequested = false,
   onClose,
@@ -942,7 +948,9 @@ function BrowserPaneSession({
         // without waiting for visibility or requestAnimationFrame; otherwise
         // native transfer readiness and showing the window wait on each other.
         await nativeBrowser.layout(nativeId, initialBounds, false);
-      } else await nativeBrowser.create(nativeId, createUrl, initialBounds);
+      } else if (profile)
+        await nativeBrowser.create(nativeId, createUrl, initialBounds, profile);
+      else await nativeBrowser.create(nativeId, createUrl, initialBounds);
       created = true;
       if (terminated) return;
       if (disposed) {

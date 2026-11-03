@@ -216,6 +216,27 @@ export function groupTurns(blocks: Block[], managed = false): Block[][] {
 }
 
 /**
+ * A message sent while a turn runs joins that turn, but `groupTurns` opens
+ * a turn of its own for it, and it carries no `startedAt`. The live clock
+ * then counted from whenever its fold mounted, so it restarted at zero every
+ * time the chat came back on screen. Walk back to the turn it joined and use
+ * that start, the same rule `stampTurnDuration` uses for the duration.
+ */
+export function joinedTurnStart(
+  turns: readonly (readonly Block[])[],
+  index: number,
+): number | undefined {
+  for (let i = index; i >= 0; i--) {
+    const first = turns[i]?.[0];
+    if (first?.role !== "user") return undefined;
+    // A turn that already finished is not the one this message joined.
+    if (first.durationMs != null) return undefined;
+    if (first.startedAt != null) return first.startedAt;
+  }
+  return undefined;
+}
+
+/**
  * Fold contiguous runs of tool calls and reasoning into activity groups.
  * Assistant prose always stands on its own, including progress updates between
  * groups, so the readable transcript never disappears into activity chrome.

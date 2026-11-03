@@ -15,6 +15,7 @@ import {
   contextUsedFromAssistant,
   extractExitPlanModePlan,
   isClaudeInitMessage,
+  isReplayedTaskNotificationResult,
   isSubagentMessage,
   isTodoTool,
   listModelsFromControlResponse,
@@ -387,6 +388,41 @@ describe("stream mapping", () => {
 describe("turnStatusFromResult", () => {
   const authError =
     "Failed to authenticate: OAuth session expired and could not be refreshed";
+
+  it("tells a resume's replayed background-task result from a real one", () => {
+    // What the CLI writes after `--resume` for a task the session had started.
+    expect(
+      isReplayedTaskNotificationResult({
+        type: "result",
+        subtype: "success",
+        num_turns: 0,
+        origin: { kind: "task-notification", task_id: "t1" },
+      }),
+    ).toBe(true);
+    // A turn Claude ran because a task reported back is still a turn.
+    expect(
+      isReplayedTaskNotificationResult({
+        type: "result",
+        subtype: "success",
+        num_turns: 1,
+        origin: { kind: "task-notification", task_id: "t1" },
+      }),
+    ).toBe(false);
+    expect(
+      isReplayedTaskNotificationResult({
+        type: "result",
+        subtype: "success",
+        num_turns: 0,
+      }),
+    ).toBe(false);
+    expect(
+      isReplayedTaskNotificationResult({
+        type: "result",
+        subtype: "success",
+        origin: { kind: "task-notification" },
+      }),
+    ).toBe(false);
+  });
 
   it("honors is_error even when the CLI result subtype is success", () => {
     expect(

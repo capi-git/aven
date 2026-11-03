@@ -133,6 +133,7 @@ describe("the real-app check's agent pages step", () => {
       passed: true,
       detail:
         "one page reloaded and navigated, a second only for another path (-, reloaded, navigated, navigated, -, navigated) in 140, 380, 260, 250, 160, 240 ms",
+      ms: expect.any(Number),
     });
     // Its turn ended by itself: nothing to stop.
     expect(state.stop).not.toHaveBeenCalled();
@@ -167,6 +168,7 @@ describe("the real-app check's agent pages step", () => {
       passed: false,
       detail:
         "The stand-in's opens failed: open 3 got no answer in 20 s (1. - 140 ms, 2. reloaded 380 ms, 3. no answer 20004 ms)",
+      ms: expect.any(Number),
     });
   });
 

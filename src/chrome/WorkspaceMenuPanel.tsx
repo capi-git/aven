@@ -9,7 +9,7 @@ import {
 import { isImeComposition } from "../lib/keyboard";
 import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
-import { Check, Search } from "./icons";
+import { Check, ChevronRight, Search } from "./icons";
 import "./Menu.css";
 import "./WorkspaceMenuPanel.css";
 
@@ -191,7 +191,9 @@ export function WorkspaceMenuPanelContent({
               {item.checked ? (
                 <Check aria-hidden="true" className="aven-menu-check" />
               ) : null}
-              {item.shortcut ? (
+              {item.shortcut === "›" ? (
+                <ChevronRight className="aven-menu-chevron" aria-hidden />
+              ) : item.shortcut ? (
                 <span className="aven-menu-shortcut">{item.shortcut}</span>
               ) : null}
             </button>

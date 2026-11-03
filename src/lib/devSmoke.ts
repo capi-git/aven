@@ -160,7 +160,87 @@ export function waitFor<T>(
   });
 }
 
-export type SmokeStep = { name: string; passed: boolean; detail?: string };
+export type SmokeStep = {
+  name: string;
+  passed: boolean;
+  detail?: string;
+  /** How long it took, when the step was timed. */
+  ms?: number;
+};
+
+/**
+ * How long the check gives its steps together, from the first: inside the
+ * runner's deadline for the app (SMOKE_TIMEOUT in scripts/dev-aven.py, which
+ * checks this stays below it), so the check always finishes itself and
+ * writes its result rather than being stopped with none.
+ */
+export const SMOKE_BUDGET_MS = 540_000;
+
+/**
+ * The check's steps, run one after another against one budget: a step
+ * still running when the budget runs out fails with how much of it the
+ * step had, and every step after it is listed as not run, so the result
+ * names where the time went.
+ */
+export function smokeStepRunner(
+  budgetMs = SMOKE_BUDGET_MS,
+  now: () => number = Date.now,
+): {
+  steps: SmokeStep[];
+  step: (name: string, body: () => Promise<string | void>) => Promise<boolean>;
+} {
+  const steps: SmokeStep[] = [];
+  const deadline = now() + budgetMs;
+  const seconds = Math.round(budgetMs / 1000);
+  let outOfTime = false;
+  const step = async (name: string, body: () => Promise<string | void>) => {
+    if (outOfTime) {
+      steps.push({
+        name,
+        passed: false,
+        detail: `not run: the check's ${seconds} s budget was used up`,
+        ms: 0,
+      });
+      return false;
+    }
+    const began = now();
+    const left = Math.max(0, deadline - began);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const detail = await Promise.race([
+        body(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            outOfTime = true;
+            reject(
+              new Error(
+                `still running when the check's ${seconds} s budget ran out (${Math.round(left / 1000)} s were left when it started)`,
+              ),
+            );
+          }, left);
+        }),
+      ]);
+      steps.push({
+        name,
+        passed: true,
+        ...(detail ? { detail } : {}),
+        ms: now() - began,
+      });
+      return true;
+    } catch (error) {
+      steps.push({
+        name,
+        passed: false,
+        detail: error instanceof Error ? error.message : String(error),
+        ms: now() - began,
+      });
+      return false;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
+  return { steps, step };
+}
 
 /** Report to the runner and quit the app. */
 export function finishDevSmoke(

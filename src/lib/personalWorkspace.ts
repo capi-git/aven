@@ -16,6 +16,11 @@ export type BrowserTab = {
    * user keeps the page or takes it over by typing an address.
    */
   agentChat?: string;
+  /**
+   * The browser profile the page runs in: "agents" for a page a sandboxed
+   * chat opened, kept apart from the user's logins. Absent: the user's.
+   */
+  profile?: "agents";
 };
 
 export type BrowserWorkspace = {
@@ -60,6 +65,7 @@ function validTab(value: unknown): BrowserTab | null {
     tab.agentChat.length <= 200
       ? { agentChat: tab.agentChat }
       : {}),
+    ...(tab.profile === "agents" ? { profile: "agents" as const } : {}),
   };
 }
 

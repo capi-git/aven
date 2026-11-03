@@ -1123,3 +1123,72 @@ describe("a message you typed yourself", () => {
     }
   });
 });
+
+describe("punctuation-only replies", () => {
+  // Some models send a bare "." between tool calls, and omp shows each one
+  // as a text part; a transcript must not grow a "." row before every call.
+  it("drops a bare '.' reply when the next message seals it", () => {
+    let session = appendUser(newSession("omp", "/repo"), "look around");
+    session = applyHarnessEvent(session, { type: "message.delta", text: "." });
+    session = applyHarnessEvent(session, {
+      type: "tool.started",
+      callId: "read_1",
+      title: "Read src/App.tsx",
+      kind: "read",
+    });
+    session = applyHarnessEvent(session, {
+      type: "message.delta",
+      text: "Found it.",
+    });
+    session = applyHarnessEvent(session, { type: "message.completed" });
+    expect(
+      session.blocks
+        .filter((block) => block.role === "assistant")
+        .map((block) => block.text),
+    ).toEqual(["Found it."]);
+  });
+
+  it("drops a bare reply on completion and when the turn stops", () => {
+    let session = appendUser(newSession("omp", "/repo"), "go");
+    session = applyHarnessEvent(session, { type: "message.delta", text: "…" });
+    session = applyHarnessEvent(session, { type: "message.completed" });
+    expect(session.blocks.some((block) => block.role === "assistant")).toBe(
+      false,
+    );
+
+    session = applyHarnessEvent(session, { type: "message.delta", text: "." });
+    session = stopStreaming(session);
+    expect(session.blocks.some((block) => block.role === "assistant")).toBe(
+      false,
+    );
+  });
+
+  it("keeps replies with any letter, digit or symbol, and all reasoning", () => {
+    let session = appendUser(newSession("omp", "/repo"), "go");
+    session = applyHarnessEvent(session, {
+      type: "reasoning.delta",
+      text: ".",
+    });
+    session = applyHarnessEvent(session, { type: "reasoning.completed" });
+    session = applyHarnessEvent(session, { type: "message.delta", text: "42" });
+    session = applyHarnessEvent(session, { type: "message.completed" });
+    session = applyHarnessEvent(session, {
+      type: "tool.started",
+      callId: "read_1",
+      title: "Read src/App.tsx",
+      kind: "read",
+    });
+    session = applyHarnessEvent(session, { type: "message.delta", text: "✓" });
+    session = applyHarnessEvent(session, { type: "message.completed" });
+    expect(
+      session.blocks
+        .filter((block) => block.role !== "tool")
+        .map((block) => [block.role, block.text, block.streaming]),
+    ).toEqual([
+      ["user", "go", undefined],
+      ["reasoning", ".", false],
+      ["assistant", "42", false],
+      ["assistant", "✓", false],
+    ]);
+  });
+});

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import {
   devSmokeConfig,
   finishDevSmoke,
+  smokeStepRunner,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
   SMOKE_ECHO_NOTE_WORD,
@@ -16,7 +17,6 @@ import {
   SMOKE_WRAP_UP_WORD,
   waitFor,
   type DevSmokeConfig,
-  type SmokeStep,
 } from "../lib/devSmoke";
 import {
   animationProblem,
@@ -51,8 +51,16 @@ import {
 import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
+import { checkPinnedTab } from "../lib/devSmokePinTab";
 import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
-import { checkCrew, type SmokeCrew } from "../lib/devSmokeCrew";
+import { checkCrew } from "../lib/devSmokeCrew";
+import {
+  checkDesigner,
+  checkResearcher,
+  checkTeamAccess,
+  checkTeamSetup,
+  type SmokeTeam,
+} from "../lib/devSmokeTeam";
 import { checkDividerRail } from "../lib/devSmokeRail";
 import {
   agentOpensProblem,
@@ -90,6 +98,10 @@ type Options = DevPerfOptions & {
   expectFloatingSidebar: boolean;
   /** The sidebar's "New chat in <project>". */
   newProjectTask: (path: string) => void;
+  /** The sidebar's project row: make the project the current one. */
+  selectProject?: (path: string) => void;
+  /** The current project, as the title bar and the project panel have it. */
+  currentProject?: () => string;
   submit: (sessionId: string, text: string) => void;
   /** Stop a chat's turn, as its message box's Stop does. */
   stop?: (sessionId: string) => void;
@@ -109,6 +121,8 @@ type Options = DevPerfOptions & {
    * with why it could not.
    */
   deleteProject?: (projectPath: string) => Promise<string | null | void>;
+  /** What would keep the project from being deleted, as Delete judges it. */
+  openWork?: (projectPath: string) => string[];
   /** Open the restart question's preview, as its palette command does. */
   previewRestartQuestion?: () => boolean;
   /** Starts discussions between chats; the check drives the composer's Discuss mode. */
@@ -131,7 +145,7 @@ type Options = DevPerfOptions & {
   /** The title bar opens the project's board, which the check watches. */
   board?: boolean;
   /** Crews: the check turns one on in its project and has it build a card. */
-  crew?: SmokeCrew;
+  crew?: SmokeTeam;
   /** Moves tabs between panes and the strip, for the lone tab's header. */
   loneTab?: SmokeLoneTab;
   /** A project's browser pages, with the chat whose agent builds on each. */
@@ -2327,20 +2341,9 @@ export async function runDevSmoke(
   config: DevSmokeConfig,
   get: () => Options,
 ): Promise<void> {
-  const steps: SmokeStep[] = [];
-  const step = async (
-    name: string,
-    body: () => Promise<string | void>,
-  ): Promise<boolean> => {
-    try {
-      const detail = await body();
-      steps.push({ name, passed: true, ...(detail ? { detail } : {}) });
-      return true;
-    } catch (error) {
-      steps.push({ name, passed: false, detail: errorText(error) });
-      return false;
-    }
-  };
+  // One budget for every step, so the check always finishes itself and
+  // writes its result before the runner's deadline for the app.
+  const { steps, step } = smokeStepRunner();
 
   // Never send anything unless Claude is the stand-in: a real `claude` would
   // reach the developer's own account.
@@ -4054,6 +4057,38 @@ export async function runDevSmoke(
       () => checkCrew(get, config.projectPath, crew),
     );
 
+  // The team family, each step in a Git project of its own beside the
+  // check's, with the stand-in as every teammate: a team sets itself up
+  // from a description, the Researcher's findings put ideas on the Board
+  // and its notes are kept between turns, the Designer's mock-up is kept
+  // (and a stray one refused), and the Team sheet's Access choices stay.
+  if (safe && crew)
+    await step(
+      "a new team sets itself up from a description, with its ideas placed and its about kept",
+      () => checkTeamSetup(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Researcher hands back findings whose ideas go on the Board once, keeps its notes for the next turn, and is told when it has no web",
+      () => checkResearcher(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
+      () => checkDesigner(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Team sheet's Access choices persist across closing and reopening it",
+      () => checkTeamAccess(get, config),
+    );
+
+  if (get().loneTab)
+    await step("a tab pins to its mark at the start of the strip", () => {
+      get().motion?.showWorkspace?.();
+      return checkPinnedTab(config.projectPath, get);
+    });
+
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
   // Settings and Cmd+W closes the open utility rather than a pane.
   if (utilities)
@@ -4166,6 +4201,32 @@ export async function runDevSmoke(
       "deleting a project closes its hidden terminal panel",
       async () => {
         const path = config.projectPath;
+        // The panel is the current project's: a step before may have left
+        // another project's Board or sheet in front. The row brings back one
+        // of the project's own tabs; a chat it had to open instead would be
+        // open work that Delete refuses, so that one is closed again.
+        const before = new Set(get().sessions.map((session) => session.id));
+        get().selectProject?.(path);
+        // The panel's toggle reads the current project as last drawn: wait
+        // for the workspace to draw with this one.
+        if (get().currentProject)
+          await waitFor(
+            () => sameProjectPath(get().currentProject?.() ?? "", path),
+            10_000,
+            "the check's project to be the current one",
+          );
+        const opened = get().sessions.find(
+          (session) =>
+            !before.has(session.id) && sameProjectPath(session.cwd, path),
+        );
+        if (opened) {
+          pressShortcut("w");
+          await waitFor(
+            () => !get().sessions.some((session) => session.id === opened.id),
+            5_000,
+            "the chat the project row opened to close",
+          ).catch(() => undefined);
+        }
         projectPanel.toggle();
         const [terminal] = await waitFor(
           () => {
@@ -4185,17 +4246,47 @@ export async function runDevSmoke(
           "the panel's shell to start and go idle",
         );
         projectPanel.toggle();
-        const refused = await withTimeout(
+        // Delete removes the project's chats, then refuses if work is left:
+        // say what it was, stop what can be stopped, and press once more.
+        const work = () => get().openWork?.(path) ?? [];
+        const stopWorking = async () => {
+          for (const session of get().sessions)
+            if (sameProjectPath(session.cwd, path) && session.busy)
+              get().stop?.(session.id);
+          await waitFor(
+            () =>
+              !get().sessions.some(
+                (session) => sameProjectPath(session.cwd, path) && session.busy,
+              ),
+            10_000,
+            "the project's chats to stop",
+          );
+        };
+        await stopWorking();
+        const had = work();
+        let refused = await withTimeout(
           deleteProject(path),
           30_000,
           "deleting the project",
         );
+        let retried = "";
+        if (refused?.includes("still has open work")) {
+          const left = work();
+          await stopWorking();
+          const again = await withTimeout(
+            deleteProject(path),
+            30_000,
+            "deleting the project again",
+          );
+          retried = `; the first Delete left ${left.join("; ") || "nothing it names"} (before it: ${had.join("; ") || "nothing"})${again ? `, and the second was refused: ${again}` : ", and the second went through"}`;
+          refused = again;
+        }
         const listed = (get().projects ?? []).some((project) =>
           sameProjectPath(project.path, path),
         );
         if (listed)
           throw new Error(
-            `The project is still listed after Delete${refused ? `: ${refused}` : ""}`,
+            `The project is still listed after Delete${refused ? `: ${refused}` : ""}; open work now: ${work().join("; ") || "none"}${retried}`,
           );
         if (projectPanel.terminalIds(path).length > 0)
           throw new Error("The project's terminal panel was kept");
@@ -4208,6 +4299,7 @@ export async function runDevSmoke(
           5_000,
           "the panel's shell to end",
         );
+        return retried ? `deleted on the second press${retried}` : undefined;
       },
     );
 
