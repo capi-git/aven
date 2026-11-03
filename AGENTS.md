@@ -16,6 +16,7 @@ This repository is the source of Aven. The installed Aven may be hosting the ver
 
 ## Conventions
 
+- Follow `DESIGN.md` for anything people see: what to show, colours, text sizes, layout, motion and wording.
 - New persisted keys use the `aven.` prefix. Keep existing `monocode.*` and `supermono.*` keys compatible.
 - Reusable stateful hooks live in `src/hooks`, non-UI logic in `src/lib`, app chrome in `src/chrome`, and workspace views in `src/surfaces`.
 - Name tests after their module: `Name.test.ts` or `Name.topicName.test.ts`. Tests are included in TypeScript checks.
