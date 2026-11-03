@@ -241,6 +241,41 @@ html.theme-light .personal-shell {
 .aven-tab-strip[data-tab-track] .personal-title-tab-text {
   flex: 0 1 auto;
 }
+/* A pinned tab: its mark alone, at the start of the strip, staying there while
+   the other tabs scroll. */
+.aven-tab-slot[data-pinned],
+.aven-tab-strip[data-tab-track] .aven-tab-slot[data-pinned] {
+  position: sticky;
+  left: calc(6px + var(--aven-tab-pin-index, 0) * 34px);
+  z-index: 3;
+  flex: 0 0 32px;
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+}
+.aven-tab-slot[data-pinned] .aven-tab-button {
+  justify-content: center;
+  padding-inline: 0;
+}
+.aven-tab-slot[data-pinned] .aven-tab-label,
+.aven-tab-slot[data-pinned] .personal-title-tab-number {
+  display: none;
+}
+/* What a label's dots say (needs you, unsaved) sits on the mark's corner. */
+.aven-tab-slot[data-pinned] .personal-title-tab-text {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  flex: none;
+}
+.aven-tab-pinned-mark {
+  width: 16px;
+  height: 16px;
+}
+/* A little air before the first ordinary tab. */
+.aven-tab-slot[data-pinned]:has(+ .aven-tab-slot:not([data-pinned])) {
+  margin-right: 6px;
+}
 .aven-tab-highlight {
   position: absolute;
   top: calc(50% - 13px);

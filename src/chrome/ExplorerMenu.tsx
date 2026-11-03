@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { useWorkspaceMenuPanel } from "../hooks/useWorkspaceMenuPanel";
 import { useUsagePanelTheme } from "../lib/usagePanel";
@@ -24,6 +32,11 @@ type Props = {
   x: number;
   y: number;
   items: ExplorerMenuItem[];
+  /**
+   * Rarer choices, one page in. A row whose id is `page:<name>` opens
+   * `pages[name]` in the same menu, under a Back row.
+   */
+  pages?: Record<string, ExplorerMenuItem[]>;
   ariaLabel?: string;
   header?: ReactNode;
   width?: number;
@@ -38,7 +51,7 @@ type Props = {
   onError?: () => void;
 };
 
-const MENU_WIDTH = 260;
+const MENU_WIDTH = 232;
 type PanelAnchor =
   HTMLElement | { x: number; y: number; width: number; height: number };
 
@@ -56,8 +69,57 @@ function nativeAnchor({ anchor, x, y }: Props): PanelAnchor {
   return { x, y, width: 0, height: 0 };
 }
 
-export function ExplorerMenu(props: Props) {
+/** A row that opens a page of `pages`, ending in the submenu chevron. */
+export function menuPage(page: string, label: string): ExplorerMenuItem {
+  return { kind: "item", id: `page:${page}`, label, shortcut: "›" };
+}
+
+/** A page's rows, or the only row inline when a page would be overkill. */
+export function pageOrInline(
+  page: string,
+  label: string,
+  rows: ExplorerMenuItem[],
+): ExplorerMenuItem[] {
+  const choices = rows.filter((row) => row.kind === "item");
+  if (choices.length === 0) return [];
+  return choices.length === 1 ? choices : [menuPage(page, label)];
+}
+
+export function ExplorerMenu(given: Props) {
   const theme = useUsagePanelTheme(true);
+  const [page, setPage] = useState<string | null>(null);
+  // Selecting a page's row must not close the menu showing it.
+  const pageSwitch = useRef(false);
+  const pageClass = `explorer-menu-${useId().replace(/[^\w-]/g, "")}`;
+  // Same as the tab menu: the page replaces the rows of the open menu, and
+  // focus returns to its first row rather than to what opened the menu.
+  useLayoutEffect(() => {
+    if (!pageSwitch.current) return;
+    pageSwitch.current = false;
+    const rows = document.querySelector<HTMLElement>(
+      `.${pageClass} [role="menu"]`,
+    );
+    if (!rows) return;
+    rows.scrollTop = 0;
+    (rows.querySelector<HTMLElement>("button:not(:disabled)") ?? rows).focus({
+      preventScroll: true,
+    });
+  }, [page, pageClass]);
+  const pageRows = page ? given.pages?.[page] : undefined;
+  const props: Props = {
+    ...given,
+    items: pageRows
+      ? [
+          { kind: "item", id: "page:", label: "‹ Back" },
+          { kind: "sep" },
+          ...pageRows,
+        ]
+      : given.items,
+    className: `${pageClass} ${given.className ?? ""}`,
+    onClose: () => {
+      if (!pageSwitch.current) given.onClose();
+    },
+  };
   const {
     items,
     ariaLabel = "File actions",
@@ -105,7 +167,13 @@ export function ExplorerMenu(props: Props) {
     const selected = snapshot.items[index];
     if (!selected || selected.disabled) return;
     const item = items[Number(id.slice("menu-item-".length))];
-    if (item?.kind === "item" && !item.disabled) props.onPick(item.id);
+    if (item?.kind !== "item" || item.disabled) return;
+    if (given.pages && item.id.startsWith("page:")) {
+      pageSwitch.current = true;
+      setPage(item.id.slice("page:".length) || null);
+      return;
+    }
+    props.onPick(item.id);
   };
   // Native browser children require their own window, but the window's content
   // is still Aven's themed UI. Arbitrary React headers stay in the HTML surface.

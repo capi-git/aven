@@ -117,7 +117,11 @@ import {
   type RecentProject,
 } from "../lib/recents";
 import { ColorPickerPopover, ColorSwatchRow } from "./ColorPickerPopover";
-import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
+import {
+  ExplorerMenu,
+  pageOrInline,
+  type ExplorerMenuItem,
+} from "./ExplorerMenu";
 import { HarnessIcon } from "./HarnessIcon";
 import { PersonalWorkspaceSwitcher } from "./PersonalWorkspaceSwitcher";
 import { ProfileSidebarHeader } from "./ProfileSidebarHeader";
@@ -397,24 +401,15 @@ function workspaceMenuItems(
       id: "switch",
       label: `Switch to ${profile.name}`,
     });
-  if (canDelete) {
+  // The default workspace can't be deleted, so it doesn't offer to.
+  if (canDelete && profile.id !== "personal") {
     if (items.length) items.push({ kind: "sep" });
-    items.push(
-      profile.id === "personal"
-        ? {
-            kind: "item",
-            id: "delete",
-            label: "Delete workspace…",
-            description: "Personal is the default workspace",
-            disabled: true,
-          }
-        : {
-            kind: "item",
-            id: "delete",
-            label: "Delete workspace…",
-            danger: true,
-          },
-    );
+    items.push({
+      kind: "item",
+      id: "delete",
+      label: "Delete workspace…",
+      danger: true,
+    });
   }
   return items;
 }
@@ -525,6 +520,14 @@ function SidebarComponent({
     y: number;
   } | null>(null);
   useEffect(() => setWorkspaceMenu(null), [open]);
+  const workspaceMenuRows = workspaceMenu
+    ? workspaceMenuItems(
+        workspaceMenu.profile,
+        activeProfileId,
+        !!onSelectProfile,
+        !!onDeleteProfile,
+      )
+    : [];
   const openWorkspaceMenu =
     onSelectProfile || onDeleteProfile
       ? (profile: WorkspaceProfile, x: number, y: number) =>
@@ -1045,6 +1048,53 @@ function SidebarComponent({
     { kind: "sep" },
     { kind: "item", id: "ungroup", label: "Ungroup" },
   ];
+  const sessionFolderRows: ExplorerMenuItem[] = [
+    { kind: "item", id: "folder-new", label: "New folder" },
+    ...(sessionFolders.length > 0 ? [{ kind: "sep" as const }] : []),
+    ...sessionFolders.map((folder) => ({
+      kind: "item" as const,
+      id: `folder-add:${folder.id}`,
+      label: folder.name,
+      checked:
+        menuSessionIds.length > 0 &&
+        menuSessionIds.every((sessionId) =>
+          folder.sessionIds.includes(sessionId),
+        ),
+    })),
+    ...(canRemoveMenuSessionsFromFolders
+      ? [
+          { kind: "sep" as const },
+          {
+            kind: "item" as const,
+            id: "folder-remove",
+            label: multipleMenuSessions
+              ? "Remove from folders"
+              : "Remove from folder",
+          },
+        ]
+      : []),
+  ];
+  // Copy either identifier for one session (MonoCode 16e9fea6). The
+  // provider's own ID only exists once its first turn has bound one.
+  const sessionCopyRows: ExplorerMenuItem[] =
+    !multipleMenuSessions && menuSessions[0]
+      ? [
+          ...(menuSessions[0].providerSessionId
+            ? [
+                {
+                  kind: "item" as const,
+                  id: "copy-provider-session-id",
+                  label: `Copy ${HARNESS_TITLE[menuSessions[0].harness] ?? "provider"} session ID`,
+                },
+              ]
+            : []),
+          {
+            kind: "item" as const,
+            id: "copy-aven-session-id",
+            label: "Copy Aven chat ID",
+          },
+        ]
+      : [];
   const sessionMenuItems: ExplorerMenuItem[] = [
     ...(onPinSession || onPinSessions
       ? [
@@ -1065,61 +1115,12 @@ function SidebarComponent({
           },
         ]
       : []),
-    // Copy either identifier for one session (MonoCode 16e9fea6). The
-    // provider's own ID only exists once its first turn has bound one.
-    ...(!multipleMenuSessions && menuSessions[0]
-      ? [
-          { kind: "sep" as const },
-          {
-            kind: "item" as const,
-            id: "copy-provider-session-id",
-            label: `Copy ${HARNESS_TITLE[menuSessions[0].harness] ?? "provider"} session ID`,
-            disabled: !menuSessions[0].providerSessionId,
-          },
-          {
-            kind: "item" as const,
-            id: "copy-aven-session-id",
-            label: "Copy Aven chat ID",
-          },
-        ]
-      : []),
     ...(onAddToBoard
-      ? [
-          { kind: "sep" as const },
-          {
-            kind: "item" as const,
-            id: "add-to-board",
-            label: "Add to board",
-            description: multipleMenuSessions
-              ? "A card for each on the project's board"
-              : "A card for it on the project's board",
-          },
-        ]
+      ? [{ kind: "item" as const, id: "add-to-board", label: "Add to board" }]
       : []),
     { kind: "sep" as const },
-    { kind: "item" as const, id: "folder-new", label: "New folder" },
-    ...(sessionFolders.length > 0 ? [{ kind: "sep" as const }] : []),
-    ...sessionFolders.map((folder) => ({
-      kind: "item" as const,
-      id: `folder-add:${folder.id}`,
-      label: `Add to ${folder.name}`,
-      checked:
-        menuSessionIds.length > 0 &&
-        menuSessionIds.every((sessionId) =>
-          folder.sessionIds.includes(sessionId),
-        ),
-    })),
-    ...(canRemoveMenuSessionsFromFolders
-      ? [
-          {
-            kind: "item" as const,
-            id: "folder-remove",
-            label: multipleMenuSessions
-              ? "Remove from folders"
-              : "Remove from folder",
-          },
-        ]
-      : []),
+    ...pageOrInline("folder", "Move to folder", sessionFolderRows),
+    ...pageOrInline("copy", "Copy ID", sessionCopyRows),
     ...(onArchiveSession ||
     onArchiveSessions ||
     onDeleteSession ||
@@ -1958,16 +1959,11 @@ function SidebarComponent({
           onDismiss={() => setProfileMenuAnchor(null)}
         />
       ) : null}
-      {workspaceMenu ? (
+      {workspaceMenu && workspaceMenuRows.length ? (
         <ExplorerMenu
           x={workspaceMenu.x}
           y={workspaceMenu.y}
-          items={workspaceMenuItems(
-            workspaceMenu.profile,
-            activeProfileId,
-            !!onSelectProfile,
-            !!onDeleteProfile,
-          )}
+          items={workspaceMenuRows}
           ariaLabel={`Actions for ${workspaceMenu.profile.name}`}
           onClose={() => setWorkspaceMenu(null)}
           onPick={(id) => {
@@ -2496,6 +2492,7 @@ function SidebarComponent({
           x={sessionMenu.x}
           y={sessionMenu.y}
           items={sessionMenuItems}
+          pages={{ folder: sessionFolderRows, copy: sessionCopyRows }}
           ariaLabel={
             multipleMenuSessions
               ? `${menuSessionIds.length} selected chat actions`

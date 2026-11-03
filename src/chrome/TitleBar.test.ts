@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetHarnessModelOverlays, setHarnessModels } from "../lib/models";
 import { saveTabGroupColor, saveTabGroupLabel } from "../lib/tabGroups";
 import { projectKey } from "../lib/paths";
+import { loadPinnedTabs, setTabPinned } from "../lib/pinnedTabs";
 import {
   TitleBar,
   tabCopy,
@@ -2180,10 +2181,6 @@ describe("browser tab integration", () => {
             new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
           ),
       );
-    const pickTab = async (...path: string[]) => {
-      await open('[role="tab"]');
-      for (const label of path) await choose(label);
-    };
     const pickBar = async (label: string) => {
       await open('[role="tablist"]');
       await choose(label);
@@ -2196,7 +2193,7 @@ describe("browser tab integration", () => {
     expect(props.onReturnTabToWindow).toHaveBeenCalledWith("a");
     await pickBar("Return all tabs to original window");
     expect(props.onReturnGroupToWindow).toHaveBeenCalledWith("group-owner");
-    await pickTab("Reopen closed tab");
+    await pickBar("Reopen closed tab");
     expect(props.onReopenClosedTab).toHaveBeenCalledOnce();
     await pickBar("Undo layout change");
     expect(props.onUndoLayout).toHaveBeenCalledOnce();
@@ -2204,7 +2201,107 @@ describe("browser tab integration", () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
-  it("keeps reopen and layout undo discoverable on an empty tab strip", async () => {
+  describe("pinned tabs", () => {
+    const stripOrder = () =>
+      [...container.querySelectorAll<HTMLElement>("[data-surface-tab-id]")].map(
+        (node) => node.dataset.surfaceTabId,
+      );
+    const slot = (id: string) =>
+      container.querySelector<HTMLElement>(`[data-motion-slot="${id}"]`)!;
+    const menu = async (id: string) => {
+      await act(async () =>
+        container
+          .querySelector(`[data-surface-tab-id="${id}"] [role="tab"]`)!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }),
+          ),
+      );
+      return [
+        ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+      ];
+    };
+    const pick = async (id: string, label: string) => {
+      const rows = await menu(id);
+      await act(async () =>
+        rows.find((row) => row.textContent === label)!.click(),
+      );
+    };
+    const threeTabs = {
+      variant: "strip" as const,
+      tabs: ["a", "b", "c"].map((id) => ({
+        id,
+        project: "site",
+        title: `Chat ${id}`,
+        more: [],
+        sessionCount: 1,
+        harnesses: ["claude" as const],
+        busyHarnesses: [],
+        files: [],
+      })),
+      activeId: "a",
+      onReorderSurfaces: vi.fn(),
+      onCloseMany: vi.fn(),
+    };
+
+    beforeEach(() => {
+      for (const id of loadPinnedTabs()) setTabPinned(id, false);
+    });
+
+    it("moves a pinned tab to the front, as its mark alone, without a close button", async () => {
+      await render(threeTabs);
+      await pick("c", "Pin tab");
+      expect(props.onReorderSurfaces).toHaveBeenLastCalledWith(["c", "a", "b"]);
+      expect(stripOrder()).toEqual(["c", "a", "b"]);
+      expect(slot("c").dataset.pinned).toBeDefined();
+      expect(slot("a").dataset.pinned).toBeUndefined();
+      expect(slot("c").querySelector(".aven-tab-close")).toBeNull();
+      expect(
+        slot("c").querySelector('[role="tab"]')?.getAttribute("title"),
+      ).toBe(tabCopy(threeTabs.tabs[2], false).tooltip);
+    });
+
+    it("comes back as it was when unpinned, after the tabs still pinned", async () => {
+      setTabPinned("b", true);
+      setTabPinned("c", true);
+      await render(threeTabs);
+      expect(stripOrder()).toEqual(["b", "c", "a"]);
+      await pick("b", "Unpin tab");
+      expect(props.onReorderSurfaces).toHaveBeenLastCalledWith(["c", "b", "a"]);
+      expect(slot("b").dataset.pinned).toBeUndefined();
+    });
+
+    it("leaves pinned tabs out of closing the others", async () => {
+      setTabPinned("b", true);
+      await render(threeTabs);
+      await pick("a", "Close others");
+      await act(async () =>
+        [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+          .find(
+            (row) =>
+              /^Close other/.test(row.textContent ?? "") &&
+              row.textContent !== "Close others",
+          )!
+          .click(),
+      );
+      expect(props.onCloseMany).toHaveBeenCalledExactlyOnceWith(["c"], "a");
+    });
+
+    it("offers no groups or combining on a pinned tab", async () => {
+      setTabPinned("a", true);
+      await render({ ...threeTabs, onCombineTabs: vi.fn() });
+      const labels = (await menu("a")).map((row) => row.textContent);
+      expect(labels).toContain("Unpin tab");
+      expect(labels.join(" ")).not.toMatch(/group|Combine/);
+    });
+
+    it("stays pinned first however the saved order has it", async () => {
+      setTabPinned("c", true);
+      await render({ ...threeTabs, surfaceOrder: ["a", "b", "c"] });
+      expect(stripOrder()).toEqual(["c", "a", "b"]);
+    });
+  });
+
+  it("offers reopen on an empty tab strip, and undo only when there is one", async () => {
     await render({
       tabs: [],
       browserTabs: [],
@@ -2226,9 +2323,8 @@ describe("browser tab integration", () => {
       ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ];
     expect(
-      items.find((item) => item.textContent?.includes("Undo layout change"))
-        ?.disabled,
-    ).toBe(true);
+      items.find((item) => item.textContent?.includes("Undo layout change")),
+    ).toBeUndefined();
     await act(async () =>
       items
         .find((item) => item.textContent?.includes("Reopen closed tab"))!

@@ -14,8 +14,7 @@ type FileLinkActions = { open: () => void; reveal: () => void };
 const ITEMS: ExplorerMenuItem[] = [
   { kind: "item", id: "open", label: "Open" },
   { kind: "item", id: "reveal", label: REVEAL_LABEL },
-  { kind: "sep" },
-  { kind: "item", id: "copy-path", label: "Copy Path" },
+  { kind: "item", id: "copy-path", label: "Copy path" },
 ];
 
 /**

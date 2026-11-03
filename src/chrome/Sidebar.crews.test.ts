@@ -39,6 +39,9 @@ vi.mock("../lib/projectBotCopy", () => copy);
 vi.mock("./ExplorerMenu", async () => {
   const react = await import("react");
   return {
+    ...(await vi.importActual<typeof import("./ExplorerMenu")>(
+      "./ExplorerMenu",
+    )),
     ExplorerMenu: ({
       items,
       onPick,
@@ -329,7 +332,7 @@ it("unfolds into each bot with its role, its word and what it's doing", async ()
   );
 });
 
-it("offers Open team, Tell the team, Pause and Settings on right-click, with today's runs", async () => {
+it("offers Tell the team, Pause and Settings on right-click, with today's runs", async () => {
   const onCrewAction = vi.fn();
   await act(async () =>
     root.render(
@@ -346,14 +349,13 @@ it("offers Open team, Tell the team, Pause and Settings on right-click, with tod
     ...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
   ];
   expect(items.map((item) => item.textContent)).toEqual([
-    "Open team",
     "Tell the team…",
     "Pause team",
     "Settings…",
     "7 of 20 runs today",
   ]);
-  expect(items[4].disabled).toBe(true);
-  await act(async () => items[2].click());
+  expect(items[3].disabled).toBe(true);
+  await act(async () => items[1].click());
   expect(onCrewAction).toHaveBeenCalledWith(site, "pause");
   expect(
     crewMenuItems({ ...crew, paused: true }).some(

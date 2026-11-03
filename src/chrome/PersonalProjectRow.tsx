@@ -25,7 +25,11 @@ import {
   MoreHorizontal,
   Plus,
 } from "./icons";
-import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
+import {
+  ExplorerMenu,
+  pageOrInline,
+  type ExplorerMenuItem,
+} from "./ExplorerMenu";
 import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
@@ -103,16 +107,25 @@ export function PersonalProjectRow({
   const isPinned = pinned.some((item) => sameProjectPath(item, path));
   // Short on purpose: the row itself opens the project, and Project memory
   // is in Customise project.
+  const moveRows: ExplorerMenuItem[] = onMove
+    ? profiles
+        .filter((profile) => profile.id !== activeProfileId)
+        .map((profile) => ({
+          kind: "item" as const,
+          id: `move:${profile.id}`,
+          label: `Move to ${profile.name}`,
+        }))
+    : [];
   const items: ExplorerMenuItem[] = [
-    ...(onOpenBoard
-      ? [{ kind: "item" as const, id: "board", label: "Open board" }]
-      : []),
     {
       kind: "item",
       id: "pin",
       label: isPinned ? "Unpin project" : "Pin project",
     },
     { kind: "item", id: "customize", label: "Customise project…" },
+    ...(onOpenBoard
+      ? [{ kind: "item" as const, id: "board", label: "Open board" }]
+      : []),
     ...(onBotSettings
       ? [
           {
@@ -122,16 +135,9 @@ export function PersonalProjectRow({
           },
         ]
       : []),
+    { kind: "sep" },
     { kind: "item", id: "reveal", label: "Reveal in Finder" },
-    ...(onMove
-      ? profiles
-          .filter((profile) => profile.id !== activeProfileId)
-          .map((profile) => ({
-            kind: "item" as const,
-            id: `move:${profile.id}`,
-            label: `Move to ${profile.name}`,
-          }))
-      : []),
+    ...pageOrInline("move", "Move to workspace", moveRows),
     ...(onRemove
       ? [
           { kind: "sep" as const },
@@ -254,6 +260,7 @@ export function PersonalProjectRow({
           y={menu.y}
           anchor={menu.anchor}
           items={items}
+          pages={{ move: moveRows }}
           ariaLabel={`Actions for ${label}`}
           onClose={() => setMenu(null)}
           onPick={(id) => {

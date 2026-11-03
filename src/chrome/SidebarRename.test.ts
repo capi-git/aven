@@ -133,6 +133,7 @@ describe("sidebar session IDs", () => {
     ];
     act(() => render());
     let item = openSessionMenu("session-2");
+    await act(async () => item("Copy ID").click());
     const provider = item("Copy Claude Code session ID");
     expect(provider.disabled).toBe(false);
     expect(item("Copy Codex session ID")).toBeUndefined();
@@ -141,6 +142,7 @@ describe("sidebar session IDs", () => {
     expect(document.querySelector('[role="menu"]')).toBeNull();
 
     item = openSessionMenu("session-2");
+    await act(async () => item("Copy ID").click());
     await act(async () => item("Copy Aven chat ID").click());
     expect(copyText).toHaveBeenNthCalledWith(2, "session-2");
   });
@@ -148,11 +150,10 @@ describe("sidebar session IDs", () => {
   it("keeps the Aven ID available before the provider binds its own ID", async () => {
     act(() => render());
     const item = openSessionMenu("session-1");
-    const provider = item("Copy Codex session ID");
-    expect(provider.disabled).toBe(true);
-    await act(async () => provider.click());
-    expect(copyText).not.toHaveBeenCalled();
-    const aven = openSessionMenu("session-1")("Copy Aven chat ID");
+    // No provider ID yet: the one ID that exists sits on the menu itself.
+    expect(item("Copy Codex session ID")).toBeUndefined();
+    expect(item("Copy ID")).toBeUndefined();
+    const aven = item("Copy Aven chat ID");
     expect(aven.disabled).toBe(false);
     await act(async () => aven.click());
     expect(copyText).toHaveBeenCalledExactlyOnceWith("session-1");
