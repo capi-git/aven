@@ -1,10 +1,12 @@
 import {
   CREW_FENCES,
+  FINDINGS_FENCE,
   GOAL_FENCE,
   HANDOFF_FENCE,
   IDEAS_FENCE,
   TASKS_FENCE,
   VERDICT_FENCE,
+  parseFindings,
   parseGoal,
   parseHandoff,
   parseIdeas,
@@ -21,7 +23,7 @@ import { plural } from "./words";
  */
 
 export type CrewFenceView = {
-  kind: "ideas" | "handoff" | "verdict" | "goal" | "tasks";
+  kind: "ideas" | "handoff" | "verdict" | "goal" | "tasks" | "findings";
   /** "3 ideas", "Handed over", "2 must-fix", "Passed", "Goal met". */
   label: string;
   /** One line under it: the bot's summary, or what Aven did with it. */
@@ -102,6 +104,19 @@ export function crewFenceView(
       items: goal.next.map((task) => ({
         title: task.title,
         ...(task.why ? { detail: task.why } : {}),
+      })),
+    };
+  }
+  if (fence === FINDINGS_FENCE) {
+    const found = parseFindings(text);
+    if (!found) return null;
+    return {
+      kind: "findings",
+      label: plural(found.findings.length, "finding"),
+      ...(found.summary ? { line: found.summary } : {}),
+      items: found.findings.map((finding) => ({
+        title: finding.text,
+        ...(finding.source ? { detail: finding.source } : {}),
       })),
     };
   }

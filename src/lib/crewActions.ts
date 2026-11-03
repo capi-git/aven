@@ -8,6 +8,7 @@ import {
   changedAfterCheck,
   markApplied,
   markDiscarded,
+  markResearchRead,
   queueCard,
   resumeCard,
   stopCard,
@@ -18,6 +19,7 @@ import {
   CREW_NOTE_MAX,
   bumpToday,
   cardInCopy,
+  cardResearcher,
   claimCrewJob,
   releaseCrewJob,
   renewCrewJob,
@@ -77,6 +79,7 @@ import {
 } from "./crewPresets";
 import { errorText, logError } from "./errors";
 import {
+  addFeatureCards,
   addFeatureIdea,
   deleteFeatureCard,
   featureBoardState,
@@ -97,6 +100,7 @@ import {
 import { protectedFixPaths } from "./projectBotPermissions";
 import { jobIsLive, type BotQuietHours } from "./projectBots";
 import { normalizeProjectPath } from "./recents";
+import { plural } from "./words";
 
 /**
  * What you do with a crew and its cards: Give to crew, Not now, Pause and
@@ -108,14 +112,15 @@ import { normalizeProjectPath } from "./recents";
 
 /** Models a crew's members run on, picked when it is turned on. */
 export type CrewModels = Record<
-  "builder" | "checker" | "scout",
+  "builder" | "checker" | "scout" | "researcher",
   { harness: "claude" | "codex"; model: string }
 >;
 
 /**
  * The Builder on your usual Claude model. The Checker on Codex when it is
  * installed (fresh eyes from another model), else on a different Claude
- * model. The Scout on a lighter Claude model when there is one.
+ * model. The Scout on a lighter Claude model when there is one; the
+ * Researcher reads and writes at length, so it gets the Builder's.
  */
 export function pickCrewModels(input: {
   codex: boolean;
@@ -137,6 +142,7 @@ export function pickCrewModels(input: {
         ? { harness: "codex", model: input.preferredCodex }
         : { harness: "claude", model: other ?? builder },
     scout: { harness: "claude", model: lighter },
+    researcher: { harness: "claude", model: builder },
   };
 }
 
@@ -668,7 +674,7 @@ export async function giveCardToCrew(
             id: card.id,
             title: card.title,
             brief: featureBrief(card),
-            from: idea?.by === "security" ? "security" : idea ? "scout" : "you",
+            from: idea?.by ? idea.by : idea ? "scout" : "you",
             ...(idea ? { size: idea.size } : {}),
             ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
             maxRounds: chosen.maxRounds,
@@ -727,6 +733,155 @@ export async function giveIdeasToCrew(
     if (problem) return problem;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Questions for the Researcher
+
+/**
+ * "Research: how do other apps do X" in the Add an idea box: the question
+ * after the prefix, or null for an ordinary idea.
+ */
+export function researchQuestion(text: string): string | null {
+  const match =
+    /^\s*(?:research|ask(?:\s+the)?\s+researcher)\s*[:：—–-]\s*(.+)$/is.exec(
+      text,
+    );
+  const question = match?.[1]?.trim();
+  return question || null;
+}
+
+export const NO_RESEARCHER = "Add a Researcher to the team first.";
+const RESEARCHER_OFF = "Turn the Researcher on first.";
+
+/**
+ * Ask the Researcher a Board card's question: it waits in Building as
+ * Queued and takes one read-only turn when the team's copy is free, ending
+ * in Findings for you. Resolves with why it couldn't, or null.
+ */
+export async function askResearcher(
+  path: string,
+  card: Pick<FeatureCard, "id" | "title" | "note" | "sourceUrl">,
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  if (!crew?.on) return "Turn the team on first.";
+  if (!cardResearcher(crew))
+    return crew.members.some((member) => member.role === "researcher")
+      ? RESEARCHER_OFF
+      : NO_RESEARCHER;
+  const known = crewCard(crew, card.id);
+  if (known && known.stage !== "applied" && known.stage !== "discarded")
+    return null;
+  updateCrew(path, (current) => {
+    const who = crewMemberName(
+      current,
+      cardResearcher(current)?.id ?? "researcher",
+    );
+    return withFeed(
+      withCard(
+        withNotNow(withoutCard(current, card.id), card.id, false),
+        queueCard(
+          {
+            id: card.id,
+            title: card.title,
+            brief: featureBrief(card),
+            from: "you",
+            kind: "research",
+            ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
+            maxRounds: 1,
+          },
+          now,
+        ),
+      ),
+      {
+        at: now,
+        kind: "note",
+        who: "you",
+        cardId: card.id,
+        title: card.title,
+        text: `You asked ${who} “${card.title}”`,
+      },
+    );
+  });
+  await moveFeatureCard(path, card.id, "building", "");
+  return null;
+}
+
+const NO_FINDINGS = "This card has no findings to read.";
+
+/**
+ * Put the ideas the Researcher proposed on the Board (those you ticked, or
+ * all of them), each an idea that waits for you: none ever builds by
+ * itself. The card is done. Resolves with why it couldn't, or null.
+ */
+export async function addResearchIdeas(
+  path: string,
+  cardId: string,
+  chosen?: readonly string[],
+  now = Date.now(),
+): Promise<string | null> {
+  const crew = getCrew(path);
+  const card = crew ? crewCard(crew, cardId) : undefined;
+  if (!card || card.kind !== "research" || card.stage !== "ready")
+    return NOT_READY;
+  if (!card.findings) return NO_FINDINGS;
+  const titles = card.findings.ideas.filter(
+    (idea) => !chosen || chosen.includes(idea),
+  );
+  const who = crewMemberName(crew!, cardResearcher(crew!)?.id ?? "researcher");
+  let added: readonly FeatureCard[] = [];
+  if (titles.length) {
+    try {
+      added = await addFeatureCards(
+        path,
+        titles.map((title) => ({ title, column: "idea" as const })),
+      );
+    } catch (error) {
+      logError("Add research ideas", error);
+      return errorText(error);
+    }
+    if (added.length < titles.length)
+      return "Couldn't add the ideas to the Board.";
+  }
+  updateCrew(path, (current) => {
+    const known = crewCard(current, cardId);
+    if (!known || known.stage !== "ready") return current;
+    let next = withCard(current, markResearchRead(known, now, added.length));
+    added.forEach((idea, index) => {
+      next = withIdea(next, idea.id, {
+        at: now + index,
+        size: "medium",
+        why: `From ${who}'s findings for “${known.title}”`,
+        // Its words came from what the Researcher read: it waits for you.
+        outside: true,
+        by: "researcher",
+      });
+    });
+    return withFeed(next, {
+      at: now,
+      kind: "note",
+      who: "you",
+      cardId,
+      title: known.title,
+      text: added.length
+        ? `You added ${plural(added.length, "idea")} from ${who}'s findings for “${known.title}”: ${added
+            .map((idea) => idea.title)
+            .join(" · ")}`
+        : `You read ${who}'s findings for “${known.title}”`,
+    });
+  });
+  await moveFeatureCard(path, cardId, "shipped", "");
+  return null;
+}
+
+/** You read the findings and want none of its ideas: the card is done. */
+export async function dismissResearch(
+  path: string,
+  cardId: string,
+  now = Date.now(),
+): Promise<string | null> {
+  return addResearchIdeas(path, cardId, [], now);
 }
 
 // ---------------------------------------------------------------------------
@@ -1606,7 +1761,7 @@ export function dismissCrewInbox(
 
 /** What you can add: a role's member, or one of your own that works as a Builder or Checker. */
 export type CrewTemplate =
-  "builder" | "checker" | "security" | "scout" | "custom";
+  "builder" | "checker" | "security" | "scout" | "researcher" | "custom";
 
 export type CrewNewMember = {
   /** For a custom member: whether it builds or checks. */
@@ -1712,11 +1867,17 @@ export function addCrewMember(
   const role: Exclude<CrewRole, "fixer"> =
     template === "custom" ? (input.role ?? "builder") : template;
   if (
-    (role === "scout" || role === "security") &&
+    (role === "scout" || role === "security" || role === "researcher") &&
     crew.members.some((member) => member.role === role)
   )
     return {
-      error: `This team already has ${role === "scout" ? "a Scout" : "Security"}.`,
+      error: `This team already has ${
+        role === "scout"
+          ? "a Scout"
+          : role === "researcher"
+            ? "a Researcher"
+            : "Security"
+      }.`,
     };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
     return { error: "A team has at most 8 teammates." };
@@ -2213,14 +2374,27 @@ export function crewCardHolding(crew: Crew): CrewCard | undefined {
 // the cursor in its Feed's box.
 
 let tellFor: string | null = null;
+/** The teammate the box should write to, when the request named one. */
+let tellTo: string | null = null;
 const tellListeners = new Set<() => void>();
 
 const tellKey = (path: string) => projectKey(normalizeProjectPath(path));
 
-/** Ask the crew's Feed to put the cursor in its Tell the crew box. */
-export function focusCrewTell(path: string) {
+/**
+ * Ask the crew's Feed to put the cursor in its Tell the crew box, writing
+ * to `to` (a member id) when given: a follow-up for the Researcher.
+ */
+export function focusCrewTell(path: string, to?: string) {
   tellFor = tellKey(path);
+  tellTo = to ?? null;
   for (const listener of [...tellListeners]) listener();
+}
+
+/** The teammate a taken request named, once; null for everyone. */
+export function takeCrewTellTo(): string | null {
+  const to = tellTo;
+  tellTo = null;
+  return to;
 }
 
 /** Whether Tell the team… waits for this team's box (without taking it). */

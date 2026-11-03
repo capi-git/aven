@@ -44,10 +44,17 @@ export const CREWS_KEY = "aven.crews.v1";
  * here, to `CREW_ROLE_INFO`, and to the runner's wake rules; members of a
  * role this build does not know are kept in storage as they are.
  */
-export type CrewRole = "builder" | "checker" | "security" | "scout" | "fixer";
+export type CrewRole =
+  "builder" | "checker" | "security" | "scout" | "researcher" | "fixer";
 
 /** The roles that take turns on cards in the crew's copy. */
 export type CrewLoopRole = "builder" | "checker" | "security";
+
+/**
+ * Who holds a card: a loop role, or the Researcher reading a research card
+ * (one turn, no rounds, nothing to apply).
+ */
+export type CrewCardHolder = CrewLoopRole | "researcher";
 
 export type CrewRoleInfo = {
   role: CrewRole;
@@ -83,6 +90,12 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     job: "Finds small ideas worth building",
     edits: false,
   },
+  researcher: {
+    role: "researcher",
+    label: "Researcher",
+    job: "Reads up on a question and writes findings you can turn into ideas",
+    edits: false,
+  },
   fixer: {
     role: "fixer",
     label: "Fixer",
@@ -97,6 +110,7 @@ export const CREW_ROLE_ORDER: readonly CrewRole[] = [
   "checker",
   "security",
   "scout",
+  "researcher",
   "fixer",
 ];
 
@@ -349,9 +363,32 @@ export type CrewRound = {
   securedAt?: number;
 };
 
+/** One thing the Researcher found, with where it read it. */
+export type CrewFindingSource = {
+  text: string;
+  /** A link, or "project file" and the like: where it comes from. */
+  source?: string;
+};
+
+/**
+ * What the Researcher handed back for a research card: a short summary,
+ * numbered findings each with a source, and ideas it proposes (each waits
+ * for you in Ideas once added; none ever builds by itself).
+ */
+export type CrewFindings = {
+  summary: string;
+  findings: CrewFindingSource[];
+  ideas: string[];
+  /** Distinct links it read, counted by Aven from its reply. */
+  sources: number;
+  readAt: number;
+  /** Ideas you put on the Board from it (0 once read and dismissed). */
+  added?: number;
+};
+
 /** A turn Aven sent for a card, so a restart and other windows know. */
 export type CrewTurn = {
-  role: CrewLoopRole;
+  role: CrewCardHolder;
   sessionId: string;
   /** The message that started it. */
   turnId: string;
@@ -366,8 +403,15 @@ export type CrewCard = {
   title: string;
   /** What to build: the card's title and note. */
   brief: string;
-  /** You, or an idea from the Scout or Security's sweep (quoted as data). */
-  from: "you" | "scout" | "security" | "member";
+  /** You, or an idea from the Scout, Security's sweep or the Researcher (quoted as data). */
+  from: "you" | "scout" | "security" | "member" | "researcher";
+  /**
+   * A question for the Researcher: one read-only turn that ends in
+   * Findings, never in a change to apply.
+   */
+  kind?: "research";
+  /** What the Researcher found, once its turn ended. */
+  findings?: CrewFindings;
   /** The Scout's size for its idea. */
   size?: CrewIdeaSize;
   /** Where the card came from (an issue, a page): outside words. */
@@ -388,7 +432,7 @@ export type CrewCard = {
   anywhere?: boolean;
   paused?: boolean;
   /** Who holds it now. */
-  holder?: CrewLoopRole;
+  holder?: CrewCardHolder;
   rounds: CrewRound[];
   /** Notes for later: they never send a card back. */
   later: string[];
@@ -454,8 +498,8 @@ export type CrewIdea = {
   declined?: boolean;
   /** It started by itself. */
   autoStarted?: boolean;
-  /** Security's sweep found it: it never starts by itself. */
-  by?: "security";
+  /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
+  by?: "security" | "researcher";
 };
 
 export type CrewFeedKind =
@@ -468,7 +512,9 @@ export type CrewFeedKind =
   | "note"
   | "applied"
   | "hold"
-  | "stopped";
+  | "stopped"
+  /** The Researcher's findings are ready for you. */
+  | "findings";
 
 /** One line in the crew's feed: handoffs, verdicts, ideas, your notes. */
 export type CrewFeedEntry = {
@@ -614,25 +660,33 @@ export type CrewAccess = {
   others: "refuse" | "ask";
 };
 
-/** Whether a role may search and read the web (its search and fetch tools). */
+/**
+ * Whether a role may search and read the web (its search and fetch tools).
+ * The Researcher reads it whenever anyone may: reading is its job, and its
+ * ideas always wait for you.
+ */
 export function crewRoleUsesWeb(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
   const { web } = crewAccess(crew);
-  return web === "everyone" || (web === "builders" && role === "builder");
+  return (
+    web === "everyone" ||
+    (web === "builders" && (role === "builder" || role === "researcher"))
+  );
 }
 
 /**
  * Whether a role may use Aven's browser. The Checker and Security use it to
  * try the work, so "Builders" leaves it to all but the Scout, whose ideas
- * build by themselves.
+ * build by themselves. The Researcher has it exactly when it has the web.
  */
 export function crewRoleUsesBrowser(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
   const { web } = crewAccess(crew);
+  if (role === "researcher") return crewRoleUsesWeb(crew, role);
   return web === "everyone" || (web === "builders" && role !== "scout");
 }
 
@@ -850,6 +904,7 @@ const FEED_KINDS = new Set<CrewFeedKind>([
   "applied",
   "hold",
   "stopped",
+  "findings",
 ]);
 const HOLDS = new Set<CrewHoldReason>([
   "paused",
@@ -895,6 +950,37 @@ export function readFinding(value: unknown): CrewFinding | null {
     ...(how ? { how } : {}),
     ...(about ? { about } : {}),
     ...(raw?.regression === true ? { regression: true } : {}),
+  };
+}
+
+const RESEARCH_FINDINGS_KEPT = 10;
+const FINDING_IDEAS_KEPT = 5;
+
+/** The Researcher's findings as stored: each field clipped, nothing trusted. */
+export function readFindings(value: unknown): CrewFindings | undefined {
+  const raw = value as Partial<CrewFindings> | null;
+  if (!raw || typeof raw !== "object" || !isTime(raw.readAt)) return undefined;
+  const findings = Array.isArray(raw.findings)
+    ? raw.findings
+        .map((item): CrewFindingSource | null => {
+          const entry = item as Partial<CrewFindingSource> | null;
+          const body = text(entry?.text, 400);
+          if (!body) return null;
+          const source = text(entry?.source, 2048);
+          return { text: body, ...(source ? { source } : {}) };
+        })
+        .filter((item): item is CrewFindingSource => !!item)
+        .slice(0, RESEARCH_FINDINGS_KEPT)
+    : [];
+  return {
+    summary: text(raw.summary) ?? "",
+    findings,
+    ideas: strings(raw.ideas, FINDING_IDEAS_KEPT, 200),
+    sources: finite(raw.sources, 0, 1_000, 0),
+    readAt: raw.readAt,
+    ...(typeof raw.added === "number"
+      ? { added: finite(raw.added, 0, FINDING_IDEAS_KEPT, 0) }
+      : {}),
   };
 }
 
@@ -1021,6 +1107,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
   const turn = raw.turn as CrewTurn | undefined;
   const fix = readChange(raw.fix);
   const reviewing = readChange(raw.reviewing);
+  const findings = readFindings(raw.findings);
   const inbox = readReview(raw.inbox);
   const note = text(raw.note, CREW_NOTE_MAX);
   const sourceUrl = text(raw.sourceUrl, 2048);
@@ -1042,12 +1129,17 @@ export function readCrewCard(value: unknown): CrewCard | null {
     title,
     brief: text(raw.brief, CREW_BRIEF_MAX) ?? title,
     from:
-      raw.from === "scout" || raw.from === "security" || raw.from === "member"
+      raw.from === "scout" ||
+      raw.from === "security" ||
+      raw.from === "member" ||
+      raw.from === "researcher"
         ? raw.from
         : "you",
     ...(raw.from === "member" && text(raw.fromMember, 60)
       ? { fromMember: text(raw.fromMember, 60) }
       : {}),
+    ...(raw.kind === "research" ? { kind: "research" as const } : {}),
+    ...(findings ? { findings } : {}),
     ...(SIZES.has(raw.size as CrewIdeaSize)
       ? { size: raw.size as CrewIdeaSize }
       : {}),
@@ -1065,7 +1157,8 @@ export function readCrewCard(value: unknown): CrewCard | null {
     ...(raw.paused === true ? { paused: true } : {}),
     ...(raw.holder === "builder" ||
     raw.holder === "checker" ||
-    raw.holder === "security"
+    raw.holder === "security" ||
+    raw.holder === "researcher"
       ? { holder: raw.holder }
       : {}),
     rounds,
@@ -1096,7 +1189,8 @@ export function readCrewCard(value: unknown): CrewCard | null {
     ...(turn &&
     (turn.role === "builder" ||
       turn.role === "checker" ||
-      turn.role === "security") &&
+      turn.role === "security" ||
+      turn.role === "researcher") &&
     typeof turn.sessionId === "string" &&
     typeof turn.turnId === "string" &&
     typeof turn.sentAt === "number"
@@ -1215,11 +1309,13 @@ export function readCrew(value: unknown): Crew | null {
   if (Array.isArray(raw.members))
     for (const item of raw.members) {
       const read = readMember(item);
-      // Several Builders and Checkers; one Scout and one Fixer.
+      // Several Builders and Checkers; one Scout, one Researcher, one
+      // Security and one Fixer.
       const single =
         read?.role === "scout" ||
         read?.role === "fixer" ||
-        read?.role === "security";
+        read?.role === "security" ||
+        read?.role === "researcher";
       if (
         read &&
         !(single && members.some((entry) => entry.role === read.role))
@@ -1287,7 +1383,9 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.outside === true ? { outside: true } : {}),
         ...(idea.declined === true ? { declined: true } : {}),
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
-        ...(idea.by === "security" ? { by: "security" as const } : {}),
+        ...(idea.by === "security" || idea.by === "researcher"
+          ? { by: idea.by }
+          : {}),
       };
     }
   const ideas = keptIdeas(read);
@@ -2097,6 +2195,8 @@ export function cardBuilder(
 export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
   if (!card.holder) return undefined;
   if (card.holder === "security" && !card.turn) return cardSecurity(crew)?.id;
+  if (card.holder === "researcher" && !card.turn)
+    return cardResearcher(crew)?.id;
   if (card.turn) {
     const by = crew.members.find(
       (member) => member.sessionId === card.turn!.sessionId,
@@ -2106,7 +2206,9 @@ export function cardHolderId(crew: Crew, card: CrewCard): string | undefined {
   return (
     card.holder === "builder"
       ? cardBuilder(crew, card)
-      : cardChecker(crew, card)
+      : card.holder === "researcher"
+        ? cardResearcher(crew)
+        : cardChecker(crew, card)
   )?.id;
 }
 
@@ -2115,6 +2217,20 @@ export function cardSecurity(crew: Crew): CrewMember | undefined {
   return crew.members.find(
     (member) => member.role === "security" && memberOn(member),
   );
+}
+
+/** The Researcher a research card goes to: the crew's, while it is on. */
+export function cardResearcher(
+  crew: Pick<Crew, "members">,
+): CrewMember | undefined {
+  return crew.members.find(
+    (member) => member.role === "researcher" && memberOn(member),
+  );
+}
+
+/** A card that is a question for the Researcher. */
+export function isResearchCard(card: Pick<CrewCard, "kind">): boolean {
+  return card.kind === "research";
 }
 
 /** The Checker checking a card: the one it was given to while on, else the first on. */
@@ -2412,7 +2528,7 @@ export function withIdea(crew: Crew, cardId: string, idea: CrewIdea): Crew {
 function ideaHeld(idea: CrewIdea): boolean {
   return (
     idea.size === "large" ||
-    idea.by === "security" ||
+    !!idea.by ||
     !!idea.sourceUrl ||
     !!idea.outside ||
     !!idea.declined
@@ -2481,12 +2597,16 @@ export function cardSteppedAside(card: CrewCard): boolean {
  * The card in the crew's copy now: being built or checked, Ready, or Stuck
  * with work in it. A Ready card stacked on the crew's branch no longer
  * holds it (the next card builds on top), nor does a Stuck card that
- * changed nothing.
+ * changed nothing, nor Findings waiting to be read (nothing of theirs is in
+ * the copy).
  */
 export function cardInCopy(crew: Pick<Crew, "cards">): CrewCard | undefined {
   return crew.cards.find(
     (card) =>
-      HOLDS_COPY.has(card.stage) && !card.stacked && !cardSteppedAside(card),
+      HOLDS_COPY.has(card.stage) &&
+      !card.stacked &&
+      !cardSteppedAside(card) &&
+      !(card.kind === "research" && card.stage === "ready"),
   );
 }
 

@@ -142,7 +142,7 @@ describe("crew members' names and marks", () => {
 
   it("adds ready-made members by their roles' names, in their own marks", () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: true }));
-    for (const key of ["designer", "tester", "scribe", "scout"])
+    for (const key of ["designer", "tester", "scribe", "scout", "researcher"])
       expect("id" in addCrewPreset(PATH, key)).toBe(true);
     const crew = getCrew(PATH)!;
     const names = crew.members.map((member) => crewMemberName(crew, member.id));
@@ -154,6 +154,7 @@ describe("crew members' names and marks", () => {
       "Tester",
       "Scribe",
       "Scout",
+      "Researcher",
     ]);
     expect(crew.members.map((member) => memberCritter(member))).toEqual([
       "builder",
@@ -163,6 +164,7 @@ describe("crew members' names and marks", () => {
       "tester",
       "scribe",
       "scout",
+      "researcher",
     ]);
     // Every ready-made member reads as in the crew now.
     for (const preset of CREW_PRESETS)
@@ -184,6 +186,7 @@ describe("the gallery's ready-made members", () => {
       "builder",
       "checker",
       "scout",
+      "researcher",
       "Designer",
       "Tester",
       "Scribe",
@@ -193,6 +196,7 @@ describe("the gallery's ready-made members", () => {
       "builder",
       "checker",
       "scout",
+      "researcher",
       "designer",
       "tester",
       "scribe",

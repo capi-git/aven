@@ -166,7 +166,7 @@ export const TEAM_ALWAYS_LINE =
 
 /** Who Access reaches. */
 export const TEAM_ACCESS_SCOPE_LINE =
-  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser.";
+  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser. The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you.";
 
 export const ALWAYS_ASKS_LINE =
   "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
@@ -399,7 +399,9 @@ export function botSandbox(
  */
 /**
  * Fetching from the web: a Checker or Scout has no business there, and a
- * page it read could steer it (the Builder keeps it, for docs).
+ * page it read could steer it (the Builder keeps it, for docs; the
+ * Researcher reads it as its job, and everything it hands back waits for
+ * you).
  */
 export const WEB_TOOLS = ["WebFetch", "WebSearch"];
 

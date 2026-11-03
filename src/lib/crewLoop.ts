@@ -1,8 +1,10 @@
 import {
   CREW_ROLE_INFO,
   type CrewCard,
+  type CrewCardHolder,
   type CrewChange,
   type CrewFinding,
+  type CrewFindings,
   type CrewHandoff,
   type CrewIdeaSize,
   type CrewLoopRole,
@@ -110,9 +112,11 @@ export function queueCard(
     id: string;
     title: string;
     brief: string;
-    from: "you" | "scout" | "security" | "member";
+    from: "you" | "scout" | "security" | "member" | "researcher";
     /** The member that took it down in its chat (`from: "member"`). */
     fromMember?: string;
+    /** A question for the Researcher: one turn, Findings at the end. */
+    kind?: "research";
     size?: CrewIdeaSize;
     sourceUrl?: string;
     maxRounds: number;
@@ -139,6 +143,7 @@ export function queueCard(
     ...(input.from === "member" && input.fromMember
       ? { fromMember: input.fromMember }
       : {}),
+    ...(input.kind === "research" ? { kind: "research" as const } : {}),
     ...(input.size ? { size: input.size } : {}),
     ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}),
     ...(input.builderId ? { builderId: input.builderId } : {}),
@@ -146,7 +151,11 @@ export function queueCard(
     ...(override ? { override } : {}),
     stage: "queued",
     round: 0,
-    maxRounds: Math.min(CREW_MAX_ROUNDS, Math.max(1, input.maxRounds)),
+    // A research card is one turn: there is nothing to send back.
+    maxRounds:
+      input.kind === "research"
+        ? 1
+        : Math.min(CREW_MAX_ROUNDS, Math.max(1, input.maxRounds)),
     rounds: [],
     later: [],
     runs: 0,
@@ -155,16 +164,86 @@ export function queueCard(
   };
 }
 
-/** The card's turn comes: round 1 goes to the Builder. */
+/** The card's turn comes: round 1 goes to the Builder (a research card to the Researcher). */
 export function startCard(card: CrewCard, now: number): CrewCard {
   if (card.stage !== "queued") return card;
   return {
     ...card,
     stage: "building",
     round: 1,
-    holder: "builder",
+    holder: card.kind === "research" ? "researcher" : "builder",
     rounds: [{ n: 1 }],
     startedAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * The Researcher's turn ended. Its findings make the card ready for you
+ * (nothing to apply: Findings, with Read and Add ideas). A reply without
+ * findings stops the card; so does a turn that changed files in the copy,
+ * which a reader never does.
+ */
+export function afterResearch(
+  card: CrewCard,
+  input: {
+    findings: Omit<CrewFindings, "readAt"> | null;
+    /** The copy changed during the turn. */
+    edited: boolean;
+    now: number;
+    name?: string;
+  },
+): LoopStep {
+  const { now } = input;
+  const who = input.name ?? NAME("researcher");
+  const next: CrewCard = { ...card, turn: undefined, updatedAt: now };
+  if (input.edited) {
+    const text = `${who} changed files while reading, so its findings weren't used`;
+    return {
+      card: stuck(next, "checker-edited", text, now),
+      event: { kind: "stuck", reason: "checker-edited", text },
+    };
+  }
+  if (!input.findings) {
+    const text = `${who}'s turn ended without findings`;
+    return {
+      card: stuck(next, "no-verdict", text, now),
+      event: { kind: "stuck", reason: "no-verdict", text },
+    };
+  }
+  return {
+    card: {
+      ...next,
+      stage: "ready",
+      holder: undefined,
+      stuck: undefined,
+      fix: undefined,
+      reviewing: undefined,
+      findings: { ...input.findings, readAt: now },
+      endedAt: now,
+    },
+    event: { kind: "ready", round: card.round },
+  };
+}
+
+/**
+ * You read the findings (and put `added` of its ideas on the Board): the
+ * card is done. Nothing was applied, since nothing changed.
+ */
+export function markResearchRead(
+  card: CrewCard,
+  now: number,
+  added = 0,
+): CrewCard {
+  if (card.stage !== "ready" || card.kind !== "research") return card;
+  return {
+    ...card,
+    stage: "applied",
+    holder: undefined,
+    turn: undefined,
+    error: undefined,
+    ...(card.findings ? { findings: { ...card.findings, added } } : {}),
+    endedAt: now,
     updatedAt: now,
   };
 }
@@ -198,7 +277,7 @@ function stuck(
   };
 }
 
-const NAME = (role: CrewLoopRole) => CREW_ROLE_INFO[role].label;
+const NAME = (role: CrewCardHolder) => CREW_ROLE_INFO[role].label;
 
 /**
  * The Builder's turn ended. With a question, the card waits for you. A round
@@ -500,7 +579,7 @@ export function securityOff(card: CrewCard, now: number): LoopStep | null {
 /** A turn that failed or was cancelled stops the card with why. */
 export function turnFailed(
   card: CrewCard,
-  input: { role: CrewLoopRole; error?: string; now: number; name?: string },
+  input: { role: CrewCardHolder; error?: string; now: number; name?: string },
 ): LoopStep {
   const who = input.name ?? NAME(input.role);
   const text = input.error
@@ -515,7 +594,7 @@ export function turnFailed(
 /** A turn ran past the crew's turn limit and was stopped. */
 export function turnTimedOut(
   card: CrewCard,
-  input: { role: CrewLoopRole; minutes: number; now: number; name?: string },
+  input: { role: CrewCardHolder; minutes: number; now: number; name?: string },
 ): LoopStep {
   const who = input.name ?? NAME(input.role);
   const text = `${who}'s turn ran past ${input.minutes} minutes and was stopped`;
@@ -582,7 +661,10 @@ export function resumeCard(
     const holder = card.holder ?? "builder";
     return {
       ...card,
-      stage: holder === "builder" ? "building" : "checking",
+      stage:
+        holder === "builder" || holder === "researcher"
+          ? "building"
+          : "checking",
       holder,
       stuck: undefined,
       ...(note ? { note } : {}),
@@ -595,7 +677,7 @@ export function resumeCard(
   return {
     ...card,
     stage: "building",
-    holder: "builder",
+    holder: card.kind === "research" ? "researcher" : "builder",
     round,
     // A card past its rounds gets exactly one more, kept apart from those it was given.
     ...(round > roundLimit(card) ? { granted: round - card.maxRounds } : {}),
@@ -715,19 +797,20 @@ export function changedSinceLastRound(card: CrewCard): string[] {
 
 /** Where the card stands, as its Board line says it. */
 export function crewStageLabel(card: CrewCard): string {
+  const research = card.kind === "research";
   switch (card.stage) {
     case "queued":
       return "Queued";
     case "building":
-      return card.round > 1 ? "Fixing" : "Building";
+      return research ? "Reading" : card.round > 1 ? "Fixing" : "Building";
     case "checking":
       return card.holder === "security" ? "Security check" : "Checking";
     case "ready":
-      return "Ready";
+      return research ? "Findings" : "Ready";
     case "stuck":
       return "Needs you";
     case "applied":
-      return "Applied";
+      return research ? "Read" : "Applied";
     case "discarded":
       return "Thrown away";
   }

@@ -53,13 +53,16 @@ export function markToneColor(tone: MarkTone): string {
  * Each teammate's own colour, so you can tell at a glance who has a card.
  * By its role, or by a mark with a job of its own (a Tester, a Scribe).
  * Never yellow, green or red: those say what's happening (Needs you, Ready,
- * failed), and a teammate's colour says only who it is.
+ * failed), and a teammate's colour says only who it is. The Researcher
+ * shares orange with a Tester: their marks differ, and a Tester builds
+ * while the Researcher only reads.
  */
 const ROLE_TONES: Readonly<Record<string, MarkTone>> = {
   builder: "blue",
   checker: "purple",
   security: "pink",
   scout: "teal",
+  researcher: "orange",
 };
 const MARK_TEAM_TONES: Readonly<Record<string, MarkTone>> = {
   tester: "orange",

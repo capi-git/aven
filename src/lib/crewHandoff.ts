@@ -25,6 +25,8 @@ export const IDEAS_FENCE = "aven-ideas";
 export const GOAL_FENCE = "aven-goal";
 /** Work a member queues from its own chat, through Aven: cards, or a goal. */
 export const TASKS_FENCE = "aven-tasks";
+/** The Researcher's findings for a research card. */
+export const FINDINGS_FENCE = "aven-findings";
 /** Every fence a crew's bot ends a reply with. */
 export const CREW_FENCES = [
   HANDOFF_FENCE,
@@ -32,6 +34,7 @@ export const CREW_FENCES = [
   IDEAS_FENCE,
   GOAL_FENCE,
   TASKS_FENCE,
+  FINDINGS_FENCE,
 ] as const;
 
 /** At most this many must-fix items count; more read as notes for later. */
@@ -379,6 +382,90 @@ export function parseGoal(
     met,
     summary: botLine(fields.summary, 300),
     next: met ? [] : tasksFrom(fields.next, GOAL_CARDS_PER_TURN),
+  };
+}
+
+/** The most findings, and the most ideas, one research turn hands back. */
+export const FINDINGS_PER_TURN = 10;
+export const FINDING_IDEAS_PER_TURN = 5;
+
+export type ResearchFindings = {
+  summary: string;
+  findings: { text: string; source?: string }[];
+  ideas: string[];
+  /** Distinct links in the reply: what it read, counted by Aven. */
+  sources: number;
+};
+
+/** Distinct links in a reply, as a count: what the Researcher read. */
+export function countSources(text: string): number {
+  const links = new Set<string>();
+  for (const match of text.matchAll(/https?:\/\/[^\s<>()"'`\]]+/gi)) {
+    const url = reviewUrl(match[0].replace(/[.,;:!?]+$/, ""));
+    if (url) links.add(url.toLowerCase());
+  }
+  return links.size;
+}
+
+/**
+ * The Researcher's findings: a summary, numbered findings each with where
+ * it was read (a link, or a project file in words), and ideas it proposes.
+ * Null when its reply ends without the block. Every field is a bot's words:
+ * clipped and kept as data.
+ */
+export function parseFindings(text: string): ResearchFindings | null {
+  const block = finalFencedBlock(text, FINDINGS_FENCE);
+  const fields = block ? json(block.body) : null;
+  if (!fields) return null;
+  const findings: ResearchFindings["findings"] = [];
+  for (const item of Array.isArray(fields.findings) ? fields.findings : []) {
+    const raw =
+      typeof item === "string"
+        ? { text: item }
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>)
+          : null;
+    if (!raw) continue;
+    const body = botLine(raw.text, 400);
+    if (!body) continue;
+    // A link stays a link; anything else ("project file", "src/app.ts") is a
+    // short label.
+    const link = reviewUrl(raw.source ?? raw.url);
+    const label = link ? "" : botLine(raw.source, 120);
+    const source = link ?? label;
+    findings.push({ text: body, ...(source ? { source } : {}) });
+    if (findings.length >= FINDINGS_PER_TURN) break;
+  }
+  const ideas: string[] = [];
+  for (const item of Array.isArray(fields.ideas) ? fields.ideas : []) {
+    const title = botLine(
+      typeof item === "string"
+        ? item
+        : item && typeof item === "object"
+          ? (item as Record<string, unknown>).title
+          : "",
+      120,
+    );
+    if (!title) continue;
+    if (ideas.some((idea) => idea.toLowerCase() === title.toLowerCase()))
+      continue;
+    ideas.push(title);
+    if (ideas.length >= FINDING_IDEAS_PER_TURN) break;
+  }
+  const summary = botLine(fields.summary, 600);
+  if (!summary && !findings.length) return null;
+  return {
+    summary,
+    findings,
+    ideas,
+    sources: Math.max(
+      countSources(text),
+      new Set(
+        findings
+          .map((finding) => finding.source?.toLowerCase())
+          .filter((source): source is string => !!source?.startsWith("http")),
+      ).size,
+    ),
   };
 }
 

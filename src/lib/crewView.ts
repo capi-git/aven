@@ -9,6 +9,7 @@ import {
   cardBuilder,
   cardChecker,
   cardHolderId,
+  cardResearcher,
   cardSecurity,
   cardSteppedAside,
   cardInCopy,
@@ -18,12 +19,13 @@ import {
   memberLabel,
   type Crew,
   type CrewCard,
+  type CrewCardHolder,
   type CrewIdea,
-  type CrewLoopRole,
   type CrewRole,
 } from "./crews";
 import { ideaWaits } from "./crewLimits";
 import type { BotStatus } from "./projectBots";
+import { plural } from "./words";
 
 /**
  * What the crew UI shows, worked out from the store alone: the sidebar's
@@ -219,7 +221,13 @@ export type CrewBoardActionId =
   | "resume"
   | "pause"
   | "stop"
-  | "open";
+  | "open"
+  /** An idea becomes a question for the Researcher. */
+  | "research"
+  /** Open the Researcher's findings. */
+  | "read"
+  /** Put the ideas it proposes in Ideas (each waits for you). */
+  | "add-ideas";
 
 export type CrewBoardAction = {
   id: CrewBoardActionId;
@@ -236,7 +244,7 @@ export type CrewBoardInfo = {
   /** The same, as members (a chosen critter included), when known. */
   members?: { id: string; role: CrewRole; critter?: string }[];
   /** The bot at work on it now, whose critter moves. */
-  holder?: CrewLoopRole;
+  holder?: CrewCardHolder;
   /** That bot's member id, whose chat Watch opens. */
   holderId?: string;
   /** "Fixing", in bold, then "round 2 of 3". */
@@ -270,7 +278,122 @@ const A = {
   throwAway: { id: "throw-away", label: "Throw away" },
   resume: { id: "resume", label: "Resume", primary: true },
   open: { id: "open", label: "Open" },
+  research: { id: "research", label: "Ask Researcher" },
+  read: { id: "read", label: "Read" },
 } as const satisfies Record<string, CrewBoardAction>;
+
+/** "6 sources", "1 source", "no sources": what the Researcher read. */
+export function sourcesText(count: number): string {
+  return count === 1 ? "1 source" : count ? `${count} sources` : "no sources";
+}
+
+/** "3 findings · 2 ideas proposed" (or "added", once they are). */
+export function findingsLine(
+  findings: Pick<CrewCard, "findings">["findings"],
+  done = false,
+): string {
+  const count = findings?.findings.length ?? 0;
+  const ideas = done ? (findings?.added ?? 0) : (findings?.ideas.length ?? 0);
+  return [
+    plural(count, "finding"),
+    done
+      ? ideas
+        ? `${plural(ideas, "idea")} added`
+        : "read"
+      : `${plural(ideas, "idea")} proposed`,
+  ].join(" · ");
+}
+
+/**
+ * A research card: one mark (the Researcher), Reading while it reads, then
+ * Findings in Ready for you with Read and Add ideas, and Read once done.
+ * Never Apply: nothing changed.
+ */
+function researchBoardInfo(
+  card: CrewCard,
+  researcher: string,
+  member: { id: string; critter?: string } | undefined,
+  holderId: string | undefined,
+): CrewBoardInfo {
+  const base = {
+    column: stageColumn(card),
+    roles: ["researcher" as const],
+    ...(member
+      ? {
+          members: [
+            {
+              id: member.id,
+              role: "researcher" as const,
+              ...(member.critter ? { critter: member.critter } : {}),
+            },
+          ],
+        }
+      : {}),
+    label: crewStageLabel(card),
+    ...(holderId ? { holderId } : {}),
+  };
+  const turnChat = card.turn?.sessionId;
+  switch (card.stage) {
+    case "queued":
+      return { ...base, label: "Up next", detail: researcher, actions: [] };
+    case "building":
+    case "checking":
+      if (card.paused)
+        return {
+          ...base,
+          label: "Paused",
+          detail: researcher,
+          actions: [A.resume],
+        };
+      return {
+        ...base,
+        holder: "researcher",
+        detail: researcher,
+        ...(turnChat ? { sessionId: turnChat } : {}),
+        ...(card.turn ? { since: card.turn.sentAt } : {}),
+        actions: [],
+      };
+    case "ready": {
+      const ideas = card.findings?.ideas.length ?? 0;
+      return {
+        ...base,
+        detail: findingsLine(card.findings),
+        actions: [
+          A.read,
+          ...(ideas
+            ? [
+                {
+                  id: "add-ideas" as const,
+                  label: `Add ${plural(ideas, "idea")}`,
+                  primary: true,
+                },
+              ]
+            : []),
+        ],
+      };
+    }
+    case "stuck":
+      return {
+        ...base,
+        needsYou: true,
+        line: card.stuck?.text,
+        holder: "researcher",
+        ...(turnChat ? { sessionId: turnChat } : {}),
+        actions: [
+          cardTriesAgain(card) ? { ...A.more, label: "Try again" } : A.more,
+          A.throwAway,
+        ],
+      };
+    case "applied":
+      return {
+        ...base,
+        detail: findingsLine(card.findings, true),
+        actions: card.findings ? [{ ...A.read, label: "Findings" }] : [],
+      };
+    case "discarded":
+      return { ...base, actions: [] };
+  }
+}
 
 function stageColumn(card: CrewCard): CrewBoardInfo["column"] {
   switch (card.stage) {
@@ -303,14 +426,27 @@ function fixingLine(card: CrewCard, checker: string): string | undefined {
  */
 export function crewBoardInfo(
   card: CrewCard,
-  names: { builder: string; checker: string; security?: string },
+  names: {
+    builder: string;
+    checker: string;
+    security?: string;
+    researcher?: string;
+  },
   who?: {
     builder?: { id: string; critter?: string };
     checker?: { id: string; critter?: string };
     security?: { id: string; critter?: string };
+    researcher?: { id: string; critter?: string };
     holderId?: string;
   },
 ): CrewBoardInfo {
+  if (card.kind === "research")
+    return researchBoardInfo(
+      card,
+      names.researcher ?? "Researcher",
+      who?.researcher,
+      who?.holderId,
+    );
   // The one mark: whoever has it now, else its Builder.
   const role: CrewRole =
     card.holder === "security"
@@ -360,7 +496,7 @@ export function crewBoardInfo(
         };
       return {
         ...base,
-        holder,
+        holder: holder === "researcher" ? "builder" : holder,
         detail: `${holderName} is on it${rounds}`,
         ...(holder === "builder" && card.round > 1
           ? { line: fixingLine(card, names.checker) }
@@ -390,7 +526,9 @@ export function crewBoardInfo(
           line: card.stuck.text,
           // One that stepped aside has no chat to open: the team's copy has
           // moved on to other work. It's answered on the card.
-          ...(cardSteppedAside(card) ? {} : { holder: card.holder }),
+          ...(cardSteppedAside(card) || card.holder === "researcher"
+            ? {}
+            : { holder: card.holder }),
           ...(turnChat ? { sessionId: turnChat } : {}),
           actions: [A.answer],
         };
@@ -427,6 +565,7 @@ const WAITS: Record<IdeaWait, string> = {
   "not-now": "Not now",
   outside: "From outside · waits for you",
   security: "Waits for you",
+  researcher: "Waits for you",
   chat: "Has its own chat · waits for you",
   large: "Large · waits for you",
   cap: "Waits for tomorrow: today's Scout ideas are used",
@@ -437,32 +576,61 @@ type IdeaWait = NonNullable<ReturnType<typeof ideaWaits>>;
 /**
  * A Board card in Ideas while the team is on. It builds by itself in its
  * turn (the first says Next); one that waits for you says why, with Build
- * it. A Scout's or Security's idea says whose it is.
+ * it. A Scout's, Security's or the Researcher's idea says whose it is. With
+ * a Researcher on, its ⋯ offers Ask Researcher: the idea becomes a question.
  */
 export function crewIdeaInfo(
   idea: CrewIdea | undefined,
   scout: string,
   security = "Security",
-  place: { waits?: IdeaWait | null; next?: boolean } = {},
+  place: {
+    waits?: IdeaWait | null;
+    next?: boolean;
+    /** The Researcher's name, when the team has one on. */
+    researcher?: string;
+  } = {},
 ): CrewBoardInfo {
   const from =
-    idea?.by === "security" ? `From ${security}` : idea ? `From ${scout}` : "";
+    idea?.by === "security"
+      ? `From ${security}`
+      : idea?.by === "researcher"
+        ? `From ${place.researcher ?? "Researcher"}`
+        : idea
+          ? `From ${scout}`
+          : "";
   const roles: CrewRole[] =
-    idea?.by === "security" ? ["security"] : idea ? ["scout"] : [];
+    idea?.by === "security"
+      ? ["security"]
+      : idea?.by === "researcher"
+        ? ["researcher"]
+        : idea
+          ? ["scout"]
+          : [];
+  const ask = place.researcher
+    ? [{ ...A.research, label: `Ask ${place.researcher}` }]
+    : [];
   if (place.waits)
     return {
       roles,
       line: [from, WAITS[place.waits]].filter(Boolean).join(" · "),
       actions: [{ ...A.give, label: "Build it" }],
       ...(place.waits === "cap" ? { later: true } : {}),
-      ...(place.waits === "not-now" ? {} : { menu: [A.notNow] }),
+      ...(place.waits === "not-now" && !ask.length
+        ? {}
+        : {
+            menu: [...ask, ...(place.waits === "not-now" ? [] : [A.notNow])],
+          }),
     };
   return {
     roles,
     ...(place.next ? { label: "Next" } : {}),
     ...(from ? { line: from } : {}),
     actions: [],
-    menu: [{ ...A.give, label: "Build it next", primary: false }, A.notNow],
+    menu: [
+      { ...A.give, label: "Build it next", primary: false },
+      ...ask,
+      A.notNow,
+    ],
   };
 }
 
@@ -471,6 +639,7 @@ export function crewIdeaInfo(
  * Not now while it waits its turn, and the rest of a stopped card's ways on.
  */
 export function crewCardMenu(card: CrewCard): CrewBoardAction[] {
+  const research = card.kind === "research";
   switch (card.stage) {
     case "queued":
       return [{ ...A.backToIdeas, label: "Not now" }];
@@ -483,11 +652,12 @@ export function crewCardMenu(card: CrewCard): CrewBoardAction[] {
         { id: "stop", label: "Stop now" },
       ];
     // Ready: Apply is the way; a fix Apply won't take can be taken over.
+    // Findings have nothing to take over: they go back to Ideas, or away.
     case "ready":
-      return [A.takeOver];
+      return research ? [A.backToIdeas, A.throwAway] : [A.takeOver];
     case "stuck": {
       // Stepped aside: the copy isn't its own, so there's nothing to take over.
-      const takeOver = cardSteppedAside(card) ? [] : [A.takeOver];
+      const takeOver = cardSteppedAside(card) || research ? [] : [A.takeOver];
       return card.stuck?.reason === "question"
         ? [...takeOver, A.backToIdeas, A.throwAway]
         : [...(cardCanGoOn(card) ? takeOver : []), A.backToIdeas];
@@ -520,7 +690,12 @@ export function crewCardWho(
   card: CrewCard,
   name: (who: string) => string,
 ): {
-  names: { builder: string; checker: string; security: string };
+  names: {
+    builder: string;
+    checker: string;
+    security: string;
+    researcher: string;
+  };
   who: NonNullable<Parameters<typeof crewBoardInfo>[2]>;
 } {
   const builder =
@@ -528,10 +703,12 @@ export function crewCardWho(
   const checker =
     crewMemberById(crew, card.checkerId) ?? cardChecker(crew, card);
   const security = cardSecurity(crew);
+  const researcher = cardResearcher(crew);
   const names = {
     builder: name(builder?.id ?? "builder"),
     checker: name(checker?.id ?? "checker"),
     security: name(security?.id ?? "security"),
+    researcher: name(researcher?.id ?? "researcher"),
   };
   const face = (member: typeof builder) =>
     member
@@ -547,6 +724,7 @@ export function crewCardWho(
       ...(face(builder) ? { builder: face(builder) } : {}),
       ...(face(checker) ? { checker: face(checker) } : {}),
       ...(face(security) ? { security: face(security) } : {}),
+      ...(face(researcher) ? { researcher: face(researcher) } : {}),
       ...(holderId ? { holderId } : {}),
     },
   };
@@ -563,7 +741,13 @@ export function crewBoardColumns<
 >(
   columns: Readonly<Record<BoardColumn, readonly C[]>>,
   crew: Crew,
-  names: { builder: string; checker: string; scout: string; security?: string },
+  names: {
+    builder: string;
+    checker: string;
+    scout: string;
+    security?: string;
+    researcher?: string;
+  },
   /** A member's name by id: each card names its own Builder and Checker. */
   name?: (who: string) => string,
   now = Date.now(),
@@ -574,18 +758,33 @@ export function crewBoardColumns<
     review: [],
     shipped: [],
   };
+  // Findings you read stay readable from Done; other finished cards are
+  // ordinary cards again.
   const live = new Map(
     crew.cards
-      .filter((card) => card.stage !== "applied" && card.stage !== "discarded")
+      .filter(
+        (card) =>
+          (card.stage !== "applied" && card.stage !== "discarded") ||
+          (card.kind === "research" &&
+            card.stage === "applied" &&
+            !!card.findings),
+      )
       .map((card) => [card.id, card]),
   );
+  // With a Researcher on, an idea's ⋯ offers Ask Researcher.
+  const researcher = cardResearcher(crew);
+  const researcherName = researcher
+    ? (name?.(researcher.id) ?? names.researcher ?? "Researcher")
+    : undefined;
   // Ideas build top first: the first that doesn't wait for you is Next,
   // once nothing queued goes before it.
   let next = !crew.cards.some((card) => card.stage === "queued");
   for (const column of BOARD_COLUMN_ORDER)
     for (const card of columns[column]) {
       const held = live.get(card.id);
-      if (held) {
+      // Findings you read keep their face in Done; moved elsewhere by hand,
+      // the card is an ordinary card again.
+      if (held && (held.stage !== "applied" || column === "shipped")) {
         const faced = name ? crewCardWho(crew, held, name) : null;
         const info = faced
           ? crewBoardInfo(held, faced.names, faced.who)
@@ -611,6 +810,7 @@ export function crewBoardColumns<
             {
               waits,
               next: next && !waits,
+              ...(researcherName ? { researcher: researcherName } : {}),
             },
           ),
         });

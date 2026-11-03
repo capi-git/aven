@@ -7,6 +7,7 @@ import {
   cardBuilder,
   cardChecker,
   cardInCopy,
+  cardResearcher,
   cardSecurity,
   countToday,
   crewCard,
@@ -15,9 +16,9 @@ import {
   queuedCards,
   type Crew,
   type CrewCard,
+  type CrewCardHolder,
   type CrewHoldReason,
   type CrewIdea,
-  type CrewLoopRole,
 } from "./crews";
 import {
   formatClockMinutes,
@@ -156,17 +157,21 @@ export function crewHoldGate(input: CrewGateInput): {
   const { crew } = input;
   const limit = crewGate(input);
   const waiting = cardInCopy(crew) ?? queuedCards(crew)[0];
-  const role: CrewLoopRole =
-    waiting?.holder === "checker" || waiting?.holder === "security"
-      ? waiting.holder
-      : "builder";
+  const role: CrewCardHolder =
+    waiting?.kind === "research"
+      ? "researcher"
+      : waiting?.holder === "checker" || waiting?.holder === "security"
+        ? waiting.holder
+        : "builder";
   const member = !waiting
     ? undefined
     : role === "checker"
       ? cardChecker(crew, waiting)
       : role === "security"
         ? cardSecurity(crew)
-        : cardBuilder(crew, waiting);
+        : role === "researcher"
+          ? cardResearcher(crew)
+          : cardBuilder(crew, waiting);
   const unmanned =
     !!waiting &&
     (waiting.stage === "queued" ||
@@ -181,9 +186,9 @@ export function crewHoldGate(input: CrewGateInput): {
   return { gate, ...(waiting ? { waiting } : {}) };
 }
 
-/** Every Builder (or Checker) is off or removed: the card waits, and says why. */
+/** Every Builder (or Checker, or the Researcher) is off or removed: the card waits, and says why. */
 export function crewNoMemberGate(
-  role: "builder" | "checker" | "security",
+  role: CrewCardHolder,
 ): Exclude<CrewGate, { ok: true }> {
   const label = CREW_ROLE_INFO[role].label;
   return {
@@ -241,8 +246,8 @@ export function ideaMayAutoStart(idea: CrewIdea | undefined): boolean {
     !idea.outside &&
     !idea.declined &&
     !idea.autoStarted &&
-    // Security's sweep cards always wait for you.
-    idea.by !== "security"
+    // Security's sweep cards and the Researcher's ideas always wait for you.
+    !idea.by
   );
 }
 
@@ -256,14 +261,23 @@ export type BoardIdea = Pick<
  * Why an idea in Ideas waits for you instead of building by itself, or
  * null when it builds in its turn: you said Not now (or sent back, or
  * already had built, a card by its id), it came from outside (an issue,
- * outside material) or from Security's sweep, a chat is working on it, the
- * Scout called it large, or the Scout's ideas for today are used up.
+ * outside material), from Security's sweep or from the Researcher's
+ * findings, a chat is working on it, the Scout called it large, or the
+ * Scout's ideas for today are used up.
  */
 export function ideaWaits(
   crew: Crew,
   idea: Pick<BoardIdea, "id" | "sourceUrl" | "chatIds">,
   now: number,
-): "not-now" | "outside" | "security" | "chat" | "large" | "cap" | null {
+):
+  | "not-now"
+  | "outside"
+  | "security"
+  | "researcher"
+  | "chat"
+  | "large"
+  | "cap"
+  | null {
   if (crew.notNow?.includes(idea.id)) return "not-now";
   // The team built or threw away a card by this id: back in Ideas (by Back
   // to Ideas, or by hand), it waits until you say Build it.
@@ -272,6 +286,7 @@ export function ideaWaits(
   const scout = crew.ideas?.[idea.id];
   if (scout?.declined) return "not-now";
   if (scout?.by === "security") return "security";
+  if (scout?.by === "researcher") return "researcher";
   if (idea.sourceUrl || scout?.sourceUrl || scout?.outside) return "outside";
   if (scout?.size === "large") return "large";
   if (scout && !ideaMayAutoStart(scout)) return "not-now";

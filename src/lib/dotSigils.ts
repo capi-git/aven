@@ -41,6 +41,8 @@ export const ROLE_SIGILS = [
   sigil("security", "Security", ["11111", "10001", "10001", "01010", "00100"]),
   // A diamond, looking out on every side.
   sigil("scout", "Scout", ["00100", "01010", "10001", "01010", "00100"]),
+  // A magnifying glass: its lens, then its handle.
+  sigil("researcher", "Researcher", ["11100", "10100", "11100", "00010", "00001"]),
   // A brush: its head, then its stroke.
   sigil("designer", "Designer", ["00011", "00011", "00100", "01000", "10000"]),
   // A test card's checkerboard.

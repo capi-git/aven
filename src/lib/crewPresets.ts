@@ -23,7 +23,8 @@ export const SECURITY_INSTRUCTIONS = [
 ].join("\n");
 
 /** The roles a ready-made member can have (the Fixer is the project's bot). */
-export type CrewPresetRole = "builder" | "checker" | "security" | "scout";
+export type CrewPresetRole =
+  "builder" | "checker" | "security" | "scout" | "researcher";
 
 export type CrewPreset = {
   /** Saved on the member, so the gallery knows it's in the crew. */
@@ -62,6 +63,14 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
     job: "Finds small ideas worth building",
     instructions:
       "Look for small, safe improvements: rough edges, missing empty states, small bugs. Skip anything big or risky.",
+  },
+  {
+    key: "researcher",
+    role: "researcher",
+    mark: "researcher",
+    job: "Reads up on a question and writes findings you can turn into ideas",
+    instructions:
+      "Answer the question with what you can verify: read the project first, then the web when you have it. Give every finding its source, say what you couldn't confirm, and propose only small ideas.",
   },
   {
     key: "designer",

@@ -1,4 +1,5 @@
 import {
+  parseFindings,
   parseGoal,
   parseHandoff,
   parseIdeas,
@@ -23,6 +24,7 @@ import {
 import {
   afterBuild,
   afterCheck,
+  afterResearch,
   afterSecurity,
   cardScope,
   changedAfterCheck,
@@ -45,6 +47,7 @@ import {
   crewBrief,
   crewTurnLabel,
   goalMessage,
+  researchMessage,
   scoutMessage,
   securityMessage,
   sweepMessage,
@@ -57,6 +60,7 @@ import {
   cardBuilder,
   cardChecker,
   cardInCopy,
+  cardResearcher,
   cardSecurity,
   claimCrewJob,
   crewCard,
@@ -93,10 +97,12 @@ import {
   type Crew,
   type CrewCard,
   type CrewChange,
+  type CrewCardHolder,
   type CrewFeedEntry,
   type CrewLoopRole,
   type CrewRole,
 } from "./crews";
+import { sourcesText } from "./crewView";
 import { errorText, logError } from "./errors";
 import type {
   FeatureCard,
@@ -301,7 +307,7 @@ type LiveTurn = {
 type CardAt = {
   stage: CrewCard["stage"];
   round: number;
-  holder?: CrewLoopRole;
+  holder?: CrewCardHolder;
 };
 
 function cardAt(card: CrewCard): CardAt {
@@ -611,7 +617,19 @@ export class CrewRunner {
         return this.clearHold(crew);
       // A turn sent before (by an earlier page, say) whose end was never read.
       if (inCopy.turn) return this.recover(crew, inCopy);
-      const role = inCopy.holder ?? "builder";
+      // A question for the Researcher: its one turn, read-only.
+      if (inCopy.kind === "research") {
+        const researcher = cardResearcher(crew);
+        if (!researcher) return this.hold(crew, crewNoMemberGate("researcher"));
+        const gate = this.gate(crew, now);
+        if (!gate.ok) return this.hold(crew, gate);
+        this.clearHold(crew);
+        return this.sendResearchTurn(path, inCopy.id, researcher.id);
+      }
+      const role =
+        inCopy.holder === "researcher"
+          ? "builder"
+          : (inCopy.holder ?? "builder");
       const member =
         role === "builder"
           ? cardBuilder(crew, inCopy)
@@ -634,7 +652,16 @@ export class CrewRunner {
     const next = nextCardToStart(crew);
     if (next) {
       if (waiting) return this.hold(crew, crewReviewGate(waiting));
-      const builder = cardBuilder(crew, crewCard(crew, next)!);
+      const queued = crewCard(crew, next)!;
+      if (queued.kind === "research") {
+        const researcher = cardResearcher(crew);
+        if (!researcher) return this.hold(crew, crewNoMemberGate("researcher"));
+        const gate = this.gate(crew, now);
+        if (!gate.ok) return this.hold(crew, gate);
+        this.clearHold(crew);
+        return this.sendResearchTurn(path, next, researcher.id);
+      }
+      const builder = cardBuilder(crew, queued);
       if (!builder) return this.hold(crew, crewNoMemberGate("builder"));
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
@@ -1319,7 +1346,9 @@ export class CrewRunner {
         ? cardBuilder(crew, card)
         : sent.role === "security"
           ? cardSecurity(crew)
-          : cardChecker(crew, card));
+          : sent.role === "researcher"
+            ? cardResearcher(crew)
+            : cardChecker(crew, card));
     if (!member) return;
     const chat =
       this.chatNow(sent.sessionId) ??
@@ -1367,6 +1396,8 @@ export class CrewRunner {
       if (turn.goal) await this.afterGoal(path, turn, outcome);
       else if (turn.role === "scout" || turn.sweep)
         await this.afterScout(path, turn, outcome);
+      else if (turn.role === "researcher")
+        await this.afterResearchTurn(path, turn, outcome);
       else await this.afterCardTurn(path, turn, outcome);
     } catch (error) {
       logError("Crew", error);
@@ -1392,6 +1423,7 @@ export class CrewRunner {
     const card = crewCard(crew, turn.cardId);
     // Stopped, thrown away or picked up again meanwhile: nothing to read.
     if (!card || card.turn?.turnId !== turn.turnId) return;
+    if (turn.role === "researcher") return;
     const role = turn.role as CrewLoopRole;
     const now = this.deps.now();
     const names = this.names(crew, card, { role, memberId: turn.memberId });
@@ -1907,6 +1939,300 @@ export class CrewRunner {
       );
       this.endTurn(path, turn);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // The Researcher
+
+  /**
+   * A research card's one turn: the Researcher reads (the copy, and the web
+   * when Access allows it) and hands back findings. Read-only, like a
+   * check: a change to the copy during it voids its findings.
+   */
+  private async sendResearchTurn(
+    path: string,
+    cardId: string,
+    memberId: string,
+  ) {
+    const key = projectKey(path);
+    const now = this.deps.now();
+    const before = getCrew(path);
+    if (
+      !before ||
+      this.memberChatAtWork(before, memberId) ||
+      !claimCrewJob(path, this.deps.owner, now)
+    )
+      return;
+    const onAt = before.onAt;
+    const turn: LiveTurn = {
+      role: "researcher",
+      memberId,
+      cardId,
+      // As its turn starts: a change meanwhile doesn't unread what it read.
+      ...(crewRoleUsesWeb(before, "researcher") ? { web: true } : {}),
+      sessionId: "",
+      turnId: this.newId(),
+      onAt,
+    };
+    this.beginTurn(key, turn);
+    const queued = crewCard(before, cardId);
+    const from = queued ? cardAt(queued) : undefined;
+    let begun: CrewCard | undefined;
+    try {
+      if (!queued || !from || !cardStillAt(queued, from))
+        return this.endTurn(path, turn);
+      const fresh = queued.stage === "queued";
+      const onStack = fresh ? stackHead(before) : undefined;
+      const prepared = await this.prepareCopy(path, fresh && !onStack);
+      if (!prepared || !this.stillOn(path, onAt))
+        return this.endTurn(path, turn);
+      const crew = prepared.crew;
+      let card = crewCard(crew, cardId);
+      if (!card) return this.endTurn(path, turn);
+      if (fresh)
+        card = { ...startCard(card, now), base: onStack ?? prepared.base };
+      begun = card;
+      if (!card.base)
+        throw new Error("The card has no starting point in the copy.");
+      const member = crewMemberById(crew, memberId);
+      if (!member || member.paused || member.role !== "researcher")
+        return this.endTurn(path, turn);
+      const planted = await this.deps.copy.planted(crew.copy!.path, true);
+      if (planted.length)
+        throw new Error(
+          `Aven found ${planted.join(", ")} in the team's copy and removed ${
+            planted.length === 1 ? "it" : "them"
+          }: settings there could run commands as you. Look over the card before you try again.`,
+        );
+      const chat = await this.deps.ensureChat(crew, memberId);
+      if (!chat)
+        throw new Error(
+          `Couldn't open ${this.deps.name(crew, memberId)}'s chat.`,
+        );
+      if (!this.stillOn(path, onAt)) return this.endTurn(path, turn);
+      if (chatAtWork(chat)) {
+        if (fresh)
+          updateCrew(path, (current) =>
+            cardStillAt(crewCard(current, cardId), from)
+              ? withCard(current, card!)
+              : current,
+          );
+        this.waitingOn.add(chat.id);
+        return this.endTurn(path, turn, true);
+      }
+      turn.sessionId = chat.id;
+      this.updateWorking();
+      // Each question starts a new conversation: nothing from one card
+      // reaches another.
+      if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
+      const brief =
+        chat.providerSessionId && !this.deps.freshConversation
+          ? undefined
+          : crewBrief({
+              role: "researcher",
+              name: this.deps.name(crew, memberId),
+              project: crew.path,
+              copyPath: crew.copy?.path ?? "",
+              names: this.names(crew),
+              harness: crewMemberApp(member).harness,
+              maxRounds: 1,
+            });
+      const diff = await this.deps.copy.diff(crew.copy!.path, card.base);
+      const hashBefore = diff.hash;
+      const text = researchMessage({
+        card,
+        notes: crew.notes,
+        brief,
+        sync: prepared.sync,
+        guidance: {
+          ...(member.instructions ? { instructions: member.instructions } : {}),
+        },
+        web: !!turn.web,
+      });
+      const label = crewTurnLabel({ role: "researcher", card });
+      await this.deps.beforeSend?.(chat.id);
+      if (!this.mayStillSend(path, onAt, cardId, from))
+        return this.endTurn(path, turn);
+      const sent = this.deps.send(chat.id, text, {
+        displayText: label,
+        botWake: { label },
+        blockId: turn.turnId,
+        onSettled: (outcome) => void this.afterTurn(path, turn, outcome),
+      });
+      if (!sent)
+        throw new Error(
+          `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
+        );
+      turn.sentAt = this.deps.now();
+      const started = card;
+      const who = this.deps.name(crew, memberId);
+      let saved = false;
+      updateCrew(path, (current) => {
+        if (!cardStillAt(crewCard(current, cardId), from)) return current;
+        saved = true;
+        let next = withCrewRun(current, turn.sentAt!);
+        next = withCard(next, {
+          ...started,
+          turn: {
+            role: "researcher",
+            sessionId: chat.id,
+            turnId: turn.turnId,
+            sentAt: turn.sentAt!,
+            hashBefore,
+          },
+          runs: started.runs + 1,
+          updatedAt: turn.sentAt!,
+        });
+        next = withMemberId(next, memberId, (entry) => ({
+          ...entry,
+          sessionId: chat.id,
+          doing: { at: turn.sentAt!, text: `Reading for ${started.title}` },
+        }));
+        return fresh
+          ? withFeed(next, {
+              at: turn.sentAt!,
+              kind: "start",
+              who: "researcher",
+              member: memberId,
+              cardId: started.id,
+              title: started.title,
+              text: `${who} started reading for “${started.title}”`,
+            })
+          : next;
+      });
+      if (!saved) {
+        turn.stopping = true;
+        this.deps.stopChat(chat.id);
+        this.markHandled(turn.turnId);
+        return this.endTurn(path, turn);
+      }
+      this.armTimeout(path, turn, crew.limits.turnMinutes);
+    } catch (error) {
+      logError("Crew research", error);
+      const now = this.deps.now();
+      updateCrew(path, (current) => {
+        const card = crewCard(current, cardId);
+        if (!card || !from || !cardStillAt(card, from)) return current;
+        const started =
+          card.stage === "queued" ? (begun ?? startCard(card, now)) : card;
+        return this.commitResearch(
+          current,
+          turnFailed(started, {
+            role: "researcher",
+            error: errorText(error),
+            now,
+            name: this.deps.name(current, memberId),
+          }),
+          now,
+          memberId,
+        );
+      });
+      this.endTurn(path, turn);
+    }
+  }
+
+  /**
+   * The Researcher's turn ended: its findings make the card Findings, in
+   * Ready for you, with nothing to apply. A turn that failed, was stopped
+   * or ran too long, or one that changed the copy, stops the card with why.
+   */
+  private async afterResearchTurn(
+    path: string,
+    turn: LiveTurn,
+    outcome?: ControlOutcome,
+  ) {
+    const crew = getCrew(path);
+    if (!crew?.on || !turn.cardId) return;
+    const card = crewCard(crew, turn.cardId);
+    if (!card || card.turn?.turnId !== turn.turnId) return;
+    const now = this.deps.now();
+    const name = this.deps.name(crew, turn.memberId);
+    let step: LoopStep;
+    if (turn.timedOut)
+      step = turnTimedOut(card, {
+        role: "researcher",
+        minutes: crew.limits.turnMinutes,
+        now,
+        name,
+      });
+    else if (outcome?.status === "failed" || outcome?.status === "cancelled")
+      step = turnFailed(card, {
+        role: "researcher",
+        error:
+          outcome.status === "cancelled" ? "it was stopped" : outcome.error,
+        now,
+        name,
+      });
+    else {
+      const reply =
+        replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
+        outcome?.text?.trim() ||
+        "";
+      const diff =
+        crew.copy && card.base
+          ? await this.deps.copy
+              .diff(crew.copy.path, card.base)
+              .catch((error) => {
+                logError("Crew diff", error);
+                return null;
+              })
+          : null;
+      // A reader that changed the copy (or whose copy can't be read): void.
+      const edited =
+        !diff || (!!card.turn.hashBefore && diff.hash !== card.turn.hashBefore);
+      step = afterResearch(card, {
+        findings: parseFindings(reply),
+        edited,
+        now,
+        name,
+      });
+    }
+    if (!this.stillOn(path, turn.onAt)) return;
+    let saved = false;
+    updateCrew(path, (current) => {
+      if (crewCard(current, card.id)?.turn?.turnId !== turn.turnId)
+        return current;
+      saved = true;
+      return this.commitResearch(current, step, now, turn.memberId);
+    });
+    if (saved && step.event.kind === "ready")
+      await Promise.resolve(this.deps.board.move(path, card.id, "review"));
+  }
+
+  /** Save a research step: the card, the feed line, and the member's line. */
+  private commitResearch(
+    crew: Crew,
+    step: LoopStep,
+    now: number,
+    memberId: string,
+  ): Crew {
+    const { card, event } = step;
+    const who = this.deps.name(crew, memberId);
+    const entry: Omit<CrewFeedEntry, "id"> =
+      event.kind === "ready"
+        ? {
+            at: now,
+            kind: "findings",
+            who: "researcher",
+            member: memberId,
+            cardId: card.id,
+            title: card.title,
+            text: `${who} read ${sourcesText(card.findings?.sources ?? 0)} for “${card.title}”: ${card.findings?.summary ?? ""}`,
+          }
+        : {
+            at: now,
+            kind: "stuck",
+            who: "aven",
+            member: memberId,
+            cardId: card.id,
+            title: card.title,
+            text: event.kind === "stuck" ? event.text : "",
+          };
+    // Findings live on the Board, not in the Inbox: nothing to apply there.
+    const noted = withFeed(withCard(crew, card), entry);
+    return withMemberId(noted, memberId, (member) =>
+      member.doing ? { ...member, doing: undefined } : member,
+    );
   }
 
   // -------------------------------------------------------------------------
