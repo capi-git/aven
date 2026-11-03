@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { HAS_NATIVE_GLASS, IS_MAC } from "./platform";
-import { applyUiScale, loadUiScale } from "./uiScale";
+import { applyUiScale, loadUiScale, UI_SCALE_KEY } from "./uiScale";
 
 const THEME_HUE_KEY = "monocode.themeHue";
 const THEME_SATURATION_KEY = "monocode.themeSaturation";
@@ -478,10 +478,36 @@ export function initAppearance() {
     NATIVE_GLASS_PENDING_CLASS,
     HAS_NATIVE_GLASS && !confirmedNativeGlass,
   );
+  applyStoredAppearance();
+  watchSystemColorScheme();
+  // Settings applies a change only to its own window and saves it. Other
+  // windows hear about it through the storage event, which fires in every
+  // window except the one that wrote the value.
+  window.addEventListener("storage", (event) => {
+    if (event.key === null || APPEARANCE_KEYS.has(event.key))
+      applyStoredAppearance();
+  });
+}
+
+/** The saved appearance keys every window of the app must agree on. */
+const APPEARANCE_KEYS = new Set([
+  THEME_HUE_KEY,
+  THEME_SATURATION_KEY,
+  SCHEME_KEY,
+  OPACITY_KEY,
+  STATUS_BAR_OPACITY_KEY,
+  BLUR_KEY,
+  BODY_KEY,
+  CHAT_BACKGROUND_PATH_KEY,
+  CHAT_BACKGROUND_OPACITY_KEY,
+  CHAT_BACKGROUND_SCOPE_KEY,
+  UI_SCALE_KEY,
+]);
+
+function applyStoredAppearance() {
   applyThemeTint(loadThemeHue(), loadThemeSaturation());
   applyThemeColors(hasLegacyAppearancePreferences() ? {} : AVEN_THEME_COLORS);
   applyThemePreference(loadThemePreference());
-  watchSystemColorScheme();
   applySidebarOpacity(loadSidebarOpacity());
   applyStatusBarOpacity(loadStatusBarOpacity());
   applySidebarBlur(loadSidebarBlur());
