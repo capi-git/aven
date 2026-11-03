@@ -2278,7 +2278,7 @@ describe("browser tab integration", () => {
         [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
           .find(
             (row) =>
-              /^Close other/.test(row.textContent ?? "") &&
+              row.textContent?.startsWith("Close other") &&
               row.textContent !== "Close others",
           )!
           .click(),

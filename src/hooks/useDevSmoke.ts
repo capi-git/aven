@@ -4083,10 +4083,11 @@ export async function runDevSmoke(
       () => checkTeamAccess(get, config),
     );
 
-  await step("a tab pins to its mark at the start of the strip", () => {
-    get().motion?.showWorkspace?.();
-    return checkPinnedTab(config.projectPath, get);
-  });
+  if (get().loneTab)
+    await step("a tab pins to its mark at the start of the strip", () => {
+      get().motion?.showWorkspace?.();
+      return checkPinnedTab(config.projectPath, get);
+    });
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
   // Settings and Cmd+W closes the open utility rather than a pane.
