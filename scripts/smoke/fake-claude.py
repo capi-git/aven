@@ -529,7 +529,7 @@ def talk_turn(text, args):
         return said("helper", {"line": f"Read it. {TALK_WORD}"})
     if f"{TALK_WORD}_QUESTION" in text and "sent you this" in text:
         return said("checker", {"line": f"Checker says fine. {TALK_WORD}"})
-    if "sent you this" in text:
+    if "answered what you asked" in text:
         return said("lead", {"line": "Lead got it."})
     return said("lead", {
         "line": "Asking around.",

@@ -13,6 +13,7 @@ import {
   type UsageWindowKind,
 } from "./usageForecast";
 import { contextPercent, formatTokens } from "./contextUsage";
+import type { UsageForecastSnapshot } from "./usageHistory";
 
 export type UsageReading = { kind: UsageWindowKind; window: RateLimitWindow };
 
@@ -101,4 +102,41 @@ export function contextMeterTitle(context: {
   return `Context: ${percent}% of this chat's context used (${formatTokens(
     context.used,
   )} of ${formatTokens(context.window ?? 0)} tokens)`;
+}
+
+export type SidebarUsage = { percent: number; text: string; title: string };
+
+/**
+ * The sidebar's one line: the account closest to a limit, how much of it is
+ * used and when it resets. Null until an account has reported.
+ */
+export function sidebarUsage(
+  snapshot: UsageForecastSnapshot,
+  now: number,
+): SidebarUsage | null {
+  let best: {
+    name: string;
+    kind: UsageWindowKind;
+    used: number;
+    at: number | null;
+  } | null = null;
+  for (const [provider, forecast] of Object.entries(snapshot.providers)) {
+    for (const kind of USAGE_WINDOW_KINDS) {
+      const sample = forecast?.latest[kind];
+      if (!sample || (best && clamp(sample.used) <= best.used)) continue;
+      best = {
+        name: PROVIDER_NAME[provider as keyof typeof PROVIDER_NAME],
+        kind,
+        used: clamp(sample.used),
+        at: sample.resetsAt,
+      };
+    }
+  }
+  if (!best) return null;
+  const left = best.at ? formatResetDuration(best.at - now) : "";
+  return {
+    percent: Math.round(best.used),
+    text: `${formatUsagePercent(best.used)}${left ? ` · ${left}` : ""}`,
+    title: `${best.name}, ${USAGE_WINDOW_NAME[best.kind]}`,
+  };
 }
