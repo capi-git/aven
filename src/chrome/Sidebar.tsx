@@ -1994,8 +1994,6 @@ function SidebarComponent({
       ) : null}
       {settingsOpen && onSelectSettingsSection && onCloseSettings ? (
         <div className="personal-settings-navigation flex min-h-0 flex-1 flex-col">
-          {profileHeader}
-          <p className="personal-sidebar-section-label">Settings</p>
           <SettingsNav
             section={settingsSection}
             onSelect={onSelectSettingsSection}
@@ -2467,7 +2465,7 @@ function SidebarComponent({
         onDismissUpdate={onDismissUpdate}
       />
       <div className="personal-sidebar-footer">
-        {open ? (
+        {open && !settingsOpen ? (
           <PersonalWorkspaceSwitcher
             profiles={profiles}
             activeProfileId={activeProfileId}

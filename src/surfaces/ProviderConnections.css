@@ -1,4 +1,4 @@
-/* Settings → MCP servers. Groups use the shared grouped card; rows inside
+/* Settings → MCP. Groups use the shared grouped card; rows inside
    it are the shared list rows (chrome/Menu.css): no lines between them, a
    grey lift under the pointer, a 6px corner inset 4px from the card. Colour
    is only the small status dot. */
@@ -335,9 +335,6 @@
 }
 .mcp-group-off .settings-group-header {
   display: block;
-}
-.mcp-group-off .settings-group-header p {
-  margin-top: 2px;
 }
 
 .mcp-footnote {

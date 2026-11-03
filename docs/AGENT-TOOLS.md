@@ -1,7 +1,7 @@
 # Browser, files and desktop control
 
 Aven supplies these routes automatically to ordinary agent turns and follow-ups.
-Use **Settings → Skills & tools** to inspect the installed tools and their status. Use **Settings → MCP servers** to add, remove, sign in to, and turn off MCP servers. Aven makes those changes through `claude mcp` and `codex mcp`, and turns servers off with each provider's own switch: Claude Code's `mcp_toggle` (the same as `/mcp disable`, saved for the open project only) and Codex's config writer (`enabled = false` on that server's entry in your `config.toml`, removed again when turned on). Codex is only changed for servers written as their own `[mcp_servers.<name>]` table or as dotted keys; Aven keeps the file's bytes first, writes only if the file is unchanged since it read it, checks that Codex can still read the result, and puts the bytes back if it can't. With no project open, Claude's servers can only be hidden. Each provider's own configuration stays authoritative. A server a provider can't turn off, such as ChatGPT apps, can be hidden from the page instead; Aven keeps that list under `aven.mcpHidden`, and the provider still loads the server.
+Use **Settings → Skills** to inspect the installed tools and their status. Use **Settings → MCP** to add, remove, sign in to, and turn off MCP servers. Aven makes those changes through `claude mcp` and `codex mcp`, and turns servers off with each provider's own switch: Claude Code's `mcp_toggle` (the same as `/mcp disable`, saved for the open project only) and Codex's config writer (`enabled = false` on that server's entry in your `config.toml`, removed again when turned on). Codex is only changed for servers written as their own `[mcp_servers.<name>]` table or as dotted keys; Aven keeps the file's bytes first, writes only if the file is unchanged since it read it, checks that Codex can still read the result, and puts the bytes back if it can't. With no project open, Claude's servers can only be hidden. Each provider's own configuration stays authoritative. A server a provider can't turn off, such as ChatGPT apps, can be hidden from the page instead; Aven keeps that list under `aven.mcpHidden`, and the provider still loads the server.
 The same setup works when Aven is the project you are developing.
 
 ## Websites and previews
@@ -576,7 +576,7 @@ Each such turn carries a short `<aven-iphone>` note with the command.
 ## Native Mac apps
 
 Aven has built-in desktop control for observing and operating native Mac windows.
-It is off by default. In **Settings → Skills & tools → Desktop control**, turn on
+It is off by default. In **Settings → Skills → Desktop control**, turn on
 **Let agents see and use apps on this Mac**. macOS asks you for Screen Recording
 and Accessibility access, with Aven listed by name. You can turn desktop control
 off from the same switch at any time.

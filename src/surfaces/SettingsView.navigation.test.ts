@@ -357,29 +357,29 @@ describe("settings navigation", () => {
     }
   });
 
-  it("groups the sections under five labels in order", async () => {
+  it("groups the sections under three labels in order", async () => {
     await mount();
     expect(
       [...sectionList()!.querySelectorAll(".settings-nav__group")].map(
         (group) => group.textContent,
       ),
-    ).toEqual(["Personal", "Agents", "Coding", "Integrations", "Archived"]);
+    ).toEqual(["App", "Agents", "Workspace"]);
     expect(
       [...sectionList()!.querySelectorAll("button")].map((button) =>
         button.getAttribute("aria-label"),
       ),
     ).toEqual([
       "General",
-      "Appearance",
       "Notifications",
+      "Appearance",
       "Keyboard shortcuts",
-      "Provider setup",
-      "Providers & models",
-      "Chats & review",
-      "Skills & tools",
-      "Git",
-      "MCP servers",
+      "Chat",
+      "Providers",
+      "Models",
+      "MCP",
+      "Skills",
       "Browser",
+      "Git",
       "Archive",
     ]);
   });
@@ -500,7 +500,7 @@ describe("settings navigation", () => {
     for (const [label, category, id] of [
       ["Version", "General", "setting-version"],
       ["Memory saver", "Browser", "setting-memory-saver"],
-      ["MCP servers", "MCP servers", "setting-mcp-servers"],
+      ["MCP servers", "MCP", "setting-mcp-servers"],
       ["Accent colour", "Appearance", "setting-accent-colour"],
       ["Chat background", "Appearance", "setting-chat-background"],
       [
@@ -508,7 +508,7 @@ describe("settings navigation", () => {
         "Keyboard shortcuts",
         "setting-keyboard-shortcuts",
       ],
-      ["Providers", "Providers & models", "setting-providers"],
+      ["Providers", "Models", "setting-providers"],
       ["When an agent finishes", "Git", "setting-when-an-agent-finishes"],
       ["Archived projects", "Archive", "setting-archived-projects"],
       ["Archived chats", "Archive", "setting-archived-chats"],
@@ -626,7 +626,7 @@ describe("settings navigation", () => {
     await key(input, "Escape");
     expect(input.value).toBe("");
     expect(document.activeElement).toBe(input);
-    expect(container.querySelector("h1")?.textContent).toBe("Chats & review");
+    expect(container.querySelector("h1")?.textContent).toBe("Chat");
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -691,7 +691,7 @@ describe("settings navigation", () => {
     expect(notes.getAttribute("aria-checked")).toBe("true");
     await click(notes);
     expect(loadNotesEnabled()).toBe(false);
-    await section("Chats & review");
+    await section("Chat");
     const steer = [
       ...container.querySelectorAll<HTMLButtonElement>(
         '[role="radiogroup"][aria-label="While an agent is working, new messages"] [role="radio"]',

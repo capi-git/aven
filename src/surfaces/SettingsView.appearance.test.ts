@@ -201,9 +201,6 @@ describe("workspace appearance settings", () => {
       "device display preferences",
     ])
       expect(text).not.toContain(removed.toLowerCase());
-    expect(container.textContent).toContain(
-      "Set the mood for your Work workspace.",
-    );
   });
 
   it("opens with Glass read from the saved opacity, rewriting nothing", async () => {

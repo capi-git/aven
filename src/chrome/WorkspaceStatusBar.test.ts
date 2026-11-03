@@ -298,7 +298,7 @@ describe("workspace status data and actions", () => {
     ).toBeGreaterThan(children().indexOf(trigger));
   });
 
-  it("names Settings once, leaving the section to the page, and keeps exit controls out of window dragging", async () => {
+  it("names where you are in Settings, and keeps exit controls out of window dragging", async () => {
     const closeSettings = vi.fn();
     await render({
       sessions: [task({ model: "current-task-model" })],
@@ -306,8 +306,7 @@ describe("workspace status data and actions", () => {
     });
     const settingsTitle = () =>
       container.querySelector(".workspace-status-settings")!;
-    // The page's own heading names the section right below the bar.
-    expect(settingsTitle().textContent).toBe("Settings");
+    expect(settingsTitle().textContent).toBe("Settings/Appearance");
     expect(container.textContent).not.toContain("current-task-model");
     expect(
       container.querySelectorAll('button[aria-label="Close settings"]'),
@@ -316,8 +315,8 @@ describe("workspace status data and actions", () => {
     await render({
       settingsView: { section: "providers", onClose: closeSettings },
     });
-    expect(settingsTitle().textContent).toBe("Settings");
-    for (const label of ["Back to workspace", "Close settings"]) {
+    expect(settingsTitle().textContent).toBe("Settings/Models");
+    for (const label of ["Close settings"]) {
       const control = button(label);
       for (const target of [control, control.querySelector("svg")!]) {
         await act(async () =>
@@ -328,7 +327,7 @@ describe("workspace status data and actions", () => {
       }
       await click(label);
     }
-    expect(closeSettings).toHaveBeenCalledTimes(2);
+    expect(closeSettings).toHaveBeenCalledTimes(1);
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
     expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
   });

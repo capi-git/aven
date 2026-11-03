@@ -12,7 +12,7 @@ import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
 import { SEARCH_KEYS } from "./ProfileSidebarHeader";
 import { IS_MAC } from "../lib/platform";
-import type { SettingsSectionId } from "../lib/settings";
+import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
@@ -488,20 +488,10 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
       ) : null}
       {settingsView ? (
         <div className="workspace-status-settings">
-          <button
-            type="button"
-            className="workspace-status-pill workspace-status-settings-back"
-            aria-label="Back to workspace"
-            title="Back to workspace"
-            data-tauri-drag-region="false"
-            onClick={settingsView.onClose}
-          >
-            <ChevronLeft size={14} aria-hidden />
-          </button>
-          {/* The page below names its section (and the sidebar marks it),
-              so the window names only Settings. */}
           <div className="workspace-status-settings-path">
-            <strong>Settings</strong>
+            <span>Settings</span>
+            <span aria-hidden>/</span>
+            <strong>{settingsSectionLabel(settingsView.section)}</strong>
           </div>
         </div>
       ) : null}
@@ -519,7 +509,8 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         data-tauri-drag-region="false"
       >
         <div className="workspace-status-layout">
-          {settingsView ? (
+          {/* The sidebar's Back to app leaves Settings; hidden, this does. */}
+          {settingsView && !sidebarOpen ? (
             <button
               type="button"
               aria-label="Close settings"
@@ -530,7 +521,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               <X size={14} aria-hidden />
             </button>
           ) : null}
-          {onToggleInspector ? (
+          {onToggleInspector && !settingsView ? (
             <button
               type="button"
               aria-label="Toggle side panel"

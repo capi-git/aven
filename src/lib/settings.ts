@@ -17,8 +17,7 @@ export type SettingsSectionId =
   | "browser"
   | "archive";
 
-export type SettingsSectionGroup =
-  "Personal" | "Agents" | "Coding" | "Integrations" | "Archived";
+export type SettingsSectionGroup = "App" | "Agents" | "Workspace";
 
 /** Navigation order. Each group starts where its first section appears. */
 export const SETTINGS_SECTIONS: {
@@ -29,76 +28,76 @@ export const SETTINGS_SECTIONS: {
 }[] = [
   {
     id: "general",
-    group: "Personal",
+    group: "App",
     label: "General",
     description: "Updates, the sidebar, and small extras.",
   },
   {
-    id: "appearance",
-    group: "Personal",
-    label: "Appearance",
-    description: "Theme, accent colour, glass and chat background.",
-  },
-  {
     id: "notifications",
-    group: "Personal",
+    group: "App",
     label: "Notifications",
     description: "Decide when and how Aven gets your attention.",
   },
   {
+    id: "appearance",
+    group: "App",
+    label: "Appearance",
+    description: "Theme, accent colour, glass and chat background.",
+  },
+  {
     id: "keybindings",
-    group: "Personal",
+    group: "App",
     label: "Keyboard shortcuts",
     description: "Find keyboard shortcuts and where they work.",
   },
   {
+    id: "tasks",
+    group: "Agents",
+    label: "Chat",
+    description:
+      "How chats start, handle your follow-up messages, and show their work.",
+  },
+  {
     id: "provider-setup",
     group: "Agents",
-    label: "Provider setup",
+    label: "Providers",
     description: "Choose agent apps, install them, and connect your accounts.",
   },
   {
     id: "providers",
     group: "Agents",
-    label: "Providers & models",
+    label: "Models",
     description: "Choose your agents, models, and defaults for new chats.",
   },
   {
-    id: "tasks",
-    group: "Agents",
-    label: "Chats & review",
-    description:
-      "How chats start, handle your follow-up messages, and show their work.",
-  },
-  {
-    id: "skills",
-    group: "Agents",
-    label: "Skills & tools",
-    description:
-      "Reusable instructions, browser tools, and optional desktop control.",
-  },
-  {
-    id: "git",
-    group: "Coding",
-    label: "Git",
-    description: "What agents do with their changes when they finish.",
-  },
-  {
     id: "connections",
-    group: "Integrations",
-    label: "MCP servers",
+    group: "Agents",
+    label: "MCP",
     description:
       "Extra tools Claude and Codex can use. When a server asks something, the chat shows it.",
   },
   {
+    id: "skills",
+    group: "Agents",
+    label: "Skills",
+    description:
+      "Reusable instructions, browser tools, and optional desktop control.",
+  },
+  {
     id: "browser",
-    group: "Integrations",
+    group: "Workspace",
     label: "Browser",
     description: "Open dev previews and keep browser tabs ready.",
   },
   {
+    id: "git",
+    group: "Workspace",
+    label: "Git",
+    description: "What agents do with their changes when they finish.",
+  },
+  {
     id: "archive",
-    group: "Archived",
+    group: "Workspace",
     label: "Archive",
     description: "Find and restore archived projects and chats.",
   },

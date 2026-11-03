@@ -257,7 +257,7 @@ describe("mergeCatalog", () => {
     expect(mergeCatalog([])).toContainEqual(BUILTIN_COMPUTER_USE_SKILL);
     const body = await readSkillBody(BUILTIN_COMPUTER_USE_SKILL);
     expect(body).toContain('--aven-desktop \'{"action":"status"}\'');
-    expect(body).toContain("Settings → Skills & tools → Desktop control");
+    expect(body).toContain("Settings → Skills → Desktop control");
     expect(body).toContain("Agent actions never trigger permission prompts");
     expect(body).not.toContain("orca skills get");
   });
