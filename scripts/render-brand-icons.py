@@ -2,7 +2,9 @@
 """Render Aven's mark and app icon source images.
 
 The mark is Rise: a 5 x 5 staircase of round off-white dots, one more on each
-row down, climbing to the top-left. On the app icon it sits on a tile of
+row down, climbing to the top-left. Icons of 16 px and under draw four steps
+in bigger dots instead, so the steps stay countable. On the app icon the
+mark sits on a tile of
 smoky glass: dark grey at 70% opacity so the wallpaper shows through, a sheen
 that lightens the top, a thin bright rim along the top edge, a soft shadow
 inside the bottom and a soft drop shadow, like macOS icons on glass. The dots
@@ -49,16 +51,23 @@ RISE = (
     "####.",
     "#####",
 )
-GRID = len(RISE)
+# Four steps for icons of 16 px and under, where five dots a row would blur.
+RISE_SMALL = (
+    "#...",
+    "##..",
+    "###.",
+    "####",
+)
+SMALL_ICON = 16
 # The mark's width as a share of the tile's, and a dot's diameter as a share
 # of its cell. Both grow as the tile shrinks (see `glyph_metrics`) so the
 # stairs still read at Dock and tab sizes.
-APP_SHARE = 0.52
+APP_SHARE = 0.53
 INTERFACE_SHARE = 0.56
-DOT = 0.55
-# The browser's fallback icon draws its dots a little bigger, 0.6 of a cell,
-# like the in-app mark (AVEN_MARK_DOT_RADIUS in src/lib/avenMark.ts).
-SVG_DOT_RADIUS = 0.3
+DOT = 0.68
+# The in-app mark and the browser's fallback icon draw the same dot, 0.68 of
+# a cell (AVEN_MARK_DOT_RADIUS in src/lib/avenMark.ts).
+SVG_DOT_RADIUS = 0.34
 # Sizes in each bundle container, in the order Tauri writes them.
 ICO_SIZES = (32, 16, 24, 48, 64, 256)
 ICONSET = {
@@ -141,35 +150,39 @@ def tile(n, box, radius, shadow=True):
     return out
 
 
-def glyph_metrics(tile_side, share):
+def glyph_metrics(tile_side, share, rows):
     """The mark's share of the tile and a dot's share of its cell at this size.
 
-    Both grow as the tile shrinks below 96 px, up to 0.12 more at 16 px, so
-    the stairs stay legible where a 0.55 dot would be under a pixel.
+    With five steps both grow as the tile shrinks below 96 px (the mark up to
+    0.1 more, the dot up to 0.06 more at 16 px), so the stairs stay legible
+    where the dots would be a pixel wide. The four-step mark has its own
+    fixed, bigger proportions.
     """
+    if rows is RISE_SMALL:
+        return 0.66, 0.72
     small = max(0.0, min(1.0, (96 - tile_side) / 80))
-    return share + 0.12 * small, DOT + 0.12 * small
+    return share + 0.1 * small, DOT + 0.06 * small
 
 
-def draw_dots(image, box, share, glow=False):
+def draw_dots(image, box, share, glow=False, rows=RISE):
     """Rise centred in `box`, round dots; `glow` adds a soft white halo."""
     side = box[2] - box[0]
-    share, dot = glyph_metrics(side / SCALE, share)
+    share, dot = glyph_metrics(side / SCALE, share, rows)
     width = side * share
-    cell = width / GRID
+    cell = width / len(rows)
     left = box[0] + (side - width) / 2
     top = box[1] + (side - width) / 2
     radius = cell * dot / 2
     layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    for row, cells in enumerate(RISE):
+    for row, cells in enumerate(rows):
         for col, mark in enumerate(cells):
             if mark != "#":
                 continue
             cx, cy = left + (col + 0.5) * cell, top + (row + 0.5) * cell
             draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=WHITE + (255,))
     if glow:
-        for blur, strength in ((radius * 0.8, 0.75), (radius * 2.6, 0.4)):
+        for blur, strength in ((radius * 0.8, 0.9), (radius * 2.8, 0.5)):
             halo = layer.copy()
             halo.putalpha(halo.getchannel("A").point(lambda a, s=strength: round(a * s)))
             image = Image.alpha_composite(image, halo.filter(ImageFilter.GaussianBlur(blur)))
@@ -183,7 +196,8 @@ def render(size, tile_side, radius_share, share, shadow, glow):
     left = (n - side) / 2
     box = (left, left, left + side, left + side)
     image = tile(n, box, side * radius_share, shadow)
-    image = draw_dots(image, box, share, glow)
+    rows = RISE_SMALL if size <= SMALL_ICON else RISE
+    image = draw_dots(image, box, share, glow, rows)
     return image.resize((size, size), Image.LANCZOS)
 
 

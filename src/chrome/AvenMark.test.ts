@@ -38,8 +38,8 @@ describe("AvenMark", () => {
     });
     expect(avenMarkDots()[0]).toEqual({ cx: 0.5, cy: 0.5 });
     expect(avenMarkDots().at(-1)).toEqual({ cx: 4.5, cy: 4.5 });
-    // Dots stay apart: well under a cell across.
-    expect(AVEN_MARK_DOT_RADIUS * 2).toBeLessThan(0.75);
+    // The app icon's dot: 0.68 of a cell across, so dots stay apart.
+    expect(AVEN_MARK_DOT_RADIUS * 2).toBeCloseTo(0.68);
   });
 
   it("matches the mark the brand script renders for the browser", () => {

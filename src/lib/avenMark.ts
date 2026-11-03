@@ -18,10 +18,10 @@ export const AVEN_MARK_GRID = {
 } as const;
 
 /**
- * A dot's radius in cells: 0.6 of a cell across, so at the 15 px default
- * (3 px cells) each dot is 1.8 px wide with a clear gap to the next.
+ * A dot's radius in cells: 0.68 of a cell across, as on the app icon, so at
+ * the 15 px default (3 px cells) each dot is 2 px wide with a 1 px gap.
  */
-export const AVEN_MARK_DOT_RADIUS = 0.3;
+export const AVEN_MARK_DOT_RADIUS = 0.34;
 
 /** The centre of each lit dot, in cells over the grid's viewBox. */
 export function avenMarkDots(): { cx: number; cy: number }[] {
