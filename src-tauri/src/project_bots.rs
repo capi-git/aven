@@ -1924,7 +1924,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&bots);
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn protects_settings_hooks_and_editor_folders_at_any_depth() {
         for path in [
@@ -1975,6 +1974,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn never_applies_protected_paths_from_a_stack() {
         let root = repo();

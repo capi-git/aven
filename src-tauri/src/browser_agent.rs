@@ -3744,6 +3744,18 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    /// Requests a sandboxed chat never gets to make, as JSON. The file path
+    /// is absolute on every platform, so the sandbox is what refuses it.
+    fn refused_in_a_sandbox() -> Vec<String> {
+        let notes = std::env::temp_dir().join("notes.md");
+        vec![
+            r#"{"action":"tabs"}"#.to_string(),
+            json!({"action":"openfile","path":notes.to_string_lossy()}).to_string(),
+            r#"{"action":"desktop","request":{"action":"status"}}"#.to_string(),
+            r#"{"action":"simulator","request":{"action":"screenshot"}}"#.to_string(),
+        ]
+    }
+
     #[test]
     fn a_sandboxed_chat_opens_only_local_servers_and_allowed_sites() {
         let open = grants();
@@ -3842,12 +3854,8 @@ mod tests {
         .is_err());
         // Still its own pages only, and still no tabs, files or desktop.
         assert!(authorize(&grants, "secret", &Request::Snapshot { id: "tab-b".into() }).is_err());
-        for json in [
-            r#"{"action":"tabs"}"#,
-            r#"{"action":"openfile","path":"/tmp/notes.md"}"#,
-            r#"{"action":"desktop","request":{"action":"status"}}"#,
-            r#"{"action":"simulator","request":{"action":"screenshot"}}"#,
-        ] {
+        for json in refused_in_a_sandbox() {
+            let json = json.as_str();
             assert!(
                 authorize(&grants, "secret", &parsed(json)).is_err(),
                 "{json}"
@@ -3906,12 +3914,8 @@ mod tests {
             }
         )
         .is_err());
-        for json in [
-            r#"{"action":"tabs"}"#,
-            r#"{"action":"openfile","path":"/tmp/notes.md"}"#,
-            r#"{"action":"desktop","request":{"action":"status"}}"#,
-            r#"{"action":"simulator","request":{"action":"screenshot"}}"#,
-        ] {
+        for json in refused_in_a_sandbox() {
+            let json = json.as_str();
             let error = authorize(&grants, "secret", &parsed(json)).err().unwrap();
             assert!(error.contains("sandbox"), "{json}: {error}");
         }
