@@ -13,6 +13,8 @@ import {
   asRecord,
   buildThreadStartParams,
   buildTurnStartParams,
+  codexKeyGuardArgs,
+  codexKeyGuardGap,
   buildTurnSteerParams,
   codexAttachmentInputs,
   codexAsyncUserInputQuestions,
@@ -63,6 +65,17 @@ function readOnlyChat(sessionId: string): boolean {
 /** A chat whose commands never leave the sandbox (a crew's Builder), whatever its mode says. */
 function noEscalationChat(sessionId: string): boolean {
   return sessionPermissions(sessionId)?.noEscalation === true;
+}
+
+/** Folders and files a chat's commands may not read, when it is such a chat. */
+function keyGuardPaths(sessionId: string): readonly string[] {
+  const permissions = sessionPermissions(sessionId);
+  if (!permissions?.readOnly && !permissions?.noEscalation) return [];
+  return permissions.sandbox?.filesystem?.denyRead ?? [];
+}
+
+function keyGuardChat(sessionId: string): boolean {
+  return keyGuardPaths(sessionId).length > 0;
 }
 import type {
   ApprovalDecision,
@@ -460,6 +473,8 @@ const TOOL_FEATURES = [
   "browser_use_external",
   "computer_use",
   "in_app_browser",
+  // Its own sub-agents: nothing here counts or shows them.
+  "multi_agent",
 ];
 
 /**
@@ -651,12 +666,22 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
     // off (or its rules gone) while this was prepared never starts.
     const lateRefusal = launchRefusal(input.sessionId, input.cwd, "codex");
     if (lateRefusal) throw new Error(lateRefusal);
+    const keyGuard = keyGuardChat(input.sessionId);
     await spawnChild(
       input.sessionId,
       path,
-      noMcp
-        ? [...codexClosedToolArgs(knownMcpServers, knownPlugins), "app-server"]
-        : ["app-server"],
+      [
+        ...(noMcp ? codexClosedToolArgs(knownMcpServers, knownPlugins) : []),
+        ...(keyGuard
+          ? codexKeyGuardArgs(readOnlyChat(input.sessionId), [
+              ...keyGuardPaths(input.sessionId),
+              // This chat's own Codex folder, which links to your sign-in.
+              `${storage.home}/auth.json`,
+              `${storage.home}/mcp-auth.json`,
+            ])
+          : []),
+        "app-server",
+      ],
       input.cwd,
     );
     await rpc.request("initialize", {
@@ -730,6 +755,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
             controlsAgents: input.controlsAgents,
             readOnly: readOnlyChat(input.sessionId),
             noEscalation: noEscalationChat(input.sessionId),
+            keyGuard,
             model,
             serviceTier,
           }),
@@ -750,6 +776,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
               controlsAgents: input.controlsAgents,
               readOnly: readOnlyChat(input.sessionId),
               noEscalation: noEscalationChat(input.sessionId),
+              keyGuard,
               model,
               serviceTier,
             }),
@@ -783,6 +810,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
           controlsAgents: input.controlsAgents,
           readOnly: readOnlyChat(input.sessionId),
           noEscalation: noEscalationChat(input.sessionId),
+          keyGuard,
           model,
           serviceTier,
         }),
@@ -791,6 +819,16 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
     }
 
     if (!threadId) throw new Error("Codex did not return a thread id");
+
+    // An older Codex ignores a named profile: this chat doesn't start without it.
+    const keyGuardGap = keyGuard
+      ? codexKeyGuardGap(opened, readOnlyChat(input.sessionId))
+      : null;
+    if (keyGuardGap) {
+      throw new Error(
+        `${CODEX_TOOLS_OPEN}: ${keyGuardGap}, so it could read your keys. Update Codex; this chat didn't start.`,
+      );
+    }
 
     // Suppress unused warning for effort until first turn applies it.
     void effort;
@@ -876,6 +914,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     controlsAgents: input.controlsAgents,
     readOnly: readOnlyChat(input.sessionId),
     noEscalation: noEscalationChat(input.sessionId),
+    keyGuard: keyGuardChat(input.sessionId),
     prompt: text.trim() || undefined,
     attachments,
     model,

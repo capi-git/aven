@@ -255,18 +255,28 @@ export const PUBLISH_CREDENTIALS = [
 
 /**
  * Your keys and sign-ins for other services: SSH, cloud accounts, GitHub's
- * CLI, Docker, Kubernetes, GPG. No bot or teammate reads them, by rule and
- * by sandbox: nothing it does needs them, and a page or a file it read
- * could ask for them.
+ * CLI, Docker, Kubernetes, GPG, deploy tools and the agents' own sign-ins. No
+ * bot or teammate reads them, by rule and by sandbox: nothing it does needs
+ * them (an agent's own app signs in outside its sandbox), and a page or a
+ * file it read could ask for them.
  */
 export const SECRET_FOLDERS = [
   "~/.ssh",
   "~/.aws",
+  "~/.azure",
+  "~/.config/gcloud",
   "~/.config/gh",
+  "~/.config/supabase",
+  "~/.config/vercel",
   "~/.kube",
   "~/.gnupg",
 ];
-export const SECRET_FILES = ["~/.docker/config.json"];
+export const SECRET_FILES = [
+  "~/.docker/config.json",
+  "~/.codex/auth.json",
+  "~/.codex/mcp-auth.json",
+  "~/.claude/.credentials.json",
+];
 
 /** Everything a bot's commands may not read: the sandbox's list. */
 export const NEVER_READ_PATHS = [
@@ -344,6 +354,15 @@ export const PROTECTED_FIX_PATHS = [
   ".npmrc",
   "bunfig.toml",
   ".envrc",
+  // What every later agent reads as your instructions.
+  "agents.md",
+  "agents.override.md",
+  "claude.md",
+  "claude.local.md",
+  "gemini.md",
+  ".cursorrules",
+  ".windsurfrules",
+  ".clinerules",
 ] as const;
 
 /** Two-part names refused at any depth: a folder and the file or folder in it. */
@@ -351,6 +370,7 @@ export const PROTECTED_FIX_PAIRS = [
   ".cargo/config.toml",
   ".cargo/config",
   ".github/workflows",
+  ".github/copilot-instructions.md",
 ] as const;
 
 /**
