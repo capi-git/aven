@@ -193,9 +193,8 @@ describe("a new team from your words", () => {
       "checker",
       "researcher",
     ]);
-    expect(crew.notes[0]?.text).toBe(
-      "About this project: An ADHD-friendly planner for iPhone.",
-    );
+    expect(crew.about).toBe("An ADHD-friendly planner for iPhone.");
+    expect(crew.notes).toEqual([]);
     const cards = featureBoardState(PATH).cards;
     expect(cards.map((card) => [card.title, card.column])).toEqual([
       ["What helps people with ADHD plan a day?", "building"],

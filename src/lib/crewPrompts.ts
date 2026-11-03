@@ -174,6 +174,17 @@ function guidanceLines(guidance: CrewGuidance | undefined): string[] {
   return lines;
 }
 
+/** What the project is, as the user wrote it when the team set itself up. */
+function aboutLines(about: string | undefined): string[] {
+  const words = about?.trim();
+  if (!words) return [];
+  return [
+    "What this project is, and what the user wants, in their own words:",
+    words,
+    "",
+  ];
+}
+
 function notesLines(notes: readonly CrewNote[]): string[] {
   if (!notes.length) return [];
   return [
@@ -326,6 +337,8 @@ function questionLines(card: CrewCard): string[] {
 export function researchMessage(input: {
   card: CrewCard;
   notes: readonly CrewNote[];
+  /** What the project is, as the user wrote it at setup (their words). */
+  about?: string;
   brief?: string;
   sync?: BotSyncNote | null;
   guidance?: CrewGuidance;
@@ -335,6 +348,7 @@ export function researchMessage(input: {
   const { card } = input;
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
+  lines.push(...aboutLines(input.about));
   lines.push(...notesLines(input.notes));
   lines.push(
     ...guidanceLines({
@@ -398,6 +412,8 @@ function changeLines(change: CrewChange | undefined): string[] {
 export function builderMessage(input: {
   card: CrewCard;
   notes: readonly CrewNote[];
+  /** What the project is, as the user wrote it at setup (their words). */
+  about?: string;
   names: { builder: string; checker: string; security?: string };
   brief?: string;
   sync?: BotSyncNote | null;
@@ -406,6 +422,7 @@ export function builderMessage(input: {
   const { card, names } = input;
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
+  lines.push(...aboutLines(input.about));
   lines.push(...notesLines(input.notes));
   lines.push(...guidanceLines(input.guidance));
   lines.push(...cardLines(card), "");
@@ -461,6 +478,8 @@ function handoffData(handoff: CrewHandoff | undefined): string {
 export function checkerMessage(input: {
   card: CrewCard;
   notes: readonly CrewNote[];
+  /** What the project is, as the user wrote it at setup (their words). */
+  about?: string;
   names: { builder: string; checker: string };
   brief?: string;
   guidance?: CrewGuidance;
@@ -471,6 +490,7 @@ export function checkerMessage(input: {
   const round = roundOf(card);
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
+  lines.push(...aboutLines(input.about));
   lines.push(...notesLines(input.notes));
   lines.push(
     ...guidanceLines({
@@ -521,6 +541,8 @@ export function checkerMessage(input: {
 /** The Scout's turn: what is on the Board already, and how many ideas it may add. */
 export function scoutMessage(input: {
   notes: readonly CrewNote[];
+  /** What the project is, as the user wrote it at setup (their words). */
+  about?: string;
   /** Cards already on the Board, so it doesn't repeat them. */
   boardTitles: readonly string[];
   ideasLeft: number;
@@ -530,6 +552,7 @@ export function scoutMessage(input: {
 }): string {
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
+  lines.push(...aboutLines(input.about));
   lines.push(...notesLines(input.notes));
   lines.push(...guidanceLines(input.guidance));
   lines.push(...syncLines(input.sync));
@@ -574,6 +597,8 @@ export function goalMessage(input: {
   /** Cards planned for it that the user threw away. */
   dropped?: readonly string[];
   notes: readonly CrewNote[];
+  /** What the project is, as the user wrote it at setup (their words). */
+  about?: string;
   boardTitles: readonly string[];
   brief?: string;
   sync?: BotSyncNote | null;
@@ -581,6 +606,7 @@ export function goalMessage(input: {
 }): string {
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
+  lines.push(...aboutLines(input.about));
   lines.push(...notesLines(input.notes));
   lines.push(...guidanceLines(input.guidance));
   lines.push(...syncLines(input.sync));
@@ -651,6 +677,8 @@ export function goalMessage(input: {
 export function securityMessage(input: {
   card: CrewCard;
   notes: readonly CrewNote[];
+  /** What the project is, as the user wrote it at setup (their words). */
+  about?: string;
   names: { builder: string; checker: string; security?: string };
   brief?: string;
   guidance?: CrewGuidance;
@@ -659,6 +687,7 @@ export function securityMessage(input: {
   const round = roundOf(card);
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
+  lines.push(...aboutLines(input.about));
   lines.push(...notesLines(input.notes));
   lines.push(
     ...guidanceLines({
@@ -706,6 +735,8 @@ export const SWEEP_CARDS = 3;
  */
 export function sweepMessage(input: {
   notes: readonly CrewNote[];
+  /** What the project is, as the user wrote it at setup (their words). */
+  about?: string;
   boardTitles: readonly string[];
   brief?: string;
   sync?: BotSyncNote | null;
@@ -713,6 +744,7 @@ export function sweepMessage(input: {
 }): string {
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
+  lines.push(...aboutLines(input.about));
   lines.push(...notesLines(input.notes));
   lines.push(...guidanceLines(input.guidance));
   lines.push(...syncLines(input.sync));

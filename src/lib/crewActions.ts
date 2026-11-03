@@ -39,7 +39,6 @@ import {
   crewAgentsFor,
   CREW_LIMIT_RANGES,
   CREW_ROLE_INFO,
-  CREW_ROLE_ORDER,
   crewMemberById,
   memberCritter,
   newMemberId,
@@ -50,6 +49,7 @@ import {
   stackedHash,
   waitsForReview,
   yourGoal,
+  withAbout,
   withNote,
   withMessage,
   CREW_MESSAGE_MAX,
@@ -2234,14 +2234,25 @@ export type TeamSetupDraft = {
   ideas: readonly SetupIdeaDraft[];
 };
 
+/** How Start team from the setup sheet ended. */
+export type TeamSetupResult = {
+  /** The team is on: the sheet shows it, whatever else went wrong. */
+  on: boolean;
+  /** Why it didn't start, or what went wrong after it did. */
+  problem: string | null;
+};
+
 /**
- * Start a team from the setup sheet: the chosen teammates (each its role's
- * ready-made member, with the job line as given), your description as a
- * standing note the team reads at every turn, the team turned on the way
- * Start team turns it on, then the first ideas on the Board: yours as
- * yours, Aven's suggestions marked so they wait for your tick, and a
- * question for the Researcher asked of it. Resolves with why it couldn't,
- * or null. Nothing runs before this.
+ * Start a team from the setup sheet. First the ideas go on the Board, each
+ * of Aven's marked so it waits for your tick, while the team is still off
+ * (an off team runs nothing, so no tick can start one as yours meanwhile);
+ * then the chosen teammates replace the defaults (each its role's
+ * ready-made member, with the job line as given) and your description is
+ * kept as the team's `about`, read at every turn; then the team turns on
+ * the way Start team turns it on. A refusal there undoes all of it, so
+ * pressing Start again starts clean. A question for the Researcher is asked
+ * of it once the team is on; a problem then is said in the feed, and the
+ * team stays on.
  */
 export async function startTeamSetup(
   path: string,
@@ -2249,28 +2260,74 @@ export async function startTeamSetup(
   turnOn: () => Promise<string | null>,
   models: CrewModels = crewModelsHere(),
   now = Date.now(),
-): Promise<string | null> {
+): Promise<TeamSetupResult> {
   const crew = getCrew(path);
-  if (!crew) return "This project has no team.";
+  if (!crew) return { on: false, problem: "This project has no team." };
   if (!teamUnstarted(crew))
-    return "This team has started already: add or remove teammates one at a time.";
+    return {
+      on: false,
+      problem:
+        "This team has started already: add or remove teammates one at a time.",
+    };
   const chosen = draft.teammates.filter(
     (mate, index, all) =>
       all.findIndex((other) => other.role === mate.role) === index,
   );
   if (!chosen.some((mate) => mate.role === "builder"))
-    return "A team needs a Builder.";
-  const presets = chosen
-    .flatMap((mate) => {
-      const preset = CREW_PRESETS.find((item) => item.key === mate.role);
-      return preset ? [{ mate, preset }] : [];
-    })
-    // In role order, as the team lists them.
-    .sort(
-      (a, b) =>
-        CREW_ROLE_ORDER.indexOf(a.preset.role) -
-        CREW_ROLE_ORDER.indexOf(b.preset.role),
+    return { on: false, problem: "A team needs a Builder." };
+  const presets = chosen.flatMap((mate) => {
+    const preset = CREW_PRESETS.find((item) => item.key === mate.role);
+    return preset ? [{ mate, preset }] : [];
+  });
+  const before = { members: crew.members, about: crew.about };
+  // The ideas first, while nothing runs: a suggestion is marked as it
+  // lands, so it never reads as yours.
+  const added: { id: string; question: boolean }[] = [];
+  const undo = async () => {
+    for (const { id } of added) await deleteFeatureCard(path, id);
+    updateCrew(path, (current) => ({
+      ...withAbout(
+        { ...current, members: before.members },
+        before.about ?? null,
+      ),
+      ...(current.ideas
+        ? {
+            ideas: Object.fromEntries(
+              Object.entries(current.ideas).filter(
+                ([id]) => !added.some((item) => item.id === id),
+              ),
+            ),
+          }
+        : {}),
+    }));
+  };
+  for (const idea of draft.ideas) {
+    const title = idea.title.trim();
+    if (!title) continue;
+    let card: FeatureCard | null = null;
+    try {
+      card = await addFeatureIdea(path, { title });
+    } catch (error) {
+      logError("Team setup ideas", error);
+    }
+    if (!card) {
+      await undo();
+      return {
+        on: false,
+        problem: "Couldn't add the first ideas to the Board.",
+      };
+    }
+    added.push({ id: card.id, question: idea.source === "researcher" });
+    if (idea.source === "you") continue;
+    updateCrew(path, (current) =>
+      withIdea(current, card.id, {
+        at: now,
+        size: "medium",
+        by: "setup",
+        outside: true,
+      }),
     );
+  }
   updateCrew(path, (current) => {
     let next = current;
     // Who stays: the Fixer, and any teammate you changed (its settings are
@@ -2287,33 +2344,30 @@ export async function startTeamSetup(
       if (job && job !== preset.job)
         next = withMemberId(next, added.id, (member) => ({ ...member, job }));
     }
-    // Your description: a standing note every teammate reads.
-    const words = draft.description.replace(/\s+/g, " ").trim();
-    return words ? withNote(next, `About this project: ${words}`, now) : next;
+    return withAbout(next, draft.description);
   });
   const why = await turnOn();
-  if (why) return why;
-  for (const idea of draft.ideas) {
-    const title = idea.title.trim();
-    if (!title) continue;
-    const card = await addFeatureIdea(path, { title });
-    if (!card) return "Couldn't add the first ideas to the Board.";
-    if (idea.source === "you") continue;
-    // Aven's suggestion, not your words: it waits for your tick.
-    updateCrew(path, (current) =>
-      withIdea(current, card.id, {
-        at: now,
-        size: "medium",
-        by: "setup",
-        outside: true,
-      }),
-    );
-    if (idea.source === "researcher" && cardResearcher(getCrew(path)!)) {
-      const problem = await askResearcher(path, card, now);
-      if (problem) return problem;
-    }
+  if (why) {
+    await undo();
+    return { on: false, problem: why };
   }
-  return null;
+  // On now: the questions go to the Researcher. A problem is said in the
+  // feed, and the team keeps going.
+  for (const { id, question } of added) {
+    if (!question || !cardResearcher(getCrew(path)!)) continue;
+    const card = featureBoardState(path).cards.find((item) => item.id === id);
+    if (!card) continue;
+    const problem = await askResearcher(path, card, now).catch((error) =>
+      errorText(error),
+    );
+    if (!problem) continue;
+    const text = `Couldn't ask the Researcher “${card.title}”: ${problem}`;
+    updateCrew(path, (current) =>
+      withFeed(current, { at: now, kind: "hold", who: "aven", text }),
+    );
+    return { on: true, problem: text };
+  }
+  return { on: true, problem: null };
 }
 
 /**

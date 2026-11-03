@@ -11,7 +11,6 @@ import {
   parseGoal,
   parseHandoff,
   parseIdeas,
-  parseMemory,
   parseTasks,
   parseVerdict,
 } from "./crewHandoff";
@@ -117,10 +116,9 @@ export function crewFenceView(
       })),
     };
   }
-  if (fence === MEMORY_FENCE) {
-    if (!parseMemory(text)) return null;
+  // Its notes, whatever they held: one quiet line, never their words.
+  if (fence === MEMORY_FENCE)
     return { kind: "memory", label: "Updated its notes", items: [] };
-  }
   if (fence === FINDINGS_FENCE) {
     const found = parseFindings(text);
     if (!found) return null;

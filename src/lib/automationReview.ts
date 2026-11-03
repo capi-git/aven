@@ -155,13 +155,34 @@ export function onlyFencedBlock(
   text: string,
   name: string,
 ): { body: string; without: string } | null {
+  const found = fencedBlocksNamed(text, name);
+  return found.bodies.length === 1
+    ? { body: found.bodies[0]!, without: found.without }
+    : null;
+}
+
+/**
+ * Every top-level `name` block in a reply, in order, and the reply with all
+ * of them taken out (so whatever else it ends with still reads as its
+ * closing block).
+ */
+export function fencedBlocksNamed(
+  text: string,
+  name: string,
+): { bodies: string[]; without: string } {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const fences = topLevelFences(lines).filter(fenceNamed(name.toLowerCase()));
-  if (fences.length !== 1) return null;
-  const fence = fences[0]!;
+  if (!fences.length) return { bodies: [], without: text };
+  const kept: string[] = [];
+  let at = 0;
+  for (const fence of fences) {
+    kept.push(...lines.slice(at, fence.start));
+    at = fence.end + 1;
+  }
+  kept.push(...lines.slice(at));
   return {
-    body: fence.body,
-    without: [...lines.slice(0, fence.start), ...lines.slice(fence.end + 1)]
+    bodies: fences.map((fence) => fence.body),
+    without: kept
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim(),

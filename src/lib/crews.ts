@@ -635,7 +635,27 @@ export type Crew = {
    * chat shows these as your messages. Older builds drop them on reading.
    */
   messages?: CrewMessage[];
+  /**
+   * What this project is and what you want, as you wrote it when the team
+   * set itself up: your own words, read by every teammate at every turn.
+   */
+  about?: string;
 };
+
+/** How long `about` may be: the setup box's own limit. */
+export const CREW_ABOUT_MAX = 2_000;
+
+/** The team's `about`, replaced (clipped) or cleared with an empty text. */
+export function withAbout(crew: Crew, about: string | null): Crew {
+  const clean = about?.replace(/\r\n?/g, "\n").trim().slice(0, CREW_ABOUT_MAX);
+  if (!clean) {
+    if (crew.about === undefined) return crew;
+    const rest = { ...crew };
+    delete rest.about;
+    return rest;
+  }
+  return { ...crew, about: clean };
+}
 
 /** A message you wrote to the team: to everyone, or to one teammate. */
 export type CrewMessage = {
@@ -1474,6 +1494,7 @@ export function readCrew(value: unknown): Crew | null {
   const access = readAccess(raw.access);
   const planning = text(raw.planning, 200);
   const messages = readMessages(raw.messages);
+  const about = text(raw.about, CREW_ABOUT_MAX);
   return {
     ...base,
     on: raw.on === true,
@@ -1541,6 +1562,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(access ? { access } : {}),
     ...(planning ? { planning } : {}),
     ...(messages.length ? { messages } : {}),
+    ...(about ? { about } : {}),
     cards,
     feed,
     notes,

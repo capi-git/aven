@@ -1201,6 +1201,7 @@ export class CrewRunner {
           ? builderMessage({
               card,
               notes: crew.notes,
+              about: crew.about,
               names,
               brief,
               sync: prepared.sync,
@@ -1210,6 +1211,7 @@ export class CrewRunner {
             ? securityMessage({
                 card,
                 notes: crew.notes,
+                about: crew.about,
                 names,
                 brief,
                 guidance,
@@ -1217,6 +1219,7 @@ export class CrewRunner {
             : checkerMessage({
                 card,
                 notes: crew.notes,
+                about: crew.about,
                 names,
                 brief,
                 guidance,
@@ -1904,6 +1907,7 @@ export class CrewRunner {
       const text = sweep
         ? sweepMessage({
             notes: crew.notes,
+            about: crew.about,
             boardTitles,
             brief,
             sync: prepared.sync,
@@ -1911,6 +1915,7 @@ export class CrewRunner {
           })
         : scoutMessage({
             notes: crew.notes,
+            about: crew.about,
             boardTitles,
             ideasLeft: left,
             brief,
@@ -2095,6 +2100,7 @@ export class CrewRunner {
       const text = researchMessage({
         card,
         notes: crew.notes,
+        about: crew.about,
         brief,
         sync: prepared.sync,
         guidance: {
@@ -2387,6 +2393,7 @@ export class CrewRunner {
         done: goalCardsDone(crew),
         dropped: crew.goal.dropped ?? [],
         notes: crew.notes,
+        about: crew.about,
         boardTitles: cards
           .filter((card) => card.column !== "shipped")
           .map((card) => card.title),

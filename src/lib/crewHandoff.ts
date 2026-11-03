@@ -1,4 +1,5 @@
 import {
+  fencedBlocksNamed,
   finalFencedBlock,
   onlyFencedBlock,
   reviewUrl,
@@ -58,34 +59,16 @@ export const CREW_FENCES = [
  * alone and read back as notes.
  */
 export function parseMemory(text: string): string | null {
-  const block = onlyFencedBlock(text, MEMORY_FENCE);
-  if (!block) return null;
-  const body = block.body.trim();
-  // A member that wrapped its notes as JSON: the text inside.
-  let plain = body;
-  if (/^\s*[{"]/.test(body)) {
-    try {
-      const parsed: unknown = JSON.parse(body);
-      if (typeof parsed === "string") plain = parsed;
-      else if (parsed && typeof parsed === "object") {
-        const value =
-          (parsed as Record<string, unknown>).memory ??
-          (parsed as Record<string, unknown>).notes;
-        if (typeof value === "string") plain = value;
-        else if (Array.isArray(value))
-          plain = value.filter((v) => typeof v === "string").join("\n");
-      }
-    } catch {
-      plain = body;
-    }
-  }
-  const clean = cleanUntrusted(plain, CREW_MEMORY_MAX);
+  // Written twice, the last is the one it meant.
+  const body = fencedBlocksNamed(text, MEMORY_FENCE).bodies.at(-1);
+  if (body === undefined) return null;
+  const clean = cleanUntrusted(body, CREW_MEMORY_MAX);
   return clean || null;
 }
 
-/** A reply without its notes block, for the rest of Aven to read as before. */
+/** A reply without its notes blocks, for the rest of Aven to read as before. */
 export function withoutMemory(text: string): string {
-  return onlyFencedBlock(text, MEMORY_FENCE)?.without ?? text;
+  return fencedBlocksNamed(text, MEMORY_FENCE).without;
 }
 
 /** A teammate a setup proposes: a known role and a one-line job. */

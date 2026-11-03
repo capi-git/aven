@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import {
   startTeamSetup,
   type SetupIdeaDraft,
@@ -65,20 +65,16 @@ export function TeamSetup({
   const [suggesting, setSuggesting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const asked = useRef(0);
   const path = crew.path;
 
   const suggest = async () => {
     const words = text.trim();
     if (!words || suggesting) return;
-    const turn = ++asked.current;
     setSuggesting(true);
     setProblem(null);
     const found = await proposeTeamSetup(path, words).catch((error) => ({
       error: errorText(error),
     }));
-    // A newer ask, or the sheet moved on: this answer is stale.
-    if (turn !== asked.current) return;
     setSuggesting(false);
     if ("error" in found) {
       setProblem(found.error);
@@ -111,14 +107,16 @@ export function TeamSetup({
     if (!teammates || starting) return;
     setStarting(true);
     setProblem(null);
-    const why = await startTeamSetup(
+    const result = await startTeamSetup(
       path,
       { description: text, teammates, ideas },
       onTurnOn,
-    ).catch((error) => errorText(error));
+    ).catch((error) => ({ on: false, problem: errorText(error) }));
     setStarting(false);
-    if (why) setProblem(why);
-    else onStarted();
+    // On, the team's screen shows it (and says any problem in its feed);
+    // off, the sheet says why and Start is there to press again.
+    if (result.on) onStarted();
+    else setProblem(result.problem);
   };
   const hasResearcher = !!teammates?.some((mate) => mate.role === "researcher");
   const missing = SETUP_ROLES.filter(
