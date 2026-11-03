@@ -146,7 +146,7 @@ async function copyText(text: string) {
   }
 }
 
-function explorerItems(
+export function explorerItems(
   target: MenuTarget,
   clip: Clip | null,
   canOpenTerminal: boolean,

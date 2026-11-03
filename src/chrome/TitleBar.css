@@ -272,6 +272,22 @@ html.theme-light .personal-shell {
   width: 16px;
   height: 16px;
 }
+/* Tabs scrolled past slide under the pins, behind one frosted backing. */
+.aven-tab-strip {
+  scroll-padding-left: var(--aven-tab-pin-width, 0);
+}
+.aven-tab-strip[data-scrolled] .aven-tab-slot[data-pinned="first"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: -6px;
+  z-index: -1;
+  width: var(--aven-tab-pin-width);
+  background: color-mix(in srgb, var(--aven-popup) 82%, transparent);
+  box-shadow: var(--aven-hairline) 0 0 var(--aven-separator);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
 /* A little air before the first ordinary tab. */
 .aven-tab-slot[data-pinned]:has(+ .aven-tab-slot:not([data-pinned])) {
   margin-right: 6px;

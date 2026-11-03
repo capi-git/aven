@@ -487,6 +487,8 @@ export function titleTabContextCloseIds(
 }
 
 type SortableApi = ReturnType<typeof useSortable>;
+/** The first pinned tab draws the backing the others stand on. */
+type PinAttribute = "first" | "true";
 
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 
@@ -1244,7 +1246,7 @@ const WORKSPACE_TAB_LINK = "aven-workspace-tabs";
 
 function BrowserTitleTabItem({
   id,
-  pinned = false,
+  pinned,
   pinStyle,
   title,
   favicon,
@@ -1303,7 +1305,7 @@ function BrowserTitleTabItem({
   /** A lone title row draws the page's icon on a deck. */
   deck?: boolean;
   /** Pinned to the start of the strip: its icon alone. */
-  pinned?: boolean;
+  pinned?: PinAttribute;
   pinStyle?: CSSProperties;
   /** Something held over its middle combines with it into a split. */
   combineInto?: boolean;
@@ -1340,9 +1342,9 @@ function BrowserTitleTabItem({
       data-draggable={canDrag || undefined}
       data-combine-into={combineInto || undefined}
       data-combine-near={combineNear || undefined}
-      data-has-menu={Boolean(onMenu) && !pinned}
+      data-has-menu={Boolean(onMenu)}
       data-tab-group={groupRun}
-      data-pinned={pinned || undefined}
+      data-pinned={pinned}
       style={pinStyle ?? groupStyle}
       data-motion-slot={id}
       data-tab-opening={opening || undefined}
@@ -1658,8 +1660,14 @@ function TabStripChevron({
       onPointerDown={(event) => event.stopPropagation()}
       onClick={onClick}
       className={`absolute top-1/2 z-40 grid size-6.5 -translate-y-1/2 place-items-center rounded-md bg-(--aven-control-bg) backdrop-blur-xl text-content/70 hover:bg-(--aven-control-hover) hover:text-content ${
-        side === "left" ? "left-1" : "right-1"
+        side === "left" ? "" : "right-1"
       }`}
+      // The left arrow stands just past any pinned tabs.
+      style={
+        side === "left"
+          ? { left: "calc(var(--aven-tab-pin-width, 0px) + 4px)" }
+          : undefined
+      }
     >
       <Icon className="size-3.5" strokeWidth={1.75} />
     </button>
@@ -3424,6 +3432,12 @@ function TitleBarComponent({
           "--aven-tab-pin-index": displayIds.indexOf(id),
         } as CSSProperties)
       : undefined;
+  const pinAttribute = (id: string): PinAttribute | undefined =>
+    pinnedIds.has(id)
+      ? displayIds.indexOf(id) === 0
+        ? "first"
+        : "true"
+      : undefined;
   /** Pins or unpins a tab, which glides to or from the start of the strip. */
   const togglePin = (id: string) => {
     const pin = !pinnedIds.has(id);
@@ -3775,7 +3789,7 @@ function TitleBarComponent({
           {...{ [TAB_TRACK_ID_ATTRIBUTE]: id }}
           data-tab-separator={separators.has(id) || undefined}
           data-tab-group={groupRun}
-          data-pinned={pinnedIds.has(id) || undefined}
+          data-pinned={pinAttribute(id)}
           style={pinStyle(id) ?? groupStyle}
           data-active={id === focusedId}
           data-tauri-drag-region="false"
@@ -3852,7 +3866,7 @@ function TitleBarComponent({
       <BrowserTitleTabItem
         key={id}
         id={id}
-        pinned={pinnedIds.has(id)}
+        pinned={pinAttribute(id)}
         pinStyle={pinStyle(id)}
         title={browser.title}
         favicon={browser.favicon}
@@ -4067,6 +4081,14 @@ function TitleBarComponent({
         ) : (
           <div
             className="relative h-full min-w-0 flex-1 overflow-hidden"
+            style={
+              pinnedIds.size
+                ? ({
+                    // The strip's padding, then each pin and the gap after it.
+                    "--aven-tab-pin-width": `${6 + pinnedIds.size * 34}px`,
+                  } as CSSProperties)
+                : undefined
+            }
             onWheel={(event) => {
               const el = tabStripRef.current;
               if (!el || el.scrollWidth <= el.clientWidth) return;
@@ -4098,6 +4120,7 @@ function TitleBarComponent({
                 titleRow && !paneTabs ? undefined : "horizontal"
               }
               data-tab-track={track || undefined}
+              data-scrolled={tabOverflow.left || undefined}
               onWheel={wheelTabs}
               className="personal-tab-strip aven-tab-strip scrollbar-none flex h-full min-w-0 cursor-default items-center overflow-x-auto overflow-y-hidden overscroll-none"
               onFocusCapture={(event) => {
