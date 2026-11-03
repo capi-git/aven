@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   loadPinnedTabs,
   pinnedFirst,
+  pinnedTabSigils,
   setTabPinned,
   subscribePinnedTabs,
 } from "./pinnedTabs";
@@ -50,5 +51,17 @@ describe("pinned tabs", () => {
       "a",
       "d",
     ]);
+  });
+
+  it("gives each pin its own mark, kept when a later pin arrives", () => {
+    const first = pinnedTabSigils(["a", "b", "c"]);
+    expect(new Set(first.values()).size).toBe(3);
+    const more = pinnedTabSigils(["a", "b", "c", "d"]);
+    for (const id of ["a", "b", "c"]) expect(more.get(id)).toBe(first.get(id));
+  });
+
+  it("still marks every pin when there are more pins than marks", () => {
+    const ids = Array.from({ length: 40 }, (_, index) => `tab-${index}`);
+    expect(pinnedTabSigils(ids).size).toBe(40);
   });
 });

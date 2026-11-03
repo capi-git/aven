@@ -530,8 +530,19 @@ function SidebarComponent({
     : [];
   const openWorkspaceMenu =
     onSelectProfile || onDeleteProfile
-      ? (profile: WorkspaceProfile, x: number, y: number) =>
-          setWorkspaceMenu({ profile, x, y })
+      ? (profile: WorkspaceProfile, x: number, y: number) => {
+          // Nothing to offer: no menu now, nor one popping up later when
+          // a change of workspace gives this one something to offer.
+          if (
+            workspaceMenuItems(
+              profile,
+              activeProfileId,
+              !!onSelectProfile,
+              !!onDeleteProfile,
+            ).length
+          )
+            setWorkspaceMenu({ profile, x, y });
+        }
       : undefined;
   const [profileMenuAnchor, setProfileMenuAnchor] =
     useState<HTMLButtonElement | null>(null);

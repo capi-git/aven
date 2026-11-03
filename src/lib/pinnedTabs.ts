@@ -1,7 +1,10 @@
+import { PROJECT_SIGILS, type DotSigil } from "./dotSigils";
+
 /**
  * Tabs pinned to the start of the window's strip, shown as their mark alone.
- * A pin belongs to the tab, so it comes back with the tab: after a restart,
- * in another window, or when the tab is reopened.
+ * A pin belongs to the tab, so it comes back with the tab: after a restart, in
+ * another window, or with Reopen closed tab. A chat closed and opened again
+ * later from the sidebar is a new tab, and starts unpinned.
  */
 const KEY = "aven.pinnedTabs.v1";
 /** Pins of tabs long closed must not pile up forever. */
@@ -64,4 +67,23 @@ export function pinnedFirst(
     ...ids.filter((id) => pinned.has(id)),
     ...ids.filter((id) => !pinned.has(id)),
   ];
+}
+
+/**
+ * A dot mark for each pinned tab, in the order they were pinned: chosen from
+ * the tab's id so it keeps its mark, and moved along if an earlier pin has it.
+ */
+export function pinnedTabSigils(ids: readonly string[]): Map<string, DotSigil> {
+  const taken = new Set<number>();
+  const marks = new Map<string, DotSigil>();
+  for (const id of ids) {
+    let hash = 0;
+    for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    let at = hash % PROJECT_SIGILS.length;
+    if (taken.size < PROJECT_SIGILS.length)
+      while (taken.has(at)) at = (at + 1) % PROJECT_SIGILS.length;
+    taken.add(at);
+    marks.set(id, PROJECT_SIGILS[at]);
+  }
+  return marks;
 }

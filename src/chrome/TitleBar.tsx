@@ -88,11 +88,14 @@ import { WindowControls } from "./WindowControls";
 import { ALT, CTRL, IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
-import { ProjectMark } from "./ProjectMark";
+import { DotMark } from "./DotMark";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import type { DotSigil } from "../lib/dotSigils";
+import { appearanceTone } from "../lib/markTones";
 import {
   loadPinnedTabs,
   pinnedFirst,
+  pinnedTabSigils,
   setTabPinned,
   subscribePinnedTabs,
 } from "../lib/pinnedTabs";
@@ -489,6 +492,8 @@ export function titleTabContextCloseIds(
 type SortableApi = ReturnType<typeof useSortable>;
 /** The first pinned tab draws the backing the others stand on. */
 type PinAttribute = "first" | "true";
+/** A pinned tab's width and the gap after it, as `TitleBar.css` has them. */
+const PINNED_TAB_STEP = 34;
 
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 
@@ -506,18 +511,28 @@ function TabDeck({ children }: { children: ReactNode }) {
 
 /** A tab's mark as the strip draws it: its agents, a board, a file, a terminal. */
 /**
- * A pinned chat shows its project's mark: a row of the same provider's mark
- * could not tell one pin from another. It lights up while the chat works.
+ * A pinned chat wears a dot mark of its own in its project's colour: the strip
+ * holds one project's tabs, so neither the project's mark nor a row of the same
+ * provider's could tell one pin from another. It sweeps while the chat works.
  */
-function PinnedIdentity({ tab, active }: { tab: Tab; active: boolean }) {
+function PinnedIdentity({
+  tab,
+  active,
+  sigil,
+}: {
+  tab: Tab;
+  active: boolean;
+  sigil?: DotSigil;
+}) {
   const appearance = useProjectAppearance(tab.projectPath);
-  if (!appearance || tab.botPath || !tab.harnesses.length)
+  if (!sigil || tab.botPath || !tab.harnesses.length)
     return <TabIdentity tab={tab} active={active} />;
   return (
     <span className="personal-title-tab-identity">
-      <ProjectMark
-        appearance={appearance}
-        active={tab.busyHarnesses.length > 0}
+      <DotMark
+        sigil={sigil}
+        tone={appearance ? appearanceTone(appearance) : "grey"}
+        state={tab.busyHarnesses.length > 0 ? "working" : "still"}
         className="aven-tab-pinned-mark"
       />
     </span>
@@ -583,6 +598,7 @@ function TitleTabItem({
   visible,
   closable,
   pinned = false,
+  pinSigil,
   canDrag,
   sortable,
   onSelect,
@@ -603,6 +619,7 @@ function TitleTabItem({
   closable: boolean;
   /** Pinned to the start of the strip: its mark alone. */
   pinned?: boolean;
+  pinSigil?: DotSigil;
   canDrag: boolean;
   sortable: SortableApi;
   onSelect: (id: string) => void;
@@ -625,7 +642,7 @@ function TitleTabItem({
   const tabRef = useRef<HTMLDivElement | null>(null);
   useTurnEndFlash(tabRef, tab.sessionIds);
   const identity = pinned ? (
-    <PinnedIdentity tab={tab} active={active} />
+    <PinnedIdentity tab={tab} active={active} sigil={pinSigil} />
   ) : (
     <TabIdentity tab={tab} active={active} />
   );
@@ -1961,6 +1978,9 @@ function TitleBarComponent({
           (id) => pinStore.has(id) && !splitEntries.has(id),
         ),
   );
+  const pinSigils = pinnedTabSigils(
+    [...pinStore].filter((id) => pinnedIds.has(id)),
+  );
   const allOrderedIds = pinnedFirst(
     titleSurfaceOrder(
       tabIds,
@@ -2013,7 +2033,20 @@ function TitleBarComponent({
     loadSurfaceGroups,
     loadSurfaceGroups,
   );
-  const segments = stripSegments(orderedIds, groupState);
+  // A tab grouped in a pane and pinned on the strip stands alone here.
+  const segments = stripSegments(
+    orderedIds,
+    pinnedIds.size
+      ? {
+          ...groupState,
+          members: Object.fromEntries(
+            Object.entries(groupState.members).filter(
+              ([id]) => !pinnedIds.has(id),
+            ),
+          ),
+        }
+      : groupState,
+  );
   const titleRow = variant === "title";
   const frontId = orderedIds.includes(focusedId) ? focusedId : orderedIds[0];
   // A title row whose pane holds two tabs or more lays them side by side on
@@ -2168,9 +2201,13 @@ function TitleBarComponent({
   const tearSlotAt = (pointerX: number) => {
     const strip = tabStripRef.current;
     if (!strip) return null;
+    // Nothing lands among the pinned tabs: it would only move on past them.
     const slots = [
       ...strip.querySelectorAll<HTMLElement>(":scope > [data-motion-slot]"),
-    ].filter((slot) => !chipGroupId(slot.dataset.motionSlot ?? ""));
+    ].filter((slot) => {
+      const id = slot.dataset.motionSlot ?? "";
+      return !chipGroupId(id) && !pinnedIds.has(id);
+    });
     return stripSlotAt(strip, slots, pointerX);
   };
   /** A single tab of the window's strip: a chat, file, iPhone or page. */
@@ -2283,6 +2320,19 @@ function TitleBarComponent({
     onDrop: dropOn,
     describe: joinFor,
   };
+  const underPinnedTabs = (id: string) => {
+    const strip = tabStripRef.current;
+    if (!strip?.scrollLeft || !pinnedIds.size) return false;
+    const slot = strip.querySelector<HTMLElement>(
+      `:scope > [data-motion-slot="${CSS.escape(id)}"]`,
+    );
+    if (!slot) return false;
+    const box = slot.getBoundingClientRect();
+    return (
+      (box.left + box.right) / 2 <
+      strip.getBoundingClientRect().left + pinnedIds.size * PINNED_TAB_STEP
+    );
+  };
   const sortable = useSortable(
     sortableIds,
     (ids, movedId) => {
@@ -2326,8 +2376,14 @@ function TitleBarComponent({
       isDropTarget: (dragged, target, part) => {
         if (chipGroupId(dragged) || chipGroupId(target)) return false;
         const moving = part ?? dragged;
-        // A pinned tab stands alone: it neither joins nor takes others in.
-        if (pinnedIds.has(moving) || pinnedIds.has(target)) return false;
+        // A pinned tab stands alone: it neither joins nor takes others in,
+        // and a tab scrolled away under the pins can't be aimed at.
+        if (
+          pinnedIds.has(moving) ||
+          pinnedIds.has(target) ||
+          underPinnedTabs(target)
+        )
+          return false;
         if (splitEntries.has(target))
           return Boolean(onAddToSplit) && !splitEntries.has(moving);
         if (!stripTab(target)) return false;
@@ -2410,19 +2466,24 @@ function TitleBarComponent({
     tabStripRef,
     { morphed: sortable.morphed },
   );
-  const highlightRef = useTabHighlight(tabStripRef, track ? focusedId : null, {
-    // Off while a tab is dragged, and while the front tab's copy is still
-    // flying to its place: it shows its own fill and hands over on landing.
-    // Off too while a tab from another bar would join the front tab: its
-    // preview draws the split's fill.
-    enabled:
-      track &&
-      !sortable.draggingId &&
-      sortable.landingId !== focusedId &&
-      sortable.dropTarget?.id !== focusedId,
-    layoutKey: displayIds.join("\n"),
-    glideFrom: sortable.takeOrigin,
-  });
+  const highlightRef = useTabHighlight(
+    tabStripRef,
+    // A pinned tab stays put while the strip scrolls, so it draws its own fill.
+    track && !pinnedIds.has(focusedId) ? focusedId : null,
+    {
+      // Off while a tab is dragged, and while the front tab's copy is still
+      // flying to its place: it shows its own fill and hands over on landing.
+      // Off too while a tab from another bar would join the front tab: its
+      // preview draws the split's fill.
+      enabled:
+        track &&
+        !sortable.draggingId &&
+        sortable.landingId !== focusedId &&
+        sortable.dropTarget?.id !== focusedId,
+      layoutKey: displayIds.join("\n"),
+      glideFrom: sortable.takeOrigin,
+    },
+  );
   // What a dragged tab (or a segment pulled out of its split) would bring to
   // an entry it joins; a tab dragged from another bar says so itself.
   const dragContentId = sortable.draggingPartId ?? sortable.draggingId;
@@ -2793,6 +2854,8 @@ function TitleBarComponent({
     if (previousSelectedId.current === focusedId) return;
     previousSelectedId.current = focusedId;
     if (sortable.draggingId) return;
+    // A pinned tab is always in view; asking would only move the strip.
+    if (activeTabRef.current?.closest("[data-pinned]")) return;
     activeTabRef.current?.scrollIntoView({
       inline: "nearest",
       block: "nearest",
@@ -3029,7 +3092,8 @@ function TitleBarComponent({
   const combineItems: ExplorerMenuItem[] =
     contextId && menuKind === "tab" && onCombineTabs && stripTab(contextId)
       ? displayIds.flatMap((id): ExplorerMenuItem[] => {
-          if (id === contextId || chipGroupId(id)) return [];
+          if (id === contextId || chipGroupId(id) || pinnedIds.has(id))
+            return [];
           const split = splitEntries.get(id);
           if (split)
             return onAddToSplit
@@ -3742,7 +3806,7 @@ function TitleBarComponent({
       );
     const tab = sessionTabs.get(id);
     const browser = browsers.get(id);
-    const memberOf = groupState.members[id];
+    const memberOf = pinnedIds.has(id) ? undefined : groupState.members[id];
     const memberGroup = stripGroups.find(
       (segment) => segment.group.id === memberOf,
     )?.group;
@@ -3805,6 +3869,7 @@ function TitleBarComponent({
               !pinnedIds.has(id) && titleTabClosable(tab, sessionTabCount)
             }
             pinned={pinnedIds.has(id)}
+            pinSigil={pinSigils.get(id)}
             canDrag={canDrag}
             sortable={sortable}
             onSelect={onSelect}
@@ -4084,8 +4149,8 @@ function TitleBarComponent({
             style={
               pinnedIds.size
                 ? ({
-                    // The strip's padding, then each pin and the gap after it.
-                    "--aven-tab-pin-width": `${6 + pinnedIds.size * 34}px`,
+                    // Each pin and the gap after it.
+                    "--aven-tab-pin-width": `${pinnedIds.size * PINNED_TAB_STEP}px`,
                   } as CSSProperties)
                 : undefined
             }

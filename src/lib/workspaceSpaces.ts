@@ -1,3 +1,4 @@
+import { loadPinnedTabs, pinnedFirst } from "./pinnedTabs";
 import { leaf, leafIds, placePane, type LayoutNode } from "./layout";
 import {
   closeWorkspaceViews,
@@ -416,9 +417,22 @@ export function focusStripTab(
   return { entries, front: key };
 }
 
+/** The entries as the strip shows them: a single tab that is pinned first. */
+function shownStripKeys(strip: WorkspaceStrip): string[] {
+  const pins = loadPinnedTabs();
+  return pinnedFirst(
+    strip.entries.map(entryKey),
+    new Set(
+      strip.entries.flatMap((entry) =>
+        entry.kind === "item" && pins.has(entry.id) ? [entry.id] : [],
+      ),
+    ),
+  );
+}
+
 /** The next or previous entry, wrapping round, as ⌃⇥ steps the strip. */
 export function stepStripEntry(strip: WorkspaceStrip, step: number): string {
-  const keys = strip.entries.map(entryKey);
+  const keys = shownStripKeys(strip);
   if (!keys.length) return "";
   const at = keys.indexOf(strip.front);
   const next =
@@ -431,7 +445,7 @@ export function stripEntryAt(
   strip: WorkspaceStrip,
   slot: number,
 ): string | undefined {
-  const keys = strip.entries.map(entryKey);
+  const keys = shownStripKeys(strip);
   return keys[slot < 0 ? keys.length - 1 : slot];
 }
 

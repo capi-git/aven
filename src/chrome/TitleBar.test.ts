@@ -2294,6 +2294,24 @@ describe("browser tab integration", () => {
       expect(labels.join(" ")).not.toMatch(/group|Combine/);
     });
 
+    it("offers no other tab's menu a way to combine into a pin", async () => {
+      setTabPinned("b", true);
+      await render({ ...threeTabs, onCombineTabs: vi.fn() });
+      const labels = (await menu("a")).map((row) => row.textContent);
+      expect(labels).toContain("Combine with Chat c");
+      expect(labels.join(" ")).not.toContain("Chat b");
+    });
+
+    it("has the pinned front tab draw its own fill, not the sliding highlight", async () => {
+      setTabPinned("a", true);
+      await render(threeTabs);
+      expect(
+        container
+          .querySelector('[role="tablist"]')
+          ?.getAttribute("data-tab-highlight"),
+      ).not.toBe("on");
+    });
+
     it("stays pinned first however the saved order has it", async () => {
       setTabPinned("c", true);
       await render({ ...threeTabs, surfaceOrder: ["a", "b", "c"] });

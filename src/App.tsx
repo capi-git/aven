@@ -1,3 +1,4 @@
+import { loadPinnedTabs } from "./lib/pinnedTabs";
 import { errorText, failureText, logError } from "./lib/errors";
 import { useWorkspaceSessions } from "./hooks/useWorkspaceSessions";
 import { useIosSimAvailability } from "./hooks/useIosSimAvailability";
@@ -4656,8 +4657,11 @@ export default function App({
     const current = tabsRef.current;
     const activeId = activeTabIdRef.current;
     if (!current.some((tab) => tab.id === activeId)) return;
+    const pinned = loadPinnedTabs();
     onCloseTabs(
-      current.filter((tab) => tab.id !== activeId).map((tab) => tab.id),
+      current
+        .filter((tab) => tab.id !== activeId && !pinned.has(tab.id))
+        .map((tab) => tab.id),
       activeId,
     );
   }, [onCloseTabs]);

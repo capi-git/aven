@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setTabPinned } from "./pinnedTabs";
 import { leaf, leafIds, type LayoutNode } from "./layout";
 import {
   applyStripView,
@@ -274,5 +275,30 @@ describe("workspace spaces", () => {
       toggleWorkspaceExpansion(stripView(zoomed), "web"),
     );
     expect(keys(restored)).toEqual(keys(strip));
+  });
+});
+
+describe("the keyboard on a strip with pinned tabs", () => {
+  const strip = {
+    front: "p",
+    entries: [
+      { kind: "item", id: "p" },
+      { kind: "item", id: "new" },
+      { kind: "item", id: "q" },
+      { kind: "item", id: "a" },
+    ],
+  } as WorkspaceStrip;
+
+  afterEach(() => {
+    setTabPinned("p", false);
+    setTabPinned("q", false);
+  });
+
+  it("follows the order shown, with pinned tabs first", () => {
+    setTabPinned("p", true);
+    setTabPinned("q", true);
+    expect(stripEntryAt(strip, 1)).toBe("q");
+    expect(stripEntryAt(strip, 2)).toBe("new");
+    expect(stepStripEntry(strip, 1)).toBe("q");
   });
 });
