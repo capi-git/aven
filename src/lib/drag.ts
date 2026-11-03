@@ -1,5 +1,35 @@
+/**
+ * The grabbing cursor, for the length of a drag: drawn by a sheet over the
+ * window that hit tests take the pointer on, since a drag's pointer is
+ * captured and its handlers read rects. `cursor` on the body would do it too,
+ * but it is inherited: changing it restyles every element in the window, when
+ * a drag starts and just as it lands.
+ */
+let grabCover: HTMLElement | null = null;
 export function setGrabbing(on: boolean) {
-  document.body.style.cursor = on ? "grabbing" : "";
+  if (!on) {
+    grabCover?.remove();
+    grabCover = null;
+    return;
+  }
+  if (grabCover) return;
+  grabCover = document.createElement("div");
+  grabCover.setAttribute("data-grab-cover", "");
+  grabCover.style.cssText =
+    "position:fixed;inset:0;z-index:2147483647;cursor:grabbing;background:transparent";
+  // A drag that somehow never ended must not leave the window unclickable.
+  grabCover.addEventListener("pointerdown", () => setGrabbing(false));
+  document.body.appendChild(grabCover);
+}
+
+/** The element at (x, y), beneath the sheet a drag's cursor is drawn by. */
+export function elementBeneathGrab(x: number, y: number): Element | null {
+  const top = document.elementFromPoint(x, y);
+  if (top !== grabCover || !grabCover) return top;
+  return (
+    document.elementsFromPoint(x, y).find((element) => element !== grabCover) ??
+    null
+  );
 }
 
 /** Convert viewport CSS distances into an element's local CSS distances.

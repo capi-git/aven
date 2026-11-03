@@ -2923,7 +2923,6 @@ function SessionCard({
   isActive,
   isSelected,
   busy,
-  done,
   needsApproval,
   dropTarget,
   dropEdge,
