@@ -55,15 +55,10 @@ describe("the Board's columns scroll on their own", () => {
 });
 
 describe("a team's Board", () => {
-  it("lays out as the plain Board: its columns fill what's left of the pane", () => {
-    // The team screen draws no box of its own on the Board, so the header
-    // and the columns are the Board's own rows.
+  it("gets more of the pane than the other tabs", () => {
     expect(rule(team, '.team-screen[data-team-view="board"]')).toContain(
-      "display: contents;",
+      "grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);",
     );
-    expect(
-      rule(team, '.team-screen[data-team-view="board"] > .team-head'),
-    ).toContain("flex-shrink: 0;");
   });
 });
 

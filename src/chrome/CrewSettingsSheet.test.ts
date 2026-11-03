@@ -140,23 +140,57 @@ describe("the team's settings", () => {
     );
   });
 
-  it("lets you decide what teammates may do without asking", async () => {
+  it("sets Access with one choice, in the message box's words", async () => {
     await open();
     const access = sheet().querySelector<HTMLElement>("[data-crew-access]")!;
-    const toggle = access.querySelector<HTMLButtonElement>(".settings-toggle")!;
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const level = (name: string) =>
+      access.querySelector<HTMLButtonElement>(
+        `[data-crew-access-level="${name}"]`,
+      )!;
+    expect(
+      [...access.querySelectorAll("b")].map((item) => item.textContent),
+    ).toEqual(["Ask first", "Auto", "Full access"]);
+    expect(level("auto").getAttribute("aria-checked")).toBe("true");
+    await act(async () => level("full").click());
+    expect(crewAccess(getCrew(PATH)!)).toEqual({
+      deletes: true,
+      web: "everyone",
+      others: "allow",
+    });
+    await act(async () => level("ask").click());
+    expect(crewAccess(getCrew(PATH)!)).toEqual({
+      deletes: false,
+      web: "builders",
+      others: "ask",
+    });
+  });
+
+  it("keeps web and deleting one level deeper", async () => {
+    await open();
+    expect(sheet().querySelector("[data-crew-access-custom]")).toBeNull();
+    await act(async () =>
+      [...sheet().querySelectorAll<HTMLButtonElement>("button")]
+        .find((item) => item.textContent?.includes("Customise web"))!
+        .click(),
+    );
+    const custom = sheet().querySelector<HTMLElement>(
+      "[data-crew-access-custom]",
+    )!;
+    const toggle = custom.querySelector<HTMLButtonElement>(".settings-toggle")!;
     await act(async () => toggle.click());
     expect(crewAccess(getCrew(PATH)!).deletes).toBe(false);
     const choice = (label: string) =>
-      [...access.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
+      [...custom.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(
         (item) => item.textContent === label,
       )!;
-    expect(choice("Builders").getAttribute("aria-checked")).toBe("true");
     await act(async () => choice("Everyone").click());
     expect(crewAccess(getCrew(PATH)!).web).toBe("everyone");
-    expect(choice("Say no").getAttribute("aria-checked")).toBe("true");
-    await act(async () => choice("Ask me").click());
-    expect(crewAccess(getCrew(PATH)!).others).toBe("ask");
+    // Customising keeps the choice.
+    expect(
+      sheet()
+        .querySelector('[data-crew-access-level="auto"]')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
   });
 
   it("changes a limit after Edit limits, and every crew's ceiling under More", async () => {

@@ -42,7 +42,7 @@ import {
   publishWorkBoardFeed,
   resetWorkBoardFeed,
 } from "../lib/workBoardFeed";
-import { resetTeamViewCache } from "../lib/teamView";
+import { resetTeamViewCache, setTeamView } from "../lib/teamView";
 import { WorkBoard, cardMenuItems } from "./WorkBoard";
 
 const actions = vi.hoisted(() => ({
@@ -339,6 +339,12 @@ afterEach(async () => {
 });
 
 describe("the team view: the Board with the team on it", () => {
+  // These cards are read off the team's Board tab.
+  beforeEach(() => {
+    resetTeamViewCache();
+    setTeamView(PROJECT, "board");
+  });
+
   it("has one header: its name, one sentence, Board | Chat, Team, Pause and ⋯; Activity in ⋯", async () => {
     await setUp(
       () => (crew) =>
@@ -367,15 +373,6 @@ describe("the team view: the Board with the team on it", () => {
     expect(container.querySelector(".crew-strip")).toBeNull();
     expect(container.querySelector("[data-crew-feed]")).toBeNull();
     expect(container.querySelectorAll("header")).toHaveLength(1);
-    // Board or Chat, in the same header: the Board is what this shows.
-    const switcher = header.querySelector<HTMLElement>(
-      '[role="radiogroup"][aria-label="Show the team as"]',
-    )!;
-    expect(
-      [...switcher.querySelectorAll<HTMLElement>('[role="radio"]')].map(
-        (item) => `${item.textContent}:${item.getAttribute("aria-checked")}`,
-      ),
-    ).toEqual(["Board:true", "Chat:false"]);
     // The four columns, named for the team's work.
     expect(
       [...container.querySelectorAll("[data-board-column]")].map((item) =>
@@ -774,9 +771,8 @@ describe("the team view: the Board with the team on it", () => {
     const boards = await setUp(() => (crew) => crew);
     await teamMenu();
     await pickMenu("Set a goal…");
-    // The Chat shows, its box set to a goal.
+    // The Chat is there, its box set to a goal.
     expect(container.querySelector("[data-team-chat]")).not.toBeNull();
-    expect(container.querySelector("[data-team-board]")).toBeNull();
     await act(async () =>
       updateCrew(PROJECT, (crew) => ({
         ...crew,

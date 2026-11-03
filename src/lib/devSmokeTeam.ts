@@ -1,3 +1,4 @@
+import { setTeamView } from "./teamView";
 import {
   addCrewPreset,
   addResearchIdeas,
@@ -238,6 +239,8 @@ function boardOnScreen(project: string): HTMLElement | null {
 }
 
 async function openBoard(project: string): Promise<HTMLElement> {
+  // The checks read the team's cards off its Board tab.
+  setTeamView(project, "board");
   workspace().openCrew(project);
   return waitFor(() => boardOnScreen(project), 15_000, "the team's Board");
 }

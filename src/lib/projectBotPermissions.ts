@@ -166,7 +166,7 @@ export function absolutePathRule(folder: string): string {
 
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
-  "Teammates work in their own copy. Pushing, publishing and deploying are refused, and nothing reaches your files until you press Apply.";
+  "Everything stays in the team's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access.";
 
 /** Who Access reaches, in one line; the roles it doesn't follow. */
 export const TEAM_ACCESS_SCOPE_LINE =
@@ -513,8 +513,15 @@ export function crewPermissionRules(
       // A teammate that only reads never edits: refused below.
       (edits || !rule.startsWith("Edit(")),
   );
-  // Told no, it carries on: nothing waits for you while you're away.
-  const refusing = access.others === "refuse";
+  // Full access: a teammate that builds never asks. What the sandbox and
+  // `rules.deny` refuse stays refused (pushing, publishing, your keys), and so
+  // do your own files, which keep its work in the copy until you press Apply.
+  const allowing = access.others === "allow" && edits;
+  // Told no, it carries on: nothing waits for you while you're away. One that
+  // only reads stays that way under Full access, so a check can't fix what it
+  // is checking.
+  const refusing =
+    access.others === "refuse" || (access.others === "allow" && !edits);
   const web = !offline && crewRoleUsesWeb(crew, role);
   return {
     deny: [
@@ -537,10 +544,14 @@ export function crewPermissionRules(
       ...(refusing
         ? asks.filter((rule) => !(copyInside && rule === yourFiles))
         : []),
+      ...(allowing && !copyInside
+        ? asks.filter((rule) => rule === yourFiles)
+        : []),
     ],
-    ask: refusing
-      ? asks.filter((rule) => copyInside && rule === yourFiles)
-      : asks,
+    ask:
+      refusing || allowing
+        ? asks.filter((rule) => copyInside && rule === yourFiles)
+        : asks,
   };
 }
 

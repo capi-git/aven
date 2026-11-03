@@ -6,15 +6,19 @@
   display: grid;
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* A teammate's model, under its row. */
+.team-roster-model {
+  display: block;
+  padding: 0 8px 6px 42px;
 }
 
 /* The roster. */
 .team-roster {
   min-height: 0;
-  padding: 12px 10px 12px 0;
   overflow-y: auto;
-  border-right: 1px solid var(--aven-line);
 }
 
 .team-roster ul {
@@ -184,7 +188,7 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  padding: 14px 0 0 28px;
+  padding: 14px 20px 12px;
 }
 
 /* Ready for you, pinned. */

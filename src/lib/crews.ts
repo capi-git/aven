@@ -751,10 +751,32 @@ export type CrewAccess = {
   web: "none" | "builders" | "everyone";
   /**
    * Anything else that would ask (committing, merging, sending, your own
-   * files): the teammate is told no and carries on, or it waits for you.
+   * files): the teammate is told no and carries on, or it waits for you, or
+   * (Full access) it goes ahead without asking. Your own files, pushing,
+   * publishing and your keys stay refused even then.
    */
-  others: "refuse" | "ask";
+  others: "refuse" | "ask" | "allow";
 };
+
+/** A team's one Access choice, in the message box's words. */
+export type CrewAccessLevel = "ask" | "auto" | "full";
+
+/** What each Access choice sets. */
+export const CREW_ACCESS_LEVELS: Readonly<Record<CrewAccessLevel, CrewAccess>> =
+  {
+    ask: { deletes: false, web: "builders", others: "ask" },
+    auto: { deletes: true, web: "builders", others: "refuse" },
+    full: { deletes: true, web: "everyone", others: "allow" },
+  };
+
+/**
+ * Which Access choice a team's access is: by how a teammate treats what it
+ * would otherwise ask about. Customised web or deleting keeps the choice.
+ */
+export function crewAccessLevel(access: CrewAccess): CrewAccessLevel {
+  if (access.others === "allow") return "full";
+  return access.others === "ask" ? "ask" : "auto";
+}
 
 /**
  * Whether a role may search and read the web (its search and fetch tools).
@@ -927,7 +949,9 @@ function readAccess(value: unknown): Partial<CrewAccess> | undefined {
     ...(raw.web === "none" || raw.web === "builders" || raw.web === "everyone"
       ? { web: raw.web }
       : {}),
-    ...(raw.others === "refuse" || raw.others === "ask"
+    ...(raw.others === "refuse" ||
+    raw.others === "ask" ||
+    raw.others === "allow"
       ? { others: raw.others }
       : {}),
   };

@@ -1,3 +1,4 @@
+import { TeamModelButton } from "./TeamPanel";
 import {
   useEffect,
   useId,
@@ -160,10 +161,14 @@ export function TeamChat({
   onReview: () => void;
   /** Show the Cards (a card that waits on you is answered there). */
   onCards: () => void;
-  /** ⋯ → Set a goal…: the box turns to the goal. */
-  control: { current: { goal: () => void } | null };
+  /** ⋯ → Set a goal…: the box turns to the goal; a teammate filters it. */
+  control: {
+    current: {
+      goal: () => void;
+      select: (id: string | null) => void;
+    } | null;
+  };
 }) {
-  const workspace = useCrewWorkspace();
   const members = useMemo(
     () =>
       crewMemberViews(crew, {
@@ -180,17 +185,11 @@ export function TeamChat({
     [crew, name, fixer],
   );
   const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
-  const latest = useMemo(() => latestPosts(posts), [posts]);
   const [selected, setSelected] = useState<string | null>(null);
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
   const [mode, setMode] = useState<Mode>("card");
-  // Why a teammate's chat didn't open, under its name.
-  const [openProblem, setOpenProblem] = useState<{
-    id: string;
-    text: string;
-  } | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const filter =
     selected && members.some((member) => member.id === selected)
@@ -227,6 +226,7 @@ export function TeamChat({
         setMode("goal");
         requestAnimationFrame(() => input.current?.focus());
       },
+      select,
     };
     return () => {
       control.current = null;
@@ -241,24 +241,6 @@ export function TeamChat({
   const ready = view.ready.filter((row) => !row.boardActions);
   return (
     <div className="team-chat" data-team-chat={project}>
-      <Roster
-        project={project}
-        crew={crew}
-        members={members}
-        latest={latest}
-        now={now}
-        selected={filter}
-        onSelect={select}
-        openProblem={openProblem}
-        onOpenChat={(id) => {
-          setOpenProblem(null);
-          void Promise.resolve(workspace?.openChat(project, id)).then((why) =>
-            setOpenProblem(why ? { id, text: why } : null),
-          );
-        }}
-        onSettings={(id) => workspace?.openSettings(project, id)}
-        onAdd={() => workspace?.openSettings(project, "add")}
-      />
       <div className="team-thread">
         {view.batch || ready.length ? (
           <div className="team-ready-list">
@@ -314,6 +296,69 @@ export function TeamChat({
 // ---------------------------------------------------------------------------
 // The roster
 
+/** The team's teammates, in the panel: Everyone, then each one. */
+export function TeamRoster({
+  project,
+  crew,
+  now,
+  name,
+  fixer,
+  onSelect,
+  selected,
+}: {
+  project: string;
+  crew: Crew;
+  now: number;
+  name: (who: string) => string;
+  fixer?: { status: BotStatus; sessionId?: string };
+  onSelect: (id: string | null) => void;
+  selected: string | null;
+}) {
+  const workspace = useCrewWorkspace();
+  const members = useMemo(
+    () =>
+      crewMemberViews(crew, {
+        name,
+        ...(fixer
+          ? {
+              fixer: {
+                status: fixer.status,
+                ...(fixer.sessionId ? { sessionId: fixer.sessionId } : {}),
+              },
+            }
+          : {}),
+      }),
+    [crew, name, fixer],
+  );
+  const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
+  const latest = useMemo(() => latestPosts(posts), [posts]);
+  // Why a teammate's chat didn't open, under its name.
+  const [openProblem, setOpenProblem] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
+  return (
+    <Roster
+      project={project}
+      crew={crew}
+      members={members}
+      latest={latest}
+      now={now}
+      selected={selected}
+      onSelect={onSelect}
+      openProblem={openProblem}
+      onOpenChat={(id) => {
+        setOpenProblem(null);
+        void Promise.resolve(workspace?.openChat(project, id)).then((why) =>
+          setOpenProblem(why ? { id, text: why } : null),
+        );
+      }}
+      onSettings={(id) => workspace?.openSettings(project, id)}
+      onAdd={() => workspace?.openSettings(project, "add")}
+    />
+  );
+}
+
 function Roster({
   project,
   crew,
@@ -357,7 +402,8 @@ function Roster({
           </button>
         </li>
         {members.map((member) => {
-          const paused = !!crewMemberById(crew, member.id)?.paused;
+          const known = crewMemberById(crew, member.id);
+          const paused = !!known?.paused;
           const needs = member.status === "needs-you";
           const line =
             member.line ??
@@ -418,6 +464,11 @@ function Roster({
                   </span>
                 ) : null}
               </button>
+              {known && member.role !== "fixer" ? (
+                <span className="team-roster-model">
+                  <TeamModelButton path={crew.path} member={known} />
+                </span>
+              ) : null}
               {isSelected ? (
                 <span className="team-roster-tools">
                   <button

@@ -655,3 +655,35 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   padding-inline: 8px;
   white-space: nowrap;
 }
+
+/* Access: one choice, in the message box's words. */
+.crew-access-choice {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.crew-access-choice:hover {
+  background: var(--aven-hover);
+}
+.crew-access-choice[aria-checked="true"] {
+  background: var(--aven-control-hover, var(--aven-selected));
+}
+.crew-access-choice b {
+  display: block;
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+}
+.crew-access-choice small {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
