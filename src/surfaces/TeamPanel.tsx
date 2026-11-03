@@ -203,8 +203,27 @@ export function TeamNotes({ crew }: { crew: Crew }) {
 }
 
 /** When the team works by itself. */
-/** One teammate's routine: what to do by itself, and how often. */
-function RoutineRow({ crew, member }: { crew: Crew; member: CrewMember }) {
+/** What a teammate does by itself: its own rhythm, and any routine you set. */
+function scheduleLine(member: CrewMember): string {
+  const parts: string[] = [];
+  if (member.role === "scout" && !member.paused && member.schedule !== "off")
+    parts.push(
+      member.schedule === "weekly"
+        ? "Looks for ideas once a week"
+        : "Looks for ideas once a day",
+    );
+  if (member.role === "security" && !member.paused && member.sweep === "weekly")
+    parts.push("Sweeps the project once a week");
+  if (member.routine)
+    parts.push(
+      `${member.routine.every === "week" ? "Every week" : "Every day"}: ${member.routine.text}`,
+    );
+  return parts.join(" · ") || "Only when asked";
+}
+
+/** One teammate: what it does by itself, opening to set what you want. */
+function ScheduleRow({ crew, member }: { crew: Crew; member: CrewMember }) {
+  const workspace = useCrewWorkspace();
   const [open, setOpen] = useState(false);
   const routine = member.routine;
   const [text, setText] = useState(routine?.text ?? "");
@@ -216,6 +235,7 @@ function RoutineRow({ crew, member }: { crew: Crew; member: CrewMember }) {
       member.id,
       every && words ? { text: words, every, at: routine?.at ?? 0 } : null,
     );
+    if (!every) setText("");
     setOpen(false);
   };
   return (
@@ -227,11 +247,7 @@ function RoutineRow({ crew, member }: { crew: Crew; member: CrewMember }) {
         onClick={() => setOpen((was) => !was)}
       >
         <span>{name}</span>
-        <small>
-          {routine
-            ? `${routine.every === "week" ? "Every week" : "Every day"}: ${routine.text}`
-            : "No routine"}
-        </small>
+        <small>{scheduleLine(member)}</small>
       </button>
       {open ? (
         <div className="team-routine-edit">
@@ -243,15 +259,31 @@ function RoutineRow({ crew, member }: { crew: Crew; member: CrewMember }) {
             onChange={(event) => setText(event.target.value)}
           />
           <div>
-            <button type="button" onClick={() => save("day")}>
+            <button
+              type="button"
+              disabled={!text.trim()}
+              onClick={() => save("day")}
+            >
               Every day
             </button>
-            <button type="button" onClick={() => save("week")}>
+            <button
+              type="button"
+              disabled={!text.trim()}
+              onClick={() => save("week")}
+            >
               Every week
             </button>
             {routine ? (
               <button type="button" onClick={() => save(null)}>
-                Off
+                Stop
+              </button>
+            ) : null}
+            {member.role === "scout" || member.role === "security" ? (
+              <button
+                type="button"
+                onClick={() => workspace?.openSettings(crew.path, member.id)}
+              >
+                Settings
               </button>
             ) : null}
           </div>
@@ -263,58 +295,26 @@ function RoutineRow({ crew, member }: { crew: Crew; member: CrewMember }) {
 
 export function TeamSchedule({ crew }: { crew: Crew }) {
   const workspace = useCrewWorkspace();
-  const member = (role: CrewMember["role"]) =>
-    crew.members.find((item) => item.role === role);
-  const scout = member("scout");
-  const security = member("security");
   const quiet = crew.limits.quiet;
-  const rows = [
-    {
-      id: scout?.id,
-      label: scout ? crewMemberName(crew, scout.id) : "Scout",
-      value: !scout
-        ? "Not on this team"
-        : scout.paused || scout.schedule === "off"
-          ? "Off"
-          : scout.schedule === "weekly"
-            ? "Looks for ideas once a week"
-            : "Looks for ideas once a day",
-    },
-    {
-      id: security?.id,
-      label: security ? crewMemberName(crew, security.id) : "Security",
-      value: !security
-        ? "Not on this team"
-        : security.paused || security.sweep !== "weekly"
-          ? "Checks each card only"
-          : "Checks each card, and sweeps the project weekly",
-    },
-    {
-      label: "Quiet hours",
-      value: quiet.on
-        ? `${formatClockMinutes(quiet.start)} to ${formatClockMinutes(quiet.end)}`
-        : "Off",
-    },
-  ];
   return (
     <div className="team-schedule" data-team-schedule>
-      {rows.map((row) => (
-        <button
-          type="button"
-          key={row.label}
-          className="team-schedule-row"
-          onClick={() => workspace?.openSettings(crew.path, row.id)}
-        >
-          <span>{row.label}</span>
-          <small>{row.value}</small>
-        </button>
-      ))}
-      <h2>Routines</h2>
       {crewMembers(crew)
         .filter((member) => member.role !== "fixer")
         .map((member) => (
-          <RoutineRow key={member.id} crew={crew} member={member} />
+          <ScheduleRow key={member.id} crew={crew} member={member} />
         ))}
+      <button
+        type="button"
+        className="team-schedule-row team-schedule-quiet"
+        onClick={() => workspace?.openSettings(crew.path)}
+      >
+        <span>Quiet hours</span>
+        <small>
+          {quiet.on
+            ? `No new work from ${formatClockMinutes(quiet.start)} to ${formatClockMinutes(quiet.end)}`
+            : "Off"}
+        </small>
+      </button>
     </div>
   );
 }

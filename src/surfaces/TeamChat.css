@@ -709,37 +709,10 @@
   }
 }
 
-/* Narrow: the roster folds above the thread, as one scrolling row. */
+/* Narrow: the thread takes the room. */
 @container (max-width: 760px) {
   .team-chat {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .team-roster {
-    padding: 10px 0 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-right: 0;
-    border-bottom: 1px solid var(--aven-line);
-  }
-
-  .team-roster ul {
-    flex-direction: row;
-  }
-
-  .team-roster-item {
-    flex: none;
-    width: 200px;
-  }
-
-  .team-roster-item:first-child::after,
-  .team-roster-item[data-add]::before {
-    display: none;
-  }
-
-  .team-roster-item:first-child,
-  .team-roster-item[data-add] {
-    margin: 0;
   }
 
   .team-thread {
