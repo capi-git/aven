@@ -782,8 +782,9 @@ def report_smoke(root, exit_code, timed_out=False):
         return False
     for step in result.get('steps', []):
         mark = 'PASS' if step.get('passed') else 'FAIL'
+        took = f' ({step["ms"] / 1000:.1f} s)' if isinstance(step.get('ms'), (int, float)) else ''
         detail = f' - {step["detail"]}' if step.get('detail') else ''
-        print(f'  {mark}  {step.get("name")}{detail}', flush=True)
+        print(f'  {mark}  {step.get("name")}{took}{detail}', flush=True)
     # Evidence that the turn went through Aven's own native harness spawn.
     log_path = root / 'home/.local/bin/fake-claude.log'
     spawned = []

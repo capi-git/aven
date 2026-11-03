@@ -160,7 +160,13 @@ export function waitFor<T>(
   });
 }
 
-export type SmokeStep = { name: string; passed: boolean; detail?: string };
+export type SmokeStep = {
+  name: string;
+  passed: boolean;
+  detail?: string;
+  /** How long it took, when the step was timed. */
+  ms?: number;
+};
 
 /**
  * How long the check gives its steps together, from the first: inside the
@@ -193,10 +199,12 @@ export function smokeStepRunner(
         name,
         passed: false,
         detail: `not run: the check's ${seconds} s budget was used up`,
+        ms: 0,
       });
       return false;
     }
-    const left = Math.max(0, deadline - now());
+    const began = now();
+    const left = Math.max(0, deadline - began);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const detail = await Promise.race([
@@ -212,13 +220,19 @@ export function smokeStepRunner(
           }, left);
         }),
       ]);
-      steps.push({ name, passed: true, ...(detail ? { detail } : {}) });
+      steps.push({
+        name,
+        passed: true,
+        ...(detail ? { detail } : {}),
+        ms: now() - began,
+      });
       return true;
     } catch (error) {
       steps.push({
         name,
         passed: false,
         detail: error instanceof Error ? error.message : String(error),
+        ms: now() - began,
       });
       return false;
     } finally {

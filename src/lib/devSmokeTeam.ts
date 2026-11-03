@@ -6,7 +6,6 @@ import {
   setCrewAccess,
   setCrewQuietHours,
   turnOffCrew,
-  updateCrewMember,
 } from "./crewActions";
 import {
   crewAccess,
@@ -20,9 +19,9 @@ import {
 import { waitFor } from "./devSmoke";
 import { crewDiagnostics, type SmokeCrew } from "./devSmokeCrew";
 import { errorText } from "./errors";
-import { deleteFeatureCard } from "./featureCards";
 import { createPath, gitDiffIndex, writeTextFile } from "./fs";
 import { parentPath, projectName } from "./paths";
+import { IS_MAC } from "./platform";
 import { setUpProjectGit } from "./projectGitSetup";
 import { sameProjectPath } from "./recents";
 import type { Session } from "./session";
@@ -351,6 +350,27 @@ function teamCard(
   return card;
 }
 
+/** How long a hold may last before it reads as the team never starting the turn. */
+const HOLD_GRACE_MS = 5_000;
+
+/**
+ * The team held for longer than a moment (no Builder on, its limits, work
+ * to review): the turn being waited for will never start, so say why now
+ * rather than at the wait's end.
+ */
+function failOnHold(project: string) {
+  const crew = getCrew(project);
+  const hold = crew?.hold;
+  if (!hold || Date.now() - hold.at < HOLD_GRACE_MS) return;
+  const said = crew!.feed
+    .filter((entry) => entry.kind === "hold")
+    .map((entry) => entry.text)
+    .at(-1);
+  throw new Error(
+    `The team is holding (${hold.reason})${said ? `: ${said}` : ""}`,
+  );
+}
+
 function withDiagnostics(
   get: Get,
   project: string,
@@ -409,6 +429,25 @@ async function tidy(project: string) {
     '[role="dialog"] button[aria-label="Close"]',
   ))
     if (onScreen(close)) close.click();
+  // Its Board forward, then closed as a person would, so the check's own
+  // project is the current one again for the steps after.
+  if (!boardOnScreen(project)) return;
+  try {
+    workspace().openCrew(project);
+    await waitFor(() => boardOnScreen(project), 3_000, "the Board");
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "w",
+        metaKey: IS_MAC,
+        ctrlKey: !IS_MAC,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    await waitFor(() => !boardOnScreen(project), 3_000, "the Board to close");
+  } catch {
+    // Best effort: a Board left open is no failure of the step.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -657,6 +696,7 @@ export async function checkResearcher(
     );
     const ready = await waitFor(
       () => {
+        failOnHold(project);
         const current = teamCard(project, id);
         return current?.stage === "ready" ? current : null;
       },
@@ -790,7 +830,10 @@ export async function checkResearcher(
     const secondId = secondCard.dataset.boardCard ?? "";
     cardId = secondId;
     await waitFor(
-      () => teamCard(project, secondId)?.stage === "ready",
+      () => {
+        failOnHold(project);
+        return teamCard(project, secondId)?.stage === "ready";
+      },
       150_000,
       "the second findings",
     );
@@ -869,10 +912,7 @@ export async function checkDesigner(
   const project = await newTeamProject(config.projectPath, "team-designer");
   let cardId: string | undefined;
   try {
-    const crew = await startTeam(team, project, ["designer"]);
-    // The Builder would pick up Build it's idea: it sits this step out.
-    const builder = crew.members.find((member) => member.role === "builder");
-    if (builder) updateCrewMember(project, builder.id, { paused: true });
+    await startTeam(team, project, ["designer"]);
     const board = await openBoard(project);
     const screen = `The today screen ${SMOKE_DESIGN_WORD}`;
     addIdeaFromBoard(board, `Design: ${screen}`);
@@ -890,6 +930,7 @@ export async function checkDesigner(
     );
     const ready = await waitFor(
       () => {
+        failOnHold(project);
         const current = teamCard(project, id);
         return current?.stage === "ready" ? current : null;
       },
@@ -943,24 +984,7 @@ export async function checkDesigner(
       10_000,
       "the page to render in the sheet",
     );
-    const build = sheet.querySelector<HTMLButtonElement>(
-      "[data-crew-mockup-build]",
-    );
-    if (!build) throw new Error("The sheet has no Build it");
-    build.click();
-    await waitFor(() => !onScreen(sheet), 15_000, "the mock-up sheet to close");
-    const buildIdea = await expectCard(
-      project,
-      `Build the mock-up: ${screen}`,
-      { column: ["idea", "building"] },
-      "the Build the mock-up idea",
-    );
-    await expectCard(
-      project,
-      screen,
-      { column: "shipped", stage: "Mock-up · built", buttons: ["Look"] },
-      "the mock-up card in Done",
-    );
+    await closeSheet(sheet, "the mock-up sheet");
     // Nothing of the turn stays in the copy.
     const leftovers = () =>
       settles(
@@ -973,12 +997,10 @@ export async function checkDesigner(
       );
     const clean = await leftovers();
     if (clean) throw new Error(`After the mock-up, ${clean}`);
-    await deleteFeatureCard(project, buildIdea.dataset.boardCard ?? "").catch(
-      () => false,
-    );
 
     // A turn that writes outside its folder is refused, and Throw away
-    // leaves the copy clean.
+    // leaves the copy clean. It goes before Build it: the idea Build it
+    // adds is the Builder's to start by itself, and would take the copy.
     const strayScreen = `The settings screen ${SMOKE_DESIGN_WORD} ${SMOKE_STRAY_WORD}`;
     addIdeaFromBoard(board, `Design: ${strayScreen}`);
     const strayCard = await waitFor(
@@ -990,6 +1012,7 @@ export async function checkDesigner(
     cardId = strayId;
     const stuck = await waitFor(
       () => {
+        failOnHold(project);
         const current = teamCard(project, strayId, true);
         if (current?.stage === "ready")
           throw new Error(
@@ -1039,7 +1062,32 @@ export async function checkDesigner(
     );
     const left = await leftovers();
     if (left) throw new Error(`After Throw away, ${left}`);
-    return `Mock-up · Designer with Look and Build it; Look rendered the page; Build it added "Build the mock-up: …" and put the card in Done with the copy clean; a turn that wrote ${SMOKE_STRAY_FILE} outside ${MOCKUP_DIR} ended as Needs you with why, and Throw away left the copy clean`;
+
+    // Build it, from the card: an idea of yours, which the Builder may
+    // start by itself at once (the team is turned off as the step ends).
+    cardId = id;
+    pressCardButton(
+      await expectCard(
+        project,
+        screen,
+        { column: "review", buttons: ["Build it"] },
+        "the Mock-up card again",
+      ),
+      "Build it",
+    );
+    await expectCard(
+      project,
+      `Build the mock-up: ${screen}`,
+      { column: ["idea", "building"] },
+      "the Build the mock-up idea",
+    );
+    await expectCard(
+      project,
+      screen,
+      { column: "shipped", stage: "Mock-up · built", buttons: ["Look"] },
+      "the mock-up card in Done",
+    );
+    return `Mock-up · Designer with Look and Build it; Look rendered the page, and the copy was clean after the turn; a turn that wrote ${SMOKE_STRAY_FILE} outside ${MOCKUP_DIR} ended as Needs you with why, and Throw away left the copy clean; Build it added "Build the mock-up: …" and put the card in Done`;
   } catch (error) {
     withDiagnostics(get, project, cardId, error);
   } finally {

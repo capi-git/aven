@@ -15,9 +15,9 @@ describe("the real-app check's step budget", () => {
     ).toBe(false);
     expect(await step("three", async () => undefined)).toBe(true);
     expect(steps).toEqual([
-      { name: "one", passed: true, detail: "fine" },
-      { name: "two", passed: false, detail: "not there" },
-      { name: "three", passed: true },
+      { name: "one", passed: true, detail: "fine", ms: 0 },
+      { name: "two", passed: false, detail: "not there", ms: 0 },
+      { name: "three", passed: true, ms: 0 },
     ]);
   });
 
@@ -34,11 +34,13 @@ describe("the real-app check's step budget", () => {
         passed: false,
         detail:
           "still running when the check's 10 s budget ran out (6 s were left when it started)",
+        ms: 6_000,
       },
       {
         name: "after",
         passed: false,
         detail: "not run: the check's 10 s budget was used up",
+        ms: 0,
       },
     ]);
   });

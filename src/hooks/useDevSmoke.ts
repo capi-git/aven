@@ -4188,6 +4188,9 @@ export async function runDevSmoke(
       "deleting a project closes its hidden terminal panel",
       async () => {
         const path = config.projectPath;
+        // The panel is the current project's: a step before may have left
+        // another project's Board or sheet in front.
+        await openNewTask(get, path);
         projectPanel.toggle();
         const [terminal] = await waitFor(
           () => {

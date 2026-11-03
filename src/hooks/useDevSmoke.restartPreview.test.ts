@@ -72,6 +72,7 @@ describe("the real-app check's restart question step", () => {
       name: STEP,
       passed: true,
       detail: "2 agents, 1 terminal, 1 unsaved file; 3 actions",
+      ms: expect.any(Number),
     });
     expect(getRestartDecision()).toBeNull();
     expect(document.body.textContent).not.toContain("Fix login");

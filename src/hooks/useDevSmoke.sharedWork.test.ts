@@ -163,6 +163,7 @@ describe("the real-app check's second dev server", () => {
       name: STEP,
       passed: true,
       detail: ":5200 flagged beside :5199; the next turn named :5199",
+      ms: expect.any(Number),
     });
   });
 
