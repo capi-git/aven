@@ -22,15 +22,15 @@ Follow them in anything you add or change. When a rule and a request disagree, f
 
 Use the tokens in `src/index.css`. Don't add a new size.
 
-| Token | Size | For |
-|---|---|---|
-| `--text-ui-title` | 20px | Page titles |
-| `--text-ui-sheet` | 15px | Sheet titles, a panel's name |
-| `--text-ui-reading` | 14px | Reading: chat text |
-| `--text-ui-body` | 13px | Row labels, buttons |
-| `--text-ui-row` | 12.5px | Sidebar rows |
-| `--text-ui-label` | 12px | Descriptions, section headings, tabs |
-| `--text-ui-caption` | 11px | Times, counts, small notes |
+| Token               | Size   | For                                  |
+| ------------------- | ------ | ------------------------------------ |
+| `--text-ui-title`   | 20px   | Page titles                          |
+| `--text-ui-sheet`   | 15px   | Sheet titles, a panel's name         |
+| `--text-ui-reading` | 14px   | Reading: chat text                   |
+| `--text-ui-body`    | 13px   | Row labels, buttons                  |
+| `--text-ui-row`     | 12.5px | Sidebar rows                         |
+| `--text-ui-label`   | 12px   | Descriptions, section headings, tabs |
+| `--text-ui-caption` | 11px   | Times, counts, small notes           |
 
 - Show hierarchy with weight and grey, not size. A row has a 13px label at weight 500 and a 12px muted line under it.
 - Section headings are small, muted and weight 500, in sentence case. Don't use capitals for labels.
@@ -81,16 +81,16 @@ Only the window and its chrome may be see-through. Popups, menus and dialogs are
 - Say what a person gets, not how it works. A refusal says what to do next.
 - Use one word for one thing:
 
-| Say | Not |
-|---|---|
-| Chat | Session, thread |
-| Team, Teammates | Crew, Monos, sub-agents |
-| Copy | Worktree |
-| Provider | Harness |
-| Instructions | Soul |
-| Schedule | Habits |
-| Keyboard shortcuts | Keybindings |
-| Full access, Auto, Ask first | Permission mode names |
+| Say                          | Not                     |
+| ---------------------------- | ----------------------- |
+| Chat                         | Session, thread         |
+| Team, Teammates              | Crew, Monos, sub-agents |
+| Copy                         | Worktree                |
+| Provider                     | Harness                 |
+| Instructions                 | Soul                    |
+| Schedule                     | Habits                  |
+| Keyboard shortcuts           | Keybindings             |
+| Full access, Auto, Ask first | Permission mode names   |
 
 ## Before you finish
 
