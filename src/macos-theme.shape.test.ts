@@ -353,11 +353,11 @@ describe("no pixel art", () => {
       .filter(Boolean);
 
   it("draws marks and art in round dots, never crisp square pixels", () => {
-    // Aven's own mark is drawn from the app icon's grid; nothing else is.
+    // Aven's own mark too: Rise is a staircase of round dots (AvenMark.tsx).
     const crisp = tracked("src/*.tsx")
       .filter((file) => !file.includes(".test."))
       .filter((file) => /crispEdges|crisp-edges/.test(read(file)));
-    expect(crisp).toEqual(["src/chrome/AvenMark.tsx"]);
+    expect(crisp).toEqual([]);
   });
 
   it("moves things smoothly: no stepped sprite timing or pixelated images", () => {

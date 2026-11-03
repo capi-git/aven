@@ -1,20 +1,15 @@
-import { AVEN_BLUE_THEME_COLORS } from "./appearance";
-import { mascotPath } from "./projectMascots";
-
 /**
- * Aven's mark, the Pixel A, one character per cell: "#" is the body and "B"
- * the summit pixel at the apex. Keep it in step with PIXEL_A in
- * scripts/render-brand-icons.py, which draws the app icon from the same grid.
+ * Aven's mark, Rise: a 5 × 5 staircase of round dots, one more on each row
+ * down, climbing to the top-left. One character per cell: "#" is a lit dot.
+ * Keep it in step with RISE in scripts/render-brand-icons.py, which draws
+ * the app icon from the same grid.
  */
 export const AVEN_MARK_ROWS = [
-  "...B...",
-  "..###..",
-  ".##.##.",
-  ".#...#.",
-  "#######",
-  "##...##",
-  "#.....#",
-  "#.....#",
+  "#....",
+  "##...",
+  "###..",
+  "####.",
+  "#####",
 ] as const;
 
 export const AVEN_MARK_GRID = {
@@ -22,11 +17,18 @@ export const AVEN_MARK_GRID = {
   height: AVEN_MARK_ROWS.length,
 } as const;
 
-/** SVG path data over the grid's viewBox: the body, then the summit pixel. */
-export const AVEN_MARK_BODY_PATH = mascotPath(AVEN_MARK_ROWS);
-export const AVEN_MARK_SUMMIT_PATH = mascotPath(
-  AVEN_MARK_ROWS.map((row) => row.replace(/[^B]/g, ".").replace(/B/g, "#")),
-);
+/**
+ * A dot's radius in cells: 0.68 of a cell across, as on the app icon, so at
+ * the 15 px default (3 px cells) each dot is 2 px wide with a 1 px gap.
+ */
+export const AVEN_MARK_DOT_RADIUS = 0.34;
 
-/** The summit is always Aven's blue, as on the app icon, whatever the accent. */
-export const AVEN_MARK_SUMMIT_COLOR = AVEN_BLUE_THEME_COLORS.dark.accent;
+/** The centre of each lit dot, in cells over the grid's viewBox. */
+export function avenMarkDots(): { cx: number; cy: number }[] {
+  const dots: { cx: number; cy: number }[] = [];
+  AVEN_MARK_ROWS.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++)
+      if (row[x] === "#") dots.push({ cx: x + 0.5, cy: y + 0.5 });
+  });
+  return dots;
+}
