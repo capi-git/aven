@@ -14,8 +14,6 @@
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--color-content) 7%, transparent);
   background: var(--aven-toolbar-surface, transparent);
 }
 .workspace-status-queue {
@@ -133,7 +131,6 @@
 .workspace-status-provider {
   margin-top: 10px;
   padding-top: 9px;
-  border-top: 1px solid color-mix(in srgb, var(--color-content) 9%, transparent);
 }
 .workspace-status-provider strong {
   font-size: var(--text-ui-caption);

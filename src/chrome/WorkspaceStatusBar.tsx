@@ -29,6 +29,7 @@ import {
   PanelRight,
   Search,
   X,
+  Terminal,
 } from "./icons";
 import {
   HARNESS_TITLE,
@@ -39,6 +40,8 @@ import "./Menu.css";
 import "./WorkspaceStatusBar.css";
 
 export type WorkspaceStatusBarProps = {
+  onToggleTerminal?: () => void;
+  terminalOpen?: boolean;
   sessions: readonly Session[];
   onSelectSession: (id: string) => boolean | Promise<boolean>;
   onToggleSidebar?: () => void;
@@ -398,16 +401,16 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   onToggleSidebar,
   sidebarOpen,
   navigationInSidebar = false,
-  onSearch,
   onNewBrowser,
   onGoBack,
   onGoForward,
   canGoBack,
   canGoForward,
-  onHome,
   homeOpen,
   onToggleInspector,
   inspectorOpen,
+  onToggleTerminal,
+  terminalOpen,
   settingsView,
   stripHost,
 }: WorkspaceStatusBarProps) {
@@ -445,42 +448,40 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         <WorkspaceNavigation
           onToggleSidebar={onToggleSidebar}
           sidebarOpen={sidebarOpen}
-          // The pinned sidebar has Search and Home as rows (Home is the
-          // workspace's own row), so the toolbar keeps them only while the
-          // sidebar is hidden. Home has its own Open browser.
-          onSearch={sidebarOpen ? undefined : onSearch}
+          // Search and Home are the sidebar's, one hover away.
           onNewBrowser={homeOpen ? undefined : onNewBrowser}
           onGoBack={onGoBack}
           onGoForward={onGoForward}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
-          onHome={sidebarOpen ? undefined : onHome}
           homeOpen={homeOpen}
         />
       ) : null}
-      {/* Activity sits with navigation on the left in every layout. */}
-      <button
-        ref={queueAnchor}
-        type="button"
-        className="workspace-status-queue workspace-status-task"
-        data-tauri-drag-region="false"
-        data-tour="activity"
-        aria-label={`Activity: ${summary.label}${unreadActivity ? ` · ${unreadActivity} unread` : ""}`}
-        title={`Activity · ${summary.label}`}
-        aria-haspopup="dialog"
-        aria-expanded={menu === "queue"}
-        onClick={() => setMenu(menu === "queue" ? null : "queue")}
-      >
-        {/* Only Activity's state: the chat in front shows its agent in its
+      {/* Activity sits with navigation on the left, only while it has something. */}
+      {summary.rows.length || unreadActivity || menu || showingSettings ? (
+        <button
+          ref={queueAnchor}
+          type="button"
+          className="workspace-status-queue workspace-status-task"
+          data-tauri-drag-region="false"
+          data-tour="activity"
+          aria-label={`Activity: ${summary.label}${unreadActivity ? ` · ${unreadActivity} unread` : ""}`}
+          title={`Activity · ${summary.label}`}
+          aria-haspopup="dialog"
+          aria-expanded={menu === "queue"}
+          onClick={() => setMenu(menu === "queue" ? null : "queue")}
+        >
+          {/* Only Activity's state: the chat in front shows its agent in its
             tab and the message box's agent pill, not again here. */}
-        <QueueIcon size={14} aria-hidden />
-        <span className="sr-only">{summary.label}</span>
-        {unreadActivity > 0 ? (
-          <span className="workspace-status-unread">
-            {unreadActivity > 99 ? "99+" : unreadActivity}
-          </span>
-        ) : null}
-      </button>
+          <QueueIcon size={14} aria-hidden />
+          <span className="sr-only">{summary.label}</span>
+          {unreadActivity > 0 ? (
+            <span className="workspace-status-unread">
+              {unreadActivity > 99 ? "99+" : unreadActivity}
+            </span>
+          ) : null}
+        </button>
+      ) : null}
       {!navigationInSidebar && import.meta.env.DEV ? (
         <div className="workspace-status-development">
           <DevModeSlot />
@@ -519,6 +520,17 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               data-tauri-drag-region="false"
             >
               <X size={14} aria-hidden />
+            </button>
+          ) : null}
+          {onToggleTerminal && !settingsView ? (
+            <button
+              type="button"
+              aria-label={`${terminalOpen ? "Hide" : "Show"} terminal`}
+              title={`${terminalOpen ? "Hide" : "Show"} terminal`}
+              aria-pressed={!!terminalOpen}
+              onClick={onToggleTerminal}
+            >
+              <Terminal size={14} aria-hidden />
             </button>
           ) : null}
           {onToggleInspector && !settingsView ? (

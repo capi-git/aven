@@ -23,64 +23,18 @@ afterEach(async () => {
 async function render(props: WorkspaceFooterProps) {
   await act(async () => root.render(createElement(WorkspaceFooter, props)));
 }
-const terminal = () =>
-  container.querySelector<HTMLButtonElement>(".workspace-footer-icon")!;
 
 describe("WorkspaceFooter", () => {
-  it("holds only agent usage and the terminal", async () => {
-    const toggle = vi.fn();
+  it("holds only shrunk teams, and nothing while inactive", async () => {
     await render({
       active: true,
-      cwd: "/project",
-      onToggleTerminal: toggle,
-      usage: createElement("span", { "data-usage": "" }, "usage"),
-    });
-    expect(container.querySelector("[data-usage]")).not.toBeNull();
-    const buttons = [...container.querySelectorAll("button")];
-    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Show terminal",
-    ]);
-    await act(async () => terminal().click());
-    expect(toggle).toHaveBeenCalledOnce();
-  });
-
-  it("keeps a slot for shrunk teams between usage and the terminal", async () => {
-    await render({
-      active: true,
-      cwd: "/project",
-      onToggleTerminal: vi.fn(),
-      usage: createElement("span", { "data-usage": "" }, "usage"),
       teams: createElement("span", { "data-teams": "" }, "pills"),
     });
-    const footer = container.querySelector("footer")!;
-    expect([...footer.children].map((child) => child.className)).toEqual([
-      "workspace-footer-usage",
-      "workspace-footer-teams",
-      "workspace-footer-tools",
-    ]);
     expect(
-      footer.querySelector(".workspace-footer-teams [data-teams]"),
+      container.querySelector("footer .workspace-footer-teams [data-teams]"),
     ).not.toBeNull();
-    await render({ active: true, cwd: "/project", onToggleTerminal: vi.fn() });
-    expect(container.querySelector(".workspace-footer-teams")).toBeNull();
-  });
-
-  it("reflects the open terminal and renders nothing while inactive", async () => {
-    await render({
-      active: true,
-      cwd: "/project",
-      onToggleTerminal: vi.fn(),
-      terminalOpen: true,
-    });
-    expect(terminal().getAttribute("aria-pressed")).toBe("true");
-    expect(terminal().getAttribute("aria-label")).toBe("Hide terminal");
-    await render({ active: false, cwd: "/project" });
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+    await render({ active: false });
     expect(container.childElementCount).toBe(0);
-  });
-
-  it("disables the terminal without a working folder", async () => {
-    await render({ active: true, cwd: "~", onToggleTerminal: vi.fn() });
-    expect(terminal().disabled).toBe(true);
-    expect(terminal().title).toBe("Open a project to use the terminal");
   });
 });

@@ -873,10 +873,51 @@ html.is-mac .personal-shell[data-unified-toolbar] > .workspace-status-bar {
 .personal-shell[data-unified-toolbar] .personal-sidebar-windowbar {
   display: none;
 }
-html .personal-shell[data-unified-toolbar] .personal-main.body-glass {
-  margin: 0;
+/* The top row and a pinned sidebar are one surface, the window's own: nothing
+   drawn behind either, and no line between them. */
+html .personal-shell[data-unified-toolbar],
+html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
+  --aven-toolbar-surface: transparent;
+  --personal-chrome-surface: transparent;
+  --personal-docked-panel-surface: transparent;
+  --personal-sidebar-glass-surface: transparent;
+}
+html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
+  background: transparent;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar,
+html.has-native-glass:not(.theme-light)
+  .personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar.sidebar-glass {
   border: 0;
-  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-sidebar-slot:not([data-floating="true"])
+  > .personal-sidebar::after {
+  display: none;
+}
+/* Your work: one dark rounded card on the window's own background, with no
+   lines around it. */
+html .personal-shell[data-unified-toolbar] .personal-main.body-glass,
+html.has-native-glass.glass-body:not(.theme-light)
+  .personal-shell[data-unified-toolbar]
+  .personal-main.body-glass {
+  margin: 0 8px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, #000 48%, transparent);
+}
+html
+  .personal-shell[data-unified-toolbar][data-sidebar-pinned="true"]
+  .personal-main.body-glass {
+  margin-left: 0;
 }
 /* The project terminal docks flush against the panes, with the same hairline
    on the side that faces them. */
@@ -934,19 +975,10 @@ html
 html.theme-light .personal-shell[data-unified-toolbar] {
   --aven-panel-card: color-mix(in srgb, #fff 62%, transparent);
 }
-/* On a Mac the toolbar cancels the interface zoom (zoom below), which would
-   scale its hairline off one device pixel; dividing by that zoom keeps it. */
-html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
-  box-shadow:
-    inset 0 calc(-1 * var(--aven-hairline) / var(--aven-toolbar-zoom, 1)) 0
-      var(--aven-separator),
-    var(--aven-panel-tint);
-}
 .personal-shell[data-unified-toolbar]
   .personal-sidebar-slot:not([data-floating="true"])
   > .personal-sidebar.personal-navigation {
   padding: 4px 6px 6px;
-  box-shadow: var(--aven-panel-tint);
 }
 .personal-shell[data-unified-toolbar]
   .personal-inspector-slot:not([data-floating="true"])

@@ -79,3 +79,8 @@
     transparent
   );
 }
+
+/* Only while a team has shrunk into it: otherwise there is no bottom bar. */
+.workspace-footer:not(:has(.workspace-footer-teams > *)) {
+  display: none;
+}
