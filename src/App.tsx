@@ -360,7 +360,6 @@ import {
   type TitleBarProps,
 } from "./chrome/TitleBar";
 import { paneRailContent } from "./chrome/PaneRail";
-import { LayoutNotice, type LayoutNoticeState } from "./chrome/LayoutNotice";
 import { describeStripChange, stripTabLocation } from "./lib/layoutNotice";
 import { BrowserTabIcon } from "./chrome/BrowserTabIcon";
 import { focusDirTarget, openLeafIds, stepOpenPane } from "./lib/paneRails";
@@ -1869,24 +1868,18 @@ export default function App({
     [],
   );
   /**
-   * A move on the strip about to happen: which tab moves, the strip before
-   * it, and the undo it can be taken back with. The strip that follows is
-   * described in a notice (see `layoutNotice` below).
+   * A move on the strip about to happen: which tab moves, and the strip
+   * before it. Where it lands is lit once (see `noticeStrip` below).
    */
   const pendingMove = useRef<{
     key: string;
     moved: string | null;
     before: WorkspaceStrip;
     at: number;
-    undo: object | null;
   } | null>(null);
-  /** Until when strip changes go undescribed (an undo putting things back). */
+  /** Until when strip changes light nothing (an undo putting things back). */
   const noticeQuietUntil = useRef(0);
-  // What a move on the strip did, said in a notice with Undo, and where it
-  // landed, lit once on the strip and on the stage.
-  const [layoutNotice, setLayoutNotice] = useState<
-    (Omit<LayoutNoticeState, "canUndo"> & { undo: object | null }) | null
-  >(null);
+  // Where a move on the strip landed, lit once on the strip and on the stage.
   const [stripLanding, setStripLanding] = useState<{
     entry: string;
     segment?: string;
@@ -1903,13 +1896,6 @@ export default function App({
   } | null>(null);
   const noticeSeq = useRef(0);
 
-  const latestLayoutUndo = useCallback(
-    (): object | null =>
-      [...recoveryRef.current.layouts]
-        .reverse()
-        .find((entry) => entry.cwd === workspaceKeyRef.current) ?? null,
-    [],
-  );
   const noteStripMove = useCallback(
     (moved: string | null, before: WorkspaceStrip) => {
       pendingMove.current = {
@@ -1917,15 +1903,13 @@ export default function App({
         moved,
         before,
         at: Date.now(),
-        undo: latestLayoutUndo(),
       };
     },
-    [latestLayoutUndo],
+    [],
   );
   const onUndoLayout = useCallback(() => {
-    // What it puts back needs no notice, and the last one is out of date.
+    // What it puts back is not lit as a move.
     noticeQuietUntil.current = Date.now() + 1500;
-    setLayoutNotice(null);
     const current = viewRef.current.view;
     const result = popWorkspaceLayoutUndo(
       recoveryRef.current,
@@ -12134,8 +12118,6 @@ export default function App({
     const previous = noticeStrip.current;
     noticeStrip.current = { key: workspaceKey, strip };
     const pending = pendingMove.current;
-    // Another project's strip: a notice about the last one is out of place.
-    if (previous && previous.key !== workspaceKey) setLayoutNotice(null);
     if (!previous || previous.key !== workspaceKey || previous.strip === strip)
       return;
     pendingMove.current = null;
@@ -12153,13 +12135,8 @@ export default function App({
       (id) => open.has(id),
     );
     if (!change) return;
-    const nonce = ++noticeSeq.current;
-    setLayoutNotice({
-      id: nonce,
-      text: change.text,
-      undo: move?.undo ?? null,
-    });
     if (change.landed) {
+      const nonce = ++noticeSeq.current;
       setStripLanding({
         entry: change.landed.entry,
         segment: change.landed.pane,
@@ -12194,12 +12171,6 @@ export default function App({
       if (pane) setPaneLanding({ id: pane, nonce });
       // Long enough for a switch's pages to be pictured and the panes drawn.
     }, 120);
-  /** Undo from the notice: only while its move is the last layout change. */
-  const onNoticeUndo = () => {
-    const notice = layoutNotice;
-    setLayoutNotice(null);
-    if (notice?.undo && latestLayoutUndo() === notice.undo) onUndoLayout();
-  };
   /** Close every tab in a split, leaving a chat outside it in front. */
   const onCloseSplit = (key: string) => {
     const entry = strip.entries.find(
@@ -12593,21 +12564,6 @@ export default function App({
                             className="relative min-h-0 min-w-0"
                             style={{ gridArea: "main" }}
                           >
-                            <LayoutNotice
-                              notice={
-                                layoutNotice && {
-                                  ...layoutNotice,
-                                  // Undo while the move is still the last
-                                  // layout change, as of now.
-                                  canUndo:
-                                    !!layoutNotice.undo &&
-                                    latestLayoutUndo() === layoutNotice.undo,
-                                }
-                              }
-                              shown={workspaceVisible && !settingsOpen}
-                              onUndo={onNoticeUndo}
-                              onDismiss={() => setLayoutNotice(null)}
-                            />
                             {/* Tabs stay in each pane's own header, one pane or
                               several, so the window toolbar stays clean. */}
                             <MainWorkspaceStage
