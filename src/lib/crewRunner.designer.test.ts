@@ -474,6 +474,29 @@ describe("a screen for the Designer", () => {
     h.runner.stop();
   });
 
+  it("refuses a mock-up when it can't list the copy after the turn", async () => {
+    const h = harness({
+      designer: () => {
+        h.copy.entries.mockRejectedValueOnce(new Error("boom"));
+        return { text: fence(target.file), wrote: { [target.file]: GOOD } };
+      },
+    });
+    onTeam();
+    const idea = (await addFeatureIdea(PATH, { title: "Timer" }))!;
+    target.file = `aven-mockups/${mockupFileName(idea.id)}`;
+    await askDesigner(PATH, idea, NOON);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(card(idea.id).stuck?.text).toBe(
+      "Brush's mock-up wasn't kept: Aven couldn't list the team's copy after its turn",
+    );
+    expect(h.mockups.save).not.toHaveBeenCalled();
+    expect(h.files).toEqual({});
+    vi.restoreAllMocks();
+    h.runner.stop();
+  });
+
   it("refuses a mock-up Aven can't keep, and a turn that wrote two files or none", async () => {
     let nth = 0;
     const h = harness({

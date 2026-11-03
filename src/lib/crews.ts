@@ -3010,10 +3010,16 @@ export function withoutCard(crew: Crew, id: string): Crew {
 // ---------------------------------------------------------------------------
 // The lease: one window drives a crew's turns at a time
 
-export function claimCrewJob(path: string, owner: string, now = Date.now()) {
+export function claimCrewJob(
+  path: string,
+  owner: string,
+  now = Date.now(),
+  /** Claim it for an off team too: a branch move needs the copy to itself. */
+  whileOff = false,
+) {
   let claimed = false;
   updateCrew(path, (crew) => {
-    if (!crew.on) return crew;
+    if (!crew.on && !whileOff) return crew;
     if (jobIsLive(crew.job, now) && crew.job?.owner !== owner) return crew;
     claimed = true;
     return {

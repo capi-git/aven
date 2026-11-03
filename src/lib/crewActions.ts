@@ -1755,11 +1755,10 @@ async function holdingCrewJob(
   if (!crew) return NOT_ON_BRANCH;
   branchHolds += 1;
   const owner = `branch-${branchHolds}-${now}`;
-  // Off, no runner works in the copy, though another window may still.
-  const held = crew.on
-    ? claimCrewJob(path, owner, now)
-    : !jobIsLive(crew.job, now);
-  if (!held) return CREW_AT_WORK;
+  // Claimed on or off: off, no runner works in the copy, but another window
+  // (or a second press here) may move the branch, and two moves at once
+  // would tread on each other.
+  if (!claimCrewJob(path, owner, now, true)) return CREW_AT_WORK;
   const renew = setInterval(() => renewCrewJob(path, owner), 30_000);
   try {
     return await work();

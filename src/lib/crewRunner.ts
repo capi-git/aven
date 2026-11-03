@@ -2366,14 +2366,26 @@ export class CrewRunner {
     const before = new Set(
       (crew.copy?.entries ?? []).map((entry) => basename(entry)),
     );
-    const unseen = this.deps.copy.entries
-      ? (await this.deps.copy.entries(copy).catch(() => []))
-          .map((entry) => basename(entry))
-          .filter(
-            (entry) =>
-              !before.has(entry) && entry !== MOCKUP_DIR && entry !== ".git",
-          )
+    const after = this.deps.copy.entries
+      ? await this.deps.copy.entries(copy).catch((error) => {
+          logError("Crew copy listing", error);
+          return null;
+        })
       : [];
+    // A listing that fails can't say the copy is clean: the mock-up isn't kept.
+    if (!after)
+      return afterMockup(card, {
+        mockup: null,
+        problem: "Aven couldn't list the team's copy after its turn",
+        now,
+        name,
+      });
+    const unseen = after
+      .map((entry) => basename(entry))
+      .filter(
+        (entry) =>
+          !before.has(entry) && entry !== MOCKUP_DIR && entry !== ".git",
+      );
     if (unseen.length)
       await this.deps.mockups?.clear(copy, unseen).catch((error) => {
         logError("Crew mock-up folder", error);
@@ -2723,8 +2735,19 @@ export class CrewRunner {
     if (base && crew.copy) {
       const diff = await this.deps.copy
         .diff(crew.copy.path, base)
-        .catch(() => null);
-      if (diff?.files.length) {
+        .catch((error) => {
+          logError("Crew goal undo check", error);
+          return null;
+        });
+      // Unchecked, the copy may hold what planning wrote: nothing builds on
+      // it until you look. The goal stops, and the feed says why.
+      if (!diff)
+        return this.stopGoal(
+          crew,
+          `Aven couldn't check the team's copy after ${who}'s planning, so the team stopped. Look over the copy, then Keep going to try again.`,
+          now,
+        );
+      if (diff.files.length) {
         await this.deps.copy
           .discard(crew.copy.path, base, crew.copy.branch, base)
           .catch((error) => logError("Crew goal undo", error));
