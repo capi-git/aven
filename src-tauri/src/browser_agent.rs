@@ -2711,6 +2711,10 @@ impl crate::browser_export::ImageSource for PageImages {
 /// One action on a resolved page, in the window that owns it. `using` is the
 /// presence bar's hold on a tab that is not the chat's own.
 fn page_action(
+    #[cfg_attr(
+        not(all(feature = "chromium", target_os = "macos")),
+        allow(unused_variables)
+    )]
     server: &Arc<Server>,
     token: String,
     request: Request,
