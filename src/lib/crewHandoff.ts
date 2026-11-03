@@ -1,5 +1,10 @@
-import { finalFencedBlock, reviewUrl } from "./automationReview";
 import {
+  finalFencedBlock,
+  onlyFencedBlock,
+  reviewUrl,
+} from "./automationReview";
+import {
+  CREW_MEMORY_MAX,
   readFinding,
   readRan,
   type CrewFinding,
@@ -27,6 +32,8 @@ export const GOAL_FENCE = "aven-goal";
 export const TASKS_FENCE = "aven-tasks";
 /** The Researcher's findings for a research card. */
 export const FINDINGS_FENCE = "aven-findings";
+/** A member's notes about the project, rewritten in full (see `parseMemory`). */
+export const MEMORY_FENCE = "aven-memory";
 /** Every fence a crew's bot ends a reply with. */
 export const CREW_FENCES = [
   HANDOFF_FENCE,
@@ -35,7 +42,46 @@ export const CREW_FENCES = [
   GOAL_FENCE,
   TASKS_FENCE,
   FINDINGS_FENCE,
+  MEMORY_FENCE,
 ] as const;
+
+/**
+ * A member's notes from its reply: the one `aven-memory` block, wherever it
+ * sits, as plain lines with secrets redacted, lines aimed at a model
+ * dropped and the rest clipped. Null without the block, or with nothing
+ * left in it. A member's own words about the project: data, kept for it
+ * alone and read back as notes.
+ */
+export function parseMemory(text: string): string | null {
+  const block = onlyFencedBlock(text, MEMORY_FENCE);
+  if (!block) return null;
+  const body = block.body.trim();
+  // A member that wrapped its notes as JSON: the text inside.
+  let plain = body;
+  if (/^\s*[{"]/.test(body)) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (typeof parsed === "string") plain = parsed;
+      else if (parsed && typeof parsed === "object") {
+        const value =
+          (parsed as Record<string, unknown>).memory ??
+          (parsed as Record<string, unknown>).notes;
+        if (typeof value === "string") plain = value;
+        else if (Array.isArray(value))
+          plain = value.filter((v) => typeof v === "string").join("\n");
+      }
+    } catch {
+      plain = body;
+    }
+  }
+  const clean = cleanUntrusted(plain, CREW_MEMORY_MAX);
+  return clean || null;
+}
+
+/** A reply without its notes block, for the rest of Aven to read as before. */
+export function withoutMemory(text: string): string {
+  return onlyFencedBlock(text, MEMORY_FENCE)?.without ?? text;
+}
 
 /** At most this many must-fix items count; more read as notes for later. */
 export const MUST_FIX_MAX = 5;

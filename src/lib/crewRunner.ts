@@ -3,8 +3,10 @@ import {
   parseGoal,
   parseHandoff,
   parseIdeas,
+  parseMemory,
   parseTasks,
   parseVerdict,
+  withoutMemory,
   type CrewTask,
 } from "./crewHandoff";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
@@ -78,6 +80,7 @@ import {
   updateCrew,
   withCard,
   withCrewRun,
+  withMemberMemory,
   securityReviewBy,
   securityReviewsIt,
   withFeed,
@@ -1190,6 +1193,7 @@ export class CrewRunner {
       }
       const guidance = {
         ...(member.instructions ? { instructions: member.instructions } : {}),
+        ...(member.memory ? { memory: member.memory } : {}),
         ...(member.scope?.length ? { scope: member.scope } : {}),
       };
       const text =
@@ -1389,10 +1393,53 @@ export class CrewRunner {
     return true;
   }
 
+  /** The member's reply to a turn, without its notes block (read apart). */
+  private turnReply(turn: LiveTurn, outcome?: ControlOutcome): string {
+    return withoutMemory(
+      replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
+        outcome?.text?.trim() ||
+        "",
+    );
+  }
+
+  /**
+   * The member rewrote its notes at the end of a turn that finished: they
+   * replace what it had, for it alone. A turn that failed, was stopped or
+   * ran too long keeps the notes as they were.
+   */
+  private remember(path: string, turn: LiveTurn, outcome?: ControlOutcome) {
+    if (
+      turn.timedOut ||
+      turn.stopping ||
+      outcome?.status === "failed" ||
+      outcome?.status === "cancelled"
+    )
+      return;
+    let memory: string | null;
+    try {
+      memory = parseMemory(
+        replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
+          outcome?.text?.trim() ||
+          "",
+      );
+    } catch (error) {
+      logError("Crew notes", error);
+      return;
+    }
+    if (!memory) return;
+    const now = this.deps.now();
+    updateCrew(path, (current) =>
+      crewMemberById(current, turn.memberId)
+        ? withMemberMemory(current, turn.memberId, memory, now)
+        : current,
+    );
+  }
+
   /** A turn ended: read it once, whichever of its end, the heartbeat or a recovery comes first. */
   async afterTurn(path: string, turn: LiveTurn, outcome?: ControlOutcome) {
     if (!this.markHandled(turn.turnId)) return;
     try {
+      this.remember(path, turn, outcome);
       if (turn.goal) await this.afterGoal(path, turn, outcome);
       else if (turn.role === "scout" || turn.sweep)
         await this.afterScout(path, turn, outcome);
@@ -1468,10 +1515,7 @@ export class CrewRunner {
         name: this.deps.name(crew, turn.memberId),
       });
     else {
-      const reply =
-        replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
-        outcome?.text?.trim() ||
-        "";
+      const reply = this.turnReply(turn, outcome);
       const diff =
         crew.copy && card.base
           ? await this.deps.copy
@@ -1854,6 +1898,7 @@ export class CrewRunner {
         .map((card) => card.title);
       const guidance = {
         ...(member.instructions ? { instructions: member.instructions } : {}),
+        ...(member.memory ? { memory: member.memory } : {}),
         ...(member.scope?.length ? { scope: member.scope } : {}),
       };
       const text = sweep
@@ -2046,6 +2091,7 @@ export class CrewRunner {
         sync: prepared.sync,
         guidance: {
           ...(member.instructions ? { instructions: member.instructions } : {}),
+          ...(member.memory ? { memory: member.memory } : {}),
         },
         web: !!turn.web,
       });
@@ -2164,10 +2210,7 @@ export class CrewRunner {
         name,
       });
     else {
-      const reply =
-        replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
-        outcome?.text?.trim() ||
-        "";
+      const reply = this.turnReply(turn, outcome);
       const diff =
         crew.copy && card.base
           ? await this.deps.copy
@@ -2341,6 +2384,7 @@ export class CrewRunner {
         sync: prepared.sync,
         guidance: {
           ...(member.instructions ? { instructions: member.instructions } : {}),
+          ...(member.memory ? { memory: member.memory } : {}),
         },
       });
       const label = "Goal · what's next";
@@ -2451,10 +2495,7 @@ export class CrewRunner {
           : `${who}'s planning didn't finish${outcome?.error ? `: ${outcome.error}` : ""}. Keep going to try again.`,
         now,
       );
-    const reply =
-      replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
-      outcome?.text?.trim() ||
-      "";
+    const reply = this.turnReply(turn, outcome);
     const answer = parseGoal(reply);
     if (!answer)
       return this.stopGoal(
@@ -2547,10 +2588,7 @@ export class CrewRunner {
     if (!crew?.on || !this.stillOn(path, turn.onAt)) return;
     const now = this.deps.now();
     const sweep = !!turn.sweep;
-    const reply =
-      replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
-      outcome?.text?.trim() ||
-      "";
+    const reply = this.turnReply(turn, outcome);
     // A look that failed, was stopped, or ran too long adds nothing.
     const ideas =
       outcome?.status === "failed" ||

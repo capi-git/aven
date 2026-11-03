@@ -43,6 +43,7 @@ import {
   memberCritter,
   newMemberId,
   withMemberId,
+  withMemberMemory,
   withGoal,
   withGoalCardDropped,
   stackedHash,
@@ -2281,7 +2282,23 @@ export function setDefaultBuilder(path: string, id: string | null) {
   });
 }
 
-/** Set one of the crew's limits, kept within what it may be. */
+/**
+ * A teammate's notes, as you edited them (the Fixer's included): replaced,
+ * or cleared with null or nothing. Resolves with why it couldn't, or null.
+ */
+export function setMemberMemory(
+  path: string,
+  id: string,
+  memory: string | null,
+  now = Date.now(),
+): string | null {
+  const crew = getCrew(path);
+  if (!crew || !crewMemberById(crew, id))
+    return "That teammate isn't in the team.";
+  updateCrew(path, (current) => withMemberMemory(current, id, memory, now));
+  return null;
+}
+
 /** What the team may do without stopping to ask you. */
 export function setCrewAccess(path: string, patch: Partial<CrewAccess>) {
   updateCrew(path, (crew) => ({

@@ -4,12 +4,14 @@ import {
   GOAL_FENCE,
   HANDOFF_FENCE,
   IDEAS_FENCE,
+  MEMORY_FENCE,
   TASKS_FENCE,
   VERDICT_FENCE,
   parseFindings,
   parseGoal,
   parseHandoff,
   parseIdeas,
+  parseMemory,
   parseTasks,
   parseVerdict,
 } from "./crewHandoff";
@@ -23,7 +25,15 @@ import { plural } from "./words";
  */
 
 export type CrewFenceView = {
-  kind: "ideas" | "handoff" | "verdict" | "goal" | "tasks" | "findings";
+  kind:
+    | "ideas"
+    | "handoff"
+    | "verdict"
+    | "goal"
+    | "tasks"
+    | "findings"
+    /** Its notes, rewritten: shown as one quiet line, never their words. */
+    | "memory";
   /** "3 ideas", "Handed over", "2 must-fix", "Passed", "Goal met". */
   label: string;
   /** One line under it: the bot's summary, or what Aven did with it. */
@@ -106,6 +116,10 @@ export function crewFenceView(
         ...(task.why ? { detail: task.why } : {}),
       })),
     };
+  }
+  if (fence === MEMORY_FENCE) {
+    if (!parseMemory(text)) return null;
+    return { kind: "memory", label: "Updated its notes", items: [] };
   }
   if (fence === FINDINGS_FENCE) {
     const found = parseFindings(text);

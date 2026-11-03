@@ -164,7 +164,19 @@ export type CrewMember = {
   paused?: boolean;
   /** What it is doing, one line, for the crew strip and the sidebar. */
   doing?: { at: number; text: string };
+  /**
+   * What it has learned about this project, in its own words, rewritten at
+   * the end of a turn (see `parseMemory`) or by you. Its own: never shared
+   * with another member or project. Read at every turn as notes, never as
+   * instructions.
+   */
+  memory?: string;
+  /** When its notes last changed. */
+  memoryAt?: number;
 };
+
+/** A member's notes, at most: enough for conventions and gotchas, not a log. */
+export const CREW_MEMORY_MAX = 4_000;
 
 export type CrewScoutSchedule = "off" | "daily" | "weekly";
 
@@ -1251,6 +1263,7 @@ function readMember(value: unknown):
   const doing = raw.doing as CrewMember["doing"] | undefined;
   const fallback = raw.fallback as CrewMember["fallback"] | undefined;
   const fallbackModel = text(fallback?.model, 200);
+  const memory = text(raw.memory, CREW_MEMORY_MAX);
   return {
     ...(id ? { id } : {}),
     role: raw.role as CrewRole,
@@ -1282,6 +1295,8 @@ function readMember(value: unknown):
     ...(doing && typeof doing.at === "number" && typeof doing.text === "string"
       ? { doing: { at: doing.at, text: doing.text.slice(0, 200) } }
       : {}),
+    ...(memory ? { memory } : {}),
+    ...(memory && isTime(raw.memoryAt) ? { memoryAt: raw.memoryAt } : {}),
   };
 }
 
@@ -2446,6 +2461,33 @@ export function withCrewRun(crew: Crew, now: number): Crew {
     ...crew,
     runs: { day: localDay(now), count: crewRunsToday(crew, now) + 1 },
   };
+}
+
+/**
+ * A member's notes replaced (clipped to `CREW_MEMORY_MAX`), or cleared with
+ * null or an empty text. Only this member's: nothing else changes.
+ */
+export function withMemberMemory(
+  crew: Crew,
+  memberId: string,
+  memory: string | null,
+  now: number,
+): Crew {
+  const clean = memory
+    ?.replace(/\r\n?/g, "\n")
+    .trim()
+    .slice(0, CREW_MEMORY_MAX);
+  return withMemberId(crew, memberId, (member) => {
+    if (!clean) {
+      if (member.memory === undefined && member.memoryAt === undefined)
+        return member;
+      const rest = { ...member };
+      delete rest.memory;
+      delete rest.memoryAt;
+      return rest;
+    }
+    return { ...member, memory: clean, memoryAt: now };
+  });
 }
 
 /** Extra runs you allowed today. */
