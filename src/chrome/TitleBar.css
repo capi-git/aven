@@ -1228,3 +1228,29 @@ html.theme-light .personal-shell {
   min-width: 0;
   max-width: none;
 }
+
+/* A split's panes are named once, on the top row. A pane's own name is plain
+   words with no pill, and only while you point at its top edge or tab into it;
+   you can still drag the pane by it. */
+.personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
+  .personal-tab-strip
+  .aven-tab
+  > .aven-tab-motion,
+.personal-titlebar[data-title-layout="lone"][data-pane-focused="true"]
+  .personal-tab-strip
+  .aven-tab[data-active="true"]
+  > .aven-tab-motion {
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-stage-header
+  .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
+  .personal-tab-strip {
+  opacity: 0;
+  transition: opacity var(--aven-motion-fast) ease;
+}
+.workspace-stage-header:is(:hover, :focus-within)
+  .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
+  .personal-tab-strip {
+  opacity: 1;
+}
