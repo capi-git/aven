@@ -137,6 +137,7 @@ function author(
 }
 
 const ROLES = new Set<string>([
+  "lead",
   "builder",
   "checker",
   "security",
@@ -303,6 +304,16 @@ function postOf(
         text: plain(withoutName(entry.text, by.name)),
         handoff: { from: by, to: "you", label: "Mock-up for you" },
       };
+    // The Lead answers you; teammates talking to each other stay quiet.
+    case "say":
+      return by.role === "lead"
+        ? { ...base, text: plain(entry.text) }
+        : {
+            kind: "event",
+            id: entry.id,
+            at: entry.at,
+            text: plain(entry.text),
+          };
     default:
       return { ...base, text: plain(withoutName(entry.text, by.name)) };
   }

@@ -190,6 +190,7 @@ describe("a new team from your words", () => {
     const crew = getCrew(PATH)!;
     expect(crew.on).toBe(true);
     expect(crew.members.map((member) => member.role)).toEqual([
+      "lead",
       "builder",
       "checker",
       "researcher",

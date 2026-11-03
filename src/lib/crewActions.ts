@@ -54,6 +54,8 @@ import {
   withAbout,
   withNote,
   withMessage,
+  withTalk,
+  crewLead,
   CREW_MESSAGE_MAX,
   withoutCard,
   withoutMember,
@@ -120,7 +122,7 @@ import { plural } from "./words";
 export type CrewModels = Record<
   "builder" | "checker" | "scout" | "researcher" | "designer",
   { harness: "claude" | "codex"; model: string }
->;
+> & { lead?: { harness: "claude" | "codex"; model: string } };
 
 /**
  * The Builder on your usual Claude model. The Checker on Codex when it is
@@ -142,6 +144,8 @@ export function pickCrewModels(input: {
     other ??
     builder;
   return {
+    // It mostly reads and writes a line: a lighter model.
+    lead: { harness: "claude", model: lighter },
     builder: { harness: "claude", model: builder },
     checker:
       input.codex && input.preferredCodex
@@ -173,6 +177,7 @@ export function crewModelFor(
   models: CrewModels,
   role: Exclude<CrewRole, "fixer">,
 ): { harness: "claude" | "codex"; model: string } {
+  if (role === "lead") return models.lead ?? models.scout;
   return models[role === "security" ? "checker" : role];
 }
 
@@ -183,10 +188,20 @@ export function crewModelFor(
 export function turnOnCrew(path: string, models: CrewModels, now = Date.now()) {
   updateCrew(path, (crew) => {
     let next: Crew = { ...crew, on: true, onAt: now, paused: undefined };
-    for (const member of crew.members) {
+    // A team starting for the first time gets its Lead. One that has run
+    // keeps the teammates it has; you can add one from the gallery.
+    if (!crew.onAt && !crew.members.some((member) => member.role === "lead"))
+      next = {
+        ...next,
+        members: [
+          { id: "lead", role: "lead", critter: "lead" },
+          ...next.members,
+        ],
+      };
+    for (const member of next.members) {
       if (member.role === "fixer") continue;
       // Security, like the Checker, reads with other eyes than the Builder's.
-      const pick = models[member.role === "security" ? "checker" : member.role];
+      const pick = crewModelFor(models, member.role);
       next = withMemberId(next, member.id, (current) =>
         current.harness && current.model
           ? current
@@ -470,6 +485,23 @@ export async function tellTeam(
   // "keep going" starts what waits: no card, so it isn't called one.
   const nudge = as === "card" && crewNudge(words, path);
   const before = new Set(crew.feed.map((entry) => entry.id));
+  if (as === "lead") {
+    const lead = crewLead(crew);
+    if (!lead) return "This team has no Lead. Add one, or give it a card.";
+    updateCrew(path, (current) =>
+      withMessage(
+        withTalk(current, {
+          at: now,
+          from: "you",
+          to: lead.id,
+          text: words,
+          hop: 0,
+        }),
+        { at: now, text: words, as },
+      ),
+    );
+    return null;
+  }
   if (as === "rule") tellCrew(path, words, now);
   else if (as === "goal") setCrewGoal(path, words, now);
   else {
@@ -682,7 +714,14 @@ export async function giveCardToCrew(
             id: card.id,
             title: card.title,
             brief: featureBrief(card),
-            from: idea?.by ? idea.by : idea ? "scout" : "you",
+            from:
+              idea?.by === "lead"
+                ? "member"
+                : idea?.by
+                  ? idea.by
+                  : idea
+                    ? "scout"
+                    : "you",
             ...(idea ? { size: idea.size } : {}),
             ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
             maxRounds: chosen.maxRounds,
@@ -799,7 +838,14 @@ export async function askResearcher(
             id: card.id,
             title: card.title,
             brief: featureBrief(card),
-            from: idea?.by ? idea.by : idea ? "scout" : "you",
+            from:
+              idea?.by === "lead"
+                ? "member"
+                : idea?.by
+                  ? idea.by
+                  : idea
+                    ? "scout"
+                    : "you",
             kind: "research",
             ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
             maxRounds: 1,
@@ -967,7 +1013,14 @@ export async function askDesigner(
             id: card.id,
             title: card.title,
             brief: featureBrief(card),
-            from: idea?.by ? idea.by : idea ? "scout" : "you",
+            from:
+              idea?.by === "lead"
+                ? "member"
+                : idea?.by
+                  ? idea.by
+                  : idea
+                    ? "scout"
+                    : "you",
             kind: "mockup",
             ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
             maxRounds: 1,
@@ -2172,6 +2225,7 @@ export function addCrewMember(
     template === "custom" ? (input.role ?? "builder") : template;
   if (
     (role === "scout" ||
+      role === "lead" ||
       role === "security" ||
       role === "researcher" ||
       role === "designer") &&
@@ -2483,6 +2537,7 @@ export function addCrewPreset(
     return { error: "A team has at most 8 teammates." };
   if (
     (preset.role === "scout" ||
+      preset.role === "lead" ||
       preset.role === "security" ||
       preset.role === "researcher" ||
       preset.role === "designer") &&

@@ -168,7 +168,8 @@ describe("crew members' names and marks", () => {
     ]);
     // Every ready-made member reads as in the crew now.
     for (const preset of CREW_PRESETS)
-      expect(presetInCrew(crew, preset), preset.key).toBe(true);
+      if (preset.key !== "lead")
+        expect(presetInCrew(crew, preset), preset.key).toBe(true);
   });
 
   it("counts a crew from before marks' default members as its ready-made ones", () => {
@@ -191,6 +192,7 @@ describe("crew members' names and marks", () => {
 describe("the gallery's ready-made members", () => {
   it("goes by role names, not animals", () => {
     expect(CREW_PRESETS.map((preset) => preset.label ?? preset.role)).toEqual([
+      "lead",
       "builder",
       "checker",
       "scout",
@@ -201,6 +203,7 @@ describe("the gallery's ready-made members", () => {
       "security",
     ]);
     expect(CREW_PRESETS.map((preset) => preset.mark)).toEqual([
+      "lead",
       "builder",
       "checker",
       "scout",

@@ -63,6 +63,7 @@ describe("sigils", () => {
     expect(ROLE_SIGILS.map((sigil) => sigil.key)).toEqual([
       "builder",
       "checker",
+      "lead",
       "security",
       "scout",
       "researcher",

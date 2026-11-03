@@ -58,6 +58,7 @@ export type CrewRole =
   | "scout"
   | "researcher"
   | "designer"
+  | "lead"
   | "fixer";
 
 /** The roles that take turns on cards in the crew's copy. */
@@ -79,6 +80,12 @@ export type CrewRoleInfo = {
 };
 
 export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
+  lead: {
+    role: "lead",
+    label: "Lead",
+    job: "Answers messages to everyone and passes questions on",
+    edits: false,
+  },
   builder: {
     role: "builder",
     label: "Builder",
@@ -127,6 +134,7 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
 
 /** The order members are listed in: who builds, who checks, who finds. */
 export const CREW_ROLE_ORDER: readonly CrewRole[] = [
+  "lead",
   "builder",
   "checker",
   "security",
@@ -563,7 +571,7 @@ export type CrewIdea = {
   /** It started by itself. */
   autoStarted?: boolean;
   /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
-  by?: "security" | "researcher" | "setup";
+  by?: "security" | "researcher" | "setup" | "lead";
 };
 
 export type CrewFeedKind =
@@ -580,7 +588,9 @@ export type CrewFeedKind =
   /** The Researcher's findings are ready for you. */
   | "findings"
   /** The Designer's mock-up is ready for you. */
-  | "mockup";
+  | "mockup"
+  /** A teammate's line after a message: the Lead's to you, others' quiet. */
+  | "say";
 
 /** One line in the crew's feed: handoffs, verdicts, ideas, your notes. */
 export type CrewFeedEntry = {
@@ -699,6 +709,8 @@ export type Crew = {
    * chat shows these as your messages. Older builds drop them on reading.
    */
   messages?: CrewMessage[];
+  /** Messages between you and teammates still on their way (see `CrewTalk`). */
+  talks?: CrewTalk[];
   /**
    * What this project is and what you want, as you wrote it when the team
    * set itself up: your own words, read by every teammate at every turn.
@@ -737,7 +749,27 @@ export type CrewMessage = {
   echo?: string;
 };
 
-export type CrewMessageKind = "card" | "rule" | "goal";
+export type CrewMessageKind = "card" | "rule" | "goal" | "lead";
+
+/**
+ * A message on its way to a teammate: your words to the Lead, or one
+ * teammate's to another. Carried as words to read: it never approves
+ * anything or moves a card.
+ */
+export type CrewTalk = {
+  id: string;
+  at: number;
+  /** A member's id, or you. */
+  from: "you" | string;
+  to: string;
+  text: string;
+  /** Times the message of yours it started from has been passed on. */
+  hop: number;
+  /** It answers what `to` asked: nothing goes back for it. */
+  answer?: true;
+  /** Set once it went: the window carrying it, and its turn. */
+  sent?: { at: number; owner: string; turnId: string; sessionId: string };
+};
 
 /**
  * What a team's teammates may do without stopping to ask you, all inside
@@ -787,8 +819,9 @@ export function crewRoleUsesWeb(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
-  // The Designer draws from the project alone: never the web.
-  if (role === "designer") return false;
+  // The Designer draws from the project alone: never the web. Nor the Lead,
+  // whose messages reach everyone else.
+  if (role === "designer" || role === "lead") return false;
   const { web } = crewAccess(crew);
   return (
     web === "everyone" ||
@@ -808,7 +841,7 @@ export function crewRoleUsesBrowser(
   const { web } = crewAccess(crew);
   if (role === "researcher") return crewRoleUsesWeb(crew, role);
   // Nor Aven's browser: a mock-up is a file, drawn without one.
-  if (role === "designer") return false;
+  if (role === "designer" || role === "lead") return false;
   return web === "everyone" || (web === "builders" && role !== "scout");
 }
 
@@ -1484,7 +1517,8 @@ export function readCrew(value: unknown): Crew | null {
         read?.role === "fixer" ||
         read?.role === "security" ||
         read?.role === "researcher" ||
-        read?.role === "designer";
+        read?.role === "designer" ||
+        read?.role === "lead";
       if (
         read &&
         !(single && members.some((entry) => entry.role === read.role))
@@ -1554,7 +1588,8 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
         ...(idea.by === "security" ||
         idea.by === "researcher" ||
-        idea.by === "setup"
+        idea.by === "setup" ||
+        idea.by === "lead"
           ? { by: idea.by }
           : {}),
       };
@@ -1632,6 +1667,7 @@ export function readCrew(value: unknown): Crew | null {
   const access = readAccess(raw.access);
   const planning = text(raw.planning, 200);
   const messages = readMessages(raw.messages);
+  const talks = readTalks(raw.talks);
   const about = text(raw.about, CREW_ABOUT_MAX);
   return {
     ...base,
@@ -1701,6 +1737,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(access ? { access } : {}),
     ...(planning ? { planning } : {}),
     ...(messages.length ? { messages } : {}),
+    ...(talks.length ? { talks } : {}),
     ...(about ? { about } : {}),
     cards,
     feed,
@@ -1724,9 +1761,55 @@ export function readCrew(value: unknown): Crew | null {
   };
 }
 
-const MESSAGE_KINDS = new Set<CrewMessageKind>(["card", "rule", "goal"]);
+const CREW_TALKS_KEPT = 30;
+
+const MESSAGE_KINDS = new Set<CrewMessageKind>([
+  "card",
+  "rule",
+  "goal",
+  "lead",
+]);
 
 /** Your messages as stored: each needs an id, a time and words; the newest kept. */
+function readTalks(value: unknown): CrewTalk[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): CrewTalk | null => {
+      const entry = item as Partial<CrewTalk> | null;
+      const body = text(entry?.text, CREW_MESSAGE_MAX);
+      const from = text(entry?.from, 60);
+      const to = text(entry?.to, 60);
+      if (
+        !entry ||
+        typeof entry.id !== "string" ||
+        !isTime(entry.at) ||
+        !body ||
+        !from ||
+        !to
+      )
+        return null;
+      const sent = entry.sent;
+      return {
+        id: entry.id.slice(0, 60),
+        at: entry.at,
+        from,
+        to,
+        text: body,
+        hop: finite(entry.hop, 0, 10, 10),
+        ...(entry.answer === true ? { answer: true as const } : {}),
+        ...(sent &&
+        isTime(sent.at) &&
+        typeof sent.owner === "string" &&
+        typeof sent.turnId === "string" &&
+        typeof sent.sessionId === "string"
+          ? { sent }
+          : {}),
+      };
+    })
+    .filter((entry): entry is CrewTalk => !!entry)
+    .slice(-CREW_TALKS_KEPT);
+}
+
 function readMessages(value: unknown): CrewMessage[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -2731,6 +2814,25 @@ export function withNote(crew: Crew, body: string, now: number): Crew {
 }
 
 /** A message you wrote to the team, kept as you wrote it (the newest few). */
+/** The team's Lead, while it is on. */
+export function crewLead(crew: Pick<Crew, "members">): CrewMember | undefined {
+  return crew.members.find(
+    (member) => member.role === "lead" && memberOn(member),
+  );
+}
+
+/** A message on its way to a teammate. */
+export function withTalk(
+  crew: Crew,
+  talk: Omit<CrewTalk, "id" | "sent"> & { id?: string },
+): Crew {
+  const next: CrewTalk = { ...talk, id: talk.id ?? crypto.randomUUID() };
+  return {
+    ...crew,
+    talks: [...(crew.talks ?? []), next].slice(-CREW_TALKS_KEPT),
+  };
+}
+
 export function withMessage(
   crew: Crew,
   message: Omit<CrewMessage, "id"> & { id?: string },

@@ -295,6 +295,7 @@ export function ideaWaits(
   if (scout?.by === "security") return "security";
   if (scout?.by === "researcher") return "researcher";
   if (scout?.by === "setup") return "setup";
+  if (scout?.by === "lead") return "not-now";
   if (idea.sourceUrl || scout?.sourceUrl || scout?.outside) return "outside";
   if (scout?.size === "large") return "large";
   if (scout && !ideaMayAutoStart(scout)) return "not-now";
