@@ -18,6 +18,8 @@ import {
   crewReviewGate,
   ideasLeft,
   ideaWaits,
+  holdIdeaStarts,
+  ideaStartsHeld,
   nextIdeaToBuild,
   nextCardToStart,
   scoutShouldLook,
@@ -789,7 +791,7 @@ export class CrewRunner {
     let started = false;
     updateCrew(path, (crew) => {
       // Not now, or a card the team has, since the Board was read: it waits.
-      if (ideaWaits(crew, card, now)) return crew;
+      if (ideaStartsHeld(path) || ideaWaits(crew, card, now)) return crew;
       const idea = crew.ideas?.[card.id];
       started = true;
       let next = withCard(
@@ -2886,17 +2888,24 @@ export class CrewRunner {
             0,
             sweep ? SWEEP_CARDS : ideasLeft(crew, now),
           );
-    const added = ideas.length
-      ? await this.deps.board.add(
-          path,
-          ideas.map((idea) => ({
-            title: idea.title,
-            ...(idea.why ? { note: idea.why } : {}),
-            ...(idea.sourceUrl ? { sourceUrl: idea.sourceUrl } : {}),
-            column: "idea" as const,
-          })),
-        )
-      : [];
+    // Not to start before they are marked as the Scout's, below.
+    const releaseIdeas = holdIdeaStarts(path);
+    const added = await (
+      ideas.length
+        ? this.deps.board.add(
+            path,
+            ideas.map((idea) => ({
+              title: idea.title,
+              ...(idea.why ? { note: idea.why } : {}),
+              ...(idea.sourceUrl ? { sourceUrl: idea.sourceUrl } : {}),
+              column: "idea" as const,
+            })),
+          )
+        : Promise.resolve([])
+    ).catch((error: unknown) => {
+      releaseIdeas();
+      throw error;
+    });
     const who = this.deps.name(crew, turn.memberId);
     updateCrew(path, (current) => {
       let next = withMemberId(current, turn.memberId, (member) =>
@@ -2938,6 +2947,7 @@ export class CrewRunner {
         text: `${who} added ${what}: ${added.map((card) => card.title).join(" · ")}`,
       });
     });
+    releaseIdeas();
   }
 
   // -------------------------------------------------------------------------

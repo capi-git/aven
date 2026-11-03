@@ -1,3 +1,4 @@
+import { useWorkspaceSurfaceDrag } from "../lib/workspaceSurfaceDrag";
 import {
   memo,
   useCallback,
@@ -2068,5 +2069,22 @@ export function WorkspaceStage({
         aria-hidden="true"
       />
     </div>
+  );
+}
+
+/**
+ * The main window's stage: it reads the tab dragged over it from its own
+ * store, so a drag renders the stage and not the whole workspace around it.
+ */
+export function MainWorkspaceStage(
+  props: Omit<WorkspaceStageProps, "dragging" | "dragTarget">,
+) {
+  const drag = useWorkspaceSurfaceDrag();
+  return (
+    <WorkspaceStage
+      {...props}
+      dragging={drag.dragging}
+      dragTarget={drag.target}
+    />
   );
 }
