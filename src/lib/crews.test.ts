@@ -26,6 +26,11 @@ import {
 } from "./crews";
 import { queueCard, startCard } from "./crewLoop";
 import {
+  FOREIGN_STORE_WHY,
+  resetSaveProblems,
+  saveProblem,
+} from "./saveProblems";
+import {
   PROJECT_BOTS_KEY,
   botChatIds,
   isBotChat,
@@ -256,6 +261,83 @@ describe("migrating project bots into crews", () => {
     updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
     const saved = JSON.parse(localStorage.getItem(CREWS_KEY)!);
     expect(saved.crews.future).toEqual({ kind: "overview" });
+  });
+
+  it("keeps a card at a stage it doesn't know, and writes it back as stored", () => {
+    const later = {
+      id: "later",
+      title: "A later build's card",
+      stage: "reviewing",
+      from: "you",
+      brief: "x",
+    };
+    localStorage.setItem(
+      CREWS_KEY,
+      JSON.stringify({
+        version: 1,
+        crews: {
+          [PROJECT]: {
+            ...newCrew(PROJECT, 1),
+            cards: [
+              queueCard(
+                { id: "q", title: "Q", brief: "q", from: "you", maxRounds: 3 },
+                1,
+              ),
+              later,
+              { id: "junk", stage: "reviewing" },
+            ],
+          },
+        },
+      }),
+    );
+    resetCrewsCache();
+    expect(getCrew(PROJECT)!.cards.map((card) => card.id)).toEqual(["q"]);
+    expect(getCrew(PROJECT)!.otherCards).toEqual([later]);
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
+    const saved = JSON.parse(localStorage.getItem(CREWS_KEY)!);
+    expect(
+      saved.crews[PROJECT].cards.map((card: { id: string }) => card.id),
+    ).toEqual(["q", "later"]);
+    expect(saved.crews[PROJECT].cards[1]).toEqual(later);
+    expect(saved.crews[PROJECT].otherCards).toBeUndefined();
+  });
+
+  it("says when a save fails, and when another version's store is kept instead", () => {
+    resetSaveProblems();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const full = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
+    expect(saveProblem()).toMatchObject({
+      key: CREWS_KEY,
+      what: "your teams",
+      why: "Aven's storage is full.",
+    });
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("[aven] Crews save:"),
+    );
+    // The change holds in this window, and the next good save clears it.
+    expect(getCrew(PROJECT)?.on).toBe(true);
+    full.mockRestore();
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: false }));
+    expect(saveProblem()).toBeNull();
+    // Another version's store: kept, said once, and shown.
+    localStorage.setItem(CREWS_KEY, "{not json");
+    resetCrewsCache();
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: true }));
+    updateCrew(PROJECT, (crew) => ({ ...crew, on: false }));
+    expect(saveProblem()).toMatchObject({
+      key: CREWS_KEY,
+      why: FOREIGN_STORE_WHY,
+    });
+    expect(
+      error.mock.calls.filter(([text]) =>
+        String(text).includes("[aven] Crews:"),
+      ),
+    ).toHaveLength(1);
+    vi.restoreAllMocks();
+    resetSaveProblems();
   });
 });
 

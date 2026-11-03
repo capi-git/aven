@@ -36,6 +36,11 @@ import {
   type ScheduledAgent,
   type ScheduledRun,
 } from "./scheduledAgents";
+import {
+  FOREIGN_STORE_WHY,
+  resetSaveProblems,
+  saveProblem,
+} from "./saveProblems";
 import type { Block } from "./session";
 
 function mockLocalStorage() {
@@ -227,6 +232,68 @@ describe("stored schedules", () => {
       schedule: { kind: "weekly", days: [1, 5], time: "08:15" },
     });
     expect(agents[1]!.schedule).toEqual({ kind: "interval", hours: 24 });
+  });
+
+  it("keeps entries it can't read and writes them back as they were", () => {
+    const later = {
+      ...agent({ id: "later" }),
+      schedule: { kind: "lunar", phase: "full" },
+    };
+    localStorage.setItem(
+      "aven.scheduledAgents.v1",
+      JSON.stringify([agent(), later]),
+    );
+    expect(listScheduledAgents().map((item) => item.id)).toEqual(["daily"]);
+    saveScheduledAgent(agent({ id: "second" }));
+    const saved = JSON.parse(localStorage.getItem("aven.scheduledAgents.v1")!);
+    expect(saved.map((item: { id: string }) => item.id)).toEqual([
+      "daily",
+      "second",
+      "later",
+    ]);
+    expect(saved[2]).toEqual(later);
+  });
+
+  it("never overwrites a list from another version, keeps a backup, and says so", () => {
+    resetSaveProblems();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    localStorage.setItem("aven.scheduledAgents.v1", "{not json");
+    expect(listScheduledAgents()).toEqual([]);
+    expect(localStorage.getItem("aven.scheduledAgents.v1.backup")).toBe(
+      "{not json",
+    );
+    saveScheduledAgent(agent());
+    expect(localStorage.getItem("aven.scheduledAgents.v1")).toBe("{not json");
+    // The change holds in this window.
+    expect(getScheduledAgent("daily")).toBeDefined();
+    expect(saveProblem()).toMatchObject({
+      key: "aven.scheduledAgents.v1",
+      what: "your scheduled agents",
+      why: FOREIGN_STORE_WHY,
+    });
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("[aven] Scheduled agents:"),
+    );
+    vi.restoreAllMocks();
+    resetSaveProblems();
+  });
+
+  it("says when a save fails, and holds the change in this window", () => {
+    resetSaveProblems();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const full = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    saveScheduledAgent(agent());
+    expect(getScheduledAgent("daily")).toBeDefined();
+    expect(saveProblem()).toMatchObject({
+      key: "aven.scheduledAgents.v1",
+      why: "Aven's storage is full.",
+    });
+    full.mockRestore();
+    saveScheduledAgent(agent({ id: "second" }));
+    expect(saveProblem()).toBeNull();
+    vi.restoreAllMocks();
   });
 
   it("normalises rules", () => {

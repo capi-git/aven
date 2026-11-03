@@ -1,9 +1,16 @@
 import { useSyncExternalStore } from "react";
 import { registerGuardedChats } from "./harness/sessionPermissions";
+import { logError } from "./errors";
 import { isEqualOrInside, projectKey } from "./paths";
 import { isDefaultAgentName } from "./projectMascots";
 import { IS_WIN } from "./platform";
 import { normalizeProjectPath } from "./recents";
+import {
+  FOREIGN_STORE_WHY,
+  clearSaveProblem,
+  reportSaveProblem,
+  saveFailureWhy,
+} from "./saveProblems";
 
 /**
  * Project bots: a teammate per project that wakes up when something changes,
@@ -378,16 +385,22 @@ export function readProjectBot(value: unknown): ProjectBot | null {
   };
 }
 
-function parse(raw: string | null): Store {
-  if (!raw) return EMPTY_STORE;
+/**
+ * The store as read, and whether it is another version's (unreadable JSON,
+ * or a version this build doesn't know): such a store is never written
+ * over, so nothing of it is lost to a build that can't read it.
+ */
+function parse(raw: string | null): { store: Store; foreign: boolean } {
+  if (!raw) return { store: EMPTY_STORE, foreign: false };
   try {
     const parsed = JSON.parse(raw) as Partial<Store>;
     if (
       parsed?.version !== 1 ||
       !parsed.bots ||
-      typeof parsed.bots !== "object"
+      typeof parsed.bots !== "object" ||
+      Array.isArray(parsed.bots)
     )
-      return EMPTY_STORE;
+      return { store: EMPTY_STORE, foreign: true };
     const bots: Record<string, ProjectBot> = {};
     const others: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(parsed.bots)) {
@@ -401,14 +414,18 @@ function parse(raw: string | null): Store {
       )
         others[key] = value;
     }
-    return { version: 1, bots, others };
+    return { store: { version: 1, bots, others }, foreign: false };
   } catch {
-    return EMPTY_STORE;
+    return { store: EMPTY_STORE, foreign: true };
   }
 }
 
+export const PROJECT_BOTS_BACKUP_KEY = `${PROJECT_BOTS_KEY}.backup`;
+
 let cache: Store = EMPTY_STORE;
 let cacheRaw: string | null | undefined;
+/** Storage holds another version's bots: kept as they are, nothing saved. */
+let foreign = false;
 /** Session id → project key, for bots that are on. */
 let chatIndex: Map<string, string> | null = null;
 const listeners = new Set<() => void>();
@@ -445,15 +462,33 @@ function read(): Store {
   }
   if (raw !== cacheRaw) {
     cacheRaw = raw;
-    cache = parse(raw);
+    const parsed = parse(raw);
+    cache = parsed.store;
+    foreign = parsed.foreign;
     chatIndex = null;
+    if (foreign && raw)
+      try {
+        // Keep the first copy; never replace an earlier backup.
+        if (localStorage.getItem(PROJECT_BOTS_BACKUP_KEY) === null)
+          localStorage.setItem(PROJECT_BOTS_BACKUP_KEY, raw);
+      } catch {
+        // The original stays where it is either way.
+      }
   }
   return cache;
+}
+
+/** Storage holds bots this build can't read (another version's): nothing is saved. */
+export function projectBotsStoreUnreadable(): boolean {
+  read();
+  return foreign;
 }
 
 function emit() {
   for (const listener of [...listeners]) listener();
 }
+
+const BOTS_WHAT = "your project bots";
 
 function write(store: Store) {
   const raw = JSON.stringify({
@@ -462,11 +497,27 @@ function write(store: Store) {
   });
   cache = store;
   chatIndex = null;
+  if (foreign) {
+    // Another version's bots: never overwritten. Changes last as long as
+    // this window.
+    logError(
+      "Project bots",
+      new Error(
+        `${PROJECT_BOTS_KEY} holds data this version can't read; it is kept as it is (and copied to ${PROJECT_BOTS_BACKUP_KEY}), and nothing is saved.`,
+      ),
+    );
+    reportSaveProblem(PROJECT_BOTS_KEY, BOTS_WHAT, FOREIGN_STORE_WHY);
+    emit();
+    return;
+  }
   try {
     localStorage.setItem(PROJECT_BOTS_KEY, raw);
     cacheRaw = raw;
-  } catch {
+    clearSaveProblem(PROJECT_BOTS_KEY);
+  } catch (error) {
     // Without storage bots still work in this window until it closes.
+    logError("Project bots save", error);
+    reportSaveProblem(PROJECT_BOTS_KEY, BOTS_WHAT, saveFailureWhy(error));
   }
   emit();
 }
@@ -551,6 +602,7 @@ export function resetProjectBotsCache() {
   cache = EMPTY_STORE;
   cacheRaw = undefined;
   chatIndex = null;
+  foreign = false;
 }
 
 function chats(): Map<string, string> {

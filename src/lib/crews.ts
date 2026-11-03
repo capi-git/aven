@@ -1,5 +1,12 @@
 import { useSyncExternalStore } from "react";
+import { logError } from "./errors";
 import { isEqualOrInside, projectKey } from "./paths";
+import {
+  FOREIGN_STORE_WHY,
+  clearSaveProblem,
+  reportSaveProblem,
+  saveFailureWhy,
+} from "./saveProblems";
 import {
   BOT_DEFAULT_QUIET,
   BOT_JOB_STALE_MS,
@@ -615,6 +622,11 @@ export type Crew = {
    */
   otherMembers?: unknown[];
   /**
+   * Cards at a stage this build doesn't know (a later build's), kept as
+   * they were and written back with the rest.
+   */
+  otherCards?: unknown[];
+  /**
    * Chats of members you removed: still the crew's, so they never start as
    * ordinary chats in its copy (each is refused, see `crewChatPermissions`).
    */
@@ -1174,6 +1186,22 @@ function readReview(value: unknown): AutomationReview | undefined {
   };
 }
 
+/**
+ * A stored card this build can't read only because its stage is one it
+ * doesn't know (a later build's): kept as it is, never dropped on save.
+ */
+function cardOfUnknownStage(value: unknown): boolean {
+  const raw = value as Partial<CrewCard> | null;
+  return (
+    !!raw &&
+    typeof raw === "object" &&
+    !!text(raw.id, 100) &&
+    !!text(raw.title, 200) &&
+    typeof raw.stage === "string" &&
+    !STAGES.has(raw.stage as CrewStage)
+  );
+}
+
 export function readCrewCard(value: unknown): CrewCard | null {
   const raw = value as Partial<CrewCard> | null;
   if (!raw || typeof raw !== "object") return null;
@@ -1508,9 +1536,14 @@ export function readCrew(value: unknown): Crew | null {
       };
     }
   const ideas = keptIdeas(read);
-  const cards = Array.isArray(raw.cards)
-    ? raw.cards.map(readCrewCard).filter((card): card is CrewCard => !!card)
-    : [];
+  const cards: CrewCard[] = [];
+  const otherCards: unknown[] = [];
+  if (Array.isArray(raw.cards))
+    for (const item of raw.cards) {
+      const card = readCrewCard(item);
+      if (card) cards.push(card);
+      else if (cardOfUnknownStage(item)) otherCards.push(item);
+    }
   const feed = Array.isArray(raw.feed)
     ? raw.feed
         .map((item): CrewFeedEntry | null => {
@@ -1587,6 +1620,7 @@ export function readCrew(value: unknown): Crew | null {
       ? { defaultBuilder: raw.defaultBuilder }
       : {}),
     ...(otherMembers.length ? { otherMembers: otherMembers.slice(0, 20) } : {}),
+    ...(otherCards.length ? { otherCards: otherCards.slice(0, 50) } : {}),
     ...(retired.length ? { retired } : {}),
     limits: {
       runsPerDay: limit("runsPerDay"),
@@ -1816,10 +1850,16 @@ function emit() {
 
 /** A crew as storage keeps it: members of unknown roles back among its members. */
 function stored(crew: Crew): unknown {
-  if (!crew.otherMembers?.length) return crew;
-  const { otherMembers, ...rest } = crew;
-  return { ...rest, members: [...crew.members, ...otherMembers] };
+  if (!crew.otherMembers?.length && !crew.otherCards?.length) return crew;
+  const { otherMembers, otherCards, ...rest } = crew;
+  return {
+    ...rest,
+    members: [...crew.members, ...(otherMembers ?? [])],
+    cards: [...crew.cards, ...(otherCards ?? [])],
+  };
 }
+
+const CREWS_WHAT = "your teams";
 
 function write(store: Store) {
   const crews: Record<string, unknown> = {};
@@ -1839,18 +1879,25 @@ function write(store: Store) {
     // Another version's crews: never overwritten. Changes last as long as
     // this window.
     if (!foreignWarned)
-      console.error(
-        `Crews: ${CREWS_KEY} holds data this version can't read; it is kept as it is (and copied to ${CREWS_BACKUP_KEY}), and nothing is saved.`,
+      logError(
+        "Crews",
+        new Error(
+          `${CREWS_KEY} holds data this version can't read; it is kept as it is (and copied to ${CREWS_BACKUP_KEY}), and nothing is saved.`,
+        ),
       );
     foreignWarned = true;
+    reportSaveProblem(CREWS_KEY, CREWS_WHAT, FOREIGN_STORE_WHY);
     emit();
     return;
   }
   try {
     localStorage.setItem(CREWS_KEY, raw);
     cacheRaw = raw;
-  } catch {
+    clearSaveProblem(CREWS_KEY);
+  } catch (error) {
     // Without storage crews still work in this window until it closes.
+    logError("Crews save", error);
+    reportSaveProblem(CREWS_KEY, CREWS_WHAT, saveFailureWhy(error));
   }
   emit();
 }

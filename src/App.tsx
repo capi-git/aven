@@ -273,6 +273,7 @@ import {
   AgentPageNotices,
   type AgentPageNotice,
 } from "./chrome/AgentPageNotices";
+import { SaveProblemNotice } from "./chrome/SaveProblemNotice";
 import type {
   PaletteChatRequest,
   PaletteRaceRequest,
@@ -13239,6 +13240,7 @@ export default function App({
                 )
               }
             />
+            <SaveProblemNotice />
             {whatsNewVersion ? (
               <LazyViewSlot label="release notes" quiet>
                 <WhatsNewDialog
