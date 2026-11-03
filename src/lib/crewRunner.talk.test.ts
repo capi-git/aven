@@ -322,11 +322,8 @@ describe("helpers", () => {
     await runner.pump();
     expect(sent.map((turn) => turn.memberId)).toEqual(["lead"]);
     await settle();
-    helperApp = sent.find((turn) =>
-      turn.text.includes("a helper in"),
-    )?.memberId;
-    expect(helperApp).toMatch(/^helper-/);
-    const helperTurn = sent.find((turn) => turn.memberId === helperApp)!;
+    const helperTurn = sent.find((turn) => turn.text.includes("a helper in"))!;
+    expect(helperTurn.memberId).toMatch(/^helper-/);
     expect(helperTurn.text).toContain("<teammate-message");
     expect(helperTurn.text).not.toContain('"helpers"');
     expect(helperTurn.text).not.toContain('"ask"');
