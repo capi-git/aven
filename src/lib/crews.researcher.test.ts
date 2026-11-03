@@ -5,6 +5,7 @@ import {
   CREW_ROLE_INFO,
   CREW_ROLE_ORDER,
   cardInCopy,
+  cardSteppedAside,
   cardResearcher,
   crewAgentsFor,
   crewMembers,
@@ -16,6 +17,7 @@ import {
   resetCrewsCache,
   updateCrew,
   type Crew,
+  type CrewCard,
 } from "./crews";
 import { crewMemberSigil } from "./dotSigils";
 import { crewMemberTone } from "./markTones";
@@ -250,9 +252,32 @@ describe("the Researcher role", () => {
         cards: [{ ...reading, stage: "ready", holder: undefined }],
       }),
     ).toBeUndefined();
-    // A turn that failed still holds it, like any other, until you act.
-    expect(cardInCopy({ cards: [{ ...reading, stage: "stuck" }] })?.id).toBe(
-      "q",
-    );
+    // Stopped without changing a file (no findings, failed, timed out,
+    // stopped): nothing of its own is in the copy, so it steps aside and
+    // the team goes on. Only a turn that changed files holds the copy.
+    const stuck = (reason: NonNullable<CrewCard["stuck"]>["reason"]) => ({
+      ...reading,
+      stage: "stuck" as const,
+      turn: undefined,
+      stuck: { reason, text: "x" },
+    });
+    for (const reason of [
+      "no-verdict",
+      "failed",
+      "timeout",
+      "stopped",
+    ] as const) {
+      expect(cardSteppedAside(stuck(reason)), reason).toBe(true);
+      expect(cardInCopy({ cards: [stuck(reason)] }), reason).toBeUndefined();
+    }
+    expect(cardSteppedAside(stuck("checker-edited"))).toBe(false);
+    expect(cardInCopy({ cards: [stuck("checker-edited")] })?.id).toBe("q");
+    // Not while its turn still runs.
+    expect(
+      cardSteppedAside({
+        ...stuck("failed"),
+        turn: { role: "researcher", sessionId: "r", turnId: "t", sentAt: 2 },
+      }),
+    ).toBe(false);
   });
 });

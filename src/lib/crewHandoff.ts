@@ -439,18 +439,17 @@ export type ResearchFindings = {
   summary: string;
   findings: { text: string; source?: string }[];
   ideas: string[];
-  /** Distinct links in the reply: what it read, counted by Aven. */
+  /** Distinct links the findings cite, counted by Aven. */
   sources: number;
 };
 
-/** Distinct links in a reply, as a count: what the Researcher read. */
-export function countSources(text: string): number {
-  const links = new Set<string>();
-  for (const match of text.matchAll(/https?:\/\/[^\s<>()"'`\]]+/gi)) {
-    const url = reviewUrl(match[0].replace(/[.,;:!?]+$/, ""));
-    if (url) links.add(url.toLowerCase());
-  }
-  return links.size;
+/** Distinct links among the findings' sources: what the Researcher cites. */
+export function countSources(findings: readonly { source?: string }[]): number {
+  return new Set(
+    findings
+      .map((finding) => finding.source?.toLowerCase())
+      .filter((source): source is string => /^https?:\/\//.test(source ?? "")),
+  ).size;
 }
 
 /**
@@ -504,14 +503,7 @@ export function parseFindings(text: string): ResearchFindings | null {
     summary,
     findings,
     ideas,
-    sources: Math.max(
-      countSources(text),
-      new Set(
-        findings
-          .map((finding) => finding.source?.toLowerCase())
-          .filter((source): source is string => !!source?.startsWith("http")),
-      ).size,
-    ),
+    sources: countSources(findings),
   };
 }
 

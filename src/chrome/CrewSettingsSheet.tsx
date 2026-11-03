@@ -537,7 +537,7 @@ function AccessSection({ crew }: { crew: Crew }) {
           title="Use the web"
           detail={
             access.web === "everyone"
-              ? "Everyone searches and reads pages, and uses Aven's browser. Ideas the Scout or the Researcher finds wait for you"
+              ? "Everyone searches and reads pages, and uses Aven's browser. The Scout's ideas then wait for you, as the Researcher's always do"
               : access.web === "builders"
                 ? "Builders and the Researcher search and read pages. All but the Scout use Aven's browser, to try the work"
                 : "No teammate searches, reads pages or uses Aven's browser"

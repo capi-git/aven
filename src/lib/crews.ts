@@ -2621,6 +2621,14 @@ export function crewCard(
  * and starts again from the top when you answer it or try it again.
  */
 export function cardSteppedAside(card: CrewCard): boolean {
+  // A research card has nothing of its own in the copy unless its turn
+  // changed files: stopped for any other reason, it steps aside too.
+  if (card.kind === "research")
+    return (
+      card.stage === "stuck" &&
+      !card.turn &&
+      card.stuck?.reason !== "checker-edited"
+    );
   return (
     card.stage === "stuck" &&
     !card.turn &&

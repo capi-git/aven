@@ -2039,6 +2039,14 @@ export class CrewRunner {
       begun = card;
       if (!card.base)
         throw new Error("The card has no starting point in the copy.");
+      // Read again after a turn that changed files: whatever it left in the
+      // copy goes, so a reader's stray change never reaches the next card.
+      if (!fresh && crew.copy)
+        await this.deps.copy.discard(
+          crew.copy.path,
+          card.base,
+          crew.copy.branch,
+        );
       const member = crewMemberById(crew, memberId);
       if (!member || member.paused || member.role !== "researcher")
         return this.endTurn(path, turn);
@@ -2220,12 +2228,14 @@ export class CrewRunner {
                 return null;
               })
           : null;
-      // A reader that changed the copy (or whose copy can't be read): void.
+      // A reader that changed the copy is void; a copy Aven can't read says so.
+      const unreadable = !diff && !!crew.copy && !!card.base;
       const edited =
-        !diff || (!!card.turn.hashBefore && diff.hash !== card.turn.hashBefore);
+        !!diff && !!card.turn.hashBefore && diff.hash !== card.turn.hashBefore;
       step = afterResearch(card, {
         findings: parseFindings(reply),
         edited,
+        unreadable,
         now,
         name,
       });

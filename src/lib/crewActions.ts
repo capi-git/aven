@@ -741,11 +741,13 @@ export async function giveIdeasToCrew(
 
 /**
  * "Research: how do other apps do X" in the Add an idea box: the question
- * after the prefix, or null for an ordinary idea.
+ * after the prefix, or null for an ordinary idea. The prefix ends in a
+ * colon, or a dash with space on both sides: "Research-based pricing" is
+ * an idea.
  */
 export function researchQuestion(text: string): string | null {
   const match =
-    /^\s*(?:research|ask(?:\s+the)?\s+researcher)\s*[:：—–-]\s*(.+)$/is.exec(
+    /^\s*(?:research|ask(?:\s+the)?\s+researcher)(?:\s*[:：]\s*|\s+[—–-]\s+)(.+)$/is.exec(
       text,
     );
   const question = match?.[1]?.trim();
@@ -774,6 +776,9 @@ export async function askResearcher(
   const known = crewCard(crew, card.id);
   if (known && known.stage !== "applied" && known.stage !== "discarded")
     return null;
+  // An idea the Scout, Security or the Researcher put there is their
+  // words, quoted as data in the question; yours are the question itself.
+  const idea = crew.ideas?.[card.id];
   updateCrew(path, (current) => {
     const who = crewMemberName(
       current,
@@ -787,7 +792,7 @@ export async function askResearcher(
             id: card.id,
             title: card.title,
             brief: featureBrief(card),
-            from: "you",
+            from: idea?.by ? idea.by : idea ? "scout" : "you",
             kind: "research",
             ...(card.sourceUrl ? { sourceUrl: card.sourceUrl } : {}),
             maxRounds: 1,
@@ -811,10 +816,14 @@ export async function askResearcher(
 
 const NO_FINDINGS = "This card has no findings to read.";
 
+/** Research cards whose ideas are being added now: a second press waits. */
+const addingIdeas = new Set<string>();
+
 /**
  * Put the ideas the Researcher proposed on the Board (those you ticked, or
  * all of them), each an idea that waits for you: none ever builds by
- * itself. The card is done. Resolves with why it couldn't, or null.
+ * itself. The card is done. Resolves with why it couldn't, or null. Pressed
+ * twice before the Board answers, the second press does nothing.
  */
 export async function addResearchIdeas(
   path: string,
@@ -827,10 +836,28 @@ export async function addResearchIdeas(
   if (!card || card.kind !== "research" || card.stage !== "ready")
     return NOT_READY;
   if (!card.findings) return NO_FINDINGS;
-  const titles = card.findings.ideas.filter(
+  const key = `${projectKey(path)}\n${cardId}`;
+  if (addingIdeas.has(key)) return null;
+  addingIdeas.add(key);
+  try {
+    return await addResearchIdeasOnce(path, card, crew!, chosen, now);
+  } finally {
+    addingIdeas.delete(key);
+  }
+}
+
+async function addResearchIdeasOnce(
+  path: string,
+  card: CrewCard,
+  crew: Crew,
+  chosen: readonly string[] | undefined,
+  now: number,
+): Promise<string | null> {
+  const cardId = card.id;
+  const titles = card.findings!.ideas.filter(
     (idea) => !chosen || chosen.includes(idea),
   );
-  const who = crewMemberName(crew!, cardResearcher(crew!)?.id ?? "researcher");
+  const who = crewMemberName(crew, cardResearcher(crew)?.id ?? "researcher");
   let added: readonly FeatureCard[] = [];
   if (titles.length) {
     try {

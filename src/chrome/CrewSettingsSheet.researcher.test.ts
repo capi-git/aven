@@ -101,5 +101,20 @@ describe("the Researcher in the Team sheet", () => {
     expect(TEAM_ACCESS_SCOPE_LINE).toContain(
       "The Researcher reads the web whenever Builders may",
     );
+    // Everyone: the Scout's ideas wait because it read the web; the
+    // Researcher's always do. Neither finds ideas on the web.
+    const everyone = [
+      ...access.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    ].find((item) => item.textContent === "Everyone")!;
+    await act(async () => everyone.click());
+    expect(
+      [...access.querySelectorAll<HTMLElement>("span[title]")].map(
+        (item) => item.title,
+      ),
+    ).toContainEqual(
+      expect.stringContaining(
+        "The Scout's ideas then wait for you, as the Researcher's always do",
+      ),
+    );
   });
 });

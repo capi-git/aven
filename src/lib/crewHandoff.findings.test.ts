@@ -102,20 +102,21 @@ describe("the Researcher's findings", () => {
     expect(JSON.stringify(found)).not.toContain("sk-ant-api03-abcdef");
   });
 
-  it("counts the distinct links it read, in the block and the words before it", () => {
+  it("counts only the distinct links its findings cite, not every link it mentions", () => {
     const text = reply(
       {
         summary: "s",
         findings: [
           { text: "a", source: "https://a.test/one" },
-          { text: "b", source: "https://a.test/one" },
+          { text: "b", source: "https://A.test/one" },
           { text: "c", source: "https://b.test/two" },
+          { text: "d", source: "project file: src/x.ts" },
         ],
       },
-      "I read https://c.test/three, https://C.test/three and https://d.test/four.",
+      // Links it only talked about (couldn't open, say) don't count.
+      "I tried https://c.test/three and https://d.test/four but couldn't open them.",
     );
-    expect(countSources(text)).toBe(4);
-    expect(parseFindings(text)!.sources).toBe(4);
-    expect(countSources("no links here")).toBe(0);
+    expect(parseFindings(text)!.sources).toBe(2);
+    expect(countSources([{ source: "project file" }, {}])).toBe(0);
   });
 });

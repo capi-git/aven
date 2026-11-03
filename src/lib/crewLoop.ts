@@ -190,6 +190,8 @@ export function afterResearch(
     findings: Omit<CrewFindings, "readAt"> | null;
     /** The copy changed during the turn. */
     edited: boolean;
+    /** Aven couldn't read the copy after the turn: nothing can be trusted. */
+    unreadable?: boolean;
     now: number;
     name?: string;
   },
@@ -197,6 +199,13 @@ export function afterResearch(
   const { now } = input;
   const who = input.name ?? NAME("researcher");
   const next: CrewCard = { ...card, turn: undefined, updatedAt: now };
+  if (input.unreadable) {
+    const text = `Aven couldn't read the team's copy after ${who}'s turn, so its findings weren't used`;
+    return {
+      card: stuck(next, "failed", text, now),
+      event: { kind: "stuck", reason: "failed", text },
+    };
+  }
   if (input.edited) {
     const text = `${who} changed files while reading, so its findings weren't used`;
     return {
