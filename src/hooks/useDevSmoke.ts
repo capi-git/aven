@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import {
   devSmokeConfig,
   finishDevSmoke,
+  smokeStepRunner,
   SMOKE_OVERLAY_EVENT,
   SMOKE_OVERLAY_RESULT_EVENT,
   SMOKE_ECHO_NOTE_WORD,
@@ -16,7 +17,6 @@ import {
   SMOKE_WRAP_UP_WORD,
   waitFor,
   type DevSmokeConfig,
-  type SmokeStep,
 } from "../lib/devSmoke";
 import {
   animationProblem,
@@ -57,7 +57,6 @@ import {
   checkDesigner,
   checkResearcher,
   checkTeamAccess,
-  checkTeammateNotes,
   checkTeamSetup,
   type SmokeTeam,
 } from "../lib/devSmokeTeam";
@@ -2335,20 +2334,9 @@ export async function runDevSmoke(
   config: DevSmokeConfig,
   get: () => Options,
 ): Promise<void> {
-  const steps: SmokeStep[] = [];
-  const step = async (
-    name: string,
-    body: () => Promise<string | void>,
-  ): Promise<boolean> => {
-    try {
-      const detail = await body();
-      steps.push({ name, passed: true, ...(detail ? { detail } : {}) });
-      return true;
-    } catch (error) {
-      steps.push({ name, passed: false, detail: errorText(error) });
-      return false;
-    }
-  };
+  // One budget for every step, so the check always finishes itself and
+  // writes its result before the runner's deadline for the app.
+  const { steps, step } = smokeStepRunner();
 
   // Never send anything unless Claude is the stand-in: a real `claude` would
   // reach the developer's own account.
@@ -4064,9 +4052,9 @@ export async function runDevSmoke(
 
   // The team family, each step in a Git project of its own beside the
   // check's, with the stand-in as every teammate: a team sets itself up
-  // from a description, the Researcher's findings put ideas on the Board,
-  // the Designer's mock-up is kept (and a stray one refused), a teammate's
-  // notes are kept between turns, and the Team sheet's Access choices stay.
+  // from a description, the Researcher's findings put ideas on the Board
+  // and its notes are kept between turns, the Designer's mock-up is kept
+  // (and a stray one refused), and the Team sheet's Access choices stay.
   if (safe && crew)
     await step(
       "a new team sets itself up from a description, with its ideas placed and its about kept",
@@ -4074,18 +4062,13 @@ export async function runDevSmoke(
     );
   if (safe && crew)
     await step(
-      "the Researcher hands back findings whose ideas go on the Board once, and is told when it has no web",
+      "the Researcher hands back findings whose ideas go on the Board once, keeps its notes for the next turn, and is told when it has no web",
       () => checkResearcher(get, config, crew),
     );
   if (safe && crew)
     await step(
       "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
       () => checkDesigner(get, config, crew),
-    );
-  if (safe && crew)
-    await step(
-      "a teammate's notes are kept from its turn, read back by the next, and cleared from its page",
-      () => checkTeammateNotes(get, config, crew),
     );
   if (safe && crew)
     await step(

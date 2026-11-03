@@ -754,6 +754,31 @@ class RealAppCheck(unittest.TestCase):
         self.write_run(steps, [{**chat, 'harnessParent': False}, {'pid': 1, 'turn': 't'}])
         self.assertFalse(self.score())
 
+    def test_the_check_finishes_itself_before_the_runner_stops_the_app(self):
+        source = (Path(__file__).resolve().parent.parent / 'src/lib/devSmoke.ts').read_text()
+        budget_ms = int(re.search(r'export const SMOKE_BUDGET_MS = ([\d_]+);', source).group(1).replace('_', ''))
+        # A minute for the app to start and for the result to be written and read.
+        self.assertLessEqual(budget_ms / 1000, runner.SMOKE_TIMEOUT - 60)
+
+    def test_a_stopped_app_is_reported_as_stopped_at_the_deadline(self):
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertFalse(runner.report_smoke(self.root, 0, timed_out=True))
+        self.assertIn(f'stopped at the {runner.SMOKE_TIMEOUT} s deadline', err.getvalue())
+
+    def test_the_run_s_logs_and_result_are_copied_to_one_stable_folder(self):
+        chat = {'pid': 1, 'args': ['--replay-user-messages'], 'harnessParent': True}
+        self.write_run([{'name': 'agent turn', 'passed': True}], [chat, {'pid': 1, 'turn': 't'}])
+        (self.root / 'app.log').write_text('app\n')
+        into = self.root / 'evidence'
+        (into / 'stale').mkdir(parents=True)
+        self.assertEqual(runner.keep_smoke_evidence(self.root, into), ['app.log', 'result.json', 'fake-claude.log'])
+        self.assertEqual(sorted(path.name for path in into.iterdir()), ['app.log', 'fake-claude.log', 'result.json'])
+        self.assertEqual((into / 'app.log').read_text(), 'app\n')
+        # Nothing to copy leaves no folder.
+        self.assertEqual(runner.keep_smoke_evidence(self.root / 'nowhere', self.root / 'empty'), [])
+        self.assertFalse((self.root / 'empty').exists())
+
     def test_fails_on_a_failed_step_a_missing_result_or_a_bad_exit(self):
         chat = {'pid': 1, 'args': ['--replay-user-messages'], 'harnessParent': True}
         self.write_run([{'name': 'floating sidebar', 'passed': False, 'detail': 'stopped responding'}],

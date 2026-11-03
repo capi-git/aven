@@ -31,10 +31,11 @@ import type { Session } from "./session";
  * The real-app check's team steps, each in a Git project of its own beside
  * the check's, with the stand-in as every teammate: a team sets itself up
  * from a description, the Researcher hands back findings whose ideas go on
- * the Board, the Designer draws one mock-up (and is refused when it strays
- * outside its folder), a teammate's notes are kept between turns, and the
- * Team sheet's Access choices persist. Each step turns its team off at its
- * end, so one failure never holds the next.
+ * the Board and keeps its notes between turns, the Designer draws one
+ * mock-up (and is refused when it strays outside its folder), and the Team
+ * sheet's Access choices persist. Each step turns its team off at its end,
+ * so one failure never holds the next, and every wait is bounded, so the
+ * check always finishes with a result.
  */
 
 /** On a research card: the stand-in Researcher answers with findings. */
@@ -604,7 +605,26 @@ export async function checkTeamSetup(
 }
 
 // ---------------------------------------------------------------------------
-// The Researcher
+// The Researcher, and its notes
+
+/** The teammate's page open at its Notes box. */
+async function openNotes(
+  project: string,
+  memberId: string,
+  what: string,
+): Promise<HTMLTextAreaElement> {
+  workspace().openSettings(project, memberId);
+  return waitFor(
+    () => {
+      const found = document.querySelector<HTMLTextAreaElement>(
+        "[data-crew-member-notes]",
+      );
+      return onScreen(found) ? found : null;
+    },
+    10_000,
+    what,
+  );
+}
 
 export async function checkResearcher(
   get: Get,
@@ -614,9 +634,14 @@ export async function checkResearcher(
   const project = await newTeamProject(config.projectPath, "team-researcher");
   let cardId: string | undefined;
   try {
-    await startTeam(team, project, ["researcher"]);
+    const crew = await startTeam(team, project, ["researcher"]);
+    const researcher = crew.members.find(
+      (member) => member.role === "researcher",
+    );
+    if (!researcher) throw new Error("The team has no Researcher");
     const board = await openBoard(project);
-    const question = `What do similar apps do first? ${SMOKE_RESEARCH_WORD}`;
+    // One turn: findings, and the member's notes rewritten with them.
+    const question = `What do similar apps do first? ${SMOKE_RESEARCH_WORD} ${SMOKE_NOTES_WORD}`;
     addIdeaFromBoard(board, `Research: ${question}`);
     const card = await waitFor(
       () => boardCardByTitle(project, question),
@@ -635,7 +660,7 @@ export async function checkResearcher(
         const current = teamCard(project, id);
         return current?.stage === "ready" ? current : null;
       },
-      180_000,
+      150_000,
       "the Researcher's findings",
     );
     const findings = ready.findings;
@@ -712,7 +737,7 @@ export async function checkResearcher(
     const before =
       boardOnScreen(project)?.querySelectorAll("[data-board-card]").length;
     const again = await addResearchIdeas(project, id);
-    await wait(1_000);
+    await wait(500);
     const after =
       boardOnScreen(project)?.querySelectorAll("[data-board-card]").length;
     if (!again || after !== before)
@@ -720,7 +745,37 @@ export async function checkResearcher(
         `Add again ${again ? `was refused ("${again}")` : "went through"} and the Board went from ${before} to ${after} cards`,
       );
 
-    // With the web for no one, the Researcher's next turn is told so.
+    // The turn's notes block set the member's Notes, shown on its page.
+    const memory = await waitFor(
+      () => {
+        const member = getCrew(project)?.members.find(
+          (item) => item.id === researcher.id,
+        );
+        return member?.memory?.includes(SMOKE_NOTES_TEXT) && member.memoryAt
+          ? member.memory
+          : null;
+      },
+      10_000,
+      "the Researcher's notes to be kept",
+    );
+    const notes = await openNotes(
+      project,
+      researcher.id,
+      "the teammate's page",
+    );
+    if (!notes.value.includes(SMOKE_NOTES_TEXT))
+      throw new Error(`The Notes box reads ${JSON.stringify(notes.value)}`);
+    const hint =
+      notes
+        .closest(".teammate-field")
+        ?.querySelector(".teammate-field-label span")?.textContent ?? "";
+    if (!hint.includes("Updated"))
+      throw new Error(
+        `The Notes label says "${hint.trim()}", not when they were updated`,
+      );
+    await closeSheet(notes, "the teammate's page");
+
+    // With the web for no one, the next turn is told so, and gets its notes.
     setCrewAccess(project, { web: "none" });
     const logged = await standInTurns(team, config.binDir);
     const was =
@@ -733,17 +788,18 @@ export async function checkResearcher(
       "the second research card",
     );
     const secondId = secondCard.dataset.boardCard ?? "";
+    cardId = secondId;
     await waitFor(
       () => teamCard(project, secondId)?.stage === "ready",
-      180_000,
+      150_000,
       "the second findings",
     );
-    let web: string;
+    let told: string;
     if (logged) {
       const turns = (await standInTurns(team, config.binDir)) ?? [];
-      const researcher = turns.filter((turn) => turn.crew === "researcher");
-      const last = researcher.at(-1);
-      if (researcher.length <= was || !last)
+      const mine = turns.filter((turn) => turn.crew === "researcher");
+      const last = mine.at(-1);
+      if (mine.length <= was || !last)
         throw new Error(
           "The stand-in logged no Researcher turn for the second question",
         );
@@ -751,20 +807,50 @@ export async function checkResearcher(
         throw new Error(
           "The stand-in Researcher's turn said it had the web although Access says No one",
         );
-      web = "the stand-in's log shows its turn was told it has no web";
+      if (last.notes !== true)
+        throw new Error(
+          "The stand-in Researcher's second turn wasn't given its notes",
+        );
+      told =
+        "the stand-in's log shows its next turn was told it has no web and got its notes";
     } else {
       const sent = lastSentTo(get, getCrew(project), "researcher");
       if (!sent)
-        web =
-          "the stand-in's log and the Researcher's chat were unreadable, so the no-web line wasn't checked";
+        told =
+          "the stand-in's log and the Researcher's chat were unreadable, so the no-web line and the notes weren't checked";
       else if (!sent.includes(NO_WEB_LINE))
         throw new Error(
           "The Researcher's turn wasn't told it has no web although Access says No one",
         );
-      else web = "the Researcher's chat shows its turn was told it has no web";
+      else if (!sent.includes(NOTES_TAG) || !sent.includes(SMOKE_NOTES_TEXT))
+        throw new Error("The Researcher's second turn wasn't given its notes");
+      else
+        told =
+          "the Researcher's chat shows its next turn was told it has no web and got its notes";
     }
     await dismissResearch(project, secondId);
-    return `Findings · 2 findings · 2 ideas proposed; Read numbered both with a link each and ticked both ideas; Add 2 ideas to Board put "${RESEARCH_IDEAS.join('" and "')}" in Ideas as From Researcher · Waits for you and the card in Done; Add again added nothing; with Access → web No one, ${web}`;
+
+    // Clear empties the notes.
+    const again2 = await openNotes(
+      project,
+      researcher.id,
+      "the teammate's page again",
+    );
+    const clear = again2
+      .closest(".teammate-field")
+      ?.querySelector<HTMLButtonElement>("[data-crew-member-notes-clear]");
+    if (!clear) throw new Error("The Notes box has no Clear");
+    clear.click();
+    await waitFor(
+      () =>
+        again2.value === "" &&
+        !getCrew(project)?.members.find((item) => item.id === researcher.id)
+          ?.memory,
+      5_000,
+      "Clear to empty the notes",
+    );
+    await closeSheet(again2, "the teammate's page");
+    return `Findings · 2 findings · 2 ideas proposed; Read numbered both with a link each and ticked both ideas; Add 2 ideas to Board put "${RESEARCH_IDEAS.join('" and "')}" in Ideas as From Researcher · Waits for you and the card in Done; Add again added nothing; the turn's notes block set its Notes (${memory.length} characters, with Updated); with Access → web No one, ${told}; Clear emptied the notes`;
   } catch (error) {
     withDiagnostics(get, project, cardId, error);
   } finally {
@@ -807,7 +893,7 @@ export async function checkDesigner(
         const current = teamCard(project, id);
         return current?.stage === "ready" ? current : null;
       },
-      180_000,
+      150_000,
       "the Designer's mock-up",
     );
     if (!ready.mockup?.file)
@@ -883,7 +969,7 @@ export async function checkDesigner(
             await team.listDir(copy),
             (await gitDiffIndex(copy)).files,
           ),
-        10_000,
+        5_000,
       );
     const clean = await leftovers();
     if (clean) throw new Error(`After the mock-up, ${clean}`);
@@ -911,7 +997,7 @@ export async function checkDesigner(
           );
         return current?.stage === "stuck" ? current : null;
       },
-      180_000,
+      150_000,
       "the straying turn to stop",
     );
     if (!stuck.stuck?.text.includes(`wrote outside ${MOCKUP_DIR}`))
@@ -933,20 +1019,18 @@ export async function checkDesigner(
     if (!strayed)
       throw new Error(`${SMOKE_STRAY_FILE} isn't in the copy for you to see`);
     pressCardButton(needsYou, "Throw away");
-    const confirm = await waitFor(
+    // The Board asks through Aven's own dialog (never the browser's, which
+    // would hold the page): its confirm button carries data-confirm.
+    const sure = await waitFor(
       () => {
-        const found = document.querySelector<HTMLElement>(
-          "[data-crew-throw-confirm]",
+        const found = document.querySelector<HTMLButtonElement>(
+          '[role="dialog"] [data-confirm]',
         );
         return onScreen(found) ? found : null;
       },
       10_000,
       "the Throw away question",
     );
-    const sure = [
-      ...confirm.querySelectorAll<HTMLButtonElement>("button"),
-    ].find((button) => button.textContent?.trim() === "Throw away");
-    if (!sure) throw new Error("The question has no Throw away button");
     sure.click();
     await waitFor(
       () => !boardCardByTitle(project, strayScreen),
@@ -956,152 +1040,6 @@ export async function checkDesigner(
     const left = await leftovers();
     if (left) throw new Error(`After Throw away, ${left}`);
     return `Mock-up · Designer with Look and Build it; Look rendered the page; Build it added "Build the mock-up: …" and put the card in Done with the copy clean; a turn that wrote ${SMOKE_STRAY_FILE} outside ${MOCKUP_DIR} ended as Needs you with why, and Throw away left the copy clean`;
-  } catch (error) {
-    withDiagnostics(get, project, cardId, error);
-  } finally {
-    await tidy(project);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// A teammate's notes
-
-export async function checkTeammateNotes(
-  get: Get,
-  config: { projectPath: string; binDir: string },
-  team: SmokeTeam,
-): Promise<string> {
-  const project = await newTeamProject(config.projectPath, "team-notes");
-  let cardId: string | undefined;
-  try {
-    const crew = await startTeam(team, project, ["researcher"]);
-    const researcher = crew.members.find(
-      (member) => member.role === "researcher",
-    );
-    if (!researcher) throw new Error("The team has no Researcher");
-    const board = await openBoard(project);
-    const question = `What is worth remembering here? ${SMOKE_RESEARCH_WORD} ${SMOKE_NOTES_WORD}`;
-    addIdeaFromBoard(board, `Research: ${question}`);
-    const card = await waitFor(
-      () => boardCardByTitle(project, question),
-      10_000,
-      "the research card",
-    );
-    cardId = card.dataset.boardCard ?? "";
-    const id = cardId;
-    await waitFor(
-      () => teamCard(project, id)?.stage === "ready",
-      180_000,
-      "the Researcher's turn to end",
-    );
-    const memory = await waitFor(
-      () => {
-        const member = getCrew(project)?.members.find(
-          (item) => item.id === researcher.id,
-        );
-        return member?.memory?.includes(SMOKE_NOTES_TEXT) && member.memoryAt
-          ? member.memory
-          : null;
-      },
-      10_000,
-      "the Researcher's notes to be kept",
-    );
-    // Its page shows them, with when.
-    workspace().openSettings(project, researcher.id);
-    const notes = await waitFor(
-      () => {
-        const found = document.querySelector<HTMLTextAreaElement>(
-          "[data-crew-member-notes]",
-        );
-        return onScreen(found) ? found : null;
-      },
-      10_000,
-      "the teammate's page",
-    );
-    if (!notes.value.includes(SMOKE_NOTES_TEXT))
-      throw new Error(`The Notes box reads ${JSON.stringify(notes.value)}`);
-    const hint =
-      notes
-        .closest(".teammate-field")
-        ?.querySelector(".teammate-field-label span")?.textContent ?? "";
-    if (!hint.includes("Updated"))
-      throw new Error(
-        `The Notes label says "${hint.trim()}", not when they were updated`,
-      );
-    await closeSheet(notes, "the teammate's page");
-    await dismissResearch(project, id);
-
-    // The next turn reads them back.
-    const logged = await standInTurns(team, config.binDir);
-    const was =
-      logged?.filter((turn) => turn.crew === "researcher").length ?? 0;
-    const second = `And again? ${SMOKE_RESEARCH_WORD}`;
-    addIdeaFromBoard(board, `Research: ${second}`);
-    const secondCard = await waitFor(
-      () => boardCardByTitle(project, second),
-      10_000,
-      "the second research card",
-    );
-    const secondId = secondCard.dataset.boardCard ?? "";
-    cardId = secondId;
-    await waitFor(
-      () => teamCard(project, secondId)?.stage === "ready",
-      180_000,
-      "the second turn to end",
-    );
-    let read: string;
-    const sent = lastSentTo(get, getCrew(project), "researcher");
-    if (logged) {
-      const turns = (await standInTurns(team, config.binDir)) ?? [];
-      const researcherTurns = turns.filter(
-        (turn) => turn.crew === "researcher",
-      );
-      const last = researcherTurns.at(-1);
-      if (researcherTurns.length <= was || !last)
-        throw new Error(
-          "The stand-in logged no Researcher turn for the second question",
-        );
-      if (last.notes !== true)
-        throw new Error(
-          "The stand-in Researcher's second turn wasn't given its notes",
-        );
-      read = "the stand-in's log shows the next turn got them";
-    } else if (sent) {
-      if (!sent.includes(NOTES_TAG) || !sent.includes(SMOKE_NOTES_TEXT))
-        throw new Error("The Researcher's second turn wasn't given its notes");
-      read = "the Researcher's chat shows the next turn got them";
-    } else
-      read =
-        "the stand-in's log and the Researcher's chat were unreadable, so the next turn's notes weren't checked";
-    await dismissResearch(project, secondId);
-
-    // Clear empties them.
-    workspace().openSettings(project, researcher.id);
-    const again = await waitFor(
-      () => {
-        const found = document.querySelector<HTMLTextAreaElement>(
-          "[data-crew-member-notes]",
-        );
-        return onScreen(found) ? found : null;
-      },
-      10_000,
-      "the teammate's page again",
-    );
-    const clear = again
-      .closest(".teammate-field")
-      ?.querySelector<HTMLButtonElement>("[data-crew-member-notes-clear]");
-    if (!clear) throw new Error("The Notes box has no Clear");
-    clear.click();
-    await waitFor(
-      () =>
-        again.value === "" &&
-        !getCrew(project)?.members.find((item) => item.id === researcher.id)
-          ?.memory,
-      5_000,
-      "Clear to empty the notes",
-    );
-    await closeSheet(again, "the teammate's page");
-    return `the turn's notes block set the Researcher's Notes (${memory.length} characters, with Updated); ${read}; Clear emptied them`;
   } catch (error) {
     withDiagnostics(get, project, cardId, error);
   } finally {
