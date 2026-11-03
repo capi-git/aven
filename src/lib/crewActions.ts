@@ -68,6 +68,7 @@ import {
   type CrewMessageKind,
   type CrewMockup,
   type CrewRole,
+  type CrewRoutine,
   type CrewRoute,
   type CrewScoutSchedule,
   crewCardByTitle,
@@ -177,7 +178,7 @@ export function crewModelFor(
   models: CrewModels,
   role: Exclude<CrewRole, "fixer">,
 ): { harness: "claude" | "codex"; model: string } {
-  if (role === "lead") return models.lead ?? models.scout;
+  if (role === "lead" || role === "helper") return models.lead ?? models.scout;
   return models[role === "security" ? "checker" : role];
 }
 
@@ -2225,7 +2226,6 @@ export function addCrewMember(
     template === "custom" ? (input.role ?? "builder") : template;
   if (
     (role === "scout" ||
-      role === "lead" ||
       role === "security" ||
       role === "researcher" ||
       role === "designer") &&
@@ -2282,6 +2282,20 @@ export function addCrewMember(
  * rules; none of these change what it may do (its sandbox, rules and copy
  * come from its role alone). Resolves with why it couldn't, or null.
  */
+/** Set or clear a teammate's routine. A new one first runs at the next look. */
+export function updateCrewRoutine(
+  path: string,
+  id: string,
+  routine: CrewRoutine | null,
+) {
+  updateCrew(path, (current) =>
+    withMemberId(current, id, (member) => {
+      const { routine: _old, ...rest } = member;
+      return routine ? { ...rest, routine } : rest;
+    }),
+  );
+}
+
 export function updateCrewMember(
   path: string,
   id: string,

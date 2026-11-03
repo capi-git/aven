@@ -541,7 +541,11 @@ export function crewPermissionRules(
   // only reads stays that way under Full access, so a check can't fix what it
   // is checking.
   const refusing =
-    access.others === "refuse" || (access.others === "allow" && !edits);
+    access.others === "refuse" ||
+    (access.others === "allow" && !edits) ||
+    // Nothing a Lead or a helper does is worth stopping for: it answers.
+    role === "lead" ||
+    role === "helper";
   const web = !offline && crewRoleUsesWeb(crew, role);
   return {
     deny: [

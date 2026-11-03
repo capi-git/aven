@@ -9,6 +9,7 @@ import {
   newCrew,
   resetCrewsCache,
   updateCrew,
+  withTalk,
   type Crew,
 } from "./crews";
 import { ideaWaits } from "./crewLimits";
@@ -94,7 +95,10 @@ function harness(agents: Record<string, Agent>) {
           { id: options.blockId, role: "user", text: options.displayText },
         ],
       }));
-      const reply = agents[memberId]?.(text) ?? "";
+      const reply =
+        (memberId.startsWith("helper-") ? agents.helper : agents[memberId])?.(
+          text,
+        ) ?? "";
       const id = nextId++;
       timers.set(id, {
         at: now + MINUTE,
@@ -258,6 +262,139 @@ describe("a message to everyone", () => {
   });
 });
 
+describe("a routine", () => {
+  it("runs on its rhythm, once, within the team's limits", async () => {
+    team((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.role === "lead"
+          ? {
+              ...member,
+              routine: {
+                text: "Say what changed",
+                every: "day" as const,
+                at: 0,
+              },
+            }
+          : member,
+      ),
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () => talk({ line: "Nothing changed." }),
+    });
+    runner.start();
+    await settle();
+    expect(sent.map((turn) => turn.memberId)).toEqual(["lead"]);
+    expect(sent[0]!.text).toContain("A routine the user set");
+    expect(sent[0]!.options.botWake).toBeTruthy();
+    expect(lines()).toEqual(["Nothing changed."]);
+    await settle();
+    expect(sent).toHaveLength(1);
+    runner.stop();
+  });
+});
+
+describe("helpers", () => {
+  const started = () => getCrew(PATH)!.helpers ?? [];
+
+  it("runs one read-only, on its parent's app, and hands its answer back", async () => {
+    team((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.role === "lead"
+          ? { ...member, harness: "codex" as const, model: "codex:x" }
+          : member,
+      ),
+    }));
+    let turns = 0;
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        turns++ === 0
+          ? talk({
+              line: "Looking.",
+              helpers: [{ title: "Read the tests", task: "Which fail?" }],
+            })
+          : talk({ line: "All pass." }),
+      helper: () => talk({ line: "None fail." }, "Read them all: none fail."),
+    });
+    runner.start();
+    await tellTeam(PATH, "Do tests pass?", "lead", NOON);
+    await runner.pump();
+    expect(sent.map((turn) => turn.memberId)).toEqual(["lead"]);
+    await settle();
+    helperApp = sent.find((turn) =>
+      turn.text.includes("a helper in"),
+    )?.memberId;
+    expect(helperApp).toMatch(/^helper-/);
+    const helperTurn = sent.find((turn) => turn.memberId === helperApp)!;
+    expect(helperTurn.text).toContain("<teammate-message");
+    expect(helperTurn.text).not.toContain('"helpers"');
+    expect(helperTurn.text).not.toContain('"ask"');
+    expect(started()).toEqual([]);
+    expect(lines()).toContain("All pass.");
+    expect(sent.at(-1)!.text).toContain("Read them all");
+    runner.stop();
+  });
+
+  it("keeps to the limit for one teammate, and notes the rest", async () => {
+    team();
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        talk({
+          line: "Many.",
+          helpers: [
+            { title: "One", task: "1" },
+            { title: "Two", task: "2" },
+          ],
+        }),
+    });
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      helperRuns: { day: localDay(NOON), count: 9 },
+    }));
+    runner.start();
+    await tellTeam(PATH, "Go", "lead", NOON);
+    await settle();
+    const helpers = sent.filter((turn) => turn.memberId.startsWith("helper-"));
+    expect(helpers).toHaveLength(1);
+    expect(
+      getCrew(PATH)!.feed.some((entry) => /wanted a helper/.test(entry.text)),
+    ).toBe(true);
+    runner.stop();
+  });
+
+  it("starts none from a turn that could read the web", async () => {
+    team((crew) => ({
+      ...crew,
+      access: { deletes: true, web: "everyone", others: "allow" },
+      members: [
+        ...crew.members,
+        { id: "scout", role: "scout", critter: "scout", schedule: "off" },
+      ],
+    }));
+    const { runner, sent, settle } = harness({
+      scout: () =>
+        talk({ line: "No.", helpers: [{ title: "One", task: "1" }] }),
+    });
+    updateCrew(PATH, (crew) =>
+      withTalk(crew, {
+        at: NOON,
+        from: "lead",
+        to: "scout",
+        text: "Look",
+        hop: 1,
+      }),
+    );
+    runner.start();
+    await settle();
+    expect(sent.some((turn) => turn.memberId.startsWith("helper-"))).toBe(
+      false,
+    );
+    expect(sent[0]!.text).not.toContain('"helpers"');
+    runner.stop();
+  });
+});
+
 describe("teammates asking each other", () => {
   it("carries a question and its answer, whatever app each runs on", async () => {
     team();
@@ -348,7 +485,7 @@ describe("teammates asking each other", () => {
     const said = parseTalk(
       '```aven-verdict\n{"pass":true}\n```\n\n```aven-talk\n{"line":"Hi"}\n```',
     );
-    expect(said).toEqual({ line: "Hi", asks: [], cards: [] });
+    expect(said).toEqual({ line: "Hi", asks: [], cards: [], helpers: [] });
   });
 
   it("reads only the block that ends the reply", () => {

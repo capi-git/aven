@@ -93,7 +93,11 @@ import {
   subscribeCrews,
   updateCrew,
   withCard,
+  helpersLeft,
   memberOn,
+  routineDue,
+  withHelper,
+  withoutHelper,
   withTalk,
   withCrewRun,
   withMemberMemory,
@@ -114,6 +118,7 @@ import {
   NO_PLANNER,
   queuedCards,
   type Crew,
+  type CrewMember,
   type CrewCard,
   type CrewChange,
   type CrewCardHolder,
@@ -656,9 +661,15 @@ export class CrewRunner {
   /** Messages on their way: each goes once its teammate's chat is free. */
   private async stepTalks(path: string) {
     const crew = getCrew(path);
-    if (!crew?.on || !crew.talks?.length) return;
+    if (!crew?.on) return;
     const now = this.deps.now();
-    for (const talk of crew.talks) {
+    this.startRoutines(crew, now);
+    const talks = getCrew(path)?.talks ?? [];
+    // A helper whose message is gone (a restart, say) is gone with it.
+    for (const helper of crew.helpers ?? [])
+      if (!talks.some((talk) => talk.to === helper.id))
+        updateCrew(path, (current) => withoutHelper(current, helper.id));
+    for (const talk of talks) {
       if (!talk.sent) await this.sendTalk(path, talk.id, now);
       else if (
         !this.talking.has(talk.id) &&
@@ -668,6 +679,32 @@ export class CrewRunner {
         // Carried by a page that's gone: nothing will read its end.
         this.dropTalk(path, talk.id, now);
     }
+  }
+
+  /** Teammates' routines whose time came, within the team's limits. */
+  private startRoutines(crew: Crew, now: number) {
+    const due = crew.members.filter((member) => routineDue(member, now));
+    if (!due.length || !this.gate(crew, now).ok) return;
+    updateCrew(crew.path, (current) => {
+      let next = current;
+      for (const member of due)
+        next = withTalk(
+          withMemberId(next, member.id, (entry) =>
+            entry.routine
+              ? { ...entry, routine: { ...entry.routine, at: now } }
+              : entry,
+          ),
+          {
+            at: now,
+            from: "you",
+            to: member.id,
+            text: member.routine!.text,
+            hop: 0,
+            routine: true,
+          },
+        );
+      return next;
+    });
   }
 
   /** A message that won't arrive, said once when it was yours or it asks why. */
@@ -697,7 +734,8 @@ export class CrewRunner {
         `${toName} is off, so a message to it wasn't passed on.`,
       );
     // Your own message always goes; teammates talking keep to the crew's limits.
-    if (talk.from !== "you" && !this.gate(crew, now).ok) return;
+    const costsARun = talk.from !== "you" || !!talk.routine;
+    if (costsARun && !this.gate(crew, now).ok) return;
     const key = projectKey(path);
     if (
       this.turns.get(key)?.memberId === member.id ||
@@ -733,9 +771,9 @@ export class CrewRunner {
         const claimedIt = claimed;
         return claimedIt
           ? withMemberId(
-              talk.from === "you"
-                ? { ...current, talks }
-                : withCrewRun({ ...current, talks }, now),
+              costsARun
+                ? withCrewRun({ ...current, talks }, now)
+                : { ...current, talks },
               member.id,
               (entry) => ({
                 ...entry,
@@ -763,7 +801,10 @@ export class CrewRunner {
               memberOn(entry),
           )
           .map((entry) => this.deps.name(fresh, entry.id)),
-        mayAsk: talkMayHop(talk),
+        mayAsk: member.role !== "helper" && talkMayHop(talk),
+        // A turn that could read the web starts nobody: a page could ask it to.
+        mayStartHelpers:
+          member.role !== "helper" && !crewRoleUsesWeb(fresh, member.role),
         ...(chat.providerSessionId
           ? {}
           : {
@@ -778,10 +819,11 @@ export class CrewRunner {
               }),
             }),
       });
-      const label = `From ${fromName}`;
+      const label = talk.routine ? "Routine" : `From ${fromName}`;
+      const yours = talk.from === "you" && !talk.routine;
       const sent = this.deps.send(chat.id, text, {
-        displayText: talk.from === "you" ? talk.text : label,
-        ...(talk.from === "you" ? {} : { botWake: { label } }),
+        displayText: yours ? talk.text : label,
+        ...(yours ? {} : { botWake: { label } }),
         blockId: turnId,
         onSettled: (outcome) =>
           void this.afterTalk(path, talkId, turnId, chat.id, outcome),
@@ -841,7 +883,8 @@ export class CrewRunner {
             outcome?.text?.trim() ||
             "",
         );
-    if (member && !failed)
+    const isHelper = member?.role === "helper";
+    if (member && !failed && !isHelper)
       this.remember(
         path,
         {
@@ -879,6 +922,28 @@ export class CrewRunner {
         next = withMemberId(next, member.id, (entry) =>
           entry.doing ? { ...entry, doing: undefined } : entry,
         );
+      // Done either way. Its answer goes back to who started it, whatever
+      // the hops: it's what that teammate is waiting for.
+      if (isHelper) {
+        next = withFeed(withoutHelper(next, talk.to), {
+          at: now,
+          kind: "say",
+          who: "helper",
+          text: failed
+            ? `Helper “${who}” didn't finish.`
+            : `Helper “${who}”${said.line ? `: ${said.line}` : " finished."}`,
+        });
+        return !failed && reply && crew.on
+          ? withTalk(next, {
+              at: now,
+              from: talk.to,
+              to: talk.from,
+              text: reply.slice(0, TALK_TEXT_MAX),
+              hop: talk.hop,
+              answer: true,
+            })
+          : next;
+      }
       cards.forEach((card, index) => {
         const asked = said.cards[index]!;
         next = withIdea(next, card.id, {
@@ -918,6 +983,44 @@ export class CrewRunner {
           hop,
           answer: true,
         });
+      const web = crewRoleUsesWeb(next, member.role);
+      for (const asked of web ? [] : said.helpers) {
+        if (helpersLeft(next, member.id, now) <= 0) {
+          next = withFeed(next, {
+            at: now,
+            kind: "note",
+            who: "aven",
+            text: `${who} wanted a helper for “${asked.title}”, but there are as many at work as there can be.`,
+          });
+          break;
+        }
+        const app = crewMemberApp(member);
+        const helper: CrewMember = {
+          id: `helper-${this.newId()}`.slice(0, 40),
+          role: "helper",
+          name: asked.title.slice(0, 40),
+          helperOf: member.id,
+          harness: app.harness,
+          ...(app.model ? { model: app.model } : {}),
+        };
+        next = withTalk(
+          withFeed(withHelper(next, helper, now), {
+            at: now,
+            kind: "say",
+            who: member.role,
+            member: member.id,
+            text: `${who} started a helper: ${asked.title}`,
+          }),
+          {
+            at: now,
+            from: member.id,
+            to: helper.id,
+            text: asked.task,
+            hop: talk.hop,
+            helper: true,
+          },
+        );
+      }
       for (const ask of said.asks) {
         if (!talkMayHop(talk)) {
           next = withFeed(next, {

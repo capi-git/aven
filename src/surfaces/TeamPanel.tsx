@@ -9,7 +9,11 @@ import {
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { ChevronDown } from "../chrome/icons";
 import { ideaWaits } from "../lib/crewLimits";
-import { updateCrewMember, useCrewWorkspace } from "../lib/crewActions";
+import {
+  updateCrewMember,
+  updateCrewRoutine,
+  useCrewWorkspace,
+} from "../lib/crewActions";
 import {
   crewAgentsFor,
   crewMemberName,
@@ -199,6 +203,64 @@ export function TeamNotes({ crew }: { crew: Crew }) {
 }
 
 /** When the team works by itself. */
+/** One teammate's routine: what to do by itself, and how often. */
+function RoutineRow({ crew, member }: { crew: Crew; member: CrewMember }) {
+  const [open, setOpen] = useState(false);
+  const routine = member.routine;
+  const [text, setText] = useState(routine?.text ?? "");
+  const name = crewMemberName(crew, member.id);
+  const save = (every: "day" | "week" | null) => {
+    const words = text.trim();
+    updateCrewRoutine(
+      crew.path,
+      member.id,
+      every && words ? { text: words, every, at: routine?.at ?? 0 } : null,
+    );
+    setOpen(false);
+  };
+  return (
+    <div data-team-routine={member.id}>
+      <button
+        type="button"
+        className="team-schedule-row"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <span>{name}</span>
+        <small>
+          {routine
+            ? `${routine.every === "week" ? "Every week" : "Every day"}: ${routine.text}`
+            : "No routine"}
+        </small>
+      </button>
+      {open ? (
+        <div className="team-routine-edit">
+          <textarea
+            aria-label={`What ${name} does by itself`}
+            placeholder="What it does by itself, like “Tell me what changed”"
+            rows={2}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <div>
+            <button type="button" onClick={() => save("day")}>
+              Every day
+            </button>
+            <button type="button" onClick={() => save("week")}>
+              Every week
+            </button>
+            {routine ? (
+              <button type="button" onClick={() => save(null)}>
+                Off
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function TeamSchedule({ crew }: { crew: Crew }) {
   const workspace = useCrewWorkspace();
   const member = (role: CrewMember["role"]) =>
@@ -247,6 +309,12 @@ export function TeamSchedule({ crew }: { crew: Crew }) {
           <small>{row.value}</small>
         </button>
       ))}
+      <h2>Routines</h2>
+      {crewMembers(crew)
+        .filter((member) => member.role !== "fixer")
+        .map((member) => (
+          <RoutineRow key={member.id} crew={crew} member={member} />
+        ))}
     </div>
   );
 }

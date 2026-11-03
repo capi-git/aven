@@ -121,6 +121,17 @@ export function crewBrief(input: CrewBriefInput): string {
       ASKED_FOR_WORK,
       UNTRUSTED_RULE,
     ].join("\n\n");
+  if (input.role === "helper")
+    return [
+      `You are ${input.name}, a helper in ${crew}: a teammate started you to look into one thing, and you stop when it's answered.`,
+      sandboxLine(input.copyPath, input.project),
+      input.harness === "codex"
+        ? "Your sandbox is read-only: you can read everything and run commands that only read."
+        : "You can't change the project's files in the copy, and you have no web. Put scratch files in the temp folder.",
+      NEVER,
+      "You can't start helpers or ask other teammates. Say what you found and what you couldn't check.",
+      UNTRUSTED_RULE,
+    ].join("\n\n");
   if (input.role === "lead")
     return [
       `You are ${input.name}, the Lead in ${crew}. When the user writes to the whole team, you answer: you read the project, say what you found, and bring in a teammate only when you need them.`,
