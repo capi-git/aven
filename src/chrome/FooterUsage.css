@@ -154,3 +154,24 @@
     display: none;
   }
 }
+
+/* As MonoCode reads: a small mark, a thin bar and each limit with its reset,
+   no tile, no divider. The chat's context is in the message box and the details. */
+.footer-usage-summary {
+  gap: 12px;
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.footer-usage-context {
+  display: none;
+}
+.footer-usage-meter {
+  width: 28px;
+  height: 3px;
+}
+.footer-usage .provider-mark {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}

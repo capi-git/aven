@@ -992,3 +992,58 @@ html.is-mac.has-native-glass:not(.theme-light)
     color-mix(in srgb, #0d0d0d 62%, transparent)
   );
 }
+
+/* The footer, as MonoCode's: arrows either side of one wide pill holding the
+   workspace you're in. Settings and the rest show under the pointer. */
+.personal-shell .personal-navigation .personal-workspace-switcher {
+  min-height: 26px;
+  gap: 2px;
+}
+.personal-shell .personal-navigation .personal-profile-switches {
+  flex: 1 1 auto;
+  justify-content: center;
+  height: 22px;
+  margin-left: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch[aria-pressed="false"] {
+  display: none;
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-switches
+  > .personal-profile-switch[aria-pressed="true"] {
+  background: transparent;
+}
+.personal-shell .personal-navigation .personal-workspace-step {
+  width: 18px;
+  opacity: 0.6;
+}
+.personal-shell .personal-navigation .personal-workspace-step:disabled {
+  opacity: 0.25;
+}
+.personal-shell
+  .personal-navigation
+  .personal-workspace-tool:is(
+    [aria-label^="Settings"],
+    [aria-label="Add project"],
+    .personal-workspace-add
+  ) {
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+.personal-shell
+  .personal-navigation
+  .personal-workspace-switcher:is(:hover, :focus-within)
+  .personal-workspace-tool:is(
+    [aria-label^="Settings"],
+    .personal-workspace-add
+  ) {
+  width: 22px;
+  opacity: 1;
+}

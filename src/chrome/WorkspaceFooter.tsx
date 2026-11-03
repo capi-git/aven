@@ -53,6 +53,7 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
           onClick={onToggleTerminal}
         >
           <Terminal className="size-3.5" strokeWidth={1.75} aria-hidden />
+          <span>Terminal</span>
         </button>
       </div>
     </footer>
