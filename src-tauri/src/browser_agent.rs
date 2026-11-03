@@ -52,6 +52,10 @@ struct Grant {
     /// Hosts a sandboxed chat may open besides local servers, with their
     /// subdomains: what its window allowed when it bound the chat.
     allowed_sites: Vec<String>,
+    /// The window allowed this sandboxed chat the web (Team sheet → Access):
+    /// any http(s) host opens, still in its own pages and the throwaway
+    /// profile, with everything else as restricted as before.
+    web: bool,
     /// The pages this chat's opens landed on, as Aven recorded them: the
     /// only pages a sandboxed chat may use.
     opened: Vec<String>,
@@ -763,6 +767,7 @@ pub fn browser_agent_bind(
     user_typed: Option<bool>,
     restricted: Option<bool>,
     allowed_sites: Option<Vec<String>>,
+    web: Option<bool>,
 ) -> Result<BrowserAgentBinding, String> {
     crate::browser::label(&caller, "agent-check")?;
     let own = own_browser_ids.unwrap_or_default();
@@ -813,6 +818,9 @@ pub fn browser_agent_bind(
         // its agent started in one of Aven's copies stays.
         grant.restricted |= restricted == Some(true);
         grant.allowed_sites = allowed_sites;
+        // Off unless the window says it is on, every bind: turning the web
+        // off for a team takes effect at the chat's next turn.
+        grant.web = web == Some(true);
         crate::desktop_control::bind_session(token, actor.as_ref())?;
         // Only a message the user wrote ends their Stop and declines.
         if user_typed == Some(true) {
@@ -853,7 +861,12 @@ fn bind_scope(
         Some((token, _, previous)) => (
             token,
             actor.or(previous.actor),
-            (previous.restricted, previous.allowed_sites, previous.opened),
+            (
+                previous.restricted,
+                previous.allowed_sites,
+                previous.opened,
+                previous.web,
+            ),
         ),
         None => {
             if grants.len() >= 512 {
@@ -866,13 +879,13 @@ fn bind_scope(
                     uuid::Uuid::new_v4().simple()
                 ),
                 actor,
-                (false, Vec::new(), Vec::new()),
+                (false, Vec::new(), Vec::new(), false),
             )
         }
     };
     crate::desktop_control::bind_session(&token, None)?;
     let mut seen = HashSet::new();
-    let (restricted, allowed_sites, opened) = sandbox;
+    let (restricted, allowed_sites, opened, web) = sandbox;
     grants.insert(
         token,
         Grant {
@@ -890,6 +903,7 @@ fn bind_scope(
             restricted,
             allowed_sites,
             opened,
+            web,
         },
     );
     Ok(())
@@ -930,7 +944,7 @@ fn restrict(grant: &Grant, request: &Request) -> Result<(), String> {
         | Request::Tabs {}
         | Request::OpenFile { .. } => return Err(SANDBOXED.into()),
         Request::Open { url, .. } | Request::Navigate { url, .. } => {
-            allowed_site(url, &grant.allowed_sites)?
+            allowed_site(url, &grant.allowed_sites, grant.web)?
         }
         _ => {}
     }
@@ -942,18 +956,19 @@ fn restrict(grant: &Grant, request: &Request) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether a sandboxed chat may open `url`: a local development server, or
-/// one of `sites` (a host and its subdomains) its window allowed.
-fn allowed_site(url: &str, sites: &[String]) -> Result<(), String> {
+/// Whether a sandboxed chat may open `url`: a local development server,
+/// one of `sites` (a host and its subdomains) its window allowed, or any
+/// host once the window allowed it the `web`. Only http(s) ever opens.
+fn allowed_site(url: &str, sites: &[String], web: bool) -> Result<(), String> {
     let parsed = tauri::Url::parse(url).map_err(|_| "Invalid web address".to_string())?;
     let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-    let web = matches!(parsed.scheme(), "http" | "https");
+    let http = matches!(parsed.scheme(), "http" | "https");
     let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]")
         || host.ends_with(".localhost");
     let allowed = sites
         .iter()
         .any(|site| host == *site || host.ends_with(&format!(".{site}")));
-    if web && (local || allowed) {
+    if http && (local || allowed || (web && !host.is_empty())) {
         Ok(())
     } else {
         Err(format!("{SANDBOXED} It can't open {host}."))
@@ -3666,6 +3681,7 @@ mod tests {
                 restricted: false,
                 allowed_sites: Vec::new(),
                 opened: Vec::new(),
+                web: false,
             },
         )])
     }
@@ -3791,6 +3807,75 @@ mod tests {
             &parsed(r#"{"action":"open","url":"https://example.com/"}"#)
         )
         .is_ok());
+    }
+
+    #[test]
+    fn a_sandboxed_chat_allowed_the_web_opens_any_site_but_nothing_else_changes() {
+        let mut grants = sandboxed(&["tab-a"], &[]);
+        grants.get_mut("secret").unwrap().web = true;
+        for url in [
+            "https://example.com/",
+            "https://docs.rs/tokio",
+            "http://localhost:3000/",
+        ] {
+            assert!(
+                authorize(
+                    &grants,
+                    "secret",
+                    &parsed(&format!(r#"{{"action":"open","url":"{url}"}}"#))
+                )
+                .is_ok(),
+                "{url}"
+            );
+            let navigate = Request::Navigate {
+                id: "tab-a".into(),
+                url: url.into(),
+            };
+            assert!(authorize(&grants, "secret", &navigate).is_ok(), "{url}");
+        }
+        // Only http(s): no files, no app pages.
+        assert!(authorize(
+            &grants,
+            "secret",
+            &parsed(r#"{"action":"open","url":"file:///etc/passwd"}"#)
+        )
+        .is_err());
+        // Still its own pages only, and still no tabs, files or desktop.
+        assert!(authorize(&grants, "secret", &Request::Snapshot { id: "tab-b".into() }).is_err());
+        for json in [
+            r#"{"action":"tabs"}"#,
+            r#"{"action":"openfile","path":"/tmp/notes.md"}"#,
+            r#"{"action":"desktop","request":{"action":"status"}}"#,
+            r#"{"action":"simulator","request":{"action":"screenshot"}}"#,
+        ] {
+            assert!(
+                authorize(&grants, "secret", &parsed(json)).is_err(),
+                "{json}"
+            );
+        }
+        // The grant stays sandboxed: the profile check and page tracking
+        // read `restricted`, which the web option never clears.
+        assert!(grants["secret"].restricted);
+        // A scope refresh keeps the web allowed until the window says otherwise.
+        let mut bound = HashMap::new();
+        bind_scope(
+            &mut bound,
+            "main",
+            "chat".into(),
+            vec!["tab-a".into()],
+            None,
+        )
+        .unwrap();
+        bound.values_mut().next().unwrap().web = true;
+        bind_scope(
+            &mut bound,
+            "main",
+            "chat".into(),
+            vec!["tab-a".into()],
+            None,
+        )
+        .unwrap();
+        assert!(bound.values().next().unwrap().web);
     }
 
     #[test]
@@ -4825,6 +4910,7 @@ mod tests {
                 restricted: false,
                 allowed_sites: Vec::new(),
                 opened: Vec::new(),
+                web: false,
             },
         );
         grants.remove("secret");
@@ -4890,6 +4976,7 @@ mod tests {
             restricted: false,
             allowed_sites: Vec::new(),
             opened: Vec::new(),
+            web: false,
         };
         let result = {
             let mut reservations = sleep_reservations().lock().unwrap();
@@ -5326,6 +5413,7 @@ mod tests {
             restricted: false,
             allowed_sites: Vec::new(),
             opened: Vec::new(),
+            web: false,
         }
     }
 
