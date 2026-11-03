@@ -63,6 +63,7 @@ import { TeamScreen } from "./TeamScreen";
 import {
   addResearchIdeas,
   applyCrewCard,
+  addQuestionCard,
   askDesigner,
   askResearcher,
   buildMockup,
@@ -1194,16 +1195,21 @@ function AddIdea({
           void addFeatureIdea(project, { title });
           return;
         }
-        void addFeatureIdea(project, { title: question ?? screen! }).then(
-          (card) => {
-            if (!card) return;
-            void (
-              question
-                ? askResearcher(project, card)
-                : askDesigner(project, card)
-            ).then((problem) => onProblem?.(card.id, problem));
-          },
-        );
+        // The team's card first, then the Board's: never an idea a tick
+        // could hand to a Builder meanwhile.
+        void addQuestionCard(
+          project,
+          question ?? screen!,
+          question ? "research" : "mockup",
+        ).then(({ card, problem }) => {
+          if (card || !problem) return;
+          // It couldn't be asked: your words stay, as an idea that waits.
+          void addFeatureIdea(project, { title }).then((idea) => {
+            if (!idea) return;
+            notNowIdea(project, idea.id);
+            onProblem?.(idea.id, problem);
+          });
+        });
       }}
     >
       <input

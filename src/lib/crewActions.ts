@@ -84,6 +84,7 @@ import {
 } from "./crewPresets";
 import { errorText, logError } from "./errors";
 import {
+  FEATURE_TITLE_MAX,
   addFeatureCards,
   addFeatureIdea,
   deleteFeatureCard,
@@ -818,6 +819,99 @@ export async function askResearcher(
   });
   await moveFeatureCard(path, card.id, "building", "");
   return null;
+}
+
+/** Why a question can't go to the Researcher now, or null. */
+function researcherProblem(crew: Crew): string | null {
+  if (cardResearcher(crew)) return null;
+  return crew.members.some((member) => member.role === "researcher")
+    ? RESEARCHER_OFF
+    : NO_RESEARCHER;
+}
+
+/** Why a screen can't go to the Designer now, or null. */
+function designerProblem(crew: Crew): string | null {
+  if (cardDesigner(crew)) return null;
+  return crew.members.some((member) => member.role === "designer")
+    ? DESIGNER_OFF
+    : NO_DESIGNER;
+}
+
+/**
+ * A new question for the Researcher ("Research: …") or screen for the
+ * Designer ("Design: …"), typed in the Add an idea box or set up with the
+ * team: the team's card is made first, queued as research or a mock-up,
+ * and only then the Board's card for it, straight into Building. The loop
+ * never sees it as an idea, so no tick between the two can hand it to a
+ * Builder. Resolves with the Board card, or why it couldn't.
+ */
+export async function addQuestionCard(
+  path: string,
+  title: string,
+  kind: "research" | "mockup",
+  now = Date.now(),
+  options: {
+    /** For setup: the team is made before it is turned on. */
+    whileOff?: boolean;
+    /** Whose words it is: yours, or a setup suggestion (quoted as data). */
+    from?: "you" | "setup";
+  } = {},
+): Promise<{ card: FeatureCard | null; problem: string | null }> {
+  const crew = getCrew(path);
+  if (!crew || (!crew.on && !options.whileOff))
+    return { card: null, problem: "Turn the team on first." };
+  const problem =
+    kind === "research" ? researcherProblem(crew) : designerProblem(crew);
+  if (problem) return { card: null, problem };
+  const clean = title.replace(/\s+/g, " ").trim().slice(0, FEATURE_TITLE_MAX);
+  if (!clean) return { card: null, problem: "Say what to ask." };
+  const id = crypto.randomUUID();
+  updateCrew(path, (current) =>
+    withCard(
+      current,
+      queueCard(
+        {
+          id,
+          title: clean,
+          brief: clean,
+          from: options.from ?? "you",
+          kind,
+          maxRounds: 1,
+        },
+        now,
+      ),
+    ),
+  );
+  let card: FeatureCard | null = null;
+  try {
+    card = await addFeatureIdea(path, { id, title: clean, column: "building" });
+  } catch (error) {
+    logError("Crew question card", error);
+  }
+  if (!card) {
+    updateCrew(path, (current) => withoutCard(current, id));
+    return { card: null, problem: "Couldn't add the card to the Board." };
+  }
+  updateCrew(path, (current) => {
+    const member =
+      kind === "research" ? cardResearcher(current) : cardDesigner(current);
+    const who = crewMemberName(
+      current,
+      member?.id ?? (kind === "research" ? "researcher" : "designer"),
+    );
+    return withFeed(current, {
+      at: now,
+      kind: "note",
+      who: "you",
+      cardId: id,
+      title: clean,
+      text:
+        kind === "research"
+          ? `You asked ${who} “${clean}”`
+          : `You asked ${who} to mock up “${clean}”`,
+    });
+  });
+  return { card, problem: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -2472,60 +2566,8 @@ export async function startTeamSetup(
     return preset ? [{ mate, preset }] : [];
   });
   const before = { members: crew.members, about: crew.about };
-  // The ideas first, while nothing runs: a suggestion is marked as it
-  // lands, so it never reads as yours.
-  const added: { id: string; ask: "researcher" | "designer" | null }[] = [];
-  const undo = async () => {
-    for (const { id } of added) await deleteFeatureCard(path, id);
-    updateCrew(path, (current) => ({
-      ...withAbout(
-        { ...current, members: before.members },
-        before.about ?? null,
-      ),
-      ...(current.ideas
-        ? {
-            ideas: Object.fromEntries(
-              Object.entries(current.ideas).filter(
-                ([id]) => !added.some((item) => item.id === id),
-              ),
-            ),
-          }
-        : {}),
-    }));
-  };
-  for (const idea of draft.ideas) {
-    const title = idea.title.trim();
-    if (!title) continue;
-    let card: FeatureCard | null = null;
-    try {
-      card = await addFeatureIdea(path, { title });
-    } catch (error) {
-      logError("Team setup ideas", error);
-    }
-    if (!card) {
-      await undo();
-      return {
-        on: false,
-        problem: "Couldn't add the first ideas to the Board.",
-      };
-    }
-    added.push({
-      id: card.id,
-      ask:
-        idea.source === "researcher" || idea.source === "designer"
-          ? idea.source
-          : null,
-    });
-    if (idea.source === "you") continue;
-    updateCrew(path, (current) =>
-      withIdea(current, card.id, {
-        at: now,
-        size: "medium",
-        by: "setup",
-        outside: true,
-      }),
-    );
-  }
+  // The team first, while nothing runs, so a question can be the
+  // Researcher's or Designer's card from the start.
   updateCrew(path, (current) => {
     let next = current;
     // Who stays: the Fixer, and any teammate you changed (its settings are
@@ -2544,31 +2586,82 @@ export async function startTeamSetup(
     }
     return withAbout(next, draft.description);
   });
+  // Then the ideas: a suggestion is marked as it lands, so it never reads
+  // as yours; a question or a screen is queued for its teammate before the
+  // Board has it, so no tick can ever hand it to a Builder.
+  const added: { id: string; question: boolean }[] = [];
+  const undo = async () => {
+    for (const { id } of added) await deleteFeatureCard(path, id);
+    updateCrew(path, (current) => {
+      let next = current;
+      for (const { id, question } of added)
+        if (question) next = withoutCard(next, id);
+      return {
+        ...withAbout(
+          { ...next, members: before.members },
+          before.about ?? null,
+        ),
+        ...(next.ideas
+          ? {
+              ideas: Object.fromEntries(
+                Object.entries(next.ideas).filter(
+                  ([id]) => !added.some((item) => item.id === id),
+                ),
+              ),
+            }
+          : {}),
+      };
+    });
+  };
+  const failed = async () => {
+    await undo();
+    return { on: false, problem: "Couldn't add the first ideas to the Board." };
+  };
+  for (const idea of draft.ideas) {
+    const title = idea.title.trim();
+    if (!title) continue;
+    const live = getCrew(path)!;
+    const kind =
+      idea.source === "researcher" && cardResearcher(live)
+        ? "research"
+        : idea.source === "designer" && cardDesigner(live)
+          ? "mockup"
+          : null;
+    if (kind) {
+      const asked = await addQuestionCard(path, title, kind, now, {
+        whileOff: true,
+        from: "setup",
+      }).catch((error) => {
+        logError("Team setup questions", error);
+        return { card: null, problem: errorText(error) };
+      });
+      if (!asked.card) return failed();
+      added.push({ id: asked.card.id, question: true });
+      continue;
+    }
+    let card: FeatureCard | null = null;
+    try {
+      card = await addFeatureIdea(path, { title });
+    } catch (error) {
+      logError("Team setup ideas", error);
+    }
+    if (!card) return failed();
+    added.push({ id: card.id, question: false });
+    // Without its teammate, a question is a suggestion like any other.
+    if (idea.source === "you") continue;
+    updateCrew(path, (current) =>
+      withIdea(current, card.id, {
+        at: now,
+        size: "medium",
+        by: "setup",
+        outside: true,
+      }),
+    );
+  }
   const why = await turnOn();
   if (why) {
     await undo();
     return { on: false, problem: why };
-  }
-  // On now: the questions go to the Researcher, the screens to the
-  // Designer. A problem is said in the feed, and the team keeps going.
-  for (const { id, ask } of added) {
-    if (!ask) continue;
-    const live = getCrew(path)!;
-    if (ask === "researcher" ? !cardResearcher(live) : !cardDesigner(live))
-      continue;
-    const card = featureBoardState(path).cards.find((item) => item.id === id);
-    if (!card) continue;
-    const problem = await (
-      ask === "researcher"
-        ? askResearcher(path, card, now)
-        : askDesigner(path, card, now)
-    ).catch((error) => errorText(error));
-    if (!problem) continue;
-    const text = `Couldn't ask the ${ask === "researcher" ? "Researcher" : "Designer"} “${card.title}”: ${problem}`;
-    updateCrew(path, (current) =>
-      withFeed(current, { at: now, kind: "hold", who: "aven", text }),
-    );
-    return { on: true, problem: text };
   }
   return { on: true, problem: null };
 }

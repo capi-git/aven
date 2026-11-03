@@ -30,10 +30,12 @@ import {
 } from "../lib/crews";
 import {
   addFeatureCards,
+  featureBoardState,
   memoryFeatureCardBackend,
   setFeatureCardBackend,
   type FeatureCard,
 } from "../lib/featureCards";
+import { nextIdeaToBuild } from "../lib/crewLimits";
 import { localDay, resetProjectBotsCache } from "../lib/projectBots";
 import {
   installWorkBoardActions,
@@ -1461,6 +1463,43 @@ describe("the team view: the Board with the team on it", () => {
     await act(async () => requestCrewReview(PROJECT));
     await settle();
     expect(document.querySelector("[data-crew-batch-review]")).not.toBeNull();
+  });
+
+  it("makes “Research: …” in the box the Researcher's card at once, never an idea for the Builder", async () => {
+    await setUp(() => (crew) => ({
+      ...crew,
+      members: [...crew.members, { id: "researcher", role: "researcher" }],
+    }));
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Add an idea"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "Research: how do others debounce search?");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => input.form!.requestSubmit());
+    await settle();
+    const crew = getCrew(PROJECT)!;
+    const asked = featureBoardState(PROJECT).cards.find(
+      (item) => item.title === "how do others debounce search?",
+    )!;
+    expect(asked.column).toBe("building");
+    expect(crewCard(crew, asked.id)).toMatchObject({
+      kind: "research",
+      stage: "queued",
+      from: "you",
+    });
+    // Never an idea: nothing for the loop to start, no Builder's turn.
+    expect(
+      nextIdeaToBuild(crew, featureBoardState(PROJECT).cards, NOW),
+    ).toBeNull();
+    expect(crew.feed.some((entry) => entry.kind === "start")).toBe(false);
+    expect(crew.feed.at(-1)?.text).toBe(
+      "You asked Researcher “how do others debounce search?”",
+    );
   });
 
   it("is a plain board while the team is off", async () => {
