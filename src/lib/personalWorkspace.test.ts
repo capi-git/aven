@@ -115,6 +115,14 @@ describe("personal panel persistence", () => {
     expect(loadBrowserWorkspaces()["/one"].expanded).toBe(false);
   });
 
+  it("keeps the sidebar closed until pinned, except on a first run", () => {
+    expect(loadPersonalSidebar()).toBe(true);
+    localStorage.setItem("aven.walkthrough.v1", "{}");
+    expect(loadPersonalSidebar()).toBe(false);
+    savePersonalSidebar(true);
+    expect(loadPersonalSidebar()).toBe(true);
+  });
+
   it("persists left and right panel choices independently", () => {
     savePersonalSidebar(false);
     savePersonalInspector({ open: true, tab: "changes", width: 340 });

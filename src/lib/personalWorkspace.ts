@@ -1,4 +1,5 @@
 import { browserFavicon } from "./browserIcons";
+import { WALKTHROUGH_KEY } from "./walkthrough";
 
 const SIDEBAR_KEY = "monocode.personal.sidebarOpen";
 const BROWSER_KEY = "monocode.personal.browser";
@@ -312,7 +313,11 @@ export function patchBrowserWorkspace(
 
 export function loadPersonalSidebar(): boolean {
   try {
-    return localStorage.getItem(SIDEBAR_KEY) !== "false";
+    const saved = localStorage.getItem(SIDEBAR_KEY);
+    if (saved !== null) return saved !== "false";
+    // Closed until you pin it, opening on hover; a first run shows it, so
+    // the walkthrough has something to point at.
+    return localStorage.getItem(WALKTHROUGH_KEY) === null;
   } catch {
     return true;
   }
