@@ -326,11 +326,24 @@ function typeInto(field: HTMLInputElement | HTMLTextAreaElement, text: string) {
 }
 
 /** Add an idea from the Board's own box: "Research: …" and "Design: …" ask a teammate. */
-function addIdeaFromBoard(board: HTMLElement, text: string) {
-  const field = board.querySelector<HTMLInputElement>(
-    'input[aria-label="Add an idea"]',
-  );
-  if (!field) throw new Error("The Board has no Add an idea box");
+async function addIdeaFromBoard(project: string, text: string) {
+  // The box is drawn under Ideas once the Board's cards have loaded, and
+  // only on the Board that is on screen: a bounded wait, named by what the
+  // Board shows instead.
+  const box = () =>
+    boardOnScreen(project)?.querySelector<HTMLInputElement>(
+      'input[aria-label="Add an idea"]',
+    ) ?? null;
+  let field: HTMLInputElement;
+  try {
+    field = await waitFor(box, 15_000, "the Board's Add an idea box");
+  } catch (error) {
+    const board = boardOnScreen(project);
+    const state = board
+      ? `columns ${[...board.querySelectorAll<HTMLElement>("[data-board-column]")].map((column) => column.dataset.boardColumn).join(", ") || "none"}, ${board.querySelectorAll("[data-board-card]").length} cards, ${board.querySelector(".work-board-add") ? "an idea form" : "no idea form"}${board.textContent?.includes("Loading…") ? ", still loading" : ""}`
+      : `no Board for ${projectName(project)} on screen (${document.querySelectorAll("[data-work-board]").length} Boards in the page)`;
+    throw new Error(`${errorText(error)}: ${state}`);
+  }
   typeInto(field, text);
   const form = field.closest("form");
   if (!form) throw new Error("The Add an idea box isn't in a form");
@@ -678,10 +691,10 @@ export async function checkResearcher(
       (member) => member.role === "researcher",
     );
     if (!researcher) throw new Error("The team has no Researcher");
-    const board = await openBoard(project);
+    await openBoard(project);
     // One turn: findings, and the member's notes rewritten with them.
     const question = `What do similar apps do first? ${SMOKE_RESEARCH_WORD} ${SMOKE_NOTES_WORD}`;
-    addIdeaFromBoard(board, `Research: ${question}`);
+    await addIdeaFromBoard(project, `Research: ${question}`);
     const card = await waitFor(
       () => boardCardByTitle(project, question),
       10_000,
@@ -821,7 +834,7 @@ export async function checkResearcher(
     const was =
       logged?.filter((turn) => turn.crew === "researcher").length ?? 0;
     const second = `And with no web? ${SMOKE_RESEARCH_WORD}`;
-    addIdeaFromBoard(board, `Research: ${second}`);
+    await addIdeaFromBoard(project, `Research: ${second}`);
     const secondCard = await waitFor(
       () => boardCardByTitle(project, second),
       10_000,
@@ -913,9 +926,9 @@ export async function checkDesigner(
   let cardId: string | undefined;
   try {
     await startTeam(team, project, ["designer"]);
-    const board = await openBoard(project);
+    await openBoard(project);
     const screen = `The today screen ${SMOKE_DESIGN_WORD}`;
-    addIdeaFromBoard(board, `Design: ${screen}`);
+    await addIdeaFromBoard(project, `Design: ${screen}`);
     const card = await waitFor(
       () => boardCardByTitle(project, screen),
       10_000,
@@ -1002,7 +1015,7 @@ export async function checkDesigner(
     // leaves the copy clean. It goes before Build it: the idea Build it
     // adds is the Builder's to start by itself, and would take the copy.
     const strayScreen = `The settings screen ${SMOKE_DESIGN_WORD} ${SMOKE_STRAY_WORD}`;
-    addIdeaFromBoard(board, `Design: ${strayScreen}`);
+    await addIdeaFromBoard(project, `Design: ${strayScreen}`);
     const strayCard = await waitFor(
       () => boardCardByTitle(project, strayScreen),
       10_000,

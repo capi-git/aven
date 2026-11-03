@@ -11744,6 +11744,7 @@ export default function App({
     // The sidebar's own New chat, as its project rows (and the floating
     // sidebar, by name) call it.
     newProjectTask: sidebarProps.onNewProjectTask ?? onNewProjectTask,
+    selectProject: onSelectProject,
     submit: (sessionId, text) => void onSubmit(sessionId, text, []),
     stop: (sessionId) => stopSessionRef.current(sessionId),
     utilities: {

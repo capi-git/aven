@@ -97,6 +97,8 @@ type Options = DevPerfOptions & {
   expectFloatingSidebar: boolean;
   /** The sidebar's "New chat in <project>". */
   newProjectTask: (path: string) => void;
+  /** The sidebar's project row: make the project the current one. */
+  selectProject?: (path: string) => void;
   submit: (sessionId: string, text: string) => void;
   /** Stop a chat's turn, as its message box's Stop does. */
   stop?: (sessionId: string) => void;
@@ -4189,8 +4191,23 @@ export async function runDevSmoke(
       async () => {
         const path = config.projectPath;
         // The panel is the current project's: a step before may have left
-        // another project's Board or sheet in front.
-        await openNewTask(get, path);
+        // another project's Board or sheet in front. The row brings back one
+        // of the project's own tabs; a chat it had to open instead would be
+        // open work that Delete refuses, so that one is closed again.
+        const before = new Set(get().sessions.map((session) => session.id));
+        get().selectProject?.(path);
+        const opened = get().sessions.find(
+          (session) =>
+            !before.has(session.id) && sameProjectPath(session.cwd, path),
+        );
+        if (opened) {
+          pressShortcut("w");
+          await waitFor(
+            () => !get().sessions.some((session) => session.id === opened.id),
+            5_000,
+            "the chat the project row opened to close",
+          ).catch(() => undefined);
+        }
         projectPanel.toggle();
         const [terminal] = await waitFor(
           () => {
