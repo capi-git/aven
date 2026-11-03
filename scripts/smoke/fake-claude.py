@@ -540,9 +540,6 @@ def talk_turn(text, args):
 
 def crew_turn(session, turn, text, args):
     """A crew member's reply, by role; None when the turn isn't a crew card's."""
-    talk = talk_turn(text, args)
-    if talk:
-        return talk
     if CREW_WORD not in text:
         return None
     launch = crew_launch(args)
@@ -916,6 +913,8 @@ def main():
                 reply = iphone_turn(text)
             elif not helper and chat_session(args) and PAGES_PATTERN.search(text):
                 reply = pages_turn(PAGES_PATTERN.search(text).group(1))
+            elif not helper and chat_session(args) and TALK_WORD in text:
+                reply = talk_turn(text, args) or reply
             elif not helper and chat_session(args) and CREW_WORD in text:
                 reply = crew_turn(session, turn, text, args) or reply
             elif not helper and chat_session(args):
