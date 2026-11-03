@@ -57,7 +57,10 @@
   color: var(--color-content);
   background: var(--aven-fill-secondary, var(--aven-hover));
 }
-.modal-panel[role="dialog"] :is(input, textarea, select) {
+/* Ticks and radios keep their own look; :where keeps this rule as light as
+   it was, so a sheet's own field rules still win. */
+.modal-panel[role="dialog"]
+  :is(input:where(:not([type="checkbox"], [type="radio"])), textarea, select) {
   border-radius: var(--aven-radius-sm);
   border-color: var(--aven-control-edge, transparent);
   background-color: var(--aven-field-bg, var(--aven-raised));
@@ -67,7 +70,12 @@
   outline-offset: 2px;
 }
 /* Fields take the shared field ring (.aven-field), hugging the field. */
-.modal-panel[role="dialog"] :is(input, textarea, select):focus-visible {
+.modal-panel[role="dialog"]
+  :is(
+    input:where(:not([type="checkbox"], [type="radio"])),
+    textarea,
+    select
+  ):focus-visible {
   outline: 2px solid var(--aven-field-focus, var(--color-accent));
   outline-offset: 0;
 }

@@ -273,6 +273,7 @@ import {
   AgentPageNotices,
   type AgentPageNotice,
 } from "./chrome/AgentPageNotices";
+import { SaveProblemNotice } from "./chrome/SaveProblemNotice";
 import type {
   PaletteChatRequest,
   PaletteRaceRequest,
@@ -11573,7 +11574,8 @@ export default function App({
         }
         if (!getCrew(path)?.onAt) {
           ensureCrewSaved(path);
-          setCrewSheetPage("add");
+          // Say what the project is first; Pick teammates myself is there.
+          setCrewSheetPage("setup");
           setCrewSheet(path);
           return;
         }
@@ -13238,6 +13240,7 @@ export default function App({
                 )
               }
             />
+            <SaveProblemNotice />
             {whatsNewVersion ? (
               <LazyViewSlot label="release notes" quiet>
                 <WhatsNewDialog

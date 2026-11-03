@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { logError } from "./errors";
 import { listDir } from "./fs";
 import {
   harnessUnavailableHint,
@@ -6,6 +7,12 @@ import {
   probeHarnessAvailability,
 } from "./harness/availability";
 import { resolveModel } from "./models";
+import {
+  FOREIGN_STORE_WHY,
+  clearSaveProblem,
+  reportSaveProblem,
+  saveFailureWhy,
+} from "./saveProblems";
 import { isRuntimeMode, type RuntimeMode } from "./runtimeMode";
 import { HARNESSES, type Block, type HarnessId } from "./session";
 import {
@@ -383,41 +390,90 @@ type Store<T> = {
   subscribe: (listener: () => void) => () => void;
 };
 
+/**
+ * A list in storage. Entries this build can't read (a later build's
+ * schedule kind, say) are kept as they are and written back with the rest;
+ * a store that isn't a list at all (or isn't JSON) is another version's:
+ * it is backed up once, never written over, and changes last as long as
+ * the window does. A save that fails is logged and shown.
+ */
 function createStore<T>(
   key: string,
   event: string,
   normalize: (value: unknown) => T | null,
+  /** What the store holds, in the user's words: "your scheduled agents". */
+  what: string,
 ): Store<T> {
-  let cache: { raw: string | null; items: T[] } | null = null;
+  let cache: {
+    raw: string | null;
+    items: T[];
+    others: unknown[];
+    foreign: boolean;
+  } | null = null;
+  const load = () => {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(key);
+    } catch {
+      raw = null;
+    }
+    if (cache && cache.raw === raw) return cache;
+    const items: T[] = [];
+    const others: unknown[] = [];
+    let foreign = false;
+    try {
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(parsed))
+        for (const value of parsed) {
+          const item = normalize(value);
+          if (item != null) items.push(item);
+          else if (value != null) others.push(value);
+        }
+      else foreign = true;
+    } catch {
+      foreign = true;
+    }
+    if (foreign && raw)
+      try {
+        // Keep the first copy; never replace an earlier backup.
+        if (localStorage.getItem(`${key}.backup`) === null)
+          localStorage.setItem(`${key}.backup`, raw);
+      } catch {
+        // The original stays where it is either way.
+      }
+    cache = { raw, items, others, foreign };
+    return cache;
+  };
   return {
-    read() {
-      let raw: string | null = null;
-      try {
-        raw = localStorage.getItem(key);
-      } catch {
-        raw = null;
-      }
-      if (cache && cache.raw === raw) return cache.items;
-      let items: T[] = [];
-      try {
-        const parsed: unknown = raw ? JSON.parse(raw) : [];
-        if (Array.isArray(parsed))
-          items = parsed
-            .map(normalize)
-            .filter((item): item is T => item != null);
-      } catch {
-        items = [];
-      }
-      cache = { raw, items };
-      return items;
-    },
+    read: () => load().items,
     write(items) {
-      try {
-        localStorage.setItem(key, JSON.stringify(items));
-      } catch {
-        // Storage full or unavailable: nothing else to fall back to.
+      const current = load();
+      if (current.foreign) {
+        // Another version's list: never overwritten.
+        logError(
+          "Scheduled agents",
+          new Error(
+            `${key} holds data this version can't read; it is kept as it is (and copied to ${key}.backup), and nothing is saved.`,
+          ),
+        );
+        reportSaveProblem(key, what, FOREIGN_STORE_WHY);
+        cache = { ...current, items };
+        window.dispatchEvent(new Event(event));
+        return;
       }
-      cache = null;
+      try {
+        localStorage.setItem(
+          key,
+          JSON.stringify([...items, ...current.others]),
+        );
+        clearSaveProblem(key);
+        cache = null;
+      } catch (error) {
+        // Storage full or unavailable: the list holds in this window.
+        logError("Scheduled agents save", error);
+        reportSaveProblem(key, what, saveFailureWhy(error));
+        cache = { ...current, items };
+      }
       window.dispatchEvent(new Event(event));
     },
     subscribe(listener) {
@@ -441,11 +497,13 @@ const schedules = createStore(
   "aven.scheduledAgents.v1",
   "aven:scheduled-agents-changed",
   normalizeScheduledAgent,
+  "your scheduled agents",
 );
 const runs = createStore(
   "aven.scheduledRuns.v1",
   "aven:scheduled-runs-changed",
   normalizeScheduledRun,
+  "your scheduled agents' runs",
 );
 
 export function listScheduledAgents(): ScheduledAgent[] {

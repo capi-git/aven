@@ -133,7 +133,7 @@
 
 .modal-panel[role="dialog"] .teammate-text {
   min-height: 104px;
-  resize: vertical;
+  resize: none;
 }
 
 /* Works only in: its paths as chips. */
@@ -360,4 +360,9 @@
   .teammate-cols {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Its notes: Clear sits under the box, quietly, only while there are any. */
+.teammate-notes-clear {
+  align-self: flex-start;
 }

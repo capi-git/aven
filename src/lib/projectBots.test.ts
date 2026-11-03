@@ -33,10 +33,18 @@ import {
   skipKeepsEvents,
   subscribeProjectBots,
   updateProjectBot,
+  forgetProjectBot,
+  projectBotsStoreUnreadable,
+  PROJECT_BOTS_BACKUP_KEY,
   withReadyFix,
   withRunCounted,
   type ProjectBot,
 } from "./projectBots";
+import {
+  FOREIGN_STORE_WHY,
+  resetSaveProblems,
+  saveProblem,
+} from "./saveProblems";
 
 // Bots need Claude Code's sandbox, which Windows lacks (see `botsAvailable`).
 const platform = vi.hoisted(() => ({ windows: false }));
@@ -143,8 +151,7 @@ describe("project bot settings", () => {
     expect(readProjectBot("nope")).toBeNull();
   });
 
-  it("saves to its own key, ignores a broken store, and tells listeners", () => {
-    localStorage.setItem(PROJECT_BOTS_KEY, "{not json");
+  it("saves to its own key and tells listeners", () => {
     expect(getProjectBot(PATH)).toBeUndefined();
     const heard = vi.fn();
     const stop = subscribeProjectBots(heard);
@@ -528,5 +535,55 @@ describe("fixes and the bot's word", () => {
     expect(formatClockMinutes(8 * 60)).toBe("8 am");
     expect(formatClockMinutes(0)).toBe("12 am");
     expect(formatClockMinutes(12 * 60 + 30)).toBe("12:30 pm");
+  });
+});
+
+describe("the bots store keeps what it can't read", () => {
+  it("never overwrites a store from another version, keeps a backup, and says so", () => {
+    resetSaveProblems();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const later = JSON.stringify({ version: 2, bots: { x: { path: "/x" } } });
+    localStorage.setItem(PROJECT_BOTS_KEY, later);
+    resetProjectBotsCache();
+    expect(getProjectBot(PATH)).toBeUndefined();
+    expect(projectBotsStoreUnreadable()).toBe(true);
+    expect(localStorage.getItem(PROJECT_BOTS_BACKUP_KEY)).toBe(later);
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: true }));
+    forgetProjectBot(PATH);
+    expect(localStorage.getItem(PROJECT_BOTS_KEY)).toBe(later);
+    expect(saveProblem()).toMatchObject({
+      key: PROJECT_BOTS_KEY,
+      what: "your project bots",
+      why: FOREIGN_STORE_WHY,
+    });
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("[aven] Project bots:"),
+    );
+    // A broken store is kept too, and the first backup never replaced.
+    localStorage.setItem(PROJECT_BOTS_KEY, "{not json");
+    resetProjectBotsCache();
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: true }));
+    expect(localStorage.getItem(PROJECT_BOTS_KEY)).toBe("{not json");
+    expect(localStorage.getItem(PROJECT_BOTS_BACKUP_KEY)).toBe(later);
+    vi.restoreAllMocks();
+    resetSaveProblems();
+  });
+
+  it("says when a save fails, and clears that once a save works", () => {
+    resetSaveProblems();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const full = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("no storage");
+    });
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: true }));
+    expect(getProjectBot(PATH)?.on).toBe(true);
+    expect(saveProblem()).toMatchObject({
+      key: PROJECT_BOTS_KEY,
+      why: "Aven's storage isn't available.",
+    });
+    full.mockRestore();
+    updateProjectBot(PATH, (bot) => ({ ...bot, on: false }));
+    expect(saveProblem()).toBeNull();
+    vi.restoreAllMocks();
   });
 });

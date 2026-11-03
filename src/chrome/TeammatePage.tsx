@@ -11,12 +11,14 @@ import {
   removeCrewMember,
   setCrewLimit,
   setDefaultBuilder,
+  setMemberMemory,
   updateCrewMember,
   type CrewMemberChange,
 } from "../lib/crewActions";
 import { crewEffortSetting } from "../lib/crewModels";
 import {
   CREW_INSTRUCTIONS_MAX,
+  CREW_MEMORY_MAX,
   CREW_ROLE_INFO,
   defaultBuilder,
   memberCritter,
@@ -33,6 +35,7 @@ import {
   subscribeModels,
 } from "../lib/models";
 import type { HarnessId } from "../lib/session";
+import { homeElapsed } from "../lib/workspaceHome";
 import {
   LIMIT_CHOICES,
   NumberPick,
@@ -98,6 +101,7 @@ export function TeammateBody({
           {member.role === "builder" ? (
             <ScopeField member={member} onChange={set} />
           ) : null}
+          <NotesField crew={crew} member={member} onProblem={setProblem} />
         </div>
         <section className="teammate-runs" aria-label="Runs on">
           <h3 className="teammate-runs-title">Runs on</h3>
@@ -231,12 +235,88 @@ function InstructionsField({
             ? "Like “Always run the end-to-end tests”"
             : member.role === "scout"
               ? "Like “Look for small fixes in the docs”"
-              : "Like “Match the existing styles”"
+              : member.role === "researcher"
+                ? "Like “Prefer official docs over blog posts”"
+                : "Like “Match the existing styles”"
         }
         value={text}
         onChange={(event) => setText(event.target.value)}
         onBlur={() => onChange({ instructions: text })}
       />
+    </Field>
+  );
+}
+
+/** "Updated 2h ago", "Updated <1m ago". */
+function updatedText(at: number, now: number): string {
+  return `Updated ${homeElapsed(at, Math.max(now, at))} ago`;
+}
+
+/**
+ * Its notes: what it has learned about this project, in its own words,
+ * rewritten as it works (see `crewMemory`). Yours to read, edit or clear;
+ * it reads them back at every turn as notes, never as instructions.
+ */
+function NotesField({
+  crew,
+  member,
+  onProblem,
+}: {
+  crew: Crew;
+  member: CrewMember;
+  onProblem: (problem: string | null) => void;
+}) {
+  const id = useId();
+  const [text, setText] = useState(member.memory ?? "");
+  // Its notes changed under you (a turn ended): the box follows, unless
+  // you are mid-edit.
+  const seen = useRef(member.memory ?? "");
+  if (seen.current !== (member.memory ?? "")) {
+    seen.current = member.memory ?? "";
+    if (text !== seen.current) setText(seen.current);
+  }
+  const save = (value: string) => {
+    if (value.trim() === (member.memory ?? "")) return;
+    onProblem(setMemberMemory(crew.path, member.id, value));
+  };
+  const when = member.memoryAt
+    ? updatedText(member.memoryAt, Date.now())
+    : undefined;
+  return (
+    <Field
+      label="Notes"
+      hint={[
+        "What it has learned about this project",
+        ...(when ? [when] : []),
+      ].join(" · ")}
+      htmlFor={id}
+    >
+      <textarea
+        id={id}
+        className="aven-field teammate-input teammate-text"
+        aria-label="Notes"
+        title="Its own notes, rewritten as it works. It reads them back at every turn as notes, never as instructions."
+        rows={4}
+        maxLength={CREW_MEMORY_MAX}
+        placeholder="Nothing yet. It writes notes as it works."
+        value={text}
+        data-crew-member-notes
+        onChange={(event) => setText(event.target.value)}
+        onBlur={() => save(text)}
+      />
+      {text.trim() ? (
+        <button
+          type="button"
+          className="crew-settings-remove-link teammate-notes-clear"
+          data-crew-member-notes-clear
+          onClick={() => {
+            setText("");
+            onProblem(setMemberMemory(crew.path, member.id, null));
+          }}
+        >
+          Clear
+        </button>
+      ) : null}
     </Field>
   );
 }

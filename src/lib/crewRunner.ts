@@ -1,9 +1,13 @@
 import {
+  parseFindings,
+  parseMockup,
   parseGoal,
   parseHandoff,
   parseIdeas,
+  parseMemory,
   parseTasks,
   parseVerdict,
+  withoutMemory,
   type CrewTask,
 } from "./crewHandoff";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
@@ -23,6 +27,8 @@ import {
 import {
   afterBuild,
   afterCheck,
+  afterMockup,
+  afterResearch,
   afterSecurity,
   cardScope,
   changedAfterCheck,
@@ -45,6 +51,8 @@ import {
   crewBrief,
   crewTurnLabel,
   goalMessage,
+  mockupMessage,
+  researchMessage,
   scoutMessage,
   securityMessage,
   sweepMessage,
@@ -52,11 +60,14 @@ import {
 } from "./crewPrompts";
 import {
   crewRoleUsesWeb,
+  MOCKUP_DIR,
   activeCrews,
   bumpToday,
   cardBuilder,
   cardChecker,
   cardInCopy,
+  cardDesigner,
+  cardResearcher,
   cardSecurity,
   claimCrewJob,
   crewCard,
@@ -74,6 +85,7 @@ import {
   updateCrew,
   withCard,
   withCrewRun,
+  withMemberMemory,
   securityReviewBy,
   securityReviewsIt,
   withFeed,
@@ -93,10 +105,14 @@ import {
   type Crew,
   type CrewCard,
   type CrewChange,
+  type CrewCardHolder,
   type CrewFeedEntry,
   type CrewLoopRole,
   type CrewRole,
 } from "./crews";
+import { basename } from "./fs";
+import { insideMockupDir, mockupFileName, mockupProblem } from "./crewMockups";
+import { sourcesText } from "./crewView";
 import { errorText, logError } from "./errors";
 import type {
   FeatureCard,
@@ -181,6 +197,11 @@ export type CrewRunnerDeps = {
     /** The copy's own files: its top-level entries Git doesn't ignore. */
     sources: (copy: string) => Promise<string[]>;
     /**
+     * Every top-level entry of the copy, ignored ones too (`.git` aside):
+     * what a Designer may not write, and what its turn is checked against.
+     */
+    entries?: (copy: string) => Promise<string[]>;
+    /**
      * Settings files an agent left in the copy that an app would run as
      * the user; with `remove`, removed. Checked before every turn.
      */
@@ -233,6 +254,17 @@ export type CrewRunnerDeps = {
   name: (crew: Crew, who: string) => string;
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
+  /**
+   * The Designer's mock-ups: read the file it drew in the copy, keep it in
+   * Aven's own data (resolves with where), and empty the copy's folder
+   * (with `stray`, those new top-level entries of the copy as well).
+   * Without these, a mock-up card stops and says Aven can't keep one here.
+   */
+  mockups?: {
+    read: (path: string) => Promise<string>;
+    save: (copyPath: string, cardId: string, html: string) => Promise<string>;
+    clear: (copyPath: string, stray?: readonly string[]) => Promise<void>;
+  };
   /**
    * Start the chat's agent on a new conversation at its next turn (the chat
    * and its history stay): each card gets the Builder and the Checker fresh,
@@ -301,7 +333,7 @@ type LiveTurn = {
 type CardAt = {
   stage: CrewCard["stage"];
   round: number;
-  holder?: CrewLoopRole;
+  holder?: CrewCardHolder;
 };
 
 function cardAt(card: CrewCard): CardAt {
@@ -611,7 +643,14 @@ export class CrewRunner {
         return this.clearHold(crew);
       // A turn sent before (by an earlier page, say) whose end was never read.
       if (inCopy.turn) return this.recover(crew, inCopy);
-      const role = inCopy.holder ?? "builder";
+      // A question for the Researcher, or a screen for the Designer: one
+      // turn of its own.
+      if (inCopy.kind === "research" || inCopy.kind === "mockup")
+        return this.stepSolo(crew, inCopy, now);
+      const role =
+        inCopy.holder === "researcher" || inCopy.holder === "designer"
+          ? "builder"
+          : (inCopy.holder ?? "builder");
       const member =
         role === "builder"
           ? cardBuilder(crew, inCopy)
@@ -634,7 +673,10 @@ export class CrewRunner {
     const next = nextCardToStart(crew);
     if (next) {
       if (waiting) return this.hold(crew, crewReviewGate(waiting));
-      const builder = cardBuilder(crew, crewCard(crew, next)!);
+      const queued = crewCard(crew, next)!;
+      if (queued.kind === "research" || queued.kind === "mockup")
+        return this.stepSolo(crew, queued, now);
+      const builder = cardBuilder(crew, queued);
       if (!builder) return this.hold(crew, crewNoMemberGate("builder"));
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
@@ -867,6 +909,9 @@ export class CrewRunner {
     const sources = await this.deps.copy
       .sources(copy.path)
       .catch(() => crew.copy?.sources);
+    const entries = this.deps.copy.entries
+      ? await this.deps.copy.entries(copy.path).catch(() => crew.copy?.entries)
+      : undefined;
     let saved = updateCrew(path, (current) => ({
       ...current,
       copy: {
@@ -875,6 +920,7 @@ export class CrewRunner {
         root: copy.root,
         gitDir: copy.gitDir,
         ...(sources ? { sources } : {}),
+        ...(entries ? { entries } : {}),
       },
       lastError: undefined,
     }));
@@ -1069,6 +1115,12 @@ export class CrewRunner {
       // Switched off or removed meanwhile: the next look picks again.
       const member = crewMemberById(crew, memberId);
       if (!member || member.paused) return this.endTurn(path, turn);
+      // A mock-up left in the copy is never this card's work: the folder
+      // goes before a Builder, Checker or Security turn, so nothing of it
+      // is ever stacked or applied to your files.
+      await this.deps.mockups?.clear(crew.copy!.path).catch((error) => {
+        logError("Crew mock-up folder", error);
+      });
       // Settings an agent left in the copy (hooks, MCP servers) would run as
       // you: removed, and this turn doesn't start.
       const planted = await this.deps.copy.planted(crew.copy!.path, true);
@@ -1163,6 +1215,7 @@ export class CrewRunner {
       }
       const guidance = {
         ...(member.instructions ? { instructions: member.instructions } : {}),
+        ...(member.memory ? { memory: member.memory } : {}),
         ...(member.scope?.length ? { scope: member.scope } : {}),
       };
       const text =
@@ -1170,6 +1223,7 @@ export class CrewRunner {
           ? builderMessage({
               card,
               notes: crew.notes,
+              about: crew.about,
               names,
               brief,
               sync: prepared.sync,
@@ -1179,6 +1233,7 @@ export class CrewRunner {
             ? securityMessage({
                 card,
                 notes: crew.notes,
+                about: crew.about,
                 names,
                 brief,
                 guidance,
@@ -1186,6 +1241,7 @@ export class CrewRunner {
             : checkerMessage({
                 card,
                 notes: crew.notes,
+                about: crew.about,
                 names,
                 brief,
                 guidance,
@@ -1319,7 +1375,11 @@ export class CrewRunner {
         ? cardBuilder(crew, card)
         : sent.role === "security"
           ? cardSecurity(crew)
-          : cardChecker(crew, card));
+          : sent.role === "researcher"
+            ? cardResearcher(crew)
+            : sent.role === "designer"
+              ? cardDesigner(crew)
+              : cardChecker(crew, card));
     if (!member) return;
     const chat =
       this.chatNow(sent.sessionId) ??
@@ -1360,13 +1420,60 @@ export class CrewRunner {
     return true;
   }
 
+  /** The member's reply to a turn, without its notes block (read apart). */
+  private turnReply(turn: LiveTurn, outcome?: ControlOutcome): string {
+    return withoutMemory(
+      replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
+        outcome?.text?.trim() ||
+        "",
+    );
+  }
+
+  /**
+   * The member rewrote its notes at the end of a turn that finished: they
+   * replace what it had, for it alone. A turn that failed, was stopped or
+   * ran too long keeps the notes as they were.
+   */
+  private remember(path: string, turn: LiveTurn, outcome?: ControlOutcome) {
+    if (
+      turn.timedOut ||
+      turn.stopping ||
+      outcome?.status === "failed" ||
+      outcome?.status === "cancelled"
+    )
+      return;
+    let memory: string | null;
+    try {
+      memory = parseMemory(
+        replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
+          outcome?.text?.trim() ||
+          "",
+      );
+    } catch (error) {
+      logError("Crew notes", error);
+      return;
+    }
+    if (!memory) return;
+    const now = this.deps.now();
+    updateCrew(path, (current) =>
+      crewMemberById(current, turn.memberId)
+        ? withMemberMemory(current, turn.memberId, memory, now)
+        : current,
+    );
+  }
+
   /** A turn ended: read it once, whichever of its end, the heartbeat or a recovery comes first. */
   async afterTurn(path: string, turn: LiveTurn, outcome?: ControlOutcome) {
     if (!this.markHandled(turn.turnId)) return;
     try {
+      this.remember(path, turn, outcome);
       if (turn.goal) await this.afterGoal(path, turn, outcome);
       else if (turn.role === "scout" || turn.sweep)
         await this.afterScout(path, turn, outcome);
+      else if (turn.role === "researcher")
+        await this.afterResearchTurn(path, turn, outcome);
+      else if (turn.role === "designer")
+        await this.afterMockupTurn(path, turn, outcome);
       else await this.afterCardTurn(path, turn, outcome);
     } catch (error) {
       logError("Crew", error);
@@ -1392,6 +1499,7 @@ export class CrewRunner {
     const card = crewCard(crew, turn.cardId);
     // Stopped, thrown away or picked up again meanwhile: nothing to read.
     if (!card || card.turn?.turnId !== turn.turnId) return;
+    if (turn.role === "researcher" || turn.role === "designer") return;
     const role = turn.role as CrewLoopRole;
     const now = this.deps.now();
     const names = this.names(crew, card, { role, memberId: turn.memberId });
@@ -1436,10 +1544,7 @@ export class CrewRunner {
         name: this.deps.name(crew, turn.memberId),
       });
     else {
-      const reply =
-        replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
-        outcome?.text?.trim() ||
-        "";
+      const reply = this.turnReply(turn, outcome);
       const diff =
         crew.copy && card.base
           ? await this.deps.copy
@@ -1822,11 +1927,13 @@ export class CrewRunner {
         .map((card) => card.title);
       const guidance = {
         ...(member.instructions ? { instructions: member.instructions } : {}),
+        ...(member.memory ? { memory: member.memory } : {}),
         ...(member.scope?.length ? { scope: member.scope } : {}),
       };
       const text = sweep
         ? sweepMessage({
             notes: crew.notes,
+            about: crew.about,
             boardTitles,
             brief,
             sync: prepared.sync,
@@ -1834,6 +1941,7 @@ export class CrewRunner {
           })
         : scoutMessage({
             notes: crew.notes,
+            about: crew.about,
             boardTitles,
             ideasLeft: left,
             brief,
@@ -1907,6 +2015,540 @@ export class CrewRunner {
       );
       this.endTurn(path, turn);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // The Researcher and the Designer: a card's one turn of its own
+
+  /**
+   * A research or mock-up card's next step: its member's one turn, or a
+   * hold while that member is off or gone.
+   */
+  private stepSolo(crew: Crew, card: CrewCard, now: number) {
+    const role = card.kind === "mockup" ? "designer" : "researcher";
+    const member =
+      role === "designer" ? cardDesigner(crew) : cardResearcher(crew);
+    if (!member) return this.hold(crew, crewNoMemberGate(role));
+    const gate = this.gate(crew, now);
+    if (!gate.ok) return this.hold(crew, gate);
+    this.clearHold(crew);
+    return this.sendSoloTurn(crew.path, card.id, member.id, role);
+  }
+
+  /**
+   * A research card's one turn: the Researcher reads (the copy, and the web
+   * when Access allows it) and hands back findings. Read-only, like a
+   * check: a change to the copy during it voids its findings. A mock-up
+   * card's the same for the Designer, which writes one file in its folder
+   * and nothing else.
+   */
+  private async sendSoloTurn(
+    path: string,
+    cardId: string,
+    memberId: string,
+    role: "researcher" | "designer",
+  ) {
+    const key = projectKey(path);
+    const now = this.deps.now();
+    const before = getCrew(path);
+    if (
+      !before ||
+      this.memberChatAtWork(before, memberId) ||
+      !claimCrewJob(path, this.deps.owner, now)
+    )
+      return;
+    const onAt = before.onAt;
+    const turn: LiveTurn = {
+      role,
+      memberId,
+      cardId,
+      // As its turn starts: a change meanwhile doesn't unread what it read.
+      ...(role === "researcher" && crewRoleUsesWeb(before, "researcher")
+        ? { web: true }
+        : {}),
+      sessionId: "",
+      turnId: this.newId(),
+      onAt,
+    };
+    this.beginTurn(key, turn);
+    const queued = crewCard(before, cardId);
+    const from = queued ? cardAt(queued) : undefined;
+    let begun: CrewCard | undefined;
+    try {
+      if (!queued || !from || !cardStillAt(queued, from))
+        return this.endTurn(path, turn);
+      const fresh = queued.stage === "queued";
+      const onStack = fresh ? stackHead(before) : undefined;
+      const prepared = await this.prepareCopy(path, fresh && !onStack);
+      if (!prepared || !this.stillOn(path, onAt))
+        return this.endTurn(path, turn);
+      const crew = prepared.crew;
+      let card = crewCard(crew, cardId);
+      if (!card) return this.endTurn(path, turn);
+      if (fresh)
+        card = { ...startCard(card, now), base: onStack ?? prepared.base };
+      begun = card;
+      if (!card.base)
+        throw new Error("The card has no starting point in the copy.");
+      // Read again after a turn that changed files: whatever it left in the
+      // copy goes, so a reader's stray change never reaches the next card.
+      if (!fresh && crew.copy)
+        await this.deps.copy.discard(
+          crew.copy.path,
+          card.base,
+          crew.copy.branch,
+        );
+      const member = crewMemberById(crew, memberId);
+      if (!member || member.paused || member.role !== role)
+        return this.endTurn(path, turn);
+      const planted = await this.deps.copy.planted(crew.copy!.path, true);
+      if (planted.length)
+        throw new Error(
+          `Aven found ${planted.join(", ")} in the team's copy and removed ${
+            planted.length === 1 ? "it" : "them"
+          }: settings there could run commands as you. Look over the card before you try again.`,
+        );
+      const chat = await this.deps.ensureChat(crew, memberId);
+      if (!chat)
+        throw new Error(
+          `Couldn't open ${this.deps.name(crew, memberId)}'s chat.`,
+        );
+      if (!this.stillOn(path, onAt)) return this.endTurn(path, turn);
+      if (chatAtWork(chat)) {
+        if (fresh)
+          updateCrew(path, (current) =>
+            cardStillAt(crewCard(current, cardId), from)
+              ? withCard(current, card!)
+              : current,
+          );
+        this.waitingOn.add(chat.id);
+        return this.endTurn(path, turn, true);
+      }
+      turn.sessionId = chat.id;
+      this.updateWorking();
+      // Each question starts a new conversation: nothing from one card
+      // reaches another.
+      if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
+      const brief =
+        chat.providerSessionId && !this.deps.freshConversation
+          ? undefined
+          : crewBrief({
+              role,
+              name: this.deps.name(crew, memberId),
+              project: crew.path,
+              copyPath: crew.copy?.path ?? "",
+              names: this.names(crew),
+              harness: crewMemberApp(member).harness,
+              maxRounds: 1,
+            });
+      const diff = await this.deps.copy.diff(crew.copy!.path, card.base);
+      const hashBefore = diff.hash;
+      const guidance = {
+        ...(member.instructions ? { instructions: member.instructions } : {}),
+        ...(member.memory ? { memory: member.memory } : {}),
+      };
+      const text =
+        role === "designer"
+          ? mockupMessage({
+              card,
+              notes: crew.notes,
+              about: crew.about,
+              brief,
+              sync: prepared.sync,
+              guidance,
+              file: `${MOCKUP_DIR}/${mockupFileName(card.id)}`,
+            })
+          : researchMessage({
+              card,
+              notes: crew.notes,
+              about: crew.about,
+              brief,
+              sync: prepared.sync,
+              guidance,
+              web: !!turn.web,
+            });
+      const label = crewTurnLabel({ role, card });
+      await this.deps.beforeSend?.(chat.id);
+      if (!this.mayStillSend(path, onAt, cardId, from))
+        return this.endTurn(path, turn);
+      const sent = this.deps.send(chat.id, text, {
+        displayText: label,
+        botWake: { label },
+        blockId: turn.turnId,
+        onSettled: (outcome) => void this.afterTurn(path, turn, outcome),
+      });
+      if (!sent)
+        throw new Error(
+          `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
+        );
+      turn.sentAt = this.deps.now();
+      const started = card;
+      const who = this.deps.name(crew, memberId);
+      let saved = false;
+      updateCrew(path, (current) => {
+        if (!cardStillAt(crewCard(current, cardId), from)) return current;
+        saved = true;
+        let next = withCrewRun(current, turn.sentAt!);
+        next = withCard(next, {
+          ...started,
+          turn: {
+            role,
+            sessionId: chat.id,
+            turnId: turn.turnId,
+            sentAt: turn.sentAt!,
+            hashBefore,
+          },
+          runs: started.runs + 1,
+          updatedAt: turn.sentAt!,
+        });
+        next = withMemberId(next, memberId, (entry) => ({
+          ...entry,
+          sessionId: chat.id,
+          doing: {
+            at: turn.sentAt!,
+            text:
+              role === "designer"
+                ? `Mocking up ${started.title}`
+                : `Reading for ${started.title}`,
+          },
+        }));
+        return fresh
+          ? withFeed(next, {
+              at: turn.sentAt!,
+              kind: "start",
+              who: role,
+              member: memberId,
+              cardId: started.id,
+              title: started.title,
+              text:
+                role === "designer"
+                  ? `${who} started mocking up “${started.title}”`
+                  : `${who} started reading for “${started.title}”`,
+            })
+          : next;
+      });
+      if (!saved) {
+        turn.stopping = true;
+        this.deps.stopChat(chat.id);
+        this.markHandled(turn.turnId);
+        return this.endTurn(path, turn);
+      }
+      this.armTimeout(path, turn, crew.limits.turnMinutes);
+    } catch (error) {
+      logError(role === "designer" ? "Crew mock-up" : "Crew research", error);
+      const now = this.deps.now();
+      updateCrew(path, (current) => {
+        const card = crewCard(current, cardId);
+        if (!card || !from || !cardStillAt(card, from)) return current;
+        const started =
+          card.stage === "queued" ? (begun ?? startCard(card, now)) : card;
+        return this.commitSolo(
+          current,
+          turnFailed(started, {
+            role,
+            error: errorText(error),
+            now,
+            name: this.deps.name(current, memberId),
+          }),
+          now,
+          memberId,
+        );
+      });
+      this.endTurn(path, turn);
+    }
+  }
+
+  /**
+   * The Designer's turn ended: the one file it drew in its folder, if that
+   * is all it wrote and Aven accepts it, is kept in Aven's own data and the
+   * card is Mock-up, in Ready for you. The copy's folder is emptied and the
+   * copy put back to the card's base, so nothing of it reaches the next
+   * card or the team's branch. A turn that wrote elsewhere holds the copy
+   * and stops with why; one that failed, was stopped, ran too long or left
+   * nothing Aven can keep stops too.
+   */
+  private async afterMockupTurn(
+    path: string,
+    turn: LiveTurn,
+    outcome?: ControlOutcome,
+  ) {
+    const crew = getCrew(path);
+    if (!crew?.on || !turn.cardId) return;
+    const card = crewCard(crew, turn.cardId);
+    if (!card || card.turn?.turnId !== turn.turnId) return;
+    const now = this.deps.now();
+    const name = this.deps.name(crew, turn.memberId);
+    const copy = crew.copy?.path;
+    let step: LoopStep;
+    if (turn.timedOut)
+      step = turnTimedOut(card, {
+        role: "designer",
+        minutes: crew.limits.turnMinutes,
+        now,
+        name,
+      });
+    else if (outcome?.status === "failed" || outcome?.status === "cancelled")
+      step = turnFailed(card, {
+        role: "designer",
+        error:
+          outcome.status === "cancelled" ? "it was stopped" : outcome.error,
+        now,
+        name,
+      });
+    else step = await this.readMockup(crew, card, turn, outcome, now, name);
+    // However it ended, nothing of the turn's own stays in the copy: its
+    // folder goes and the copy is put back to the card's base, so the card
+    // steps aside with a clean copy and nothing is ever stacked from it. A
+    // turn that wrote elsewhere keeps its stray files, for you to see (Try
+    // again discards them first).
+    const strayed =
+      step.event.kind === "stuck" && step.event.reason === "checker-edited";
+    if (copy && !strayed) {
+      await this.deps.mockups?.clear(copy).catch((error) => {
+        logError("Crew mock-up folder", error);
+      });
+      if (card.base && crew.copy)
+        await this.deps.copy
+          .discard(copy, card.base, crew.copy.branch)
+          .catch((error) => {
+            logError("Crew copy discard", error);
+          });
+    }
+    if (!this.stillOn(path, turn.onAt)) return;
+    let saved = false;
+    updateCrew(path, (current) => {
+      if (crewCard(current, card.id)?.turn?.turnId !== turn.turnId)
+        return current;
+      saved = true;
+      return this.commitSolo(current, step, now, turn.memberId);
+    });
+    if (saved && step.event.kind === "ready")
+      await Promise.resolve(this.deps.board.move(path, card.id, "review"));
+  }
+
+  /** What the Designer's turn left: its one file, kept by Aven, or why not. */
+  private async readMockup(
+    crew: Crew,
+    card: CrewCard,
+    turn: LiveTurn,
+    outcome: ControlOutcome | undefined,
+    now: number,
+    name: string,
+  ): Promise<LoopStep> {
+    const reply = this.turnReply(turn, outcome);
+    const copy = crew.copy?.path;
+    const diff =
+      copy && card.base
+        ? await this.deps.copy.diff(copy, card.base).catch((error) => {
+            logError("Crew diff", error);
+            return null;
+          })
+        : null;
+    if (!diff || !copy)
+      return afterMockup(card, {
+        mockup: null,
+        problem: "Aven couldn't read the team's copy after its turn",
+        now,
+        name,
+      });
+    const written = diff.files.map((file) => file.path);
+    // Anything outside its folder, or a link (which could point anywhere,
+    // your project included), is a stray: the turn stops with why.
+    const stray = diff.files
+      .filter(
+        (file) => !insideMockupDir(file.path) || file.newMode === "120000",
+      )
+      .map((file) =>
+        file.newMode === "120000" ? `${file.path} (a link)` : file.path,
+      );
+    // New top-level entries Git can't see (ignored ones, `.env`, a folder of
+    // its own): strays too, and gone at once, since no diff would show them.
+    const before = new Set(
+      (crew.copy?.entries ?? []).map((entry) => basename(entry)),
+    );
+    const after = this.deps.copy.entries
+      ? await this.deps.copy.entries(copy).catch((error) => {
+          logError("Crew copy listing", error);
+          return null;
+        })
+      : [];
+    // A listing that fails can't say the copy is clean: the mock-up isn't kept.
+    if (!after)
+      return afterMockup(card, {
+        mockup: null,
+        problem: "Aven couldn't list the team's copy after its turn",
+        now,
+        name,
+      });
+    const unseen = after
+      .map((entry) => basename(entry))
+      .filter(
+        (entry) =>
+          !before.has(entry) && entry !== MOCKUP_DIR && entry !== ".git",
+      );
+    if (unseen.length)
+      await this.deps.mockups?.clear(copy, unseen).catch((error) => {
+        logError("Crew mock-up folder", error);
+      });
+    if (stray.length || unseen.length)
+      return afterMockup(card, {
+        mockup: null,
+        strayed: true,
+        problem: [...stray, ...unseen].slice(0, 5).join(", "),
+        now,
+        name,
+      });
+    const parsed = parseMockup(reply);
+    const fail = (problem: string) =>
+      afterMockup(card, { mockup: null, problem, now, name });
+    if (!parsed) {
+      if (!written.length)
+        return afterMockup(card, { mockup: null, now, name });
+      return fail("its reply named no file");
+    }
+    if (!insideMockupDir(parsed.file))
+      return fail(`the file it named isn't inside ${MOCKUP_DIR}/`);
+    const relative = parsed.file.replace(/\\/g, "/").replace(/^\.\//, "");
+    if (written.length !== 1)
+      return fail(
+        written.length
+          ? `it wrote ${written.length} files; a mock-up is one`
+          : "it wrote no file",
+      );
+    if (written[0] !== relative)
+      return fail(`it named ${relative} but wrote ${written[0]}`);
+    if (!this.deps.mockups) return fail("Aven can't keep mock-ups here");
+    let html: string;
+    try {
+      html = await this.deps.mockups.read(`${copy}/${relative}`);
+    } catch (error) {
+      logError("Crew mock-up read", error);
+      return fail("Aven couldn't read the file");
+    }
+    const problem = mockupProblem(html);
+    if (problem) return fail(problem);
+    let kept: string;
+    try {
+      kept = await this.deps.mockups.save(copy, card.id, html);
+    } catch (error) {
+      logError("Crew mock-up save", error);
+      return fail("Aven couldn't keep the file");
+    }
+    return afterMockup(card, {
+      mockup: {
+        file: kept,
+        note: parsed.note,
+        bytes: new TextEncoder().encode(html).length,
+      },
+      now,
+      name,
+    });
+  }
+
+  /**
+   * The Researcher's turn ended: its findings make the card Findings, in
+   * Ready for you, with nothing to apply. A turn that failed, was stopped
+   * or ran too long, or one that changed the copy, stops the card with why.
+   */
+  private async afterResearchTurn(
+    path: string,
+    turn: LiveTurn,
+    outcome?: ControlOutcome,
+  ) {
+    const crew = getCrew(path);
+    if (!crew?.on || !turn.cardId) return;
+    const card = crewCard(crew, turn.cardId);
+    if (!card || card.turn?.turnId !== turn.turnId) return;
+    const now = this.deps.now();
+    const name = this.deps.name(crew, turn.memberId);
+    let step: LoopStep;
+    if (turn.timedOut)
+      step = turnTimedOut(card, {
+        role: "researcher",
+        minutes: crew.limits.turnMinutes,
+        now,
+        name,
+      });
+    else if (outcome?.status === "failed" || outcome?.status === "cancelled")
+      step = turnFailed(card, {
+        role: "researcher",
+        error:
+          outcome.status === "cancelled" ? "it was stopped" : outcome.error,
+        now,
+        name,
+      });
+    else {
+      const reply = this.turnReply(turn, outcome);
+      const diff =
+        crew.copy && card.base
+          ? await this.deps.copy
+              .diff(crew.copy.path, card.base)
+              .catch((error) => {
+                logError("Crew diff", error);
+                return null;
+              })
+          : null;
+      // A reader that changed the copy is void; a copy Aven can't read says so.
+      const unreadable = !diff && !!crew.copy && !!card.base;
+      const edited =
+        !!diff && !!card.turn.hashBefore && diff.hash !== card.turn.hashBefore;
+      step = afterResearch(card, {
+        findings: parseFindings(reply),
+        edited,
+        unreadable,
+        now,
+        name,
+      });
+    }
+    if (!this.stillOn(path, turn.onAt)) return;
+    let saved = false;
+    updateCrew(path, (current) => {
+      if (crewCard(current, card.id)?.turn?.turnId !== turn.turnId)
+        return current;
+      saved = true;
+      return this.commitSolo(current, step, now, turn.memberId);
+    });
+    if (saved && step.event.kind === "ready")
+      await Promise.resolve(this.deps.board.move(path, card.id, "review"));
+  }
+
+  /** Save a solo step (research or mock-up): the card, the feed line, and the member's line. */
+  private commitSolo(
+    crew: Crew,
+    step: LoopStep,
+    now: number,
+    memberId: string,
+  ): Crew {
+    const { card, event } = step;
+    const who = this.deps.name(crew, memberId);
+    const mockup = card.kind === "mockup";
+    const entry: Omit<CrewFeedEntry, "id"> =
+      event.kind === "ready"
+        ? {
+            at: now,
+            kind: mockup ? "mockup" : "findings",
+            who: mockup ? "designer" : "researcher",
+            member: memberId,
+            cardId: card.id,
+            title: card.title,
+            text: mockup
+              ? `${who} mocked up “${card.title}”${card.mockup?.note ? `: ${card.mockup.note}` : ""}`
+              : `${who} read ${sourcesText(card.findings?.sources ?? 0)} for “${card.title}”: ${card.findings?.summary ?? ""}`,
+          }
+        : {
+            at: now,
+            kind: "stuck",
+            who: "aven",
+            member: memberId,
+            cardId: card.id,
+            title: card.title,
+            text: event.kind === "stuck" ? event.text : "",
+          };
+    // Findings live on the Board, not in the Inbox: nothing to apply there.
+    const noted = withFeed(withCard(crew, card), entry);
+    return withMemberId(noted, memberId, (member) =>
+      member.doing ? { ...member, doing: undefined } : member,
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -2008,6 +2650,7 @@ export class CrewRunner {
         done: goalCardsDone(crew),
         dropped: crew.goal.dropped ?? [],
         notes: crew.notes,
+        about: crew.about,
         boardTitles: cards
           .filter((card) => card.column !== "shipped")
           .map((card) => card.title),
@@ -2015,6 +2658,7 @@ export class CrewRunner {
         sync: prepared.sync,
         guidance: {
           ...(member.instructions ? { instructions: member.instructions } : {}),
+          ...(member.memory ? { memory: member.memory } : {}),
         },
       });
       const label = "Goal · what's next";
@@ -2091,8 +2735,19 @@ export class CrewRunner {
     if (base && crew.copy) {
       const diff = await this.deps.copy
         .diff(crew.copy.path, base)
-        .catch(() => null);
-      if (diff?.files.length) {
+        .catch((error) => {
+          logError("Crew goal undo check", error);
+          return null;
+        });
+      // Unchecked, the copy may hold what planning wrote: nothing builds on
+      // it until you look. The goal stops, and the feed says why.
+      if (!diff)
+        return this.stopGoal(
+          crew,
+          `Aven couldn't check the team's copy after ${who}'s planning, so the team stopped. Look over the copy, then Keep going to try again.`,
+          now,
+        );
+      if (diff.files.length) {
         await this.deps.copy
           .discard(crew.copy.path, base, crew.copy.branch, base)
           .catch((error) => logError("Crew goal undo", error));
@@ -2125,10 +2780,7 @@ export class CrewRunner {
           : `${who}'s planning didn't finish${outcome?.error ? `: ${outcome.error}` : ""}. Keep going to try again.`,
         now,
       );
-    const reply =
-      replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
-      outcome?.text?.trim() ||
-      "";
+    const reply = this.turnReply(turn, outcome);
     const answer = parseGoal(reply);
     if (!answer)
       return this.stopGoal(
@@ -2221,10 +2873,7 @@ export class CrewRunner {
     if (!crew?.on || !this.stillOn(path, turn.onAt)) return;
     const now = this.deps.now();
     const sweep = !!turn.sweep;
-    const reply =
-      replyForTurn(this.chatNow(turn.sessionId), turn.turnId) ||
-      outcome?.text?.trim() ||
-      "";
+    const reply = this.turnReply(turn, outcome);
     // A look that failed, was stopped, or ran too long adds nothing.
     const ideas =
       outcome?.status === "failed" ||

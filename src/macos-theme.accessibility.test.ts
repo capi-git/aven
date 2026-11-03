@@ -72,7 +72,7 @@ describe("controls stay visible with Increase contrast and Reduce transparency",
       ["src/surfaces/BrowserPane.css", ".browser-address"],
       [
         "src/chrome/Overlays.css",
-        '.modal-panel[role="dialog"] :is(input, textarea, select)',
+        '.modal-panel[role="dialog"]\n  :is(input:where(:not([type="checkbox"], [type="radio"])), textarea, select)',
       ],
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/SettingsRail.css", ".settings-nav__search"],

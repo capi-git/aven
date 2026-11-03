@@ -80,7 +80,7 @@ export const MemoryKeeperOffer = memo(function MemoryKeeperOffer({
 
 /**
  * "Kept up to date by Aven". The editor shows which model keeps it, when it
- * last ran and Refresh now; Customize project shows the switch alone.
+ * last ran and Refresh now; Customise project shows the switch alone.
  */
 export function MemoryKeeperSwitch({
   path,

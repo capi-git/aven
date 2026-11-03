@@ -257,7 +257,8 @@ describe("Build a team", () => {
     const designer = getCrew(PATH)!.members.find(
       (member) => member.preset === "designer",
     )!;
-    expect(designer).toMatchObject({ role: "builder", label: "Designer" });
+    expect(designer).toMatchObject({ role: "designer" });
+    expect(designer.label).toBeUndefined();
     expect(tile("designer").textContent).toContain("In team");
     // Each teammate in the team's column opens its page.
     const rows = [
@@ -266,9 +267,9 @@ describe("Build a team", () => {
     expect(rows).toEqual([
       "builder",
       "builder-2",
-      designer.id,
       "checker",
       "security",
+      designer.id,
     ]);
     // A team that has started can't be swapped for a suggested one.
     expect(sheet().querySelector("[data-crew-team]")).toBeNull();

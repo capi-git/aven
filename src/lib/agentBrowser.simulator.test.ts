@@ -46,6 +46,7 @@ describe("agent iPhone guidance", () => {
       browserIds: [],
       anyTab: true,
       workDir: "/project",
+      web: false,
     });
     expect(withPane).toContain("<aven-iphone>");
     expect(withPane).toContain(
@@ -64,6 +65,7 @@ describe("agent iPhone guidance", () => {
       browserIds: [],
       anyTab: true,
       workDir: "/project",
+      web: false,
     });
     expect(without).not.toContain("aven-iphone");
     expect(without).not.toContain("--aven-simulator");

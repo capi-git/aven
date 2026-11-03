@@ -35,6 +35,7 @@ import { probeHarnessAvailability } from "../lib/harness/availability";
 import { projectName } from "../lib/paths";
 import { saveBotSettings } from "../lib/projectBotActions";
 import {
+  TEAM_ACCESS_ROLE_LINES,
   TEAM_ACCESS_SCOPE_LINE,
   TEAM_ALWAYS_LINE,
 } from "../lib/projectBotPermissions";
@@ -57,6 +58,7 @@ import { ChevronLeft, ChevronRight, ChevronUp, Plus, X } from "./icons";
 import { Modal } from "./Modal";
 import { ProjectMark } from "./ProjectMark";
 import { TeamBuilder } from "./TeamBuilder";
+import { TeamSetup } from "./TeamSetup";
 import { MarkButton, TeammateBody, teammateSubtitle } from "./TeammatePage";
 import "./TeamCard.css";
 import "./BotSettingsSheet.css";
@@ -73,7 +75,9 @@ type Page =
   | { kind: "crew" }
   /** A teammate's page, and the page it was opened from (its way back). */
   | { kind: "member"; id: string; from: "crew" | "add" }
-  | { kind: "add" };
+  | { kind: "add" }
+  /** A new team: say what the project is, and Aven suggests the team. */
+  | { kind: "setup" };
 
 /**
  * A team's settings: who is in it, who builds what, its limits and quiet
@@ -95,7 +99,10 @@ export function CrewSettingsSheet({
 }: {
   path: string;
   fixerName?: string;
-  /** Open on a teammate's page (its id), or on Build a team ("add"). */
+  /**
+   * Open on a teammate's page (its id), on Build a team ("add"), or on a
+   * new team's setup ("setup": describe the project, Aven suggests a team).
+   */
   initialPage?: string;
   /** Turn the team on (it is off). Resolves with why it couldn't, or null. */
   onTurnOn: (path: string) => Promise<string | null>;
@@ -115,9 +122,11 @@ export function CrewSettingsSheet({
   const [page, setPage] = useState<Page>(() =>
     initialPage === "add"
       ? { kind: "add" }
-      : initialPage
-        ? { kind: "member", id: initialPage, from: "crew" }
-        : { kind: "crew" },
+      : initialPage === "setup"
+        ? { kind: "setup" }
+        : initialPage
+          ? { kind: "member", id: initialPage, from: "crew" }
+          : { kind: "crew" },
   );
   // Why its chat didn't open, said on the teammate's page.
   const [chatProblem, setChatProblem] = useState<string | null>(null);
@@ -278,6 +287,23 @@ export function CrewSettingsSheet({
         name={name}
         notice={crew.on && !chatReady ? firstCardChatText(name) : null}
         alert={chatProblem}
+      />
+    );
+  } else if (page.kind === "setup") {
+    header = {
+      title: `New team for ${project}`,
+      description: `Say what ${project} is and what you want. Aven suggests a team and first ideas. Change anything before it starts.`,
+      leading: <ProjectMark path={path} className="team-build-head-mark" />,
+      size: "lg",
+      className: "team-setup-sheet",
+    };
+    body = (
+      <TeamSetup
+        crew={crew}
+        project={project}
+        onPickMyself={() => toPage({ kind: "add" })}
+        onTurnOn={() => onTurnOn(path)}
+        onStarted={() => onStarted?.(path)}
       />
     );
   } else if (page.kind === "add") {
@@ -537,9 +563,9 @@ function AccessSection({ crew }: { crew: Crew }) {
           title="Use the web"
           detail={
             access.web === "everyone"
-              ? "Everyone searches and reads pages, and uses Aven's browser. Ideas the Scout finds wait for you"
+              ? "Everyone searches and reads pages, and uses Aven's browser. The Scout's ideas then wait for you, as the Researcher's always do"
               : access.web === "builders"
-                ? "Builders search and read pages. All but the Scout use Aven's browser, to try the work"
+                ? "Builders and the Researcher search and read pages. All but the Scout use Aven's browser, to try the work"
                 : "No teammate searches, reads pages or uses Aven's browser"
           }
         >
@@ -581,6 +607,11 @@ function AccessSection({ crew }: { crew: Crew }) {
       <p className="bot-sheet-note" data-crew-access-scope>
         {TEAM_ACCESS_SCOPE_LINE}
       </p>
+      <ul className="bot-sheet-notes" data-crew-access-roles>
+        {TEAM_ACCESS_ROLE_LINES.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
     </Section>
   );
 }

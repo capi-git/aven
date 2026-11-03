@@ -3,6 +3,8 @@ import {
   launchRefusal,
   type ClaudePermissionRules,
 } from "./harness/sessionPermissions";
+import { basename } from "./fs";
+import { mockupStoreRoot } from "./crewMockups";
 import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import {
@@ -10,6 +12,8 @@ import {
   crewAccess,
   crewRoleUsesBrowser,
   crewRoleUsesWeb,
+  crewRoleWritesCopy,
+  MOCKUP_DIR,
   crewForChat,
   crewMemberApp,
   type Crew,
@@ -17,6 +21,7 @@ import {
 } from "./crews";
 
 import { agentBrowserSocket } from "./agentBrowser";
+import { HARNESS_TITLE, type HarnessId } from "./session";
 import type {
   ClaudeSandboxSettings,
   SessionPermissions,
@@ -159,15 +164,24 @@ export function absolutePathRule(folder: string): string {
   return `${absolute}/**`;
 }
 
-/** The one line the settings sheet shows for what a bot never does. */
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
   "Teammates work in their own copy. Pushing, publishing and deploying are refused, and nothing reaches your files until you press Apply.";
 
-/** Who Access reaches. */
+/** Who Access reaches, in one line; the roles it doesn't follow. */
 export const TEAM_ACCESS_SCOPE_LINE =
-  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser.";
+  "These are for teammates on Claude. A few keep their own rules:";
 
+/** The teammates and turns Access doesn't change, one line each. */
+export const TEAM_ACCESS_ROLE_LINES = [
+  "Teammates on Codex have no network and never stop to ask.",
+  "The Fixer keeps its own rules.",
+  "Planning a goal never uses the web or the browser.",
+  "The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you.",
+  "The Designer never uses the web or the browser, and writes only its mock-up.",
+];
+
+/** The one line the settings sheet shows for what a bot never does. */
 export const ALWAYS_ASKS_LINE =
   "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
 
@@ -182,7 +196,7 @@ export function botPermissionRules(
     deny: [
       ...NEVER_GIT,
       ...DEPLOY_AND_PUBLISH,
-      ...PUBLISH_CREDENTIALS.map((path) => `Read(${path})`),
+      ...NEVER_READ_RULES,
       // Settings in its copy that an app would run as the user, and the
       // user's own.
       ...(bot.copy ? copySettingsRules(bot.copy.path) : []),
@@ -240,6 +254,35 @@ export const PUBLISH_CREDENTIALS = [
 ];
 
 /**
+ * Your keys and sign-ins for other services: SSH, cloud accounts, GitHub's
+ * CLI, Docker, Kubernetes, GPG. No bot or teammate reads them, by rule and
+ * by sandbox: nothing it does needs them, and a page or a file it read
+ * could ask for them.
+ */
+export const SECRET_FOLDERS = [
+  "~/.ssh",
+  "~/.aws",
+  "~/.config/gh",
+  "~/.kube",
+  "~/.gnupg",
+];
+export const SECRET_FILES = ["~/.docker/config.json"];
+
+/** Everything a bot's commands may not read: the sandbox's list. */
+export const NEVER_READ_PATHS = [
+  ...PUBLISH_CREDENTIALS,
+  ...SECRET_FILES,
+  ...SECRET_FOLDERS,
+];
+
+/** The same, as rules for its Read tool (a folder with everything in it). */
+export const NEVER_READ_RULES = [
+  ...PUBLISH_CREDENTIALS.map((path) => `Read(${path})`),
+  ...SECRET_FILES.map((path) => `Read(${path})`),
+  ...SECRET_FOLDERS.map((path) => `Read(${path}/**)`),
+];
+
+/**
  * Files and folders in a copy that an app would load as settings and run
  * as the user. No bot or crew member may write them; Aven removes any it
  * finds there (see `bot_copy_planted`).
@@ -272,17 +315,23 @@ export const USER_CONFIG_RULES = [
 ];
 
 /**
- * Paths a fix may not bring into your files (Apply refuses it; you can take
- * it over in a chat): settings an app would run as you, and the folders git
- * hook managers run from. Matched by their first part, without case. The
- * host refuses them too (see `PROTECTED` in project_bots.rs).
+ * Names a fix may not bring into your files (Apply refuses it; you can
+ * take it over in a chat): settings an app or editor would run as you, the
+ * folders git hook managers run from, package-manager and shell hooks.
+ * Matched at any depth of a path, without case. The host refuses them too
+ * (see `PROTECTED` in project_bots.rs).
  */
 export const PROTECTED_FIX_PATHS = [
   ".claude",
   ".codex",
   ".agents",
-  ".vscode",
+  ".aven",
   ".mcp.json",
+  ".vscode",
+  ".cursor",
+  ".zed",
+  ".idea",
+  ".devcontainer",
   ".husky",
   ".githooks",
   ".git-hooks",
@@ -290,6 +339,18 @@ export const PROTECTED_FIX_PATHS = [
   "lefthook.yml",
   ".lefthook.yml",
   ".pre-commit-config.yaml",
+  ".yarnrc.yml",
+  ".pnpmfile.cjs",
+  ".npmrc",
+  "bunfig.toml",
+  ".envrc",
+] as const;
+
+/** Two-part names refused at any depth: a folder and the file or folder in it. */
+export const PROTECTED_FIX_PAIRS = [
+  ".cargo/config.toml",
+  ".cargo/config",
+  ".github/workflows",
 ] as const;
 
 /**
@@ -303,21 +364,37 @@ export function foldedName(name: string): string {
 
 /**
  * The protected paths among a fix's files. A name git would have to quote
- * (a quote or a control character in it) is never applied either. The
- * top-level name is matched folded ("ſ" is "s" on a Mac), without the
- * trailing dots and spaces Windows drops; and, as a margin, a dotfile-style
- * name that isn't plain ASCII is kept out too. Ordinary names with accents
- * ("Données", "Résumé.md") are like any other.
+ * (a quote or a control character in it) is never applied either. Every
+ * part of a path is matched folded ("ſ" is "s" on a Mac), without the
+ * trailing dots and spaces Windows drops, so a settings folder is refused
+ * at any depth ("packages/app/.vscode/tasks.json"); and, as a margin, a
+ * dotfile-style part that isn't plain ASCII is kept out too. Ordinary names
+ * with accents ("Données", "Résumé.md") are like any other.
  */
 export function protectedFixPaths(paths: readonly string[]): string[] {
   return paths.filter((path) => {
     // oxlint-disable-next-line no-control-regex -- control characters are what this refuses.
     if (path.startsWith('"') || /[\u0000-\u001f\u007f]/.test(path)) return true;
-    const top = path.replace(/\\/g, "/").split("/")[0]!;
+    const parts = path.replace(/\\/g, "/").split("/");
     // oxlint-disable-next-line no-control-regex -- ASCII is what this keeps.
-    if (top.startsWith(".") && /[^\u0000-\u007f]/.test(top)) return true;
-    const first = foldedName(top).replace(/[. ]+$/, "");
-    return (PROTECTED_FIX_PATHS as readonly string[]).includes(first);
+    if (
+      parts.some(
+        (part) => part.startsWith(".") && /[^\u0000-\u007f]/.test(part),
+      )
+    )
+      return true;
+    const folded = parts.map((part) => foldedName(part).replace(/[. ]+$/, ""));
+    if (
+      folded.some((part) =>
+        (PROTECTED_FIX_PATHS as readonly string[]).includes(part),
+      )
+    )
+      return true;
+    return folded.some((part, index) =>
+      (PROTECTED_FIX_PAIRS as readonly string[]).includes(
+        `${part}/${folded[index + 1] ?? ""}`,
+      ),
+    );
   });
 }
 
@@ -383,12 +460,20 @@ export function botSandbox(
               // user: Claude's, MCP servers, the editor's tasks.
               ...COPY_SETTINGS.map((name) => `${copy}/${name}`),
             ],
-            denyRead: PUBLISH_CREDENTIALS,
+            denyRead: NEVER_READ_PATHS,
           },
         }
       : {}),
   };
 }
+
+/**
+ * Fetching from the web: a Checker or Scout has no business there, and a
+ * page it read could steer it (the Builder keeps it, for docs; the
+ * Researcher reads it as its job, and everything it hands back waits for
+ * you).
+ */
+export const WEB_TOOLS = ["WebFetch", "WebSearch"];
 
 /**
  * A crew member's rules. The Builder's are a bot's: it changes files only
@@ -397,12 +482,6 @@ export function botSandbox(
  * folder, is denied outright rather than asked, so a check can never "fix
  * it itself" or weaken a test to pass.
  */
-/**
- * Fetching from the web: a Checker or Scout has no business there, and a
- * page it read could steer it (the Builder keeps it, for docs).
- */
-export const WEB_TOOLS = ["WebFetch", "WebSearch"];
-
 export function crewPermissionRules(
   crew: Pick<Crew, "path" | "copy" | "access">,
   role: Exclude<CrewRole, "fixer">,
@@ -414,7 +493,10 @@ export function crewPermissionRules(
     ...(crew.copy ? { copy: crew.copy } : {}),
   });
   const access = crewAccess(crew);
-  const edits = CREW_ROLE_INFO[role].edits;
+  // The Designer writes one file in its own folder: for every rule here it
+  // is a reader, and the copy's own files are refused one by one (see
+  // `designerDenied`), so the folder stays open.
+  const edits = crewRoleWritesCopy(role);
   const yourFiles = `Edit(${absolutePathRule(crew.path)})`;
   // A copy inside the project (a home folder as the project): refusing your
   // folder would refuse its own copy, so that one rule keeps asking.
@@ -440,10 +522,18 @@ export function crewPermissionRules(
       ...(web ? [] : WEB_TOOLS),
       ...(edits
         ? []
-        : [
-            yourFiles,
-            ...(crew.copy ? [`Edit(${absolutePathRule(crew.copy.path)})`] : []),
-          ]),
+        : role === "designer"
+          ? [yourFiles, ...designerDenied(crew)]
+          : [
+              yourFiles,
+              ...(crew.copy
+                ? [`Edit(${absolutePathRule(crew.copy.path)})`]
+                : []),
+            ]),
+      // Mock-ups are the Designer's to draw and Aven's to keep: no one else
+      // writes the copy's folder for them, and no one writes Aven's store
+      // (a Builder reads a mock-up there, never changes it).
+      ...mockupsDenied(crew, role),
       ...(refusing
         ? asks.filter((rule) => !(copyInside && rule === yourFiles))
         : []),
@@ -452,6 +542,60 @@ export function crewPermissionRules(
       ? asks.filter((rule) => copyInside && rule === yourFiles)
       : asks,
   };
+}
+
+/** The copy's top-level entries a Designer may not write, as paths. */
+function designerKeepsOut(copy: NonNullable<Crew["copy"]>): string[] {
+  const root = slash(copy.path).replace(/\/+$/, "");
+  // Every entry when known (ignored ones too), else the files Git knows.
+  return (copy.entries ?? copy.sources ?? [])
+    .map((entry) => slash(entry).replace(/\/+$/, ""))
+    .filter(
+      (path) => path.startsWith(`${root}/`) && basename(path) !== MOCKUP_DIR,
+    );
+}
+
+/**
+ * What the Designer may not edit in the copy: each of its top-level entries
+ * (ignored ones too, so a cache or a build folder is no way out), named one
+ * by one, so that `aven-mockups/`, which is none of them, stays the one
+ * place it can write. A new top-level entry its turn adds is caught after.
+ */
+function designerDenied(crew: Pick<Crew, "copy">): string[] {
+  if (!crew.copy) return [];
+  return designerKeepsOut(crew.copy).flatMap((path) => {
+    const rule = absolutePathRule(path);
+    // A file, and anything under a folder of that name.
+    return [`Edit(${rule.replace(/\/\*\*$/, "")})`, `Edit(${rule})`];
+  });
+}
+
+/** The copy's mock-up folder and Aven's store of mock-ups, as paths. */
+function mockupPlaces(crew: Pick<Crew, "copy">): {
+  folder?: string;
+  store?: string;
+} {
+  if (!crew.copy) return {};
+  const copy = slash(crew.copy.path).replace(/\/+$/, "");
+  return { folder: `${copy}/${MOCKUP_DIR}`, store: mockupStoreRoot(copy) };
+}
+
+/** Edit rules that keep mock-ups to the Designer (the folder) and Aven (the store). */
+function mockupsDenied(
+  crew: Pick<Crew, "copy">,
+  role: Exclude<CrewRole, "fixer">,
+): string[] {
+  const { folder, store } = mockupPlaces(crew);
+  if (!folder || !store) return [];
+  const storeRule = absolutePathRule(store);
+  const folderRule = absolutePathRule(folder);
+  return [
+    `Edit(${storeRule.replace(/\/\*\*$/, "")})`,
+    `Edit(${storeRule})`,
+    ...(role === "designer"
+      ? []
+      : [`Edit(${folderRule.replace(/\/\*\*$/, "")})`, `Edit(${folderRule})`]),
+  ];
 }
 
 /**
@@ -473,14 +617,28 @@ export function crewSandbox(
     { copy: crew.copy },
     !offline && crewRoleUsesBrowser(crew, role) ? browserSocket : null,
   );
-  if (CREW_ROLE_INFO[role].edits || !crew.copy?.sources?.length) return sandbox;
+  if (!crew.copy) return sandbox;
+  const { folder, store } = mockupPlaces(crew);
+  const keepOut =
+    role === "designer"
+      ? // Every top-level entry, ignored ones too; its own folder never.
+        designerKeepsOut(crew.copy)
+      : crewRoleWritesCopy(role)
+        ? []
+        : (crew.copy.sources ?? []).map((path) =>
+            slash(path).replace(/\/+$/, ""),
+          );
   return {
     ...sandbox,
     filesystem: {
       ...sandbox.filesystem,
       denyWrite: [
         ...(sandbox.filesystem?.denyWrite ?? []),
-        ...crew.copy.sources.map((path) => slash(path).replace(/\/+$/, "")),
+        ...keepOut,
+        // Mock-ups: the copy's folder is the Designer's alone, and Aven's
+        // store of them is no one's to write.
+        ...(role === "designer" || !folder ? [] : [folder]),
+        ...(store ? [store] : []),
       ],
     },
   };
@@ -501,13 +659,15 @@ export function crewChatPermissions(
   // Only the member's role decides what it may do: never its app, model,
   // instructions or scope, which you can change.
   const role = found.member.role;
+  // The Designer writes its one file: not read-only for the app, but every
+  // other path is refused by its rules and sandbox.
   const readOnly = !CREW_ROLE_INFO[role].edits;
   const refuse = found.retired
     ? "This chat's teammate was removed, so it didn't start."
     : !crew.on
       ? "This team is off, so its chat didn't start. Turn the team on to use it."
       : !crew.copy
-        ? "The team's copy isn't ready yet, so its chat didn't start."
+        ? "The team's copy isn't ready yet, so its chat didn't start. Wait a moment, then send again."
         : undefined;
   const offline = crew.planning === found.member.id;
   return {
@@ -539,6 +699,25 @@ export function crewChatBrowserOff(sessionId: string): boolean {
 }
 
 /**
+ * Whether a chat's pages in Aven's browser may reach the web: true for a
+ * teammate whose role Access lets read the web now (see `crewRoleUsesWeb`),
+ * on an app with a network, and not while it plans a goal. A project bot's
+ * chat has no such setting, and a chat of your own isn't a sandboxed one,
+ * so both are false: the host applies this only to a bot's or teammate's
+ * chat, and read again at every turn, a change in the Team sheet holds
+ * from the next one.
+ */
+export function agentBrowserWeb(sessionId: string): boolean {
+  const found = crewForChat(sessionId);
+  if (!found || found.retired || found.member.role === "fixer") return false;
+  return (
+    crewMemberApp(found.member).harness !== "codex" &&
+    found.crew.planning !== found.member.id &&
+    crewRoleUsesWeb(found.crew, found.member.role)
+  );
+}
+
+/**
  * What a project bot's chat launches with while the bot is on: its rules,
  * sandbox and auto mode, no MCP servers, and only in its copy.
  */
@@ -554,7 +733,8 @@ export function botChatPermissions(
     ...(bot.copy
       ? { workFolder: bot.copy.path }
       : {
-          refuse: "The bot's copy isn't ready yet, so its chat didn't start.",
+          refuse:
+            "The bot's copy isn't ready yet, so its chat didn't start. Wait a moment, then send again.",
         }),
   };
 }
@@ -606,6 +786,6 @@ export function teammateChatRefusal(session: {
 }): string | null {
   const own = teammateHarness(session.id);
   if (own && session.harness !== own)
-    return "This chat runs only on its own app, so it didn't start.";
+    return `This chat runs only on its own app, so it didn't start. Switch it back to ${HARNESS_TITLE[own as HarnessId] ?? own}.`;
   return launchRefusal(session.id, session.worktreeCwd ?? session.cwd);
 }

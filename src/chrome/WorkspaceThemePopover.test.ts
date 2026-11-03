@@ -85,7 +85,7 @@ async function render() {
 }
 function dialog() {
   return document.querySelector<HTMLElement>(
-    '[role="dialog"][aria-label^="Customize "]',
+    '[role="dialog"][aria-label^="Customise "]',
   );
 }
 function control(label: string) {
@@ -244,7 +244,7 @@ describe("workspace appearance dismissal", () => {
     editedProfile = { id: "personal", name: "Personal" };
     themeApi.theme.preference = "dark";
     await render();
-    expect(dialog()!.getAttribute("aria-label")).toBe("Customize Personal");
+    expect(dialog()!.getAttribute("aria-label")).toBe("Customise Personal");
     expect(dialog()!.querySelector("fieldset")!.disabled).toBe(false);
     await act(async () =>
       dialog()!.querySelector<HTMLInputElement>('[type="checkbox"]')!.click(),

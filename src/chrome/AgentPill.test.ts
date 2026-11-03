@@ -218,6 +218,13 @@ describe("the agent pill", () => {
   });
 
   it("opens and closes with Cmd+. and the menu command only when it owns the hotkeys", async () => {
+    // The picker drops a second press within 80 ms of the last: step its
+    // clock past that instead of waiting it out.
+    let clock = 1_000;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const later = () => {
+      clock += 100;
+    };
     await render();
     await act(async () => composer.focus());
     const press = () => keyOnWindow({ key: ".", metaKey: true });
@@ -235,18 +242,18 @@ describe("the agent pill", () => {
     });
     expect(both.defaultPrevented).toBe(true);
     expect(panel()).not.toBeNull();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    later();
     await press();
     expect(panel()).toBeNull();
     expect(document.activeElement).toBe(composer);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    later();
     await act(async () => window.dispatchEvent(new Event("open_model_picker")));
     expect(panel()).not.toBeNull();
     await act(async () => pill().click());
 
     props.hotkeys = false;
     await render();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    later();
     expect((await press()).defaultPrevented).toBe(false);
     expect(panel()).toBeNull();
   });

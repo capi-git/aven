@@ -142,7 +142,7 @@ describe("crew members' names and marks", () => {
 
   it("adds ready-made members by their roles' names, in their own marks", () => {
     updateCrew(PATH, (crew) => ({ ...crew, on: true }));
-    for (const key of ["designer", "tester", "scribe", "scout"])
+    for (const key of ["designer", "tester", "scribe", "scout", "researcher"])
       expect("id" in addCrewPreset(PATH, key)).toBe(true);
     const crew = getCrew(PATH)!;
     const names = crew.members.map((member) => crewMemberName(crew, member.id));
@@ -154,6 +154,7 @@ describe("crew members' names and marks", () => {
       "Tester",
       "Scribe",
       "Scout",
+      "Researcher",
     ]);
     expect(crew.members.map((member) => memberCritter(member))).toEqual([
       "builder",
@@ -163,6 +164,7 @@ describe("crew members' names and marks", () => {
       "tester",
       "scribe",
       "scout",
+      "researcher",
     ]);
     // Every ready-made member reads as in the crew now.
     for (const preset of CREW_PRESETS)
@@ -174,7 +176,15 @@ describe("crew members' names and marks", () => {
     const inCrew = CREW_PRESETS.filter((preset) =>
       presetInCrew(crew, preset),
     ).map((preset) => preset.key);
-    expect(inCrew).toEqual(["builder", "checker", "designer", "security"]);
+    // The old Builder made from the "designer" key is not the Designer: it
+    // stays a Builder with its title, and a Designer can still be added.
+    expect(inCrew).toEqual(["builder", "checker", "security"]);
+    const designer = CREW_PRESETS.find((preset) => preset.key === "designer")!;
+    expect(designer.role).toBe("designer");
+    expect(presetInCrew(crew, designer)).toBe(false);
+    expect(
+      crew.members.find((member) => member.id === "builder-2"),
+    ).toMatchObject({ role: "builder", preset: "designer", label: "Designer" });
   });
 });
 
@@ -184,7 +194,8 @@ describe("the gallery's ready-made members", () => {
       "builder",
       "checker",
       "scout",
-      "Designer",
+      "researcher",
+      "designer",
       "Tester",
       "Scribe",
       "security",
@@ -193,6 +204,7 @@ describe("the gallery's ready-made members", () => {
       "builder",
       "checker",
       "scout",
+      "researcher",
       "designer",
       "tester",
       "scribe",

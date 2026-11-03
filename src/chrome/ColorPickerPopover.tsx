@@ -56,8 +56,8 @@ export function ColorSwatchRow({
       })}
       <button
         type="button"
-        title="Custom color"
-        aria-label="Custom color"
+        title="Custom colour"
+        aria-label="Custom colour"
         aria-expanded={customPickerOpen}
         aria-pressed={customColor != null}
         onMouseDown={(event) => event.preventDefault()}
@@ -156,7 +156,7 @@ export function ColorPickerPopover({ value, onChange }: Props) {
                 type="text"
                 value={picker.entry}
                 spellCheck={false}
-                aria-label="Hex color"
+                aria-label="Hex colour"
                 onFocus={picker.beginEntry}
                 onChange={(event) => {
                   const raw = event.target.value;

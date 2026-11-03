@@ -141,6 +141,25 @@ describe("what the team's header says", () => {
     expect(view.idle).toBe(false);
   });
 
+  it("quotes what the Researcher reads and the Designer mocks up", () => {
+    const solo = (id: string, title: string, kind: "research" | "mockup") =>
+      startCard(queued(id, title, { kind, maxRounds: 1 }), NOW - 30_000);
+    const reading = crewOf([solo("why", "Why timers help focus", "research")], {
+      members: [{ id: "lens", role: "researcher" }],
+    });
+    expect(
+      crewPipeline({ crew: reading, cards: board(reading), now: NOW, name })
+        .sentence,
+    ).toBe("researcher is reading: “Why timers help focus”.");
+    const drawing = crewOf([solo("ring", "A ring that fills", "mockup")], {
+      members: [{ id: "brush", role: "designer" }],
+    });
+    expect(
+      crewPipeline({ crew: drawing, cards: board(drawing), now: NOW, name })
+        .sentence,
+    ).toBe("designer is mocking up: “A ring that fills”.");
+  });
+
   it("names the idea it starts next when nothing is queued", () => {
     const crew = crewOf([]);
     const next: PipelineBoardCard = {
