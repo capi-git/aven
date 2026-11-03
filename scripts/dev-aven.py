@@ -588,7 +588,13 @@ def summarize_sample(path, limit=25):
     return rows[:limit]
 
 
-def perf(keep=False, compare=None, only=None, sample=None):
+RESPONSE_LIMIT_MS = 33.4
+# Renders a whole scenario may cost the components that must not follow one
+# chat's stream (measured 24 App and 19 SessionPane while streaming, 2026-11-03).
+RENDER_BUDGETS = {'agent streaming a long reply': {'App': 60, 'SessionPane2': 60, 'WorkspaceStage': 10}}
+
+
+def perf(keep=False, compare=None, only=None, sample=None, idle=None):
     """Run Aven Dev's speed test and print what each scenario cost."""
     # macOS scans a newly signed app on its first launch (about 1.5 s here),
     # which users pay once per update. Absorb it so launch time is Aven's own.
@@ -607,6 +613,8 @@ def perf(keep=False, compare=None, only=None, sample=None):
                 settings['only'] = [part.strip() for part in only.split(',') if part.strip()]
             if sample:
                 settings['sample'] = sample
+            if idle:
+                settings['idleSeconds'] = idle
             (root / 'perf.json').write_text(json.dumps(settings))
             ensure_not_running()
             print('Running the speed test in a throwaway profile (a few minutes)...', flush=True)
@@ -650,6 +658,41 @@ def perf(keep=False, compare=None, only=None, sample=None):
             remove_smoke_folder(root)
         else:
             print(f'Kept the test\'s folder for inspection: {root}', flush=True)
+
+
+def print_over_limits(scenarios):
+    """DESIGN.md's limits: first response and frames in motion, 33 ms each."""
+    rows = []
+    for item in scenarios:
+        slowest = (item.get('interactions') or {}).get('max')
+        if slowest is not None and slowest > RESPONSE_LIMIT_MS:
+            rows.append(f'  {item["name"]}: first response up to {slowest:g} ms')
+        frames = item.get('frames') or {}
+        if frames.get('over'):
+            parts = ', '.join(f'{part} {stats["n"]} (worst {stats["maxMs"]} ms)'
+                              for part, stats in (frames.get('overByPart') or {}).items())
+            rows.append(f'  {item["name"]}: {frames["over"]} frames over {RESPONSE_LIMIT_MS:g} ms: {parts}')
+        renders = {entry['name']: entry['renders'] for entry in (item.get('react') or {}).get('top', [])}
+        for name, budget in RENDER_BUDGETS.get(item['name'], {}).items():
+            if renders.get(name, 0) > budget:
+                rows.append(f'  {item["name"]}: {name} rendered {renders[name]} times (budget {budget})')
+    print('Over the limits:' if rows else 'Nothing over the limits.')
+    for row in rows:
+        print(row)
+
+
+def print_long_frames(scenarios, sources):
+    """The longest frames and the forced layouts in them."""
+    for item in scenarios:
+        frames = (item.get('frames') or {}).get('longFrames') or []
+        if not frames or 'dragging' not in item['name']:
+            continue
+        print(f'Longest frames, {item["name"]}:')
+        calls = (item.get('hotCalls') or {}).get('slowLayouts', [])
+        for frame in sorted(frames, key=lambda entry: -entry['ms'])[:6]:
+            inside = [call for call in calls if frame['at'] <= call['at'] <= frame['at'] + frame['ms']]
+            named = ', '.join(f'{call["ms"]:g} {sources.get(call["where"], call["where"])}' for call in inside[:4])
+            print(f'  {frame["ms"]:g} ms; forced layout {sum(call["ms"] for call in inside):.0f} ms: {named}')
 
 
 def report_perf(root, launched_at, compare):
@@ -704,6 +747,7 @@ def report_perf(root, launched_at, compare):
               f'{cell(proc.get("footprintMB"), old_proc.get("footprintMB")):12}'
               + (f'  (window hidden {item["hiddenMs"] / 1000:.0f} s: timings unreliable)' if item.get('hiddenMs', 0) > 250 else '')
               + (f'  ERROR: {item["error"]}' if item.get('error') else ''))
+    print_over_limits(report.get('scenarios', []))
     for item in report.get('restyle') or []:
         print(f'Restyle analysis, {item["name"]}: {item["changes"]} attribute changes, '
               f'{item["nodesAdded"]} nodes added, {item["nodesRemoved"]} removed')
@@ -715,7 +759,9 @@ def report_perf(root, launched_at, compare):
     labels = sorted({where for item in scenarios
                      for where in ((item.get('hotCalls') or {}).get('forcedLayout') or {}).get('byCaller', {})}
                     | {where.split(' ← ', 1)[-1] for item in scenarios
-                       for where in ((item.get('hotCalls') or {}).get('dom') or {}).get('byKind', {})})
+                       for where in ((item.get('hotCalls') or {}).get('dom') or {}).get('byKind', {})}
+                    | {call['where'] for item in scenarios
+                       for call in (item.get('hotCalls') or {}).get('slowLayouts', [])})
     sources = {}
     if labels:
         try:
@@ -724,6 +770,7 @@ def report_perf(root, launched_at, compare):
                 input=json.dumps(labels), capture_output=True, text=True, cwd=ROOT, timeout=60).stdout or '{}')
         except (OSError, ValueError, subprocess.TimeoutExpired):
             sources = {}
+    print_long_frames(scenarios, sources)
     split = [item for item in scenarios if item.get('breakdown')]
     if split:
         print('Where input-to-frame time goes (median ms): script / style+layout / paint+frame')
@@ -861,6 +908,8 @@ def main():
     parser.add_argument('--perf-compare', metavar='FILE', help='A saved speed test result to compare against')
     parser.add_argument('--perf-sample', metavar='NAME',
                         help='Profile the interface process with `sample` during the scenario whose name contains NAME')
+    parser.add_argument('--perf-idle', metavar='SECONDS', type=int,
+                        help='Stay on the idle scenario this long, to record the window or drive it from outside')
     parser.add_argument('--perf-only', metavar='NAMES',
                         help='Comma-separated parts of scenario names to run, e.g. "switching,sidebar,Settings"')
     args = parser.parse_args()
@@ -887,7 +936,7 @@ def main():
                 raise RuntimeError('The iPhone check failed.')
         elif args.perf:
             if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare, only=args.perf_only,
-                        sample=args.perf_sample):
+                        sample=args.perf_sample, idle=args.perf_idle):
                 raise RuntimeError('The speed test did not finish cleanly.')
         elif not args.build_only:
             launch()
