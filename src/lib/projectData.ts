@@ -7,9 +7,11 @@ import { clearProjectMemory } from "./projectMemory";
 import { clearFeatureCards } from "./featureCards";
 import { clearIosSimProject } from "./iosSimulator";
 import { forgetBotForProject } from "./projectBotActions";
-import { normalizeProjectPath } from "./recents";
+import { normalizeProjectPath, sameProjectPath } from "./recents";
 import { listProjectSessionIds } from "./sessionStore";
-import type { Session } from "./session";
+import { isInFlightSession } from "./inFlight";
+import { sessionNeedsInput, type Session } from "./session";
+import { uncertainSessionAgents } from "./sessionAgents";
 import { clearTabGroupSettings } from "./tabGroups";
 import { filterTabsForProject } from "./workspaceTabGroups";
 
@@ -38,6 +40,59 @@ export async function projectSessionCount(path: string): Promise<number> {
 }
 
 /** Saved chats, rail appearance, project memory, board cards, its bot and iPhone builds. The caller owns the live-session lifecycle. */
+/**
+ * What keeps a project from being deleted, each in words: a chat with
+ * messages, one at work or waiting for an answer, one whose agents are
+ * uncertain, one with queued messages, a draft or a seeded message, or a
+ * card to answer; a file open from the project; a terminal in its panel
+ * that isn't closing with it. Empty when nothing does.
+ */
+export function projectOpenWork(input: {
+  sessions: readonly Session[];
+  tabs: readonly WorkspaceTab[];
+  project: string;
+  draft: (
+    sessionId: string,
+  ) => { text?: string; attachments?: readonly unknown[] } | null | undefined;
+  /** The project's panel terminals that are not being closed with it. */
+  terminals: readonly FilePaneTab[];
+}): string[] {
+  const normalized = normalizeProjectPath(input.project);
+  const work: string[] = [];
+  for (const session of input.sessions) {
+    if (!sameProjectPath(session.cwd, normalized)) continue;
+    const draft = input.draft(session.id);
+    const why = [
+      session.blocks.length
+        ? `${session.blocks.length} message${session.blocks.length === 1 ? "" : "s"}`
+        : "",
+      session.busy ? "at work" : "",
+      sessionNeedsInput(session) ? "waiting for an answer" : "",
+      !session.busy && !sessionNeedsInput(session) && isInFlightSession(session)
+        ? "agents still running"
+        : "",
+      uncertainSessionAgents(session).length ? "agents uncertain" : "",
+      session.queuedMessages?.length ? "queued messages" : "",
+      draft?.text || draft?.attachments?.length ? "a draft" : "",
+      session.composerSeed ? "a seeded message" : "",
+      session.inboxCard ? "an inbox card" : "",
+      session.noteCard ? "a note card" : "",
+      session.handoffCard ? "a handoff card" : "",
+    ].filter(Boolean);
+    if (why.length)
+      work.push(`chat “${session.title || session.id}” (${why.join(", ")})`);
+  }
+  for (const file of openProjectFiles(
+    [...input.tabs],
+    [...input.sessions],
+    normalized,
+  ))
+    work.push(`file ${file.path}`);
+  for (const terminal of input.terminals)
+    work.push(`terminal ${terminal.path || terminal.id}`);
+  return work;
+}
+
 export async function removeProjectData(
   path: string,
   options: {
