@@ -60,6 +60,7 @@ import {
   builderMessage,
   checkerMessage,
   crewBrief,
+  crewGuidanceText,
   crewTurnLabel,
   goalMessage,
   mockupMessage,
@@ -70,6 +71,8 @@ import {
   SWEEP_CARDS,
 } from "./crewPrompts";
 import {
+  CREW_ROLE_INFO,
+  crewRoleUsesBrowser,
   crewRoleUsesWeb,
   MOCKUP_DIR,
   activeCrews,
@@ -460,6 +463,9 @@ export function crewBranch(path: string, fixerBranch?: string): string {
   return branch === fixerBranch ? botBranch("crew-builds", path) : branch;
 }
 
+/** How long after stopping a late message Aven stops waiting to hear it end. */
+const TALK_GIVE_UP_MS = 30_000;
+
 export class CrewRunner {
   private readonly deps: CrewRunnerDeps;
   private running = false;
@@ -483,7 +489,10 @@ export class CrewRunner {
       path: string;
       to: string;
       sessionId: string;
+      /** Whether its reply may start helpers, as it stood when it went. */
+      mayStartHelpers: boolean;
       timer?: number;
+      giveUp?: number;
       timedOut?: true;
     }
   >();
@@ -673,13 +682,17 @@ export class CrewRunner {
         updateCrew(path, (current) => withoutHelper(current, helper.id));
     for (const talk of talks) {
       if (!talk.sent) await this.sendTalk(path, talk.id, now);
-      else if (
-        !this.talking.has(talk.id) &&
-        (talk.sent.owner === this.deps.owner ||
-          now - talk.sent.at > crew.limits.turnMinutes * 60_000 * 2)
-      )
-        // Carried by a page that's gone: nothing will read its end.
-        this.dropTalk(path, talk.id, now);
+      else if (!this.talking.has(talk.id))
+        // Carried by a page that's gone: nothing will read its end. Only the
+        // main window runs teams, so no other page is carrying it now.
+        this.dropTalk(
+          path,
+          talk.id,
+          now,
+          talk.from === "you" && !talk.routine
+            ? `${this.deps.name(crew, talk.to)} didn't finish answering your message, because Aven restarted. Send it again.`
+            : undefined,
+        );
     }
   }
 
@@ -712,10 +725,15 @@ export class CrewRunner {
   /** A message that won't arrive, said once when it was yours or it asks why. */
   private dropTalk(path: string, talkId: string, now: number, why?: string) {
     updateCrew(path, (current) => {
-      const next = {
-        ...current,
-        talks: current.talks?.filter((talk) => talk.id !== talkId),
-      };
+      const to = current.talks?.find((talk) => talk.id === talkId)?.to;
+      const next = withMemberId(
+        {
+          ...current,
+          talks: current.talks?.filter((talk) => talk.id !== talkId),
+        },
+        to ?? "",
+        (member) => (member.doing ? { ...member, doing: undefined } : member),
+      );
       return why
         ? withFeed(next, { at: now, kind: "note", who: "aven", text: why })
         : next;
@@ -739,6 +757,18 @@ export class CrewRunner {
     const costsARun = talk.from !== "you" || !!talk.routine;
     if (costsARun && !this.gate(crew, now).ok) return;
     const key = projectKey(path);
+    // Only a Lead or a helper can't touch the copy, so anyone else waits for a
+    // turn working in it: a stray file would void a check. One that writes
+    // waits out the whole card, so a message can't fold into its change.
+    if (member.role !== "lead" && member.role !== "helper") {
+      if (this.turns.has(key)) return;
+      const inCopy = cardInCopy(crew);
+      if (
+        CREW_ROLE_INFO[member.role].edits &&
+        (inCopy?.stage === "building" || inCopy?.stage === "checking")
+      )
+        return;
+    }
     if (
       this.turns.get(key)?.memberId === member.id ||
       [...this.talking.values()].some(
@@ -786,11 +816,24 @@ export class CrewRunner {
           : current;
       });
       if (!claimed) return;
-      this.talking.set(talkId, { path, to: member.id, sessionId: chat.id });
-      this.updateWorking();
       const fresh = getCrew(path) ?? crew;
+      // A turn that could read the web starts nobody: a page could ask it to.
+      const mayStartHelpers =
+        member.role !== "helper" &&
+        !talk.answer &&
+        !crewRoleUsesWeb(fresh, member.role) &&
+        !crewRoleUsesBrowser(fresh, member.role);
+      this.talking.set(talkId, {
+        path,
+        to: member.id,
+        sessionId: chat.id,
+        mayStartHelpers,
+      });
+      this.updateWorking();
       const fromName =
-        talk.from === "you" ? "You" : this.deps.name(fresh, talk.from);
+        talk.from === "you"
+          ? "You"
+          : (talk.fromName ?? this.deps.name(fresh, talk.from));
       const text = talkMessage({
         talk,
         fromName,
@@ -804,9 +847,11 @@ export class CrewRunner {
           )
           .map((entry) => this.deps.name(fresh, entry.id)),
         mayAsk: member.role !== "helper" && talkMayHop(talk),
-        // A turn that could read the web starts nobody: a page could ask it to.
-        mayStartHelpers:
-          member.role !== "helper" && !crewRoleUsesWeb(fresh, member.role),
+        mayStartHelpers,
+        guidance: crewGuidanceText({
+          ...(member.instructions ? { instructions: member.instructions } : {}),
+          ...(member.memory ? { memory: member.memory } : {}),
+        }),
         ...(chat.providerSessionId
           ? {}
           : {
@@ -836,6 +881,11 @@ export class CrewRunner {
         carrying.timer = this.deps.setTimer(() => {
           carrying.timedOut = true;
           this.deps.stopChat(chat.id);
+          // Its end may never report: the teammate isn't kept waiting on it.
+          carrying.giveUp = this.deps.setTimer(
+            () => void this.afterTalk(path, talkId, turnId, chat.id),
+            TALK_GIVE_UP_MS,
+          );
         }, fresh.limits.turnMinutes * 60_000);
     } catch (error) {
       logError("Crew message", error);
@@ -866,6 +916,7 @@ export class CrewRunner {
     if (!this.markHandled(turnId)) return;
     const carrying = this.talking.get(talkId);
     if (carrying?.timer != null) this.deps.clearTimer(carrying.timer);
+    if (carrying?.giveUp != null) this.deps.clearTimer(carrying.giveUp);
     this.talking.delete(talkId);
     this.updateWorking();
     const crew = getCrew(path);
@@ -899,6 +950,9 @@ export class CrewRunner {
       );
     const said = parseTalk(reply);
     const isLead = member?.role === "lead";
+    // Only your own message, to a Lead that has read no other agent's words,
+    // can build by itself. A routine runs with nobody watching.
+    const yours = talk.from === "you" && !talk.routine && !member?.heardOthers;
     const cards =
       isLead && crew.on && !failed && said.cards.length
         ? await this.deps.board
@@ -921,9 +975,16 @@ export class CrewRunner {
         talks: current.talks?.filter((entry) => entry.id !== talkId),
       };
       if (member)
-        next = withMemberId(next, member.id, (entry) =>
-          entry.doing ? { ...entry, doing: undefined } : entry,
-        );
+        next = withMemberId(next, member.id, (entry) => {
+          const heard = isLead && talk.from !== "you" && !entry.heardOthers;
+          return entry.doing || heard
+            ? {
+                ...entry,
+                doing: undefined,
+                ...(heard ? { heardOthers: true } : {}),
+              }
+            : entry;
+        });
       // Done either way. Its answer goes back to who started it, whatever
       // the hops: it's what that teammate is waiting for.
       if (isHelper) {
@@ -939,6 +1000,7 @@ export class CrewRunner {
           ? withTalk(next, {
               at: now,
               from: talk.to,
+              fromName: `Your helper “${who}”`,
               to: talk.from,
               text: reply.slice(0, TALK_TEXT_MAX),
               hop: talk.hop,
@@ -952,9 +1014,7 @@ export class CrewRunner {
           at: now + index,
           size: asked.size,
           ...(asked.why ? { why: asked.why } : {}),
-          // Your own message builds like any idea; one passed along by
-          // another agent waits for you.
-          ...(talk.from === "you" ? {} : { by: "lead" as const }),
+          ...(yours ? {} : { by: "lead" as const }),
         });
       });
       if (!member) return next;
@@ -985,8 +1045,7 @@ export class CrewRunner {
           hop,
           answer: true,
         });
-      const web = crewRoleUsesWeb(next, member.role);
-      for (const asked of web ? [] : said.helpers) {
+      for (const asked of carrying?.mayStartHelpers ? said.helpers : []) {
         if (helpersLeft(next, member.id, now) <= 0) {
           next = withFeed(next, {
             at: now,

@@ -564,6 +564,9 @@ pub(crate) fn range_patch(dir: &Path, from: &str, to: &str) -> Result<Vec<u8>, S
             "--no-textconv",
             "--binary",
             "--no-renames",
+            // Your git settings don't decide what the patch looks like.
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
             from,
             to,
         ],
@@ -709,6 +712,8 @@ fn staged_patch(worktree: &Path, index: &ScratchIndex, base: &str) -> Result<Vec
             "--no-textconv",
             "--binary",
             "--no-renames",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
             base,
         ],
         None,

@@ -193,6 +193,11 @@ export type CrewGuidance = {
   memory?: string;
 };
 
+/** A member's instructions and notes, for a turn that isn't a card's. */
+export function crewGuidanceText(guidance: CrewGuidance): string {
+  return guidanceLines(guidance).join("\n\n");
+}
+
 function guidanceLines(guidance: CrewGuidance | undefined): string[] {
   const lines: string[] = [];
   if (guidance?.instructions?.trim())

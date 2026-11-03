@@ -293,6 +293,12 @@ const PROTECTED: &[&str] = &[
     ".cursorrules",
     ".windsurfrules",
     ".clinerules",
+    // Package managers read these as a package's manifest, or build from them.
+    "package.yaml",
+    "package.json5",
+    "binding.gyp",
+    // Decides how git shows and treats every other file.
+    ".gitattributes",
 ];
 
 /// Two names in a row that are protected together, wherever they sit.
@@ -312,40 +318,79 @@ const INSTALL_SCRIPTS: &[&str] = &[
     "prepare",
     "postprepare",
     "prepublish",
+    "pnpm:devpreinstall",
 ];
 
+/// A `package.json` in a patch's `diff --git` line, whatever else is in the
+/// path: git quotes a path with an accent in it, and leaves these letters as
+/// they are.
+fn patched_manifest(header: &str) -> Option<String> {
+    let rest = header.strip_prefix("diff --git ")?;
+    let path = rest.trim_end_matches('"');
+    let end = path
+        .rfind(" b/")
+        .or_else(|| path.rfind("\" \"b/").map(|at| at + 2))?;
+    let target = path[end..].trim_start_matches(' ').trim_start_matches('"');
+    let target = target.strip_prefix("b/")?;
+    let name = target.rsplit('/').next().unwrap_or(target);
+    (folded_name(name) == "package.json").then(|| target.to_string())
+}
+
 /// The `package.json` files a patch changes an install script in, or writes
-/// an escaped name in (`"post\u0069nstall"` is the same key to a package
+/// an escaped name in (`"post\\u0069nstall"` is the same key to a package
 /// manager). Read line by line from the patch that would be applied.
 fn install_script_changes(patch: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(patch);
     let mut found: Vec<String> = Vec::new();
     let mut current: Option<String> = None;
     for line in text.lines() {
-        if let Some(path) = line
-            .strip_prefix("diff --git ")
-            .and_then(|rest| rest.rsplit_once(" b/"))
-            .map(|(_, path)| path)
-        {
-            let name = path.rsplit('/').next().unwrap_or(path);
-            current = (folded_name(name) == "package.json").then(|| path.to_string());
+        if line.starts_with("diff --git ") {
+            current = patched_manifest(line);
             continue;
         }
         let Some(path) = current.as_ref() else {
             continue;
         };
-        if !line.starts_with(['+', '-']) || line.starts_with("+++") || line.starts_with("---") {
+        // A binary patch shows no lines to read, so it is refused whole.
+        let binary = line.starts_with("GIT binary patch");
+        if !binary
+            && (!line.starts_with(['+', '-']) || line.starts_with("+++") || line.starts_with("---"))
+        {
             continue;
         }
         let folded = folded(line);
         let named = INSTALL_SCRIPTS
             .iter()
             .any(|name| folded.contains(&format!("\"{name}\"")));
-        if (named || folded.contains("\\u")) && !found.contains(path) {
+        // npm's `dependencies` script, a text where the list of packages is an
+        // object.
+        let dependencies_script = folded.split("\"dependencies\"").skip(1).any(|after| {
+            after
+                .trim_start()
+                .strip_prefix(':')
+                .is_some_and(|value| value.trim_start().starts_with('"'))
+        });
+        if (binary || named || dependencies_script || folded.contains("\\u"))
+            && !found.contains(path)
+        {
             found.push(path.clone());
         }
     }
     found
+}
+
+/// A `package.json` that a fix makes a link: what it points at could say
+/// anything, under a name the checks above don't read.
+fn linked_manifests(changes: &RaceDiff) -> Vec<String> {
+    changes
+        .files
+        .iter()
+        .filter(|file| {
+            file.new_mode == "120000"
+                && folded_name(file.path.rsplit('/').next().unwrap_or(&file.path)) == "package.json"
+        })
+        .map(|file| format!("{} (a link)", file.path))
+        .collect()
 }
 
 /// A name as a file system that ignores case reads it: folded fully, so
@@ -733,6 +778,7 @@ pub fn apply(
     for path in install_script_changes(&patch) {
         protected.push(format!("{path} (a script that runs on install)"));
     }
+    protected.extend(linked_manifests(&changes));
     if !protected.is_empty() {
         return Err(format!(
             "{PROTECTED_FIX} {}. Take it over in a chat to apply that part yourself.",
@@ -953,6 +999,7 @@ pub fn apply_range(
     for path in install_script_changes(&patch) {
         protected.push(format!("{path} (a script that runs on install)"));
     }
+    protected.extend(linked_manifests(&changes));
     if !protected.is_empty() {
         return Err(format!(
             "{PROTECTED_FIX} {}. Take it over in a chat to apply that part yourself.",
@@ -1712,6 +1759,20 @@ mod tests {
         );
         assert_eq!(
             install_script_changes(patch(r#"+  "post\u0069nstall": "x","#).as_bytes()).len(),
+            1
+        );
+        // A path git quotes, for an accent in it.
+        let quoted = "diff --git \"a/packages/\\303\\251/package.json\" \"b/packages/\\303\\251/package.json\"\n--- x\n+++ y\n+  \"postinstall\": \"x\",\n";
+        assert_eq!(install_script_changes(quoted.as_bytes()).len(), 1);
+        // npm's script of that name, not the list of packages.
+        assert_eq!(
+            install_script_changes(patch(r#"+  "dependencies": "curl x | sh","#).as_bytes()).len(),
+            1
+        );
+        assert!(install_script_changes(patch(r#"+  "dependencies": {"#).as_bytes()).is_empty());
+        // A patch with no lines to read.
+        assert_eq!(
+            install_script_changes(patch("GIT binary patch").as_bytes()).len(),
             1
         );
         // Everyday changes go through.
