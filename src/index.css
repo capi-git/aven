@@ -5,6 +5,11 @@
 
 @custom-variant dark (&:where(html:not(.theme-light), html:not(.theme-light) *));
 
+/* Tailwind's own `:is(:where(.group):focus-within *)` hides `.group` from
+   WebKit's invalidation, so every focus move rechecks the whole page. With
+   the whole group inside `:where()` WebKit keys the rule on `.group`. */
+@custom-variant group-focus-within (&:where(.group:focus-within *));
+
 @theme {
   /* Shared UI sizes only. Line heights remain owned by each surface and its
      existing leading utilities; code and artwork retain their own scales. */
@@ -887,6 +892,9 @@ button.chat-reference:hover,
 .agent-markdown [data-streamdown="table-cell"] {
   padding: 8px 10px;
   font-size: var(--text-ui-label);
+  /* Keep columns readable; a narrow pane uses the table's own scroller. */
+  min-width: 10rem;
+  vertical-align: top;
 }
 
 .agent-markdown [data-streamdown="horizontal-rule"] {
