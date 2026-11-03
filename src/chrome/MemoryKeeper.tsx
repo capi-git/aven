@@ -58,20 +58,22 @@ export const MemoryKeeperOffer = memo(function MemoryKeeperOffer({
       >
         {MEMORY_KEEPER_OFFER}
       </span>
-      <button
-        type="button"
-        className="memory-keeper-offer-on"
-        onClick={() => setMemoryKeeper(project, true)}
-      >
-        Turn on
-      </button>
-      <button
-        type="button"
-        className="memory-keeper-offer-later"
-        onClick={() => setMemoryKeeper(project, false)}
-      >
-        Not now
-      </button>
+      <span className="memory-keeper-offer-actions">
+        <button
+          type="button"
+          className="memory-keeper-offer-on"
+          onClick={() => setMemoryKeeper(project, true)}
+        >
+          Turn on
+        </button>
+        <button
+          type="button"
+          className="memory-keeper-offer-later"
+          onClick={() => setMemoryKeeper(project, false)}
+        >
+          Not now
+        </button>
+      </span>
     </div>
   );
 });
