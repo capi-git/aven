@@ -244,10 +244,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
               until you ask.
             </p>
           </div>
-          <div
-            className="provider-setup-choices"
-            aria-label="Choose agent apps"
-          >
+          <div className="provider-setup-choices" aria-label="Choose providers">
             {HARNESSES.slice(0, 2).map((harness) => (
               <ProviderChoice
                 key={harness}
@@ -264,8 +261,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
               }
             >
               <summary>
-                More agent apps{" "}
-                <ChevronRight className="size-3.5" aria-hidden />
+                More providers <ChevronRight className="size-3.5" aria-hidden />
               </summary>
               <div>
                 {HARNESSES.slice(2).map((harness) => (
@@ -280,7 +276,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
             </details>
           </div>
           <p className="provider-setup-note">
-            Aven runs the agent apps installed on this computer. Your accounts
+            Aven runs the providers installed on this computer. Your accounts
             and usage stay with each app’s maker.
           </p>
           <footer className="provider-setup-footer">
@@ -596,7 +592,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
                   className="provider-setup-primary"
                   onClick={() => setStep("choose")}
                 >
-                  Choose agent apps
+                  Choose providers
                 </button>
               )}
             </div>
