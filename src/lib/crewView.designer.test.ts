@@ -78,7 +78,7 @@ describe("a mock-up card on the Board", () => {
     });
   });
 
-  it("lands in Ready for you as Mock-up with Look, Build it and Dismiss, never Apply", () => {
+  it("lands in Ready for you as Mock-up with Look and Build it; Dismiss is in its menu, never Apply", () => {
     const info = crewBoardInfo(drawn(), names);
     expect(info).toMatchObject({
       column: "review",
@@ -89,9 +89,9 @@ describe("a mock-up card on the Board", () => {
     expect(info.actions).toEqual([
       { id: "look", label: "Look" },
       { id: "build-mockup", label: "Build it", primary: true },
-      { id: "dismiss-mockup", label: "Dismiss" },
     ]);
     expect(crewCardMenu(drawn()).map((action) => action.id)).toEqual([
+      "dismiss-mockup",
       "back-to-ideas",
       "throw-away",
     ]);

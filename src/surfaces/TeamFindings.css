@@ -70,20 +70,40 @@
   font-size: var(--text-ui-label);
 }
 
+/* Each idea is a row of its own, boxed like a setup idea; the tick has an
+   edge of its own, so it reads on the dark sheet before it is ticked. */
 .crew-findings-idea {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-fill-quaternary, transparent);
   cursor: pointer;
+  line-height: 1.4;
+}
+
+.crew-findings-idea:hover {
+  background: var(--aven-hover);
 }
 
 .crew-findings-idea input {
   flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   margin: 0;
   appearance: auto;
+  outline: 1px solid var(--aven-line);
+  outline-offset: -1px;
+  border-radius: 3px;
   accent-color: var(--color-content);
+}
+
+.crew-findings-idea input:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: 1px;
 }
 
 .crew-findings-idea input:disabled + span {

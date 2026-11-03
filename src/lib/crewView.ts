@@ -349,7 +349,7 @@ function mockupBoardInfo(
         ...base,
         detail: designer,
         ...(card.mockup?.note ? { line: card.mockup.note } : {}),
-        actions: [A.look, A.buildMockup, A.dismissMockup],
+        actions: [A.look, A.buildMockup],
       };
     case "stuck":
       return {
@@ -763,8 +763,13 @@ export function crewCardMenu(card: CrewCard): CrewBoardAction[] {
       ];
     // Ready: Apply is the way; a fix Apply won't take can be taken over.
     // Findings have nothing to take over: they go back to Ideas, or away.
+    // A mock-up's Dismiss lives here too: the card keeps Look and Build it.
     case "ready":
-      return research ? [A.backToIdeas, A.throwAway] : [A.takeOver];
+      return card.kind === "mockup"
+        ? [A.dismissMockup, A.backToIdeas, A.throwAway]
+        : research
+          ? [A.backToIdeas, A.throwAway]
+          : [A.takeOver];
     case "stuck": {
       // Stepped aside: the copy isn't its own, so there's nothing to take over.
       const takeOver = cardSteppedAside(card) || research ? [] : [A.takeOver];

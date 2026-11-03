@@ -1,13 +1,19 @@
-/* The Designer's mock-up, as drawn, in a frame of its own. */
+/* The Designer's mock-up, as drawn, in a dark frame of its own. The page
+   inside keeps whatever look it drew (light is fine there); the frame
+   around it is ours and stays dark, so no light wash sits on the sheet. */
 .crew-mockup-frame {
   max-height: 70vh;
+  padding: 12px;
   overflow: auto;
   border: 1px solid var(--aven-line);
   border-radius: var(--aven-radius-lg);
-  background: var(--aven-fill-quaternary, transparent);
+  background: var(--aven-glass-surface, var(--aven-hover));
 }
 
-/* The page inside the shadow root keeps its own look; only its box is ours. */
+/* The shadow host: its own box with its own corners, nothing of ours inside. */
 .crew-mockup-page {
+  display: block;
   min-height: 160px;
+  overflow: hidden;
+  border-radius: var(--aven-radius-md);
 }
