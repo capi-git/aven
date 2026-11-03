@@ -713,7 +713,6 @@
 @container (max-width: 760px) {
   .team-chat {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .team-roster {

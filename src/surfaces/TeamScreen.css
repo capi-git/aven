@@ -62,6 +62,7 @@
 }
 
 .team-panel-body {
+  container-type: inline-size;
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -303,7 +304,7 @@
 @container (max-width: 720px) {
   .team-main,
   .team-panel {
-    grid-column: 1;
+    grid-column: 1 / -1;
   }
   .team-panel {
     grid-row: 1;
@@ -313,4 +314,25 @@
     grid-row: 2;
     border-right: 0;
   }
+}
+
+.team-thread-showing {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.team-thread-showing button {
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  cursor: pointer;
+}
+.team-thread-showing button:hover {
+  text-decoration: underline;
 }

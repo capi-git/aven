@@ -584,9 +584,17 @@ function AccessSection({ crew }: { crew: Crew }) {
             aria-checked={level === choice.level}
             className="crew-access-choice"
             data-crew-access-level={choice.level}
-            onClick={() =>
-              setCrewAccess(path, CREW_ACCESS_LEVELS[choice.level])
-            }
+            onClick={() => {
+              if (level === choice.level) return;
+              // Web you customised stays, unless Full access comes or goes.
+              const next = CREW_ACCESS_LEVELS[choice.level];
+              setCrewAccess(
+                path,
+                level === "full" || choice.level === "full"
+                  ? next
+                  : { ...next, web: access.web },
+              );
+            }}
           >
             <span>
               <b>{choice.label}</b>

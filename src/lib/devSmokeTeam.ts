@@ -1156,42 +1156,38 @@ export async function checkTeamAccess(
       what,
     );
   };
-  const controls = (section: HTMLElement) => {
-    const deletes = section.querySelector<HTMLButtonElement>(
-      'button[role="switch"][aria-label="Delete files in its copy"]',
+  const level = (section: HTMLElement, name: string) => {
+    const found = section.querySelector<HTMLButtonElement>(
+      `[data-crew-access-level="${name}"]`,
     );
-    const radio = (group: string, label: string) =>
-      [
-        ...(section
-          .querySelector(`[role="radiogroup"][aria-label="${group}"]`)
-          ?.querySelectorAll<HTMLButtonElement>('button[role="radio"]') ?? []),
-      ].find((button) => button.textContent?.trim() === label);
-    const noOne = radio("Who uses the web", "No one");
-    const askMe = radio("When a teammate wants anything else", "Ask me");
-    if (!deletes || !noOne || !askMe)
-      throw new Error(
-        `Access is missing ${[
-          deletes ? "" : "Delete files in its copy",
-          noOne ? "" : "No one",
-          askMe ? "" : "Ask me",
-        ]
-          .filter(Boolean)
-          .join(", ")}`,
-      );
-    return { deletes, noOne, askMe };
+    if (!found) throw new Error(`Access is missing ${name}`);
+    return found;
   };
   const checked = (button: HTMLButtonElement) =>
     button.getAttribute("aria-checked") === "true";
+  /** Web and deleting, one level deeper. */
+  const custom = async (section: HTMLElement) => {
+    const sheet = section.parentElement!;
+    [...sheet.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Customise web"))
+      ?.click();
+    const shown = await waitFor(
+      () => sheet.querySelector<HTMLElement>("[data-crew-access-custom]"),
+      5_000,
+      "web and deleting",
+    );
+    const noOne = [
+      ...shown.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
+    ].find((button) => button.textContent?.trim() === "No one");
+    if (!noOne) throw new Error("Access is missing No one");
+    return noOne;
+  };
   try {
     const section = await open("the Team sheet's Access");
-    const first = controls(section);
-    if (!checked(first.deletes) || checked(first.noOne) || checked(first.askMe))
-      throw new Error(
-        `Access starts with deletes ${checked(first.deletes)}, No one ${checked(first.noOne)}, Ask me ${checked(first.askMe)}`,
-      );
-    first.deletes.click();
-    first.noOne.click();
-    first.askMe.click();
+    if (!checked(level(section, "auto")))
+      throw new Error("Access doesn't start on Auto");
+    level(section, "ask").click();
+    (await custom(section)).click();
     await waitFor(
       () => {
         const access = crewAccess(getCrew(project) ?? { access: {} });
@@ -1202,21 +1198,17 @@ export async function checkTeamAccess(
       5_000,
       "the choices to be saved",
     );
-    const now = controls(section);
-    if (checked(now.deletes) || !checked(now.noOne) || !checked(now.askMe))
-      throw new Error(
-        `After pressing them, deletes shows ${checked(now.deletes)}, No one ${checked(now.noOne)}, Ask me ${checked(now.askMe)}`,
-      );
+    if (!checked(level(section, "ask")))
+      throw new Error("After pressing it, Ask first isn't chosen");
     await closeSheet(section, "the Team sheet");
     const reopened = await open("the Team sheet's Access again");
-    const kept = controls(reopened);
-    if (checked(kept.deletes) || !checked(kept.noOne) || !checked(kept.askMe))
-      throw new Error(
-        `Reopened, deletes shows ${checked(kept.deletes)}, No one ${checked(kept.noOne)}, Ask me ${checked(kept.askMe)}`,
-      );
+    if (!checked(level(reopened, "ask")))
+      throw new Error("Reopened, Ask first isn't chosen");
+    const noOne = await custom(reopened);
+    if (noOne.getAttribute("aria-checked") !== "true")
+      throw new Error("Reopened, the web isn't No one");
     await closeSheet(reopened, "the Team sheet");
-    const access = crewAccess(getCrew(project) ?? { access: {} });
-    return `Delete files in its copy off, web No one and Ask me stayed so after the sheet was closed and opened again (stored as ${JSON.stringify(access)})`;
+    return "Ask first and web No one stayed so after the sheet closed and reopened";
   } catch (error) {
     withDiagnostics(get, project, undefined, error);
   }

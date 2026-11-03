@@ -1,8 +1,9 @@
 import { useState, useSyncExternalStore } from "react";
 import {
+  agentProblem,
   agentWord,
   memberApp,
-  modelName,
+  shortModelName,
   useInstalledAgents,
 } from "../chrome/crewSettingsParts";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
@@ -24,7 +25,7 @@ import {
 } from "../lib/models";
 import type { HarnessId } from "../lib/session";
 import type { BoardCard, BoardColumnId } from "../lib/workBoard";
-import { formatClockMinutes, localDay } from "../lib/projectBots";
+import { formatClockMinutes } from "../lib/projectBots";
 
 /**
  * The team panel's quiet pages, after MonoCode's Mono panel (MIT): where the
@@ -44,19 +45,28 @@ export function TeamModelButton({
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const { harness, model } = memberApp(member);
   const agents = crewAgentsFor(member.role).filter(
-    (agent) => agent === harness || installed.includes(agent),
+    (agent) =>
+      agent === harness ||
+      (installed.includes(agent) && !agentProblem(agent, member.role)),
   );
-  const items: ExplorerMenuItem[] = agents.flatMap((agent, index) => [
-    ...(index ? [{ kind: "sep" as const }] : []),
-    ...pickerModelsFor(agent)
-      .slice(0, 6)
-      .map((item): ExplorerMenuItem => ({
+  const items: ExplorerMenuItem[] = agents.flatMap((agent, index) => {
+    const models = pickerModelsFor(agent);
+    const shown = models.slice(0, 6);
+    // Its model is always there to see, however far down the list it is.
+    const current =
+      agent === harness && !shown.some((item) => item.id === model)
+        ? [{ id: model, name: shortModelName(model) }]
+        : [];
+    return [
+      ...(index ? [{ kind: "sep" as const }] : []),
+      ...[...current, ...shown].map((item): ExplorerMenuItem => ({
         kind: "item",
         id: `${agent}\n${item.id}`,
-        label: `${agentWord(agent)} ${item.name}`,
+        label: `${agentWord(agent)} · ${shortModelName(item.id)}`,
         checked: agent === harness && item.id === model,
       })),
-  ]);
+    ];
+  });
   return (
     <>
       <button
@@ -72,7 +82,7 @@ export function TeamModelButton({
         }}
       >
         <span>
-          {agentWord(harness)} {modelName(model)}
+          {agentWord(harness)} · {shortModelName(model)}
         </span>
         <ChevronDown size={12} aria-hidden />
       </button>
@@ -116,10 +126,6 @@ export function TeamOverview({
   now: number;
   name: (who: string) => string;
 }) {
-  const today = localDay(now);
-  const doneToday = crew.feed.filter(
-    (line) => line.kind === "applied" && localDay(line.at) === today,
-  ).length;
   const next = columns.idea.find(
     (card) =>
       !ideaWaits(
@@ -134,7 +140,7 @@ export function TeamOverview({
   );
   const stats = [
     { value: String(batchSize), label: "Ready to apply" },
-    { value: String(doneToday), label: "Applied today" },
+    { value: String(columns.shipped.length), label: "Done" },
     { value: String(columns.idea.length), label: "Ideas" },
     {
       value: `${crewRunsToday(crew, now)}/${crew.limits.runsPerDay}`,
@@ -154,10 +160,10 @@ export function TeamOverview({
       </div>
       <h2>Up next</h2>
       <p>
-        {next
-          ? `${next.title} builds next.`
-          : crew.paused
-            ? `Paused. ${name("builder")} starts again when you resume.`
+        {crew.paused
+          ? `Paused. ${name("builder")} starts again when you resume.`
+          : next
+            ? `${next.title} builds next.`
             : "Nothing is lined up. Tell the team what to build."}
       </p>
     </div>

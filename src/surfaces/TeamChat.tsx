@@ -144,6 +144,7 @@ export function TeamChat({
   onCrewAction,
   onReview,
   onCards,
+  onSelected,
   control,
 }: {
   project: string;
@@ -161,6 +162,8 @@ export function TeamChat({
   onReview: () => void;
   /** Show the Cards (a card that waits on you is answered there). */
   onCards: () => void;
+  /** The teammate the thread shows, for the panel to mark. */
+  onSelected: (id: string | null) => void;
   /** ⋯ → Set a goal…: the box turns to the goal; a teammate filters it. */
   control: {
     current: {
@@ -199,6 +202,7 @@ export function TeamChat({
     setSelected(id);
     setTo(id ? { id, name: name(id) } : null);
   };
+  useEffect(() => onSelected(filter), [filter, onSelected]);
   useEffect(() => {
     // Tell the team… from the sidebar: the cursor goes in the box. A
     // follow-up for the Researcher (from its Findings) writes to it.
@@ -242,6 +246,14 @@ export function TeamChat({
   return (
     <div className="team-chat" data-team-chat={project}>
       <div className="team-thread">
+        {filter ? (
+          <div className="team-thread-showing" data-team-showing={filter}>
+            <span>Showing {name(filter)}</span>
+            <button type="button" onClick={() => select(null)}>
+              Show everyone
+            </button>
+          </div>
+        ) : null}
         {view.batch || ready.length ? (
           <div className="team-ready-list">
             {view.batch ? (

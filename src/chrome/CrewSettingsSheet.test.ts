@@ -185,6 +185,18 @@ describe("the team's settings", () => {
       )!;
     await act(async () => choice("Everyone").click());
     expect(crewAccess(getCrew(PATH)!).web).toBe("everyone");
+    // Going to Ask first keeps the web you customised.
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-access-level="ask"]')!
+        .click(),
+    );
+    expect(crewAccess(getCrew(PATH)!).web).toBe("everyone");
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-access-level="auto"]')!
+        .click(),
+    );
     // Customising keeps the choice.
     expect(
       sheet()

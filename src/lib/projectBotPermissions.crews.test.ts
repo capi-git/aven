@@ -135,6 +135,17 @@ describe("no push, no publish, for every teammate", () => {
       expect(deny).not.toContain("Bash(git commit *)");
       expect(deny).not.toContain("Bash(rm *)");
       expect(deny).not.toContain("WebFetch");
+      // Sending could publish what it finds.
+      expect(deny).toContain("Bash(curl -X *)");
+      expect(deny).toContain("Bash(osascript *)");
+    });
+
+    it("keeps Delete off when you customise it", () => {
+      const { deny = [] } = crewPermissionRules(
+        { ...full, access: { ...full.access, deletes: false } },
+        "builder",
+      );
+      expect(deny).toContain("Bash(rm *)");
     });
 
     it("leaves those who only read refused", () => {

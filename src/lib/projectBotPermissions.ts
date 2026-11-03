@@ -547,6 +547,9 @@ export function crewPermissionRules(
       ...(allowing && !copyInside
         ? asks.filter((rule) => rule === yourFiles)
         : []),
+      // Sending could publish what it finds, and Delete off still means off.
+      ...(allowing ? SENDING : []),
+      ...(allowing && !access.deletes && edits ? DELETING : []),
     ],
     ask:
       refusing || allowing

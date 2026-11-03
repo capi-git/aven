@@ -146,6 +146,7 @@ export function TeamScreen({
           onCrewAction={onCrewAction}
           onReview={() => setReviewing(true)}
           onCards={() => setPeek({ project, view: "board" })}
+          onSelected={setSelected}
           control={chat}
         />
       </div>
@@ -182,20 +183,15 @@ export function TeamScreen({
               name={name}
             />
           ) : mode === "teammates" ? (
-            <>
-              <TeamRoster
-                project={project}
-                crew={crew}
-                now={now}
-                name={name}
-                {...(fixer ? { fixer } : {})}
-                selected={selected}
-                onSelect={(id) => {
-                  setSelected(id);
-                  chat.current?.select(id);
-                }}
-              />
-            </>
+            <TeamRoster
+              project={project}
+              crew={crew}
+              now={now}
+              name={name}
+              {...(fixer ? { fixer } : {})}
+              selected={selected}
+              onSelect={(id) => chat.current?.select(id)}
+            />
           ) : mode === "board" ? (
             <div className="work-board-columns" data-team-board={project}>
               {sections(
