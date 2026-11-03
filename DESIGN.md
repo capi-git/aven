@@ -75,6 +75,8 @@ Only the window and its chrome may be see-through. Popups, menus and dialogs are
 - Native browser pages can't be animated. Move a picture of the page instead, and hold only the pages that really move.
 - Never restyle the whole window: no rule on `html *`, and no inherited property set on `body` or `html` during an interaction.
 
+An input's first visible response and any frame in motion stay within 33 ms. The speed test reports what goes over.
+
 ## Words
 
 - Write plain sentences in British English, with sentence case for labels and titles.
