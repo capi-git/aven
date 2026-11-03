@@ -586,7 +586,7 @@ import {
   rebasePath,
   resolveWorkspacePath,
 } from "./lib/paths";
-import { openProjectFiles, removeProjectData } from "./lib/projectData";
+import { projectOpenWork, removeProjectData } from "./lib/projectData";
 import {
   lastProjectPath,
   looksLikeProject,
@@ -6621,38 +6621,24 @@ export default function App({
             panelTerminals.map((file) => file.id),
           );
           // A terminal opened while the deletion runs is new work.
-          const hasProjectTerminals = () =>
-            projectPanelTerminals(projectTerminalsRef.current, normalized).some(
-              (file) => !closingTerminals.has(file.id),
-            );
+          const newProjectTerminals = () =>
+            projectPanelTerminals(
+              projectTerminalsRef.current,
+              normalized,
+            ).filter((file) => !closingTerminals.has(file.id));
           const assertWorkspaceReady = () => {
             // A removal can leave an empty replacement chat. Keep any new
-            // work or file panes opened while an earlier deletion awaited IO.
-            const currentSessions = sessionsRef.current;
-            const newWork = currentSessions.some((session) => {
-              if (!sameProjectPath(session.cwd, normalized)) return false;
-              const draft = readComposerDraft(session.id);
-              return (
-                session.blocks.length > 0 ||
-                isInFlightSession(session) ||
-                uncertainSessionAgents(session).length > 0 ||
-                !!session.queuedMessages?.length ||
-                !!draft?.text ||
-                !!draft?.attachments.length ||
-                !!session.composerSeed ||
-                !!session.inboxCard ||
-                !!session.noteCard ||
-                !!session.handoffCard
-              );
+            // work or file panes opened while an earlier deletion awaited
+            // IO. Its board and race overviews are views, not work: they
+            // close with the project below.
+            const work = projectOpenWork({
+              sessions: sessionsRef.current,
+              tabs: tabsRef.current,
+              project: normalized,
+              draft: readComposerDraft,
+              terminals: newProjectTerminals(),
             });
-            // Its board and race overviews are views, not work: they close
-            // with the project below.
-            const remainingFiles = openProjectFiles(
-              tabsRef.current,
-              currentSessions,
-              normalized,
-            );
-            if (newWork || remainingFiles.length || hasProjectTerminals()) {
+            if (work.length) {
               throw new Error(
                 "The project still has open work. Save and close its remaining tabs, then retry.",
               );
@@ -11802,6 +11788,15 @@ export default function App({
         ),
     },
     deleteProject: (path) => onRemoveProject(path, { purgeData: true }),
+    // As Delete judges it, its panel terminals aside (Delete closes those).
+    openWork: (path) =>
+      projectOpenWork({
+        sessions: sessionsRef.current,
+        tabs: tabsRef.current,
+        project: path,
+        draft: readComposerDraft,
+        terminals: [],
+      }),
     discussion: discussions.host,
     projectMemory: async (path) => (await loadProjectMemory(path))?.body ?? "",
     sharedWork: true,

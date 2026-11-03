@@ -120,6 +120,8 @@ type Options = DevPerfOptions & {
    * with why it could not.
    */
   deleteProject?: (projectPath: string) => Promise<string | null | void>;
+  /** What would keep the project from being deleted, as Delete judges it. */
+  openWork?: (projectPath: string) => string[];
   /** Open the restart question's preview, as its palette command does. */
   previewRestartQuestion?: () => boolean;
   /** Starts discussions between chats; the check drives the composer's Discuss mode. */
@@ -4237,17 +4239,47 @@ export async function runDevSmoke(
           "the panel's shell to start and go idle",
         );
         projectPanel.toggle();
-        const refused = await withTimeout(
+        // Delete removes the project's chats, then refuses if work is left:
+        // say what it was, stop what can be stopped, and press once more.
+        const work = () => get().openWork?.(path) ?? [];
+        const stopWorking = async () => {
+          for (const session of get().sessions)
+            if (sameProjectPath(session.cwd, path) && session.busy)
+              get().stop?.(session.id);
+          await waitFor(
+            () =>
+              !get().sessions.some(
+                (session) => sameProjectPath(session.cwd, path) && session.busy,
+              ),
+            10_000,
+            "the project's chats to stop",
+          );
+        };
+        await stopWorking();
+        const had = work();
+        let refused = await withTimeout(
           deleteProject(path),
           30_000,
           "deleting the project",
         );
+        let retried = "";
+        if (refused?.includes("still has open work")) {
+          const left = work();
+          await stopWorking();
+          const again = await withTimeout(
+            deleteProject(path),
+            30_000,
+            "deleting the project again",
+          );
+          retried = `; the first Delete left ${left.join("; ") || "nothing it names"} (before it: ${had.join("; ") || "nothing"})${again ? `, and the second was refused: ${again}` : ", and the second went through"}`;
+          refused = again;
+        }
         const listed = (get().projects ?? []).some((project) =>
           sameProjectPath(project.path, path),
         );
         if (listed)
           throw new Error(
-            `The project is still listed after Delete${refused ? `: ${refused}` : ""}`,
+            `The project is still listed after Delete${refused ? `: ${refused}` : ""}; open work now: ${work().join("; ") || "none"}${retried}`,
           );
         if (projectPanel.terminalIds(path).length > 0)
           throw new Error("The project's terminal panel was kept");
@@ -4260,6 +4292,7 @@ export async function runDevSmoke(
           5_000,
           "the panel's shell to end",
         );
+        return retried ? `deleted on the second press${retried}` : undefined;
       },
     );
 
