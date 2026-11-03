@@ -76,14 +76,6 @@
   padding: 2px;
 }
 
-.settings-nav__footer {
-  flex-shrink: 0;
-  padding: 6px 2px 0;
-  border-top: var(--aven-hairline, 1px) solid
-    var(--aven-separator, var(--aven-line));
-  margin-top: 6px;
-}
-
 .settings-nav--embedded,
 .settings-nav--embedded .settings-nav__sections {
   flex: 0 0 auto;
@@ -113,6 +105,14 @@
     border-color 120ms ease;
 }
 
+.settings-nav__back {
+  flex-shrink: 0;
+  margin: 0 0 4px;
+}
+.settings-nav__back .settings-nav__item {
+  color: var(--personal-muted, var(--aven-muted));
+}
+
 .settings-nav__item:hover {
   background: var(--personal-hover, var(--aven-hover));
   color: var(--color-content);
@@ -123,18 +123,6 @@
   background: var(--aven-control-hover, var(--aven-selected));
   box-shadow: none;
   color: var(--color-content);
-}
-/* A short accent bar marks the open page. */
-.settings-nav__item[aria-current="page"]::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 50%;
-  width: 2px;
-  height: 12px;
-  border-radius: var(--aven-radius-capsule);
-  background: var(--color-content);
-  transform: translateY(-50%);
 }
 
 .settings-nav__item:focus-visible {

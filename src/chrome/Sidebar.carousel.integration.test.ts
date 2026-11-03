@@ -566,20 +566,10 @@ it("keeps the workspace heading and settings controls usable outside the carouse
     onCloseSettings: closeSettings,
   });
   expect(container.querySelector(".personal-profile-viewport")).toBeNull();
-  expect(container.querySelectorAll(".personal-profile-header")).toHaveLength(
-    1,
-  );
-  expect(container.querySelectorAll(".personal-profile-picker")).toHaveLength(
-    1,
-  );
-  expect(
-    container.querySelector(".personal-profile-header")?.textContent,
-  ).toContain("Personal");
-  // Settings keeps Search; the tiles wait for the workspace.
+  // Settings has the sidebar to itself: Back to app returns to the rest.
+  expect(container.querySelector(".personal-profile-header")).toBeNull();
   expect(container.querySelector(".personal-library-nav")).toBeNull();
-  expect(
-    container.querySelector("button.personal-search-field"),
-  ).not.toBeNull();
+  expect(container.querySelector("button.personal-search-field")).toBeNull();
   const settings = container.querySelector<HTMLElement>(
     '[aria-label="Settings sections"]',
   )!;
@@ -591,19 +581,15 @@ it("keeps the workspace heading and settings controls usable outside the carouse
       ?.getAttribute("aria-current"),
   ).toBe("page");
   await act(async () => {
-    container
-      .querySelector<HTMLButtonElement>("button.personal-search-field")!
-      .click();
     settings
       .querySelector<HTMLButtonElement>('[data-settings-section="providers"]')!
       .click();
     container
       .querySelector<HTMLButtonElement>(
-        '.settings-nav button[aria-label="Back"]',
+        '.settings-nav button[aria-label="Back to app"]',
       )!
       .click();
   });
-  expect(search).toHaveBeenCalledOnce();
   expect(selectSettings).toHaveBeenCalledExactlyOnceWith("providers");
   expect(closeSettings).toHaveBeenCalledOnce();
   await render({ settingsOpen: false });
@@ -623,7 +609,7 @@ it("keeps the workspace heading and settings controls usable outside the carouse
       .find((button) => button.textContent === "Notes")!
       .click();
   });
-  expect(search).toHaveBeenCalledTimes(2);
+  expect(search).toHaveBeenCalledOnce();
   expect(notes).toHaveBeenCalledOnce();
   expectOneActiveBody();
 });

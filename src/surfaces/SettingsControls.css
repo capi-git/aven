@@ -39,23 +39,16 @@
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 6px;
-  /* A grouped list's header lines up with the text of its rows. */
-  padding: 0 var(--settings-inset, 14px);
 }
 .settings-group-intro {
   min-width: 0;
 }
 .settings-group-header h2 {
   margin: 0;
-  font-size: var(--text-ui-body);
-  font-weight: 600;
-  line-height: 1.4;
-}
-.settings-group-header p {
-  margin: 1px 0 0;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
-  line-height: 1.5;
+  font-weight: 500;
+  line-height: 1.4;
 }
 /* Where a group's choices are saved, as a quiet pill beside its title. */
 .settings-group-scope {

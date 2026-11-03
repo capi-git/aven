@@ -164,7 +164,7 @@ describe("agent browser session connection", () => {
       "When desktop control's status is ready, just use it: Aven itself asks the user once to allow this chat.",
     );
     expect(text).toContain(
-      "ask the user once to turn it on in Settings → Skills & tools → Desktop control, saying which step it is for",
+      "ask the user once to turn it on in Settings → Skills → Desktop control, saying which step it is for",
     );
     expect(text).toContain(
       'Put real blockers you discover (for example "Framer\'s Files page needs a paid plan") at the top of your reply',

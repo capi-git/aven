@@ -483,7 +483,7 @@ async function runOverlaySmoke(owner: string) {
     const findBack = () =>
       [
         ...document.querySelectorAll<HTMLButtonElement>(".settings-nav button"),
-      ].find((button) => button.textContent?.trim() === "Back");
+      ].find((button) => button.textContent?.trim() === "Back to app");
     settings.click();
     let back = await waitFor(
       findBack,

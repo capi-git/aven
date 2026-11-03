@@ -1,27 +1,199 @@
-/* A project's team: one header (mark, name, one sentence, Board | Chat,
+/* A project's team: chat beside a panel: one header (mark, name, one sentence,
    Team, Pause and ⋯), then its Board or its Chat. Dark and grey; colour
    only on the marks' lit dots and small status dots. */
 .team-screen {
   --team-faint: color-mix(in srgb, var(--color-content) 40%, transparent);
-  --team-line-strong: color-mix(in srgb, var(--color-content) 15%, transparent);
-  display: flex;
+  --team-line-strong: color-mix(in srgb, var(--color-content) 16%, transparent);
+  display: grid;
   width: 100%;
-  max-width: 1160px;
-  flex-direction: column;
-  margin: 0 auto;
-}
-
-/* The chat fills the pane: its thread scrolls, its box stays in view. */
-.work-board > .team-screen[data-team-view="chat"] {
   min-height: 440px;
   flex: 1 1 0;
+  container-type: inline-size;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+}
+/* The Board needs its four columns' room. */
+.team-screen[data-team-view="board"] {
+  grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);
+}
+
+.team-main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--aven-line);
+}
+
+.team-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.team-panel-tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 1px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--aven-line);
+  scrollbar-width: none;
+}
+.team-panel-tabs button {
+  height: 24px;
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  cursor: pointer;
+}
+.team-panel-tabs button:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.team-panel-tabs button[aria-selected="true"] {
+  background: var(--aven-control-hover, var(--aven-selected));
+  color: var(--color-content);
+}
+
+.team-panel-body {
+  container-type: inline-size;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+.team-panel-empty {
+  margin: 24px auto;
+  max-width: 280px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.team-overview h2 {
+  margin: 14px 0 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+.team-overview h2:first-child {
+  margin-top: 0;
+}
+.team-overview p {
+  margin: 0;
+  font-size: var(--text-ui-body);
+  line-height: 1.5;
+}
+.team-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.team-stat {
+  padding: 9px 11px;
+  border: 1px solid var(--aven-resting-card-edge, var(--aven-line));
+  border-radius: var(--aven-radius-card, 10px);
+  background: var(--aven-glass-card, var(--aven-raised));
+}
+.team-stat b {
+  display: block;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.team-stat span {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.team-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-notes button,
+.team-schedule-row {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-body);
+  text-align: left;
+  cursor: pointer;
+}
+.team-notes button:hover,
+.team-schedule-row:hover {
+  background: var(--aven-hover);
+}
+.team-notes b {
+  display: block;
+  font-weight: 500;
+}
+.team-notes span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+.team-schedule-row span {
+  display: block;
+  font-weight: 500;
+}
+.team-schedule-row small {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.team-model-button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 22px;
+  gap: 4px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.team-model-button:hover {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+.team-model-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .team-head {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 4px 10px 16px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--aven-line);
 }
 
@@ -38,10 +210,10 @@
 .team-head-heading h1 {
   margin: 0;
   overflow: hidden;
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.25;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -77,26 +249,6 @@
   flex: none;
   align-items: center;
   gap: 8px;
-}
-
-.settings-segmented.team-head-switch {
-  min-width: 132px;
-}
-
-.settings-segmented.team-head-switch button {
-  min-height: 24px;
-  white-space: nowrap;
-}
-
-/* The Board: the header and the four columns lay out as the plain Board's
-   do, the columns filling what's left of the pane. */
-.team-screen[data-team-view="board"] {
-  display: contents;
-}
-
-.team-screen[data-team-view="board"] > .team-head {
-  flex-shrink: 0;
-  margin-bottom: 16px;
 }
 
 /* Team: the teammates' marks, and the word. */
@@ -146,4 +298,41 @@
     width: 100%;
     justify-content: flex-end;
   }
+}
+
+/* A narrow pane: the panel above the chat, each with room to read. */
+@container (max-width: 720px) {
+  .team-main,
+  .team-panel {
+    grid-column: 1 / -1;
+  }
+  .team-panel {
+    grid-row: 1;
+    border-bottom: 1px solid var(--aven-line);
+  }
+  .team-main {
+    grid-row: 2;
+    border-right: 0;
+  }
+}
+
+.team-thread-showing {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.team-thread-showing button {
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  cursor: pointer;
+}
+.team-thread-showing button:hover {
+  text-decoration: underline;
 }

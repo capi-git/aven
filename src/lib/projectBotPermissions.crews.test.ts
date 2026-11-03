@@ -24,6 +24,7 @@ import {
   protectedFixPaths,
   teammateChatRefusal,
   teammateHarness,
+  absolutePathRule,
 } from "./projectBotPermissions";
 import { buildClaudeSpawnArgs } from "./harness/claudeProtocol";
 import { codexMcpOffArgs, enabledMcpServers } from "./harness/codex";
@@ -118,6 +119,44 @@ describe("no push, no publish, for every teammate", () => {
       expect(asking.ask).toContain("Bash(git commit *)");
       expect(asking.ask).toContain("Bash(git merge *)");
     }
+  });
+
+  describe("Full access", () => {
+    const full = {
+      ...crew,
+      access: { deletes: true, web: "everyone", others: "allow" },
+    } as const;
+
+    it("never asks a Builder, and keeps pushing and your files refused", () => {
+      const { deny = [], ask = [] } = crewPermissionRules(full, "builder");
+      expect(ask).toEqual([]);
+      for (const rule of NEVER) expect(deny).toContain(rule);
+      expect(deny).toContain(`Edit(${absolutePathRule(crew.path)})`);
+      expect(deny).not.toContain("Bash(git commit *)");
+      expect(deny).not.toContain("Bash(rm *)");
+      expect(deny).not.toContain("WebFetch");
+      // Sending could publish what it finds.
+      expect(deny).toContain("Bash(curl -X *)");
+      expect(deny).toContain("Bash(osascript *)");
+    });
+
+    it("keeps Delete off when you customise it", () => {
+      const { deny = [] } = crewPermissionRules(
+        { ...full, access: { ...full.access, deletes: false } },
+        "builder",
+      );
+      expect(deny).toContain("Bash(rm *)");
+    });
+
+    it("leaves those who only read refused", () => {
+      for (const role of ["checker", "scout", "security"] as const) {
+        const { deny = [], ask = [] } = crewPermissionRules(full, role);
+        expect(ask).toEqual([]);
+        expect(deny).toContain("Bash(rm *)");
+        expect(deny).toContain("Bash(git commit *)");
+        expect(deny).toContain(`Edit(${absolutePathRule(crew.path)})`);
+      }
+    });
   });
 
   it("never waits on you by default: a Builder deletes in its copy, and the rest is told no", () => {

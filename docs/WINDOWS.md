@@ -6,7 +6,7 @@ The Windows x64 installer is part of the regular [Aven release](https://github.c
 
 1. Download the `Aven_<version>_x64-setup.exe` installer from the release, or download `Aven-<version>-windows-x64.zip` and extract it. The ZIP includes the same installer, licenses, and package checksums. [`Aven-windows-x64-setup.exe`](https://github.com/capi-git/aven/releases/latest/download/Aven-windows-x64-setup.exe) always downloads the latest installer.
 2. Run the installer. It installs for your Windows user.
-3. Open Aven and choose which providers you want to connect in the first-launch setup. Nothing is preselected or automatically installed. You can also open **Settings → Provider setup** later.
+3. Open Aven and choose which providers you want to connect in the first-launch setup. Nothing is preselected or automatically installed. You can also open **Settings → Providers** later.
 4. For Claude Code or Codex, review and explicitly run the offered installation or sign-in step, then complete the provider's prompts. Other providers link to their official guides. Select **Check again** after installation; reopen Aven if a custom PATH change is still not detected.
 5. Choose a project folder, select a provider and model, and start a task. Aven does not include provider subscriptions. Local sign-in checks and an actual provider response are separate; see [Connect your providers](PROVIDER-SETUP.md).
 

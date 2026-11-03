@@ -76,8 +76,9 @@ export function SettingsGroup({
     >
       <header className="settings-group-header">
         <div className="settings-group-intro">
-          <h2 id={titleId}>{title}</h2>
-          {description ? <p>{description}</p> : null}
+          <h2 id={titleId} title={description}>
+            {title}
+          </h2>
         </div>
         {scope ? <span className="settings-group-scope">{scope}</span> : null}
       </header>

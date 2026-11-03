@@ -558,8 +558,8 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
             </p>
           </div>
           <p className="provider-setup-note">
-            Return to Settings → Provider setup to add a provider or
-            troubleshoot a connection.
+            Return to Settings → Providers to add a provider or troubleshoot a
+            connection.
           </p>
           <footer className="provider-setup-footer">
             <button

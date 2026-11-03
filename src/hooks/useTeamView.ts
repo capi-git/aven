@@ -6,7 +6,7 @@ import {
   type TeamView,
 } from "../lib/teamView";
 
-/** A project's team screen view, Board or Chat, and a way to switch it. */
+/** A project's team panel tab, and a way to switch it. */
 export function useTeamView(
   path: string,
 ): [TeamView, (view: TeamView) => void] {

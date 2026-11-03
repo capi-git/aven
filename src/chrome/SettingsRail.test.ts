@@ -98,10 +98,10 @@ describe("settings navigation", () => {
       container
         .querySelector('[aria-current="page"]')
         ?.getAttribute("aria-label"),
-    ).toBe("Providers & models");
+    ).toBe("Models");
 
     const back = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Back"]',
+      'button[aria-label="Back to app"]',
     )!;
     expect(back.closest("nav")).toBeNull();
     await act(async () => back.click());
