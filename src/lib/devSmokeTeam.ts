@@ -229,6 +229,8 @@ function workspace() {
 
 /** The project's Board on screen, if it is. */
 function boardOnScreen(project: string): HTMLElement | null {
+  // The checks read the team's cards off its Board tab, wherever it opened.
+  setTeamView(project, "board");
   return (
     [...document.querySelectorAll<HTMLElement>("[data-work-board]")].find(
       (board) =>
