@@ -138,6 +138,12 @@
   letter-spacing: 0.04em;
   opacity: 0.45;
 }
+/* A soft edge on the field and tiles, as in the mock and MonoCode's Search. */
+.personal-shell .personal-search-field,
+.personal-shell .personal-library-nav > * {
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-content) 8%, transparent);
+}
 .personal-shell .personal-search-field:is(button:hover, :focus-visible) {
   background: var(--aven-fill-tertiary);
   color: var(--color-content);
