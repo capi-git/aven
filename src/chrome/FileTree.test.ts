@@ -9,7 +9,7 @@ import {
   saveExpanded,
 } from "../lib/fileTree";
 import { notifyGitChanged, type FsEntry } from "../lib/fs";
-import { FileTree } from "./FileTree";
+import { explorerItems, FileTree } from "./FileTree";
 
 const { iconRender, directories, pendingDirectories } = vi.hoisted(() => ({
   iconRender: vi.fn(),
@@ -305,5 +305,48 @@ describe("FileTree copies paths", () => {
       shiftKey: true,
     });
     expect(await navigator.clipboard.readText()).toBe("before");
+  });
+});
+
+describe("the file menu shows only what applies", () => {
+  const rows = (target: Parameters<typeof explorerItems>[0], clip = false) =>
+    explorerItems(
+      target,
+      clip ? { mode: "copy", path: "/p/other.ts", isDir: false } : null,
+      true,
+    ).flatMap((row) => (row.kind === "item" ? [row.id] : []));
+
+  it("offers a file its own actions, and no new files or terminal", () => {
+    const file = rows({ path: "/p/a.ts", isDir: false, isRoot: false });
+    expect(file).toEqual([
+      "rename",
+      "duplicate",
+      "cut",
+      "copy",
+      "copy-path",
+      "copy-relative-path",
+      "reveal",
+      "delete",
+    ]);
+  });
+
+  it("offers Paste only with something to paste", () => {
+    const target = { path: "/p/a.ts", isDir: false, isRoot: false };
+    expect(rows(target)).not.toContain("paste");
+    expect(rows(target, true)).toContain("paste");
+  });
+
+  it("offers a folder new files and a terminal", () => {
+    const folder = rows({ path: "/p/src", isDir: true, isRoot: false });
+    expect(folder).toEqual(
+      expect.arrayContaining(["new-file", "new-folder", "open-terminal"]),
+    );
+  });
+
+  it("offers nothing on the project's root that would change it", () => {
+    const root = rows({ path: "/p", isDir: true, isRoot: true });
+    for (const id of ["rename", "duplicate", "cut", "copy", "delete"])
+      expect(root).not.toContain(id);
+    expect(root).toContain("new-file");
   });
 });
