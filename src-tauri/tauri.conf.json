@@ -59,7 +59,10 @@
     "macOS": {
       "entitlements": "Entitlements.plist",
       "signingIdentity": "-",
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "files": {
+        "Resources/Assets.car": "macos/Assets.car"
+      }
     }
   },
   "plugins": {

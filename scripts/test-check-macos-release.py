@@ -25,11 +25,14 @@ class ReleaseReadinessTests(unittest.TestCase):
         (self.root / 'src/lib/personalBuild.ts').write_text('export const IS_PERSONAL_BUILD = false;')
         self.app = self.root / 'Aven.app'
         (self.app / 'Contents/Frameworks/Chromium Embedded Framework.framework').mkdir(parents=True)
+        (self.app / 'Contents/Resources').mkdir()
+        (self.app / 'Contents/Resources/Assets.car').write_bytes(b'car')
         self.config = {'identifier': 'com.capi.monocode.personal', 'version': '1.2.3',
                        'plugins': {'updater': {'pubkey': 'fixture-public-key',
                                               'endpoints': ['https://example.com/latest.json']}}}
         (self.app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
-            'CFBundleIdentifier': self.config['identifier'], 'CFBundleShortVersionString': '1.2.3'}))
+            'CFBundleIdentifier': self.config['identifier'], 'CFBundleShortVersionString': '1.2.3',
+            'CFBundleIconName': 'AppIcon'}))
         for patcher in (mock.patch.object(checker, 'ROOT', self.root),
                         mock.patch.object(checker.release_signing, 'preflight', return_value='A' * 40),
                         mock.patch.object(checker.release_signing, 'verify', return_value={'status': 'verified'}),
@@ -41,6 +44,12 @@ class ReleaseReadinessTests(unittest.TestCase):
     @staticmethod
     def checks(report):
         return {item['check']: item for item in report['checks']}
+
+    def test_an_icon_without_its_compiled_catalog_fails(self):
+        (self.app / 'Contents/Resources/Assets.car').unlink()
+        report = checker.check_release(self.config, self.app)
+        self.assertFalse(self.checks(report)['Mac app icon draws one tile']['passed'])
+        self.assertFalse(report['configuration_ready'])
 
     def test_final_packager_policy_replaces_unused_tauri_signing_config(self):
         self.assertNotIn('bundle', self.config)

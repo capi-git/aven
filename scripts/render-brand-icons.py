@@ -18,6 +18,8 @@ from a larger one. Outputs:
 - public/aven-mark.svg (the browser's 14 px fallback tab icon)
 - target/brand/app-icon-1024.png (source for `npx tauri icon`)
 - src-tauri/macos/AppIcon.icon/Assets/icon.png (1024 px glyph layer)
+- src-tauri/macos/Assets.car (with `--bundle`: AppIcon.icon compiled by Xcode's
+  actool, committed so a build needs no particular Xcode)
 
 Run from the repository root, then regenerate the bundle icons with
 `npx tauri icon target/brand/app-icon-1024.png -o src-tauri/icons` and run
@@ -273,6 +275,29 @@ def write_ico(path):
     path.write_bytes(header + directory + blobs)
 
 
+def write_asset_catalog():
+    """Compile AppIcon.icon: macOS 26 draws this icon's one tile itself.
+
+    Given only `icon.icns`, whose tile is its own artwork, macOS 26 and later
+    set that artwork inside a tile of their own: a tile within a tile.
+    """
+    macos = ROOT / "src-tauri/macos"
+    with tempfile.TemporaryDirectory() as temp:
+        subprocess.run(
+            [
+                "xcrun", "actool", str(macos / "AppIcon.icon"),
+                "--compile", temp,
+                "--platform", "macosx",
+                "--minimum-deployment-target", "13.0",
+                "--app-icon", "AppIcon",
+                "--output-partial-info-plist", str(Path(temp) / "partial.plist"),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        shutil.copy2(Path(temp) / "Assets.car", macos / "Assets.car")
+
+
 def write_bundle():
     """Redraw the desktop bundle icons Tauri generated, each at its own size."""
     redrawn = 0
@@ -307,6 +332,7 @@ def main():
     )
     if parser.parse_args().bundle:
         write_bundle()
+        write_asset_catalog()
         return
     brand = ROOT / "target/brand"
     brand.mkdir(parents=True, exist_ok=True)

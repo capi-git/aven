@@ -94,6 +94,7 @@ def prepare_bundle():
     # relative so it follows this bundle when the candidate is moved.
     (contents / 'MacOS/monocode').symlink_to('aven')
     shutil.copy2(ROOT / 'src-tauri/icons/icon.icns', contents / 'Resources/icon.icns')
+    shutil.copy2(ROOT / 'src-tauri/macos/Assets.car', contents / 'Resources/Assets.car')
     info = plistlib.loads((ROOT / 'src-tauri/Info.plist').read_bytes())
     info.update(CFBundleIdentifier=IDENTITY, CFBundleName='Aven Dev', CFBundleDisplayName='Aven Dev',
                 CFBundleExecutable='aven', CFBundleIconFile='icon.icns',

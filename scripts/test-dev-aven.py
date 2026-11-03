@@ -45,6 +45,8 @@ class DevRunnerGuards(unittest.TestCase):
             'NSBluetoothAlwaysUsageDescription': 'The browser may check Bluetooth devices.',
         }))
         (self.root / 'src-tauri/icons/icon.icns').write_bytes(b'fixture icon')
+        (self.root / 'src-tauri/macos').mkdir(parents=True)
+        (self.root / 'src-tauri/macos/Assets.car').write_bytes(b'fixture catalog')
         (self.root / 'package.json').write_text(json.dumps({'version': '0.9.0'}))
         (self.root / 'node_modules/.bin').mkdir(parents=True)
         (self.root / 'node_modules/.bin/vite').write_text('fixture executable')
