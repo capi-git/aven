@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addCrewMember,
   removeCrewMember,
+  setCrewAccess,
   updateCrewMember,
   type CrewMemberChange,
 } from "./crewActions";
@@ -24,6 +25,7 @@ import {
   sessionPermissions,
 } from "./harness/sessionPermissions";
 import {
+  agentBrowserWeb,
   crewChatPermissions,
   installBotPermissions,
   teammateChatRefusal,
@@ -184,6 +186,46 @@ describe("a member's settings never weaken its rules", () => {
     expect(
       crewMemberById(getCrew(PROJECT)!, "builder")?.harness,
     ).toBeUndefined();
+  });
+
+  it("says which chats may reach the web in Aven's browser: a role Access allows, now", () => {
+    updateCrew(PROJECT, (crew) => ({
+      ...crew,
+      members: [
+        ...crew.members,
+        { id: "researcher", role: "researcher", sessionId: "r-chat" },
+        { id: "designer", role: "designer", sessionId: "d-chat" },
+        { id: "fixer", role: "fixer", sessionId: "f-chat" },
+      ],
+    }));
+    const web = (sessionId: string) => agentBrowserWeb(sessionId);
+    // Access · Builders: Builders and the Researcher; never the Checker,
+    // Security, Scout or Designer.
+    setCrewAccess(PROJECT, { web: "builders" });
+    expect(web("b-chat")).toBe(true);
+    expect(web("r-chat")).toBe(true);
+    expect(web("c-chat")).toBe(false);
+    expect(web("x-chat")).toBe(false);
+    expect(web("s-chat")).toBe(false);
+    expect(web("d-chat")).toBe(false);
+    // Everyone: the Scout too; the Designer still never.
+    setCrewAccess(PROJECT, { web: "everyone" });
+    expect(web("s-chat")).toBe(true);
+    expect(web("c-chat")).toBe(true);
+    expect(web("d-chat")).toBe(false);
+    // No one: nobody.
+    setCrewAccess(PROJECT, { web: "none" });
+    expect(web("b-chat")).toBe(false);
+    expect(web("r-chat")).toBe(false);
+    // A teammate on Codex has no network; planning a goal has no web; the
+    // Fixer (a bot) and a chat of your own have no such grant.
+    setCrewAccess(PROJECT, { web: "everyone" });
+    updateCrewMember(PROJECT, "checker", { harness: "codex" });
+    expect(web("c-chat")).toBe(false);
+    updateCrew(PROJECT, (crew) => ({ ...crew, planning: "scout" }));
+    expect(web("s-chat")).toBe(false);
+    expect(web("f-chat")).toBe(false);
+    expect(web("my-chat")).toBe(false);
   });
 
   it("says what to do when the copy isn't ready", () => {

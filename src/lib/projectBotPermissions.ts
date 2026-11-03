@@ -699,6 +699,25 @@ export function crewChatBrowserOff(sessionId: string): boolean {
 }
 
 /**
+ * Whether a chat's pages in Aven's browser may reach the web: true for a
+ * teammate whose role Access lets read the web now (see `crewRoleUsesWeb`),
+ * on an app with a network, and not while it plans a goal. A project bot's
+ * chat has no such setting, and a chat of your own isn't a sandboxed one,
+ * so both are false: the host applies this only to a bot's or teammate's
+ * chat, and read again at every turn, a change in the Team sheet holds
+ * from the next one.
+ */
+export function agentBrowserWeb(sessionId: string): boolean {
+  const found = crewForChat(sessionId);
+  if (!found || found.retired || found.member.role === "fixer") return false;
+  return (
+    crewMemberApp(found.member).harness !== "codex" &&
+    found.crew.planning !== found.member.id &&
+    crewRoleUsesWeb(found.crew, found.member.role)
+  );
+}
+
+/**
  * What a project bot's chat launches with while the bot is on: its rules,
  * sandbox and auto mode, no MCP servers, and only in its copy.
  */
