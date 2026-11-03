@@ -59,6 +59,7 @@ import {
   checkResearcher,
   checkTeamAccess,
   checkTeamSetup,
+  checkTeamTalk,
   type SmokeTeam,
 } from "../lib/devSmokeTeam";
 import { checkDividerRail } from "../lib/devSmokeRail";
@@ -4084,6 +4085,11 @@ export async function runDevSmoke(
     await step(
       "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
       () => checkDesigner(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "a message to the Lead reaches a teammate and a helper and comes back",
+      () => checkTeamTalk(config, crew),
     );
   if (safe && crew)
     await step(
