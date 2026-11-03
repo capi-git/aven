@@ -417,9 +417,20 @@ export const nativeBrowser = {
       ({ payload }) => callback(payload),
     ),
   attach: (id: string) => invoke<BrowserState>("browser_attach", { id }),
-  create: async (id: string, url: string, bounds: BrowserBounds) => {
+  create: async (
+    id: string,
+    url: string,
+    bounds: BrowserBounds,
+    profile?: "agents",
+  ) => {
     const rendererEpoch = await browserRendererEpoch();
-    return invoke<void>("browser_create", { id, url, bounds, rendererEpoch });
+    return invoke<void>("browser_create", {
+      id,
+      url,
+      bounds,
+      rendererEpoch,
+      ...(profile ? { profile } : {}),
+    });
   },
   navigate: (id: string, url: string) =>
     invoke<void>("browser_navigate", { id, url }),

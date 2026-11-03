@@ -9,3 +9,13 @@ export function currentWindowLabel(): string {
     return "main";
   }
 }
+
+/**
+ * A window opened with File > New Window. It starts empty and never saves
+ * the workspace layout: the main window's saved workspace is the one Aven
+ * restores, and a second window holding the same chats would write them
+ * back over each other.
+ */
+export function isSecondaryWindow(): boolean {
+  return currentWindowLabel() !== "main";
+}

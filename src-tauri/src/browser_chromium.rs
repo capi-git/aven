@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -354,6 +354,9 @@ struct PageContext {
     caller: Webview,
     root: String,
     native_id: String,
+    /// The Chromium profile the page runs in: `DEFAULT_PROFILE` (the
+    /// user's, with their logins) or `AGENTS_PROFILE` (sandboxed chats').
+    profile: &'static str,
     renderer_label: String,
     renderer_epoch: u64,
     state: Mutex<BrowserState>,
@@ -726,6 +729,14 @@ fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
     if !INITIALIZED.load(Ordering::Acquire) {
         std::fs::create_dir_all(&cache)
             .map_err(|error| format!("Could not create Chromium profile: {error}"))?;
+        // Sandboxed chats' pages start from nothing each time Aven runs:
+        // whatever a page stored last time is gone before the engine starts.
+        let agents = profile_dir(&cache, AGENTS_PROFILE);
+        if agents.exists() {
+            if let Err(error) = std::fs::remove_dir_all(&agents) {
+                eprintln!("[browser] Could not clear the agents' browser profile: {error}");
+            }
+        }
         let executable = std::env::current_exe().map_err(|error| error.to_string())?;
         let contents = executable
             .parent()
@@ -809,6 +820,36 @@ pub(crate) fn parse_url(caller: &Webview, value: &str) -> Result<Url, String> {
         return Err("The browser supports external HTTP/HTTPS addresses and local development servers, but cannot open Aven's app address".into());
     }
     Ok(url)
+}
+
+/// The user's own profile, with their logins.
+pub(crate) const DEFAULT_PROFILE: &str = "default";
+/// The throwaway profile sandboxed chats' pages run in: no logins, no
+/// cookies of the user's, and emptied every time Aven starts.
+pub(crate) const AGENTS_PROFILE: &str = "agents";
+
+/// The profile a page asks for: the user's unless it names the agents'.
+fn profile_name(requested: Option<&str>) -> Result<&'static str, String> {
+    match requested {
+        None | Some(DEFAULT_PROFILE) => Ok(DEFAULT_PROFILE),
+        Some(AGENTS_PROFILE) => Ok(AGENTS_PROFILE),
+        Some(_) => Err("Unknown browser profile".into()),
+    }
+}
+
+/// Where a profile's data lives under Chromium's cache folder: the user's
+/// in `Default`, sandboxed chats' in `agents`, never the same folder.
+fn profile_dir(cache: &Path, profile: &str) -> PathBuf {
+    cache.join(if profile == AGENTS_PROFILE {
+        "agents"
+    } else {
+        "Default"
+    })
+}
+
+/// The profile a page runs in (`DEFAULT_PROFILE` or `AGENTS_PROFILE`).
+pub(crate) fn page_profile(caller: &Webview, id: &str) -> Result<&'static str, String> {
+    Ok(preview(caller, id)?.0.profile)
 }
 
 pub(crate) fn preview(caller: &Webview, id: &str) -> Result<ChromiumPage, String> {
@@ -1564,6 +1605,7 @@ pub async fn browser_create(
     url: String,
     bounds: BrowserBounds,
     renderer_epoch: u64,
+    profile: Option<String>,
 ) -> Result<(), String> {
     trace_layout(
         "create-request",
@@ -1578,6 +1620,7 @@ pub async fn browser_create(
     let root = label(&caller, &id)?;
     let url = parse_url(&caller, &url)?;
     bounds.validate()?;
+    let profile = profile_name(profile.as_deref())?;
     if !registry()
         .lock()
         .map_err(|_| "Browser is unavailable")?
@@ -1614,6 +1657,7 @@ pub async fn browser_create(
         caller: page_owner,
         root: root.clone(),
         native_id: format!("{root}-{}", NEXT.fetch_add(1, Ordering::Relaxed)),
+        profile,
         renderer_label: caller.label().to_string(),
         renderer_epoch,
         state: Mutex::new(BrowserState {
@@ -1696,7 +1740,7 @@ pub async fn browser_create(
             bounds.points(window.scale_factor().map_err(|error| error.to_string())?)?;
         let native_id = string(&creation_context.native_id)?;
         let url = string(url.as_str())?;
-        let profile = string(&profile.join("Default").to_string_lossy())?;
+        let profile = string(&profile_dir(&profile, creation_context.profile).to_string_lossy())?;
         // Initialization can enter Cocoa's run loop. Check the epoch only
         // after it returns, immediately before creating the native child.
         let current = {
@@ -3190,6 +3234,22 @@ mod tests {
         assert!(payload.get("screenshot").is_none());
     }
     use super::*;
+
+    #[test]
+    fn sandboxed_pages_get_their_own_profile_folder_beside_the_users() {
+        let cache = Path::new("/data/browser/chromium");
+        assert_eq!(profile_name(None).unwrap(), DEFAULT_PROFILE);
+        assert_eq!(profile_name(Some("default")).unwrap(), DEFAULT_PROFILE);
+        assert_eq!(profile_name(Some("agents")).unwrap(), AGENTS_PROFILE);
+        assert!(profile_name(Some("Default")).is_err());
+        assert!(profile_name(Some("../Default")).is_err());
+        assert_eq!(profile_dir(cache, DEFAULT_PROFILE), cache.join("Default"));
+        assert_eq!(profile_dir(cache, AGENTS_PROFILE), cache.join("agents"));
+        assert_ne!(
+            profile_dir(cache, DEFAULT_PROFILE),
+            profile_dir(cache, AGENTS_PROFILE)
+        );
+    }
 
     #[test]
     fn engine_options_need_a_restart_only_when_the_running_engine_differs() {

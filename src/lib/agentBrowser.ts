@@ -87,6 +87,12 @@ type OpenRequest = {
   arrange?: boolean;
   /** A new page whatever the chat has; see `AgentBrowserOpenOptions`. */
   fresh?: boolean;
+  /**
+   * A sandboxed chat's open (a bot's or a teammate's): its page opens in
+   * the throwaway browser profile, with none of the user's logins. Aven
+   * checks the page's profile before the chat may use it.
+   */
+  restricted?: boolean;
 };
 type OpenFileRequest = {
   requestId: string;
@@ -374,6 +380,9 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
                 newTab: payload.newTab === true || payload.fresh === true,
                 ...(payload.arrange === false ? { arrange: false } : {}),
                 ...(payload.fresh === true ? { fresh: true } : {}),
+                ...(payload.restricted === true
+                  ? { profile: "agents" as const }
+                  : {}),
               },
             );
             const { id: surfaceId, refresh } =

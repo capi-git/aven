@@ -489,6 +489,33 @@ describe("agent browser session connection", () => {
       refresh: "loaded",
     });
   });
+  it("opens a sandboxed chat's page in the agents' browser profile", async () => {
+    const api = await import("./agentBrowser");
+    let pages: string[] = [];
+    const open = vi.fn(async (..._args: unknown[]) => {
+      pages = ["sandbox-surface"];
+      api.registerAgentBrowserPage("sandbox-surface", "native-sandbox");
+      return { id: "sandbox-surface" };
+    });
+    dispose = api.installAgentBrowserHost({ surfaces: () => pages, open });
+    await api.prepareAgentBrowserPrompt("Preview", {
+      sessionId: "s",
+      cwd: "/project",
+    });
+    await mocks.handlers.get("browser-agent-open")!({
+      payload: {
+        requestId: "r",
+        sessionId: "s",
+        url: "http://localhost:3000/",
+        restricted: true,
+      },
+    });
+    expect(open.mock.calls[0][2]).toEqual({ newTab: false, profile: "agents" });
+    expect(mocks.invoke).toHaveBeenCalledWith("browser_agent_open_result", {
+      requestId: "r",
+      browserId: "native-sandbox",
+    });
+  });
   it("asks for a fresh page when Aven found the user using the chat's page", async () => {
     const api = await import("./agentBrowser");
     let pages: string[] = [];

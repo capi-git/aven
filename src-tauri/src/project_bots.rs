@@ -251,14 +251,26 @@ const PLANTED: &[&str] = &[
 /// link; the copy's sandbox and rules keep agents from writing them.
 const SETTINGS_ROOTS: &[&str] = &[".claude", ".codex", ".agents", ".vscode", ".mcp.json"];
 
-/// Paths a fix may not bring into your files: settings an app would run as
-/// you, and the folders git hook managers run from. Matched without case.
+/// Names a fix may not bring into your files, wherever they sit in the
+/// tree (an editor, package manager or shell reads them in any folder):
+/// settings an app would run as you, package-manager and shell hooks,
+/// editor and CI configuration, and the folders git hook managers run
+/// from. Matched without case. `projectBotPermissions.ts` mirrors this list
+/// for the sandbox's rules.
 const PROTECTED: &[&str] = &[
+    // Agents' settings and hooks.
     ".claude",
     ".codex",
     ".agents",
-    ".vscode",
+    ".aven",
     ".mcp.json",
+    // Editors run their tasks and extensions from these.
+    ".vscode",
+    ".cursor",
+    ".zed",
+    ".idea",
+    ".devcontainer",
+    // Git hook managers.
     ".husky",
     ".githooks",
     ".git-hooks",
@@ -266,6 +278,19 @@ const PROTECTED: &[&str] = &[
     "lefthook.yml",
     ".lefthook.yml",
     ".pre-commit-config.yaml",
+    // Package managers and shells run these on install or on entering.
+    ".yarnrc.yml",
+    ".pnpmfile.cjs",
+    ".npmrc",
+    "bunfig.toml",
+    ".envrc",
+];
+
+/// Two names in a row that are protected together, wherever they sit.
+const PROTECTED_PAIRS: &[(&str, &str)] = &[
+    (".cargo", "config.toml"),
+    (".cargo", "config"),
+    (".github", "workflows"),
 ];
 
 /// A name as a file system that ignores case reads it: folded fully, so
@@ -275,22 +300,45 @@ fn folded(name: &str) -> String {
     name.to_uppercase().to_lowercase()
 }
 
-/// A path's top-level name as a file system that ignores case reads it,
-/// with the trailing dots and spaces Windows drops trimmed off.
-fn folded_top(path: &str) -> String {
-    folded(path.replace('\\', "/").split('/').next().unwrap_or(""))
-        .trim_end_matches(['.', ' '])
-        .to_string()
+/// A name as a file system that ignores case reads it, with the trailing
+/// dots and spaces Windows drops trimmed off.
+fn folded_name(name: &str) -> String {
+    folded(name).trim_end_matches(['.', ' ']).to_string()
 }
 
-/// A path whose top-level name isn't plain ASCII yet reads as a settings
-/// name ("ſ" is "s", "ﬁ" is "fi" on a Mac), or is a dotfile-style name, as
-/// a margin: never stacked or applied. Ordinary names with accents
+/// A path's names, as given.
+fn path_names(path: &str) -> Vec<String> {
+    path.replace('\\', "/")
+        .split('/')
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether a path has a protected name, or a protected pair of names, at
+/// any depth (see `PROTECTED`), matched as a file system that ignores case
+/// reads them.
+fn protected_path(path: &str) -> bool {
+    let names: Vec<String> = path_names(path)
+        .iter()
+        .map(|name| folded_name(name))
+        .collect();
+    names.iter().any(|name| PROTECTED.contains(&name.as_str()))
+        || names.windows(2).any(|pair| {
+            PROTECTED_PAIRS
+                .iter()
+                .any(|(first, second)| pair[0] == *first && pair[1] == *second)
+        })
+}
+
+/// A path with a name, at any depth, that isn't plain ASCII yet reads as a
+/// settings name ("ſ" is "s", "ﬁ" is "fi" on a Mac), or is a dotfile-style
+/// name, as a margin: never stacked or applied. Ordinary names with accents
 /// ("Données", "Résumé.md") are like any other.
 fn look_alike(path: &str) -> bool {
-    let top = path.replace('\\', "/");
-    let top = top.split('/').next().unwrap_or("");
-    !top.is_ascii() && (top.starts_with('.') || PROTECTED.contains(&folded_top(path).as_str()))
+    path_names(path).iter().any(|name| {
+        !name.is_ascii()
+            && (name.starts_with('.') || PROTECTED.contains(&folded_name(name).as_str()))
+    })
 }
 
 /// The protected paths among a fix's files (see `PROTECTED`): matched as a
@@ -300,9 +348,7 @@ fn protected_paths(paths: &[&str]) -> Vec<String> {
         .iter()
         .filter(|path| {
             // A name git would have to quote is never applied either.
-            path.starts_with('"')
-                || look_alike(path)
-                || PROTECTED.contains(&folded_top(path).as_str())
+            path.starts_with('"') || look_alike(path) || protected_path(path)
         })
         .map(|path| (*path).to_string())
         .collect()
@@ -574,21 +620,25 @@ pub fn discard(
     reset_to(&copy, base, branch)
 }
 
+/// A fix's fingerprint: the SHA-256 of its patch, so Apply applies exactly
+/// the bytes the user reviewed and nothing an agent could craft to collide.
 fn patch_hash(patch: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in patch {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}-{}", patch.len())
+    use sha2::Digest;
+    sha2::Sha256::digest(patch)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
-/// What the bot changed in its copy since `base`.
+/// What the bot changed in its copy since `base`: the files and the
+/// fingerprint of the one patch they came from.
 pub fn diff(bots: &Path, copy: &str, base: &str) -> Result<BotDiff, String> {
     let worktree = checked_copy(bots, copy)?;
-    let changes = race::diff(&worktree, base)?;
-    let hash = patch_hash(&race::patch(&worktree, base)?);
-    Ok(BotDiff { changes, hash })
+    let (changes, patch) = race::diff_and_patch(&worktree, base)?;
+    Ok(BotDiff {
+        changes,
+        hash: patch_hash(&patch),
+    })
 }
 
 pub fn file_diff(bots: &Path, copy: &str, base: &str, path: &str) -> Result<RaceFileDiff, String> {
@@ -608,11 +658,12 @@ pub fn apply(
 ) -> Result<RaceDiff, String> {
     let root = repo_root(cwd)?;
     let worktree = checked_copy(bots, copy)?;
-    let changes = race::diff(&worktree, base)?;
+    // One staging gives both the files checked below and the patch applied:
+    // a file the agent adds between two readings can't slip past the check.
+    let (changes, patch) = race::diff_and_patch(&worktree, base)?;
     if changes.files.is_empty() {
         return Err("The bot's copy has no changes to apply.".into());
     }
-    let patch = race::patch(&worktree, base)?;
     if patch_hash(&patch) != hash {
         return Err(FIX_CHANGED.into());
     }
@@ -1006,7 +1057,9 @@ pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), S
     )
 }
 
-fn bots_dir(app: &AppHandle) -> Result<PathBuf, String> {
+/// Where Aven keeps its copies of projects for bots and teams. An agent
+/// started inside it gets a sandboxed browser (see `browser_agent`).
+pub(crate) fn bots_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_data_dir()
@@ -1629,9 +1682,20 @@ mod tests {
                 "src/a.ts",
                 ".Claude/settings.json",
                 ".MCP.json",
-                "docs/.claude.md"
+                "docs/.claude.md",
+                "packages/web/.claude/settings.json",
+                "apps/api/.codex/hooks.json",
+                "tools/.aven/notes.md",
+                "services/.MCP.json",
             ]),
-            vec![".Claude/settings.json", ".MCP.json"]
+            vec![
+                ".Claude/settings.json",
+                ".MCP.json",
+                "packages/web/.claude/settings.json",
+                "apps/api/.codex/hooks.json",
+                "tools/.aven/notes.md",
+                "services/.MCP.json",
+            ]
         );
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&bots);
@@ -1861,6 +1925,56 @@ mod tests {
     }
 
     #[cfg(not(windows))]
+    #[test]
+    fn protects_settings_hooks_and_editor_folders_at_any_depth() {
+        for path in [
+            ".yarnrc.yml",
+            "packages/app/.pnpmfile.cjs",
+            "tools/.npmrc",
+            ".cargo/config.toml",
+            "crates/x/.cargo/config",
+            "bunfig.toml",
+            "services/api/.envrc",
+            ".github/workflows/ci.yml",
+            "vendor/lib/.github/workflows/release.yml",
+            ".cursor/rules.md",
+            "apps/web/.zed/settings.json",
+            ".idea/workspace.xml",
+            ".devcontainer/devcontainer.json",
+            "packages/ui/.husky/pre-commit",
+            "sub/.VSCode/tasks.json",
+            "a/b/c/.Codex/config.toml",
+        ] {
+            assert_eq!(protected_paths(&[path]), vec![path.to_string()], "{path}");
+        }
+        for path in [
+            "src/claude.ts",
+            ".github/CODEOWNERS",
+            ".github/workflows.md",
+            "cargo/config.toml",
+            "docs/.envrc.example",
+            "notes/.aven.md",
+            "npmrc",
+            "Résumé.md",
+        ] {
+            assert!(protected_paths(&[path]).is_empty(), "{path}");
+        }
+        // A look-alike settings name anywhere in the path is never applied.
+        assert!(!protected_paths(&["packages/.v\u{17f}code/tasks.json"]).is_empty());
+    }
+
+    #[test]
+    fn a_fix_fingerprint_is_the_sha256_of_its_patch() {
+        assert_eq!(
+            patch_hash(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            patch_hash(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
     #[test]
     fn never_applies_protected_paths_from_a_stack() {
         let root = repo();

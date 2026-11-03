@@ -735,7 +735,12 @@ export type RaceDiff = {
   additions: number;
   deletions: number;
 };
-export type RaceFileDiff = { original: string | null; current: string | null };
+export type RaceFileDiff = {
+  original: string | null;
+  current: string | null;
+  /** Why the current file is shown as it is: a link, too large, or not a file. */
+  note?: string;
+};
 
 export const raceHost = {
   prepare: (cwd: string) => invoke<RaceBase>("race_prepare", { cwd }),

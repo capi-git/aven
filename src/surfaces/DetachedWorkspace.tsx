@@ -1152,6 +1152,7 @@ export function DetachedWorkspace() {
           project={browser.project}
           attachedNativeId={browser.nativeId}
           initialUrl={browser.url}
+          profile={browser.profile}
           agentRequested={agentRequestedBrowsers.has(browser.id)}
           visible={active.has(browser.id) && !frozen}
           // Its tab on the pane's strip closes it; the page's toolbar draws

@@ -23,6 +23,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
   project,
   tabId,
   url,
+  profile,
   attachedNativeId,
   visible,
   agentRequested,
@@ -34,6 +35,8 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
   project: string;
   tabId: string;
   url: string;
+  /** The browser profile the page runs in (see `BrowserTab.profile`). */
+  profile?: "agents";
   attachedNativeId?: string;
   visible: boolean;
   agentRequested?: boolean;
@@ -87,6 +90,7 @@ export const WorkspaceBrowserSurface = memo(function WorkspaceBrowserSurface({
       id={id}
       project={project}
       initialUrl={url}
+      profile={profile}
       attachedNativeId={attachedNativeId}
       visible={visible}
       agentRequested={agentRequested}

@@ -1164,11 +1164,7 @@ fn snapshot_after_file(dir: &Path, root: &Path, relative: &str) -> Result<Snapsh
 fn snapshot_file_at(blob_root: &Path, root: &Path, relative: &str) -> Result<SnapshotKind, String> {
     let abs = root.join(relative);
     if !abs.exists() {
-        let blob = state_blob_path(blob_root, relative)?;
-        if let Some(parent) = blob.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(blob, []).map_err(|e| e.to_string())?;
+        write_blob(&state_blob_path(blob_root, relative)?, &[])?;
         return Ok(SnapshotKind::Missing);
     }
     if !abs.is_file() {
@@ -1179,12 +1175,29 @@ fn snapshot_file_at(blob_root: &Path, root: &Path, relative: &str) -> Result<Sna
         return Ok(SnapshotKind::Skipped);
     }
     let bytes = std::fs::read(&abs).map_err(|e| e.to_string())?;
-    let blob = state_blob_path(blob_root, relative)?;
-    if let Some(parent) = blob.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&blob, bytes).map_err(|e| e.to_string())?;
+    write_blob(&state_blob_path(blob_root, relative)?, &bytes)?;
     Ok(SnapshotKind::Contents)
+}
+
+/// Write a snapshot blob whole: into a temporary file beside it, renamed
+/// over the blob once complete. A crash mid-write leaves the previous blob
+/// (or none) rather than a truncated one a restore would write back.
+fn write_blob(blob: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = blob
+        .parent()
+        .ok_or_else(|| "Invalid snapshot path".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let name = blob
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = parent.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4().simple()));
+    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    if let Err(error) = std::fs::rename(&tmp, blob) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(error.to_string());
+    }
+    Ok(())
 }
 
 fn read_snapshot(dir: &Path, relative: &str, kind: SnapshotKind) -> FileState {
@@ -2342,5 +2355,36 @@ mod tests {
         assert!(turn.abandon());
         assert!(!store.ensure_for("s1", &cwd, &turn).unwrap());
         assert!(!store.session_dir("s1").exists());
+    }
+
+    #[test]
+    fn snapshot_blobs_are_written_whole_then_renamed_into_place() {
+        let project = tmp("blob-project");
+        let blobs = tmp("blob-store");
+        std::fs::create_dir_all(project.0.join("src")).unwrap();
+        std::fs::write(project.0.join("src/app.ts"), "first\n").unwrap();
+        let root = blobs.0.join("files");
+        assert_eq!(
+            snapshot_file_at(&root, &project.0, "src/app.ts").unwrap(),
+            SnapshotKind::Contents
+        );
+        assert_eq!(std::fs::read(root.join("src/app.ts")).unwrap(), b"first\n");
+        // A second snapshot replaces the blob whole, and a missing file is
+        // recorded by an empty blob; neither leaves a temporary file behind.
+        std::fs::write(project.0.join("src/app.ts"), "second\n").unwrap();
+        snapshot_file_at(&root, &project.0, "src/app.ts").unwrap();
+        assert_eq!(std::fs::read(root.join("src/app.ts")).unwrap(), b"second\n");
+        assert_eq!(
+            snapshot_file_at(&root, &project.0, "src/gone.ts").unwrap(),
+            SnapshotKind::Missing
+        );
+        assert_eq!(std::fs::read(root.join("src/gone.ts")).unwrap(), b"");
+        let leftovers: Vec<String> = std::fs::read_dir(root.join("src"))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 }

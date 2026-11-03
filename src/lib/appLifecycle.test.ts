@@ -13,6 +13,7 @@ import {
 } from "./appLifecycle";
 import { updateComposerDraft } from "./composerDrafts";
 import { registerWorkspaceDraftFlusher } from "./workspaceDraftFlush";
+import { getSession } from "./sessionStore";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -374,6 +375,53 @@ it("keeps unload snapshots scoped to their arguments without waiting for return 
     releaseFlusher();
     releaseWorkspace();
   }
+});
+
+it("writes only the chats this window changed when it quits", async () => {
+  vi.clearAllMocks();
+  const stored = {
+    id: "shared",
+    cwd: "/project/shared",
+    harness: "cursor",
+    model: "m",
+    modelSettings: {},
+    runtimeMode: "supervised",
+    title: "Shared",
+    blocks: [{ id: "user", role: "user", text: "From another window" }],
+    createdAt: 1,
+    updatedAt: 2,
+  };
+  vi.mocked(invoke).mockImplementation(async (command) =>
+    command === "session_get" ? stored : undefined,
+  );
+  // A chat read from the store and left alone is not written back.
+  const untouched = (await getSession("shared"))!;
+  // One this window changed is.
+  const changed = newSession("cursor", "/project/changed");
+  changed.blocks = [{ id: "user", role: "user", text: "Typed here" }];
+  const tabs = [newTab(untouched.id), newTab(changed.id)];
+  await persistQuitState(
+    [untouched, changed],
+    tabs,
+    tabs[0].id,
+    changed.cwd,
+    "quit",
+  );
+  const written = vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === "session_upsert")
+    .map(([, args]) => (args as { session: { id: string } }).session.id);
+  expect(written).toEqual([changed.id]);
+  // The workspace layout still lists both.
+  expect(invoke).toHaveBeenCalledWith("workspace_set_snapshot", {
+    snapshot: expect.objectContaining({
+      sessions: [
+        expect.objectContaining({ id: untouched.id }),
+        expect.objectContaining({ id: changed.id }),
+      ],
+    }),
+  });
+  vi.mocked(invoke).mockResolvedValue(undefined);
 });
 
 it("keeps actual renderer unload best effort when storage writes fail", async () => {

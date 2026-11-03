@@ -116,10 +116,12 @@ describe("piecewise session persistence", () => {
     });
   });
 
-  it("retries a revision conflict once with the complete current snapshot", async () => {
+  it("retries a revision conflict with the complete current snapshot after reading the store", async () => {
     mocks.invoke
       .mockResolvedValueOnce(summary("one"))
       .mockRejectedValueOnce("TRANSCRIPT_REVISION_MISMATCH")
+      // The stored transcript holds nothing this window lacks.
+      .mockResolvedValueOnce({ ...summary("stored"), blocks: [user, answer] })
       .mockResolvedValueOnce(summary("recovered"))
       .mockResolvedValueOnce(summary("recovered"));
     const { upsertSession } = await store();
@@ -130,13 +132,14 @@ describe("piecewise session persistence", () => {
     expect(mocks.invoke.mock.calls[1][1].session.blocksDelta.baseRevision).toBe(
       "one",
     );
+    expect(mocks.invoke.mock.calls[2][0]).toBe("session_get");
     expect(
-      mocks.invoke.mock.calls[2][1].session.blocks.map(
+      mocks.invoke.mock.calls[3][1].session.blocks.map(
         (block: Block) => block.text,
       ),
     ).toEqual(["Question", "new answer"]);
-    expect(mocks.invoke.mock.calls[2][1].session.blocksDelta).toBeUndefined();
-    expect(mocks.invoke.mock.calls[3][1].session.blocksDelta.baseRevision).toBe(
+    expect(mocks.invoke.mock.calls[3][1].session.blocksDelta).toBeUndefined();
+    expect(mocks.invoke.mock.calls[4][1].session.blocksDelta.baseRevision).toBe(
       "recovered",
     );
   });

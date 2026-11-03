@@ -542,7 +542,7 @@ function CrewDiff({
             label: file.path,
             binary: file.binary,
             emptyMessage: unreadable
-              ? "No text preview for this file."
+              ? (texts?.note ?? "No text preview for this file.")
               : undefined,
             additions: unified?.additions ?? file.additions,
             deletions: unified?.deletions ?? file.deletions,
