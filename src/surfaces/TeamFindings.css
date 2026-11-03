@@ -1,5 +1,11 @@
 /* The Researcher's findings. Dark and grey; colour only on the mark. */
 
+/* The sheet is wide enough to read a finding and its source on one line. */
+.modal-panel[role="dialog"].crew-findings {
+  width: min(840px, 100%);
+  margin-inline: auto;
+}
+
 .crew-findings-summary {
   margin: 0;
   font-size: var(--text-ui-label);
@@ -12,6 +18,7 @@
   gap: 8px;
   margin: 0;
   padding: 0 0 0 20px;
+  list-style: decimal;
   font-size: var(--text-ui-label);
   line-height: 1.45;
 }
@@ -72,7 +79,10 @@
 
 .crew-findings-idea input {
   flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
   margin: 0;
+  appearance: auto;
   accent-color: var(--color-content);
 }
 

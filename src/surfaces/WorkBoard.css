@@ -281,7 +281,7 @@
   white-space: nowrap;
 }
 
-/* A team's Board reads its cards whole: a title wraps to two lines. */
+/* A team's Board reads its cards whole: a title wraps to three lines. */
 .work-board[data-crew] .work-board-card-title {
   align-items: flex-start;
 }
@@ -289,7 +289,7 @@
 .work-board[data-crew] .work-board-card-name {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   white-space: normal;
 }
 

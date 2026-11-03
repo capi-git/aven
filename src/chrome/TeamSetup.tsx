@@ -33,10 +33,11 @@ const SETUP_ROLES = CREW_ROLE_ORDER.filter(
   (role): role is Exclude<CrewRole, "fixer"> => role !== "fixer",
 );
 
-/** Where an idea came from, as its row says it. */
+/** Where an idea came from, as its row says it. Aven can't tell which of
+ * the proposed ideas came from your words, so those all say "suggested". */
 function sourceLabel(idea: SetupIdeaDraft): string {
   return idea.source === "you"
-    ? "from what you wrote"
+    ? "yours"
     : idea.source === "researcher"
       ? "Researcher"
       : idea.source === "designer"

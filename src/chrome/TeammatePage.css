@@ -133,7 +133,7 @@
 
 .modal-panel[role="dialog"] .teammate-text {
   min-height: 104px;
-  resize: vertical;
+  resize: none;
 }
 
 /* Works only in: its paths as chips. */

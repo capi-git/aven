@@ -9,17 +9,27 @@
   font-size: var(--text-ui-body);
 }
 
+/* The sheet is narrower than the Team sheet: a column of words, not tiles. */
+.modal-panel[role="dialog"].team-setup-sheet {
+  width: min(800px, 100%);
+  margin-inline: auto;
+}
+
+/* Say what it is: Suggest sits inside the box, bottom right. */
 .team-setup-describe {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
+  position: relative;
+}
+
+.team-setup-describe [data-crew-setup-suggest] {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
 }
 
 .modal-panel[role="dialog"] .team-setup-text {
   width: 100%;
   min-height: 84px;
-  padding: 12px 14px;
+  padding: 12px 14px 48px;
   border-radius: var(--aven-radius-lg);
   font: inherit;
   font-size: 15px;
@@ -150,18 +160,21 @@
   background: transparent;
 }
 
-.team-setup-idea-title {
+/* The row is the field: the input inside has no edge, ring or fill of its
+   own (the sheet gives every input one, so this says so with its weight). */
+.modal-panel[role="dialog"] .team-setup-idea-title {
   min-width: 0;
   flex: 1 1 auto;
   padding: 8px 10px;
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   font: inherit;
   font-size: 14px;
 }
 
-.team-setup-idea-title:focus {
+.modal-panel[role="dialog"] .team-setup-idea-title:focus-visible {
   outline: none;
 }
 

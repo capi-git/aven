@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CrewCritters, CrewStatusPill } from "../chrome/CrewCritter";
+import { CrewCritters } from "../chrome/CrewCritter";
 import { Modal } from "../chrome/Modal";
 import { TeamCardButton } from "../chrome/TeamCard";
 import {
@@ -82,6 +82,7 @@ export function CrewFindingsSheet({
         .filter(Boolean)
         .join(" · ")}
       className="crew-sheet crew-findings"
+      size="lg"
       leading={
         <CrewCritters
           path={crew.path}
@@ -96,7 +97,6 @@ export function CrewFindingsSheet({
           ]}
         />
       }
-      trailing={open ? <CrewStatusPill status="ready" /> : undefined}
     >
       <div className="crew-sheet-body" data-crew-findings={card.id}>
         {findings.summary ? (
