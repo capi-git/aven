@@ -99,6 +99,8 @@ type Options = DevPerfOptions & {
   newProjectTask: (path: string) => void;
   /** The sidebar's project row: make the project the current one. */
   selectProject?: (path: string) => void;
+  /** The current project, as the title bar and the project panel have it. */
+  currentProject?: () => string;
   submit: (sessionId: string, text: string) => void;
   /** Stop a chat's turn, as its message box's Stop does. */
   stop?: (sessionId: string) => void;
@@ -4196,6 +4198,14 @@ export async function runDevSmoke(
         // open work that Delete refuses, so that one is closed again.
         const before = new Set(get().sessions.map((session) => session.id));
         get().selectProject?.(path);
+        // The panel's toggle reads the current project as last drawn: wait
+        // for the workspace to draw with this one.
+        if (get().currentProject)
+          await waitFor(
+            () => sameProjectPath(get().currentProject?.() ?? "", path),
+            10_000,
+            "the check's project to be the current one",
+          );
         const opened = get().sessions.find(
           (session) =>
             !before.has(session.id) && sameProjectPath(session.cwd, path),

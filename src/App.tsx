@@ -11774,6 +11774,7 @@ export default function App({
     // sidebar, by name) call it.
     newProjectTask: sidebarProps.onNewProjectTask ?? onNewProjectTask,
     selectProject: onSelectProject,
+    currentProject: () => projectCwdRef.current,
     submit: (sessionId, text) => void onSubmit(sessionId, text, []),
     stop: (sessionId) => stopSessionRef.current(sessionId),
     utilities: {

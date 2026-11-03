@@ -4,6 +4,7 @@ import {
   crewWorkspace,
   dismissResearch,
   setCrewAccess,
+  setCrewPaused,
   setCrewQuietHours,
   turnOffCrew,
 } from "./crewActions";
@@ -350,6 +351,48 @@ async function addIdeaFromBoard(project: string, text: string) {
   form.requestSubmit();
 }
 
+/**
+ * Ask the Researcher or the Designer from the Board's box, and the card's
+ * id once it is theirs. The team is paused while the card lands: the Board
+ * adds it as an idea and asks a moment later, and an idle team would start
+ * the idea by itself in between (the Builder, not the one asked).
+ */
+async function askFromBoard(
+  project: string,
+  prefix: "Research" | "Design",
+  title: string,
+  kind: "research" | "mockup",
+): Promise<string> {
+  setCrewPaused(project, true);
+  try {
+    await addIdeaFromBoard(project, `${prefix}: ${title}`);
+    const card = await waitFor(
+      () => boardCardByTitle(project, title),
+      10_000,
+      `the card "${title}"`,
+    );
+    const id = card.dataset.boardCard ?? "";
+    try {
+      await waitFor(
+        () => teamCard(project, id, true)?.kind === kind,
+        10_000,
+        `the card to be the ${kind === "research" ? "Researcher's" : "Designer's"}`,
+      );
+    } catch (error) {
+      const known = teamCard(project, id, true);
+      const problem = boardCardByTitle(project, title)
+        ?.querySelector(".crew-card-problem")
+        ?.textContent?.trim();
+      throw new Error(
+        `${errorText(error)}: it is ${known ? `the team's ${known.kind ?? "ordinary"} card, ${known.stage}` : "an ordinary idea"}${problem ? ` ("${problem}")` : ""}`,
+      );
+    }
+    return id;
+  } finally {
+    setCrewPaused(project, false);
+  }
+}
+
 /** The team's card by its Board card id, failing on a stuck one unless allowed. */
 function teamCard(
   project: string,
@@ -694,19 +737,8 @@ export async function checkResearcher(
     await openBoard(project);
     // One turn: findings, and the member's notes rewritten with them.
     const question = `What do similar apps do first? ${SMOKE_RESEARCH_WORD} ${SMOKE_NOTES_WORD}`;
-    await addIdeaFromBoard(project, `Research: ${question}`);
-    const card = await waitFor(
-      () => boardCardByTitle(project, question),
-      10_000,
-      "the research card",
-    );
-    cardId = card.dataset.boardCard ?? "";
+    cardId = await askFromBoard(project, "Research", question, "research");
     const id = cardId;
-    await waitFor(
-      () => teamCard(project, id)?.kind === "research",
-      10_000,
-      "the question to become the Researcher's card",
-    );
     const ready = await waitFor(
       () => {
         failOnHold(project);
@@ -834,13 +866,12 @@ export async function checkResearcher(
     const was =
       logged?.filter((turn) => turn.crew === "researcher").length ?? 0;
     const second = `And with no web? ${SMOKE_RESEARCH_WORD}`;
-    await addIdeaFromBoard(project, `Research: ${second}`);
-    const secondCard = await waitFor(
-      () => boardCardByTitle(project, second),
-      10_000,
-      "the second research card",
+    const secondId = await askFromBoard(
+      project,
+      "Research",
+      second,
+      "research",
     );
-    const secondId = secondCard.dataset.boardCard ?? "";
     cardId = secondId;
     await waitFor(
       () => {
@@ -928,19 +959,8 @@ export async function checkDesigner(
     await startTeam(team, project, ["designer"]);
     await openBoard(project);
     const screen = `The today screen ${SMOKE_DESIGN_WORD}`;
-    await addIdeaFromBoard(project, `Design: ${screen}`);
-    const card = await waitFor(
-      () => boardCardByTitle(project, screen),
-      10_000,
-      "the mock-up card",
-    );
-    cardId = card.dataset.boardCard ?? "";
+    cardId = await askFromBoard(project, "Design", screen, "mockup");
     const id = cardId;
-    await waitFor(
-      () => teamCard(project, id)?.kind === "mockup",
-      10_000,
-      "the screen to become the Designer's card",
-    );
     const ready = await waitFor(
       () => {
         failOnHold(project);
@@ -1015,13 +1035,12 @@ export async function checkDesigner(
     // leaves the copy clean. It goes before Build it: the idea Build it
     // adds is the Builder's to start by itself, and would take the copy.
     const strayScreen = `The settings screen ${SMOKE_DESIGN_WORD} ${SMOKE_STRAY_WORD}`;
-    await addIdeaFromBoard(project, `Design: ${strayScreen}`);
-    const strayCard = await waitFor(
-      () => boardCardByTitle(project, strayScreen),
-      10_000,
-      "the straying mock-up card",
+    const strayId = await askFromBoard(
+      project,
+      "Design",
+      strayScreen,
+      "mockup",
     );
-    const strayId = strayCard.dataset.boardCard ?? "";
     cardId = strayId;
     const stuck = await waitFor(
       () => {
@@ -1049,11 +1068,17 @@ export async function checkDesigner(
       },
       "the straying card as Needs you",
     );
-    const strayed = (await team.listDir(copy)).some(
-      (entry) => entry.name === SMOKE_STRAY_FILE,
+    // Aven removes the stray file at once and names it in the reason.
+    const strayed = await settles(
+      async () =>
+        (await team.listDir(copy)).some(
+          (entry) => entry.name === SMOKE_STRAY_FILE,
+        )
+          ? `${SMOKE_STRAY_FILE} is still in the copy`
+          : null,
+      5_000,
     );
-    if (!strayed)
-      throw new Error(`${SMOKE_STRAY_FILE} isn't in the copy for you to see`);
+    if (strayed) throw new Error(strayed);
     pressCardButton(needsYou, "Throw away");
     // The Board asks through Aven's own dialog (never the browser's, which
     // would hold the page): its confirm button carries data-confirm.
@@ -1100,7 +1125,7 @@ export async function checkDesigner(
       { column: "shipped", stage: "Mock-up · built", buttons: ["Look"] },
       "the mock-up card in Done",
     );
-    return `Mock-up · Designer with Look and Build it; Look rendered the page, and the copy was clean after the turn; a turn that wrote ${SMOKE_STRAY_FILE} outside ${MOCKUP_DIR} ended as Needs you with why, and Throw away left the copy clean; Build it added "Build the mock-up: …" and put the card in Done`;
+    return `Mock-up · Designer with Look and Build it; Look rendered the page, and the copy was clean after the turn; a turn that wrote ${SMOKE_STRAY_FILE} outside ${MOCKUP_DIR} ended as Needs you naming it, with the file removed at once, and Throw away left the copy clean; Build it added "Build the mock-up: …" and put the card in Done`;
   } catch (error) {
     withDiagnostics(get, project, cardId, error);
   } finally {
