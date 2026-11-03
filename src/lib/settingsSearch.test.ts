@@ -32,7 +32,7 @@ describe("settings search", () => {
     ["accent", "Accent colour", "appearance"],
     ["color", "Accent colour", "appearance"],
     ["copy workspaces", "Use for all workspaces", "appearance"],
-    ["hotkeys", "Keybindings", "keybindings"],
+    ["hotkeys", "Keyboard shortcuts", "keybindings"],
     ["default model", "Providers", "providers"],
     ["cli updates", "Keep provider tools up to date", "providers"],
     ["recover project", "Archived projects", "archive"],

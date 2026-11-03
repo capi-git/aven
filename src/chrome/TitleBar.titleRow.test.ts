@@ -493,7 +493,9 @@ describe("a pane's title row", () => {
       onOpenIphone: onIphone,
     });
     // None of them is a button at rest.
-    expect(container.querySelector('[aria-label="iPhone"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Open iPhone simulator"]'),
+    ).toBeNull();
     expect(
       container.querySelector('[aria-label="Recent browser tabs"]'),
     ).toBeNull();

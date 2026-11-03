@@ -188,7 +188,7 @@ it("lists bots in their own section below the projects, not with their project's
     "sidebar-bots",
   );
   expect(row.querySelector("[data-bot-status]")?.textContent).toBe("Fix ready");
-  expect(row.title).toContain("sidebar-bots's teammate");
+  expect(row.title).toContain("sidebar-bots's bot");
   await act(async () => row.click());
   expect(onOpenBot).toHaveBeenCalledWith(cwd);
   await act(async () => {

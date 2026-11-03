@@ -231,7 +231,7 @@
   cursor: pointer;
 }
 .helm-say-button {
-  height: 20px;
+  height: 24px;
   padding: 0 8px;
   border-radius: var(--aven-radius-capsule);
   font: inherit;
@@ -244,8 +244,8 @@
 .helm-stop {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border-radius: 50%;
 }

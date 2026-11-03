@@ -1140,7 +1140,7 @@ function SidebarComponent({
                 {
                   kind: "item" as const,
                   id: "delete",
-                  label: "Delete",
+                  label: "Delete…",
                   shortcut: "⌫",
                   danger: true,
                 },
@@ -1213,7 +1213,7 @@ function SidebarComponent({
         data-bot-row={bot.path}
         // Called by its role alone ("Fixer"), it shows its project at rest.
         data-role-name={bot.name === DEFAULT_BOT_NAME || undefined}
-        title={`${bot.name} · ${bot.project}'s teammate\n${bot.headline}`}
+        title={`${bot.name} · ${bot.project}'s bot\n${bot.headline}`}
         aria-current={
           bot.sessionId && bot.sessionId === activeSessionId
             ? "true"
@@ -1588,7 +1588,7 @@ function SidebarComponent({
       ref={searchInputRef}
       type="text"
       value={searchQuery}
-      placeholder="Filter chats…"
+      placeholder="Filter chats"
       aria-label="Filter chats"
       spellCheck={false}
       autoComplete="off"
@@ -3261,7 +3261,7 @@ function SessionCard({
                 data-no-drag
                 title={archiveLabel}
                 aria-label={`${archiveLabel} ${title}`}
-                className="grid size-5 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
+                className="grid size-6 place-items-center rounded text-content/50 hover:bg-content/10 hover:text-content"
                 onClick={(event) => {
                   event.stopPropagation();
                   onArchive();
@@ -3420,7 +3420,7 @@ function SessionCard({
             event.stopPropagation();
             onArchive();
           }}
-          className={`personal-task-archive pointer-events-none absolute right-7 grid size-5 place-items-center rounded text-content/50 opacity-0 transition-opacity hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
+          className={`personal-task-archive pointer-events-none absolute right-7 grid size-6 place-items-center rounded text-content/50 opacity-0 transition-opacity hover:bg-content/10 hover:text-content group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 ${
             compact ? "bottom-[5px]" : "bottom-[7px]"
           }`}
         >

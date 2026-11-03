@@ -2339,7 +2339,7 @@ function ComposerComponent({
                           : handoffCard
                             ? "Add context, or send to continue…"
                             : busy
-                              ? "Steer, or queue a follow-up…"
+                              ? "Send now, or queue a follow-up…"
                               : noteHint
                                 ? `${noteHint}. Say what's next…`
                                 : composerHint(

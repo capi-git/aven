@@ -41,9 +41,9 @@ const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
 
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   general: "Updates & extras",
-  appearance: "Colors & transparency",
+  appearance: "Colour & transparency",
   notifications: "Alerts & sound",
-  keybindings: "Keyboard shortcuts",
+  keybindings: "Find a command or key",
   providers: "Agents & models",
   "provider-setup": "Install & sign in",
   tasks: "Access, follow-ups & review",

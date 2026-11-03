@@ -503,7 +503,11 @@ describe("settings navigation", () => {
       ["MCP servers", "MCP servers", "setting-mcp-servers"],
       ["Accent colour", "Appearance", "setting-accent-colour"],
       ["Chat background", "Appearance", "setting-chat-background"],
-      ["Keybindings", "Keyboard shortcuts", "setting-keybindings"],
+      [
+        "Keyboard shortcuts",
+        "Keyboard shortcuts",
+        "setting-keyboard-shortcuts",
+      ],
       ["Providers", "Providers & models", "setting-providers"],
       ["When an agent finishes", "Git", "setting-when-an-agent-finishes"],
       ["Archived projects", "Archive", "setting-archived-projects"],

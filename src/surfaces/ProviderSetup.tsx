@@ -238,7 +238,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
       {step === "choose" ? (
         <>
           <div className="provider-setup-lead">
-            <h3>Which agent apps would you like to use?</h3>
+            <h3>Which providers would you like to use?</h3>
             <p>
               Choose one or more; you can add others later. Nothing is installed
               until you ask.
@@ -316,7 +316,7 @@ export function ProviderSetup({ onDone, onChooseFolder, embedded }: Props) {
       {step === "connect" ? (
         <>
           <div className="provider-setup-lead">
-            <h3>Connect your agent apps</h3>
+            <h3>Connect your providers</h3>
             <p>
               Aven checks only the ones you chose. Installing, signing in and a
               test message each start when you ask.

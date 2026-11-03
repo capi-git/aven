@@ -723,7 +723,7 @@ function TitleTabItem({
           <button
             type="button"
             tabIndex={tabStop ? 0 : -1}
-            title="Close Tab"
+            title="Close tab"
             aria-label={`Close ${headline}`}
             data-no-drag
             data-tauri-drag-region="false"
@@ -4154,7 +4154,7 @@ function TitleBarComponent({
               {onOpenIphone && !titleRow ? (
                 <button
                   type="button"
-                  aria-label="iPhone"
+                  aria-label="Open iPhone simulator"
                   title="Run this project's app on an iPhone simulator"
                   data-tauri-drag-region="false"
                   data-strip-tool

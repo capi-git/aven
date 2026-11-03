@@ -387,7 +387,7 @@ export const SETTINGS = {
   }),
   keybindings: defineSetting({
     section: "keybindings",
-    label: "Keybindings",
+    label: "Keyboard shortcuts",
     description: "Find keyboard shortcuts and when each command is available.",
     keywords: "keyboard hotkeys bindings keys commands",
   }),
