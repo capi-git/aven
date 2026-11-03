@@ -138,14 +138,20 @@ describe("Start team from the setup sheet", () => {
       const cards = featureBoardState(PATH).cards;
       expect(crew.on).toBe(false);
       expect(cards).toHaveLength(3);
-      for (const card of cards.slice(1))
-        expect(crew.ideas?.[card.id]).toMatchObject({ by: "setup" });
+      expect(crew.ideas?.[cards[1]!.id]).toMatchObject({ by: "setup" });
+      // The question is the Researcher's card already, in Building: never
+      // an idea at all.
+      expect(cards[2]!.column).toBe("building");
+      expect(crewCard(crew, cards[2]!.id)).toMatchObject({
+        kind: "research",
+        stage: "queued",
+      });
       expect(ideasToBuild(crew, cards, NOON).map((card) => card.title)).toEqual(
         ["Make the today list hold five things"],
       );
-      expect(nextIdeaToBuild(crew, cards, NOON)?.title).toBe(
-        "Make the today list hold five things",
-      );
+      // With the question queued, the team isn't idle: nothing starts by
+      // itself until the Researcher has read it.
+      expect(nextIdeaToBuild(crew, cards, NOON)).toBeNull();
       return turnOnNow();
     });
     expect(await startTeamSetup(PATH, DRAFT, turnOn, MODELS, NOON)).toEqual({
@@ -198,13 +204,13 @@ describe("Start team from the setup sheet", () => {
     expect(getCrew(PATH)!.about!.length).toBe(1_900);
   });
 
-  it("is on and says so when a question couldn't be asked after it started", async () => {
+  it("keeps a question the Researcher's even when it goes off as the team starts", async () => {
     const result = await startTeamSetup(
       PATH,
       DRAFT,
       async () => {
         turnOnCrew(PATH, MODELS, NOON);
-        // The Researcher went off between turning on and asking it.
+        // The Researcher went off as the team turned on.
         updateCrewMember(
           PATH,
           getCrew(PATH)!.members.find((m) => m.role === "researcher")!.id,
@@ -215,12 +221,17 @@ describe("Start team from the setup sheet", () => {
       MODELS,
       NOON,
     );
-    expect(result.on).toBe(true);
-    expect(result.problem).toBeNull();
-    // Off, the Researcher isn't asked: the question waits as a suggestion.
+    expect(result).toEqual({ on: true, problem: null });
+    // The question was queued for the Researcher before the team turned
+    // on: it waits in Building for it, and is never a Builder's.
     const board = featureBoardState(PATH).cards;
-    expect(board[2]!.column).toBe("idea");
-    expect(ideaWaits(getCrew(PATH)!, board[2]!, NOON)).toBe("setup");
+    expect(board[2]!.column).toBe("building");
+    expect(crewCard(getCrew(PATH)!, board[2]!.id)).toMatchObject({
+      kind: "research",
+      stage: "queued",
+      from: "setup",
+    });
+    expect(nextIdeaToBuild(getCrew(PATH)!, board, NOON)).toBeNull();
   });
 
   it("makes a Researcher's question an ordinary waiting idea when the team has no Researcher", async () => {

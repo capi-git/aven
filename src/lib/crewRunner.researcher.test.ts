@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  addQuestionCard,
   addResearchIdeas,
   askResearcher,
   dismissResearch,
@@ -8,7 +9,8 @@ import {
   resumeCrewCard,
   updateCrewMember,
 } from "./crewActions";
-import { ideaWaits } from "./crewLimits";
+import { ideaWaits, nextIdeaToBuild } from "./crewLimits";
+import { queueCard } from "./crewLoop";
 import { CrewRunner, resetCrewRunnerSession } from "./crewRunner";
 import {
   cardInCopy,
@@ -331,6 +333,78 @@ describe("a question for the Researcher", () => {
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
       "You asked Researcher “How do others do it?”",
     );
+  });
+
+  it("never hands a question to the Builder, whatever tick comes between its two cards", async () => {
+    const h = harness({
+      builder: () => ({ text: "Built it." }),
+      researcher: () => ({ text: "Read it." }),
+    });
+    onTeam();
+    h.runner.start();
+    // The box's path: the team's card first, then the Board's. A tick in
+    // between (the Board changes as the card lands) finds no idea to start.
+    const pending = addQuestionCard(
+      PATH,
+      "How do others debounce search?",
+      "research",
+      NOON,
+    );
+    await h.advance(0);
+    const { card: asked, problem } = await pending;
+    expect(problem).toBeNull();
+    expect(card(asked!.id)).toMatchObject({
+      kind: "research",
+      from: "you",
+      maxRounds: 1,
+    });
+    expect(boardCard(asked!.id)?.column).toBe("building");
+    await h.advance(MINUTE);
+    expect(h.sent.map((item) => item.memberId)).toEqual(["researcher"]);
+    const feed = getCrew(PATH)!.feed;
+    expect(feed.some((entry) => entry.who === "builder")).toBe(false);
+    expect(feed.some((entry) => entry.text.includes("by itself"))).toBe(false);
+    expect(feed.map((entry) => entry.text)).toContain(
+      "You asked Researcher “How do others debounce search?”",
+    );
+    h.runner.stop();
+  });
+
+  it("never starts a question whose Board card still sits in Ideas", async () => {
+    const h = harness({
+      builder: () => ({ text: "Built it." }),
+      researcher: () => ({ text: "Read it." }),
+    });
+    onTeam();
+    // A research card the team has, whose Board card was never moved (or
+    // was moved back by hand): the loop skips it, by its kind.
+    const idea = (await addFeatureIdea(PATH, { title: "What do others do?" }))!;
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      cards: [
+        {
+          ...queueCard(
+            {
+              id: idea.id,
+              title: idea.title,
+              brief: idea.title,
+              from: "you",
+              kind: "research",
+              maxRounds: 1,
+            },
+            NOON,
+          ),
+          stage: "stuck",
+          stuck: { reason: "no-verdict", text: "x", at: NOON },
+        },
+      ],
+    }));
+    expect(nextIdeaToBuild(getCrew(PATH)!, [idea], NOON)).toBeNull();
+    h.runner.start();
+    await h.advance(MINUTE);
+    expect(h.sent.map((item) => item.memberId)).not.toContain("builder");
+    expect(card(idea.id).kind).toBe("research");
+    h.runner.stop();
   });
 
   it("takes one read-only turn, with the web when Builders may, and ends in Findings for you", async () => {

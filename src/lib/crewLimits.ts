@@ -286,7 +286,8 @@ export function ideaWaits(
   | null {
   if (crew.notNow?.includes(idea.id)) return "not-now";
   // The team built or threw away a card by this id: back in Ideas (by Back
-  // to Ideas, or by hand), it waits until you say Build it.
+  // to Ideas, or by hand), it waits until you say Build it. A question for
+  // the Researcher or a screen for the Designer is never the Builder's.
   if (crewCard(crew, idea.id)) return "not-now";
   if (idea.chatIds?.length) return "chat";
   const scout = crew.ideas?.[idea.id];
@@ -301,6 +302,11 @@ export function ideaWaits(
   return null;
 }
 
+/** A research or mock-up card: a Researcher's or Designer's, never a Builder's. */
+function isQuestionCard(card: CrewCard | undefined): boolean {
+  return card?.kind === "research" || card?.kind === "mockup";
+}
+
 /**
  * The ideas that build by themselves, in the order they will: Ideas top
  * first (oldest first, as the Board shows them), yours and the Scout's
@@ -313,7 +319,12 @@ export function ideasToBuild<T extends BoardIdea>(
 ): T[] {
   return (
     cards
-      .filter((card) => card.column === "idea" && !ideaWaits(crew, card, now))
+      .filter(
+        (card) =>
+          card.column === "idea" &&
+          !ideaWaits(crew, card, now) &&
+          !isQuestionCard(crewCard(crew, card.id)),
+      )
       // As the Board orders Ideas (see `workBoard`).
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
   );
