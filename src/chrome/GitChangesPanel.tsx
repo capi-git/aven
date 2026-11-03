@@ -950,7 +950,7 @@ function GitSyncActions({
     index.upstream ?? `${index.remote ?? "origin"}/${index.branch ?? "HEAD"}`;
   const syncing = busy === "sync";
   const syncTitle = syncing
-    ? "Synchronizing changes…"
+    ? "Synchronising changes…"
     : canPublish
       ? index.branch
         ? `Publish Branch "${index.branch}"`

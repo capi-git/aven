@@ -15,6 +15,7 @@ import {
   botPermissionRules,
   botSandbox,
   crewChatPermissions,
+  NEVER_READ_PATHS,
   PUBLISH_CREDENTIALS,
   WEB_TOOLS,
   crewPermissionRules,
@@ -155,7 +156,10 @@ describe("no push, no publish, for every teammate", () => {
 
   it("keeps publish tokens and your history out of reach", () => {
     const sandbox = crewSandbox(crew, "builder", undefined);
-    expect(sandbox.filesystem?.denyRead).toEqual(PUBLISH_CREDENTIALS);
+    expect(sandbox.filesystem?.denyRead).toEqual(NEVER_READ_PATHS);
+    expect(sandbox.filesystem?.denyRead).toEqual(
+      expect.arrayContaining(PUBLISH_CREDENTIALS),
+    );
     expect(sandbox.filesystem?.denyRead).toContain("~/.npmrc");
     expect(sandbox.filesystem?.denyWrite).toContain(`${PROJECT}/.git/objects`);
     expect(crewPermissionRules(crew, "builder").deny).toContain(
@@ -163,7 +167,7 @@ describe("no push, no publish, for every teammate", () => {
     );
     // A read-only teammate's sandbox keeps them too.
     expect(crewSandbox(crew, "scout", undefined).filesystem?.denyRead).toEqual(
-      PUBLISH_CREDENTIALS,
+      NEVER_READ_PATHS,
     );
   });
 

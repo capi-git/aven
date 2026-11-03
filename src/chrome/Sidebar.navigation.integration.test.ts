@@ -309,7 +309,7 @@ describe("sidebar workspace navigation", () => {
     await click(trigger);
     expect(menu()).not.toBeNull();
     expect(menu()!.querySelectorAll('[role="menuitemradio"]')).toHaveLength(2);
-    expect(document.querySelector('[aria-label^="Customize"]')).toBeNull();
+    expect(document.querySelector('[aria-label^="Customise"]')).toBeNull();
     expect(document.querySelector('input[type="color"]')).toBeNull();
     const work = [
       ...menu()!.querySelectorAll<HTMLButtonElement>("button"),

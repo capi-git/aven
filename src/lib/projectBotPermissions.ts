@@ -21,6 +21,7 @@ import {
 } from "./crews";
 
 import { agentBrowserSocket } from "./agentBrowser";
+import { HARNESS_TITLE, type HarnessId } from "./session";
 import type {
   ClaudeSandboxSettings,
   SessionPermissions,
@@ -163,15 +164,24 @@ export function absolutePathRule(folder: string): string {
   return `${absolute}/**`;
 }
 
-/** The one line the settings sheet shows for what a bot never does. */
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
   "Teammates work in their own copy. Pushing, publishing and deploying are refused, and nothing reaches your files until you press Apply.";
 
-/** Who Access reaches. */
+/** Who Access reaches, in one line; the roles it doesn't follow. */
 export const TEAM_ACCESS_SCOPE_LINE =
-  "These are for teammates on Claude. Teammates on Codex have no network and never stop to ask. The Fixer keeps its own rules. Planning a goal never uses the web or the browser. The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you. The Designer never uses the web or the browser, and writes only its mock-up.";
+  "These are for teammates on Claude. A few keep their own rules:";
 
+/** The teammates and turns Access doesn't change, one line each. */
+export const TEAM_ACCESS_ROLE_LINES = [
+  "Teammates on Codex have no network and never stop to ask.",
+  "The Fixer keeps its own rules.",
+  "Planning a goal never uses the web or the browser.",
+  "The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you.",
+  "The Designer never uses the web or the browser, and writes only its mock-up.",
+];
+
+/** The one line the settings sheet shows for what a bot never does. */
 export const ALWAYS_ASKS_LINE =
   "Never pushes or publishes: you ship its fixes. Asks before merging, sending or deleting.";
 
@@ -186,7 +196,7 @@ export function botPermissionRules(
     deny: [
       ...NEVER_GIT,
       ...DEPLOY_AND_PUBLISH,
-      ...PUBLISH_CREDENTIALS.map((path) => `Read(${path})`),
+      ...NEVER_READ_RULES,
       // Settings in its copy that an app would run as the user, and the
       // user's own.
       ...(bot.copy ? copySettingsRules(bot.copy.path) : []),
@@ -241,6 +251,35 @@ export const PUBLISH_CREDENTIALS = [
   "~/.cargo/credentials.toml",
   "~/.gem/credentials",
   "~/.local/share/gem/credentials",
+];
+
+/**
+ * Your keys and sign-ins for other services: SSH, cloud accounts, GitHub's
+ * CLI, Docker, Kubernetes, GPG. No bot or teammate reads them, by rule and
+ * by sandbox: nothing it does needs them, and a page or a file it read
+ * could ask for them.
+ */
+export const SECRET_FOLDERS = [
+  "~/.ssh",
+  "~/.aws",
+  "~/.config/gh",
+  "~/.kube",
+  "~/.gnupg",
+];
+export const SECRET_FILES = ["~/.docker/config.json"];
+
+/** Everything a bot's commands may not read: the sandbox's list. */
+export const NEVER_READ_PATHS = [
+  ...PUBLISH_CREDENTIALS,
+  ...SECRET_FILES,
+  ...SECRET_FOLDERS,
+];
+
+/** The same, as rules for its Read tool (a folder with everything in it). */
+export const NEVER_READ_RULES = [
+  ...PUBLISH_CREDENTIALS.map((path) => `Read(${path})`),
+  ...SECRET_FILES.map((path) => `Read(${path})`),
+  ...SECRET_FOLDERS.map((path) => `Read(${path}/**)`),
 ];
 
 /**
@@ -387,20 +426,13 @@ export function botSandbox(
               // user: Claude's, MCP servers, the editor's tasks.
               ...COPY_SETTINGS.map((name) => `${copy}/${name}`),
             ],
-            denyRead: PUBLISH_CREDENTIALS,
+            denyRead: NEVER_READ_PATHS,
           },
         }
       : {}),
   };
 }
 
-/**
- * A crew member's rules. The Builder's are a bot's: it changes files only
- * in the crew's copy, and never pushes, opens pull requests, publishes or
- * deploys. The Checker and Scout may only read: editing the copy, or your
- * folder, is denied outright rather than asked, so a check can never "fix
- * it itself" or weaken a test to pass.
- */
 /**
  * Fetching from the web: a Checker or Scout has no business there, and a
  * page it read could steer it (the Builder keeps it, for docs; the
@@ -409,6 +441,13 @@ export function botSandbox(
  */
 export const WEB_TOOLS = ["WebFetch", "WebSearch"];
 
+/**
+ * A crew member's rules. The Builder's are a bot's: it changes files only
+ * in the crew's copy, and never pushes, opens pull requests, publishes or
+ * deploys. The Checker and Scout may only read: editing the copy, or your
+ * folder, is denied outright rather than asked, so a check can never "fix
+ * it itself" or weaken a test to pass.
+ */
 export function crewPermissionRules(
   crew: Pick<Crew, "path" | "copy" | "access">,
   role: Exclude<CrewRole, "fixer">,
@@ -594,7 +633,7 @@ export function crewChatPermissions(
     : !crew.on
       ? "This team is off, so its chat didn't start. Turn the team on to use it."
       : !crew.copy
-        ? "The team's copy isn't ready yet, so its chat didn't start."
+        ? "The team's copy isn't ready yet, so its chat didn't start. Wait a moment, then send again."
         : undefined;
   const offline = crew.planning === found.member.id;
   return {
@@ -641,7 +680,8 @@ export function botChatPermissions(
     ...(bot.copy
       ? { workFolder: bot.copy.path }
       : {
-          refuse: "The bot's copy isn't ready yet, so its chat didn't start.",
+          refuse:
+            "The bot's copy isn't ready yet, so its chat didn't start. Wait a moment, then send again.",
         }),
   };
 }
@@ -693,6 +733,6 @@ export function teammateChatRefusal(session: {
 }): string | null {
   const own = teammateHarness(session.id);
   if (own && session.harness !== own)
-    return "This chat runs only on its own app, so it didn't start.";
+    return `This chat runs only on its own app, so it didn't start. Switch it back to ${HARNESS_TITLE[own as HarnessId] ?? own}.`;
   return launchRefusal(session.id, session.worktreeCwd ?? session.cwd);
 }

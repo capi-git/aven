@@ -1178,8 +1178,8 @@ const AgentTile = memo(
           <button
             ref={moreRef}
             type="button"
-            aria-label={`Customize ${name}`}
-            title={`Customize ${name}`}
+            aria-label={`Customise ${name}`}
+            title={`Customise ${name}`}
             aria-haspopup="dialog"
             aria-expanded={customize != null}
             onClick={() =>

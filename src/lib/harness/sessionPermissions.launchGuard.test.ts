@@ -119,7 +119,9 @@ describe("a launch is refused at the last moment before its process starts", () 
 
   it("refuses up front a guarded chat with no rules, in either harness", async () => {
     const stop = registerGuardedChats((id) => id === "guarded");
-    expect(launchRefusal("guarded", COPY)).toMatch(/couldn't be read/);
+    expect(launchRefusal("guarded", COPY)).toBe(
+      "This chat's safety rules couldn't be read, so it didn't start. Turn its bot or team off and on again.",
+    );
     await expect(sendClaudeTurn(input("guarded"))).rejects.toThrow(
       /couldn't be read/,
     );

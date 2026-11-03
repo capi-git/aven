@@ -35,6 +35,7 @@ import { probeHarnessAvailability } from "../lib/harness/availability";
 import { projectName } from "../lib/paths";
 import { saveBotSettings } from "../lib/projectBotActions";
 import {
+  TEAM_ACCESS_ROLE_LINES,
   TEAM_ACCESS_SCOPE_LINE,
   TEAM_ALWAYS_LINE,
 } from "../lib/projectBotPermissions";
@@ -606,6 +607,11 @@ function AccessSection({ crew }: { crew: Crew }) {
       <p className="bot-sheet-note" data-crew-access-scope>
         {TEAM_ACCESS_SCOPE_LINE}
       </p>
+      <ul className="bot-sheet-notes" data-crew-access-roles>
+        {TEAM_ACCESS_ROLE_LINES.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
     </Section>
   );
 }

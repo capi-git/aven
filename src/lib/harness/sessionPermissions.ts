@@ -162,7 +162,7 @@ export function launchRefusal(
   if (!permissions) {
     for (const check of guarded)
       if (check(sessionId, cwd))
-        return "This chat's safety rules couldn't be read, so it didn't start.";
+        return "This chat's safety rules couldn't be read, so it didn't start. Turn its bot or team off and on again.";
     return null;
   }
   if (permissions.refuse) return permissions.refuse;

@@ -69,6 +69,17 @@
   line-height: 18px;
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
+/* A short list under a note: one quiet line each. */
+.bot-sheet-notes {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: var(--text-ui-label);
+  line-height: 18px;
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+}
+.bot-sheet-notes li::marker {
+  color: var(--aven-muted);
+}
 .bot-sheet-question {
   margin-top: 4px;
   font-size: var(--text-ui-body);

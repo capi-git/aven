@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCrew, resetCrewsCache, updateCrew } from "../lib/crews";
 import { memoryStorage } from "../lib/devSmoke";
-import { TEAM_ACCESS_SCOPE_LINE } from "../lib/projectBotPermissions";
+import { TEAM_ACCESS_ROLE_LINES } from "../lib/projectBotPermissions";
 import { resetProjectBotsCache } from "../lib/projectBots";
 import { CrewSettingsSheet } from "./CrewSettingsSheet";
 
@@ -72,8 +72,8 @@ describe("the Designer in the Team sheet", () => {
     expect(
       tile.querySelector('[aria-label="Add another Designer"]'),
     ).toBeNull();
-    expect(TEAM_ACCESS_SCOPE_LINE).toContain(
-      "The Designer never uses the web or the browser",
+    expect(TEAM_ACCESS_ROLE_LINES).toContainEqual(
+      expect.stringContaining("The Designer never uses the web or the browser"),
     );
   });
 });

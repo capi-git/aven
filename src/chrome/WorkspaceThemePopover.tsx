@@ -88,7 +88,7 @@ export function WorkspaceThemePopover({
       gap={8}
       width={284}
       role="dialog"
-      aria-label={`Customize ${profileName}`}
+      aria-label={`Customise ${profileName}`}
       tabIndex={-1}
       onDismiss={(reason) => dismiss(reason === "escape")}
       autoFocus
@@ -127,7 +127,7 @@ export function WorkspaceThemePopover({
       <div
         className="workspace-theme-targets"
         role="group"
-        aria-label="Customize colors"
+        aria-label="Customise colours"
       >
         {(["background", "accent", "highlight"] as const).map((part) => (
           <button

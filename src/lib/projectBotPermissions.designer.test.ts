@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetCrewsCache, updateCrew, type Crew } from "./crews";
 import {
   WEB_TOOLS,
+  botPermissionRules,
   crewChatPermissions,
   crewPermissionRules,
   crewSandbox,
@@ -158,5 +159,33 @@ describe("mock-ups and everyone else", () => {
     );
     expect(deny).toContain(`Edit(/${COPY}/src/**)`);
     expect(deny).not.toContain(`Edit(/${COPY}/node_modules/**)`);
+  });
+});
+
+describe("your keys and sign-ins", () => {
+  it("are read by no bot and no teammate, by rule and by sandbox", () => {
+    const folders = ["~/.ssh", "~/.aws", "~/.config/gh", "~/.kube", "~/.gnupg"];
+    const files = ["~/.docker/config.json", "~/.netrc", "~/.npmrc"];
+    const bot = botPermissionRules({ path: PROJECT, copy: { path: COPY } });
+    for (const folder of folders)
+      expect(bot.deny, folder).toContain(`Read(${folder}/**)`);
+    for (const file of files) expect(bot.deny, file).toContain(`Read(${file})`);
+    for (const role of [
+      "builder",
+      "checker",
+      "security",
+      "scout",
+      "researcher",
+      "designer",
+    ] as const) {
+      const { deny = [] } = crewPermissionRules(crew, role);
+      for (const folder of folders)
+        expect(deny, `${role} ${folder}`).toContain(`Read(${folder}/**)`);
+      for (const file of files)
+        expect(deny, `${role} ${file}`).toContain(`Read(${file})`);
+      expect(crewSandbox(crew, role, undefined).filesystem?.denyRead).toEqual(
+        expect.arrayContaining([...folders, ...files]),
+      );
+    }
   });
 });

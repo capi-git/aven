@@ -24,6 +24,7 @@ import {
   sessionPermissions,
 } from "./harness/sessionPermissions";
 import {
+  crewChatPermissions,
   installBotPermissions,
   teammateChatRefusal,
   teammateHarness,
@@ -185,6 +186,13 @@ describe("a member's settings never weaken its rules", () => {
     ).toBeUndefined();
   });
 
+  it("says what to do when the copy isn't ready", () => {
+    updateCrew(PROJECT, (crew) => ({ ...crew, copy: undefined }));
+    expect(crewChatPermissions("c-chat")?.refuse).toBe(
+      "The team's copy isn't ready yet, so its chat didn't start. Wait a moment, then send again.",
+    );
+  });
+
   it("keeps a chat on its member's own app, and refuses another", () => {
     updateCrewMember(PROJECT, "checker", { harness: "codex" });
     expect(teammateHarness("c-chat")).toBe("codex");
@@ -195,7 +203,9 @@ describe("a member's settings never weaken its rules", () => {
         cwd: PROJECT,
         worktreeCwd: COPY,
       }),
-    ).toBe("This chat runs only on its own app, so it didn't start.");
+    ).toBe(
+      "This chat runs only on its own app, so it didn't start. Switch it back to Codex.",
+    );
     // Its own app, in the copy: it may start.
     expect(
       teammateChatRefusal({

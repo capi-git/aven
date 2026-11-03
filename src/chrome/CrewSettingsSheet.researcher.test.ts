@@ -4,7 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCrew, resetCrewsCache, updateCrew } from "../lib/crews";
 import { memoryStorage } from "../lib/devSmoke";
-import { TEAM_ACCESS_SCOPE_LINE } from "../lib/projectBotPermissions";
+import {
+  TEAM_ACCESS_ROLE_LINES,
+  TEAM_ACCESS_SCOPE_LINE,
+} from "../lib/projectBotPermissions";
 import { resetProjectBotsCache } from "../lib/projectBots";
 import { CrewSettingsSheet } from "./CrewSettingsSheet";
 
@@ -98,8 +101,15 @@ describe("the Researcher in the Team sheet", () => {
     expect(sheet().querySelector("[data-crew-access-scope]")?.textContent).toBe(
       TEAM_ACCESS_SCOPE_LINE,
     );
-    expect(TEAM_ACCESS_SCOPE_LINE).toContain(
-      "The Researcher reads the web whenever Builders may",
+    expect(
+      [...sheet().querySelectorAll("[data-crew-access-roles] li")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(TEAM_ACCESS_ROLE_LINES);
+    expect(TEAM_ACCESS_ROLE_LINES).toContainEqual(
+      expect.stringContaining(
+        "The Researcher reads the web whenever Builders may",
+      ),
     );
     // Everyone: the Scout's ideas wait because it read the web; the
     // Researcher's always do. Neither finds ideas on the web.
