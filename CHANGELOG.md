@@ -2,6 +2,49 @@
 
 ## [Unreleased]
 
+## [0.1.165] - 2026-11-03
+
+### Added
+
+- **A simple team Board.** A team opens on four columns: Ideas, Building, Ready for you and Done. Chat is one click away, and the Cards view is gone.
+  - **Ideas build while you're away.** One at a time, top first. Yours always; the Scout's small and medium ones too. Ideas from outside the project, large ones and Security's wait for your tick, and the Board says which is next.
+  - **Simpler cards.** One line on where a card stands and at most two buttons. The rest is in its ⋯ menu.
+  - **Stuck cards step aside.** A card that changed nothing no longer holds up the team. Answer or retry it and it goes first in line.
+  - **No duplicate cards.** An idea the team already has says so instead of being added twice.
+- **Access.** In the Team sheet, choose whether teammates may delete files in their copy, who may use the web (no one, builders, everyone), and whether anything else gets a no or asks you. Teammates work in their own copy; pushing, publishing and deploying are always refused, and nothing reaches your files until you press Apply.
+- **Teammate colours.** Builder blue, Checker purple, Security pink, Scout teal, Tester orange, on their dots only.
+- **Scroll over the tabs to switch.** Hover a tab strip and turn the wheel: the next or previous tab comes to the front. A flick is one step; sideways still scrolls the strip.
+- **Researcher.** Ask a question with "Research: …" (or Ask Researcher on an idea). It reads the web when Access allows, never edits files, and lands in Ready for you as **Findings**: a summary, numbered findings with their sources, and ideas you tick onto the Board. Its ideas always wait for you.
+- **Designer.** Ask for a screen with "Design: …". It draws one self-contained mock-up in its own folder, and you **Look** at it before anyone builds it, then **Build it** or dismiss. The mock-up never reaches your files.
+- **Teammates keep notes.** Each teammate keeps short notes about the project between turns and reads them at every turn. See and edit them on the teammate's page.
+- **Describe a project, and the team sets itself up.** New team opens on one box. Suggest proposes teammates and first ideas from your words and the project folder; you edit, then Start. Suggestions wait for your tick; your own ideas build. The description stays with the team as what it's about.
+- **A new icon.** Rise: a staircase of dots on smoky glass, with the same mark in the title bar and sidebar.
+- **Real-app tests for the team flows** run on every release build.
+
+### Changed
+
+- The goal line says when the goal is waiting on you, instead of always saying the team keeps going.
+- Goal planning stays offline: a web page can't write cards that build on their own. Research happens inside a card, and you review it before Apply.
+- The project ⋯ menu is shorter: Open project (the row does it) and Project memory (it's in Customize) are gone.
+- Aven keeps three idle agents warm instead of eight, so a team's handoffs don't leave eight processes running.
+- A teammate's browser pages now run in a throwaway profile, see only their own pages, and reach outside sites only when Access allows the web.
+- Teammates can't read your keys and sign-ins (`~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.kube`, `~/.gnupg`, Docker).
+- Apply protects settings and hook files at any depth, from one snapshot, by a stronger hash.
+- Consistent words and sizes on the home screen, Settings, the sidebar and the composer: British spelling throughout, "Keyboard shortcuts" not "Keybindings", providers called providers, 24 px buttons.
+- Refusals say what to do next.
+- Up to date with MonoCode: twelve fixes ported (Claude fast-mode refusals no longer count as the plan limit, Codex found through your login shell, Cursor not asked to sign in on discovery, Pi's late models, new chats open in the project you're looking at, the turn clock keeps its start after a mid-turn message, appearance settings reach every window, Git finds git-lfs when launched from Finder, a Windows new-window deadlock, transcript and table fixes). Monos and the native rewrite stay out.
+
+### Fixed
+
+- Agents build on one preview page instead of opening a new one per option: a chat's preview page now follows it to another local server, and the guidance says one copy of the project, one server, options in the same page.
+- A command can't widen its own network list, publishing tokens are refused, and your repository's history is protected from a teammate's copy.
+- The memory prompt in a narrow chat no longer breaks one letter per line.
+- The breathing and working marks pause while Aven is hidden, and pick up where they were.
+- File > New Window opens an empty window, and a chat open in two windows no longer loses the other window's turns.
+- Bot and automation stores can't wipe themselves on bad or newer data, and Aven tells you when it can't save.
+- The bot fix review shows links as links and never follows them.
+- A branch move holds the copy while the team is off; two can't run at once.
+
 ## [0.1.164] - 2026-11-02
 
 ### Added
