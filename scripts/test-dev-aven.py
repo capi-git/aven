@@ -469,6 +469,82 @@ class RealAppCheck(unittest.TestCase):
         self.assertEqual([entry['crew'] for entry in logged if entry.get('crew')],
                          ['builder', 'checker', 'checker', 'security'])
 
+    def test_stand_in_answers_team_turns_as_researcher_and_designer(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        copy = self.root / 'team-copy'
+        copy.mkdir()
+        args = [str(stand_in), '--input-format', 'stream-json', '--permission-prompt-tool', 'stdio',
+                '--setting-sources=user', '--settings', '{}', '--strict-mcp-config']
+
+        def turn(text):
+            request = {'type': 'user', 'uuid': 'turn-team',
+                       'message': {'role': 'user', 'content': [{'type': 'text', 'text': text}]}}
+            chat = subprocess.run(args, cwd=copy, input=json.dumps(request) + '\n',
+                                  capture_output=True, text=True, timeout=10)
+            reply = json.loads(chat.stdout.splitlines()[-1])['result']
+            fences = re.findall(r'```([\w-]+)\n(.*?)\n```', reply, re.S)
+            return reply, [(name, body) for name, body in fences]
+
+        research = ("The user's question for you:\nWhat do similar apps do? AVEN_SMOKE_RESEARCH\n\n"
+                    "Read up on it in the project in your copy. You have no web access this turn.\n\n"
+                    "End your reply with your `aven-findings` block.")
+        reply, fences = turn(research)
+        self.assertEqual([name for name, _ in fences], ['aven-findings'])
+        findings = json.loads(fences[0][1])
+        self.assertEqual(len(findings['findings']), 2)
+        self.assertTrue(all(item['source'].startswith('https://') for item in findings['findings']))
+        self.assertEqual(len(findings['ideas']), 2)
+        # Asked for notes, the reply rewrites them ahead of its findings.
+        _, fences = turn(research.replace('AVEN_SMOKE_RESEARCH', 'AVEN_SMOKE_RESEARCH AVEN_SMOKE_NOTES')
+                         .replace('The user', '<your-notes>\nold\n</your-notes>\nThe user'))
+        self.assertEqual([name for name, _ in fences], ['aven-memory', 'aven-findings'])
+        self.assertIn('AVEN_SMOKE_NOTES_OK', fences[0][1])
+        design = ("The user's card for you:\nThe today screen AVEN_SMOKE_DESIGN\n\n"
+                  "Read the project's styles first, then draw the mock-up as one self-contained HTML file at "
+                  "aven-mockups/card-1.html (make the folder if needed). Write nothing else anywhere.\n\n"
+                  "End your reply with your `aven-mockup` block.")
+        _, fences = turn(design)
+        self.assertEqual(json.loads(fences[-1][1])['file'], 'aven-mockups/card-1.html')
+        html = (copy / 'aven-mockups/card-1.html').read_text()
+        self.assertIn('AVEN_SMOKE_MOCKUP', html)
+        self.assertNotIn('http', html)
+        self.assertFalse((copy / 'aven-stray.txt').exists())
+        turn(design.replace('AVEN_SMOKE_DESIGN', 'AVEN_SMOKE_DESIGN AVEN_SMOKE_STRAY'))
+        self.assertTrue((copy / 'aven-stray.txt').exists())
+        # Without a marker, a Researcher's turn gets the plain chat word.
+        reply, fences = turn(research.replace(' AVEN_SMOKE_RESEARCH', ''))
+        self.assertEqual((reply, fences), ('AVEN_SMOKE_OK', []))
+        logged = [json.loads(line) for line in (stand_in.parent / 'fake-claude.log').read_text().splitlines()]
+        turns = [entry for entry in logged if entry.get('crew')]
+        self.assertEqual([entry['crew'] for entry in turns],
+                         ['researcher', 'researcher', 'designer', 'designer'])
+        self.assertEqual([(entry['web'], entry['notes']) for entry in turns[:2]],
+                         [(False, False), (False, True)])
+        self.assertEqual([entry['stray'] for entry in turns[2:]], [False, True])
+
+    def test_stand_in_proposes_a_team_for_a_tool_free_setup_call(self):
+        stand_in = self.root / 'home/.local/bin/claude'
+        request = {'type': 'user', 'uuid': 'turn-setup',
+                   'message': {'role': 'user', 'content': [{'type': 'text', 'text':
+                               '<project-description>\nA list app\n</project-description>'}]}}
+        setup = ['--input-format', 'stream-json', '--system-prompt',
+                 'You help a user set up a small team of AI teammates for one software project. Rules.',
+                 '--tools', '']
+        chat = subprocess.run([str(stand_in), *setup], input=json.dumps(request) + '\n',
+                              capture_output=True, text=True, timeout=10)
+        reply = json.loads(chat.stdout.splitlines()[-1])['result']
+        fenced = re.fullmatch(r'```aven-setup\n(.*)\n```', reply.strip(), re.S)
+        proposal = json.loads(fenced.group(1))
+        self.assertEqual([mate['role'] for mate in proposal['teammates']],
+                         ['builder', 'checker', 'researcher', 'designer'])
+        self.assertEqual([idea.get('by') for idea in proposal['ideas']], [None, 'researcher', 'designer'])
+        log = [json.loads(line) for line in (self.root / 'home/.local/bin/fake-claude.log').read_text().splitlines()]
+        self.assertTrue(any(entry.get('setupTurn') == 'turn-setup' and entry.get('description') for entry in log))
+        # With tools available it is an ordinary chat: the chat word comes back.
+        tools = subprocess.run([str(stand_in), *setup[:-2]], input=json.dumps(request) + '\n',
+                               capture_output=True, text=True, timeout=10)
+        self.assertEqual(json.loads(tools.stdout.splitlines()[-1])['result'], 'AVEN_SMOKE_OK')
+
     def test_stand_in_answers_a_tool_free_keeper_call_with_memory_sections(self):
         stand_in = self.root / 'home/.local/bin/claude'
         request = {'type': 'user', 'uuid': 'turn-4',

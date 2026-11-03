@@ -52,7 +52,15 @@ import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
 import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
-import { checkCrew, type SmokeCrew } from "../lib/devSmokeCrew";
+import { checkCrew } from "../lib/devSmokeCrew";
+import {
+  checkDesigner,
+  checkResearcher,
+  checkTeamAccess,
+  checkTeammateNotes,
+  checkTeamSetup,
+  type SmokeTeam,
+} from "../lib/devSmokeTeam";
 import { checkDividerRail } from "../lib/devSmokeRail";
 import {
   agentOpensProblem,
@@ -131,7 +139,7 @@ type Options = DevPerfOptions & {
   /** The title bar opens the project's board, which the check watches. */
   board?: boolean;
   /** Crews: the check turns one on in its project and has it build a card. */
-  crew?: SmokeCrew;
+  crew?: SmokeTeam;
   /** Moves tabs between panes and the strip, for the lone tab's header. */
   loneTab?: SmokeLoneTab;
   /** A project's browser pages, with the chat whose agent builds on each. */
@@ -4052,6 +4060,37 @@ export async function runDevSmoke(
     await step(
       "a crew builds, checks and secures a card, stacks it on its branch, applies it as reviewed, and stops when off",
       () => checkCrew(get, config.projectPath, crew),
+    );
+
+  // The team family, each step in a Git project of its own beside the
+  // check's, with the stand-in as every teammate: a team sets itself up
+  // from a description, the Researcher's findings put ideas on the Board,
+  // the Designer's mock-up is kept (and a stray one refused), a teammate's
+  // notes are kept between turns, and the Team sheet's Access choices stay.
+  if (safe && crew)
+    await step(
+      "a new team sets itself up from a description, with its ideas placed and its about kept",
+      () => checkTeamSetup(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Researcher hands back findings whose ideas go on the Board once, and is told when it has no web",
+      () => checkResearcher(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
+      () => checkDesigner(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "a teammate's notes are kept from its turn, read back by the next, and cleared from its page",
+      () => checkTeammateNotes(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "the Team sheet's Access choices persist across closing and reopening it",
+      () => checkTeamAccess(get, config),
     );
 
   // The workspace's own key listener, as a key press reaches it: Cmd+, opens
