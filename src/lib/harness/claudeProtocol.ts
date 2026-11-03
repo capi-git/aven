@@ -571,7 +571,10 @@ export function statusTextFromSystem(
  * - `rate_limit_event` (`rate_limit_info`: `status` "allowed",
  *   "allowed_warning" or "rejected", `resetsAt` in epoch seconds, and the
  *   overage fields): only a rejection with no overage to fall back on holds
- *   requests back. Any other status means the limit no longer does.
+ *   requests back. Any other status means the limit no longer does. A
+ *   rejection whose window is the extra-usage pool itself (`rateLimitType`
+ *   "overage") is not a plan limit either: fast mode bills to that pool, and
+ *   Claude Code drops to standard speed and carries on under the plan.
  */
 export function claudeWaitEvent(
   rec: Record<string, unknown>,
@@ -601,6 +604,7 @@ export function claudeWaitEvent(
   const blocked =
     status === "rejected" &&
     info.isUsingOverage !== true &&
+    stringField(info, "rateLimitType") !== "overage" &&
     overage !== "allowed" &&
     overage !== "allowed_warning";
   if (!blocked) return { type: "turn.waiting", clear: ["usageLimit"] };
@@ -751,6 +755,22 @@ export function inputJsonDeltaFromEvent(
 export function isSubagentMessage(rec: Record<string, unknown>): boolean {
   const parent = rec.parent_tool_use_id;
   return typeof parent === "string" && parent.length > 0;
+}
+
+/**
+ * On resume, the CLI re-reports every background task the session started
+ * that it still considers unfinished, even ones already stopped and reported,
+ * and answers each with an empty, zero-turn result (`origin.kind`
+ * "task-notification"). That result belongs to no turn, so it must not end
+ * the one Aven is waiting on.
+ */
+export function isReplayedTaskNotificationResult(
+  rec: Record<string, unknown>,
+): boolean {
+  return (
+    stringField(asRecord(rec.origin), "kind") === "task-notification" &&
+    rec.num_turns === 0
+  );
 }
 
 export function isAgentTaskType(taskType: string | undefined): boolean {
