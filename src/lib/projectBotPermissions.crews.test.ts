@@ -674,3 +674,20 @@ describe("paths Apply never brings into your files", () => {
     expect(protectedFixPaths([...refused, ...fine])).toEqual(refused);
   });
 });
+
+describe("what Apply never brings in", () => {
+  it("refuses the files later agents read as your instructions", () => {
+    expect(
+      protectedFixPaths([
+        "AGENTS.md",
+        "packages/app/CLAUDE.md",
+        ".github/copilot-instructions.md",
+        "docs/agents-guide.md",
+      ]),
+    ).toEqual([
+      "AGENTS.md",
+      "packages/app/CLAUDE.md",
+      ".github/copilot-instructions.md",
+    ]);
+  });
+});

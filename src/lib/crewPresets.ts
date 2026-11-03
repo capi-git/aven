@@ -24,7 +24,13 @@ export const SECURITY_INSTRUCTIONS = [
 
 /** The roles a ready-made member can have (the Fixer is the project's bot). */
 export type CrewPresetRole =
-  "builder" | "checker" | "security" | "scout" | "researcher" | "designer";
+  | "lead"
+  | "builder"
+  | "checker"
+  | "security"
+  | "scout"
+  | "researcher"
+  | "designer";
 
 export type CrewPreset = {
   /** Saved on the member, so the gallery knows it's in the crew. */
@@ -40,6 +46,14 @@ export type CrewPreset = {
 };
 
 export const CREW_PRESETS: readonly CrewPreset[] = [
+  {
+    key: "lead",
+    role: "lead",
+    mark: "lead",
+    job: "Answers messages to everyone and passes questions on",
+    instructions:
+      "Answer what you can from the project. Ask a teammate only when you need them, and keep the team chat to one line.",
+  },
   {
     key: "builder",
     role: "builder",

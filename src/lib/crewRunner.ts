@@ -1,4 +1,13 @@
 import {
+  TALK_TEXT_MAX,
+  parseTalk,
+  talkMayHop,
+  talkMessage,
+  talkPassedLine,
+  talkTarget,
+} from "./crewTalk";
+import {
+  botLine,
   parseFindings,
   parseMockup,
   parseGoal,
@@ -86,6 +95,12 @@ import {
   subscribeCrews,
   updateCrew,
   withCard,
+  helpersLeft,
+  memberOn,
+  routineDue,
+  withHelper,
+  withoutHelper,
+  withTalk,
   withCrewRun,
   withMemberMemory,
   securityReviewBy,
@@ -105,6 +120,7 @@ import {
   NO_PLANNER,
   queuedCards,
   type Crew,
+  type CrewMember,
   type CrewCard,
   type CrewChange,
   type CrewCardHolder,
@@ -460,6 +476,17 @@ export class CrewRunner {
   private working: ReadonlySet<string> = new Set();
   /** Busy chats a turn waits for: once one is free, the crews are looked at. */
   private waitingOn = new Set<string>();
+  /** Messages this window is carrying now, by id: each one's chat and timer. */
+  private talking = new Map<
+    string,
+    {
+      path: string;
+      to: string;
+      sessionId: string;
+      timer?: number;
+      timedOut?: true;
+    }
+  >();
 
   constructor(deps: CrewRunnerDeps) {
     this.deps = deps;
@@ -529,6 +556,10 @@ export class CrewRunner {
   private watchTurns() {
     if (!this.running) return;
     const crews = crewsSnapshot();
+    // A message under way when its team is turned off stops with it.
+    for (const entry of this.talking.values())
+      if (!crews[projectKey(entry.path)]?.on)
+        this.deps.stopChat(entry.sessionId);
     for (const [key, turn] of this.turns) {
       if (turn.sentAt == null || turn.stopping) continue;
       if (this.handled.has(turn.turnId)) continue;
@@ -577,7 +608,10 @@ export class CrewRunner {
     try {
       do {
         this.pumpAgain = false;
-        for (const crew of activeCrews()) await this.step(crew.path);
+        for (const crew of activeCrews()) {
+          await this.stepTalks(crew.path);
+          await this.step(crew.path);
+        }
       } while (this.pumpAgain && this.running);
     } finally {
       this.pumping = false;
@@ -624,6 +658,413 @@ export class CrewRunner {
   private stillOn(path: string, onAt: number | undefined): boolean {
     const crew = getCrew(path);
     return crew?.on === true && (onAt === undefined || crew.onAt === onAt);
+  }
+
+  /** Messages on their way: each goes once its teammate's chat is free. */
+  private async stepTalks(path: string) {
+    const crew = getCrew(path);
+    if (!crew?.on) return;
+    const now = this.deps.now();
+    this.startRoutines(crew, now);
+    const talks = getCrew(path)?.talks ?? [];
+    // A helper whose message is gone (a restart, say) is gone with it.
+    for (const helper of crew.helpers ?? [])
+      if (!talks.some((talk) => talk.to === helper.id))
+        updateCrew(path, (current) => withoutHelper(current, helper.id));
+    for (const talk of talks) {
+      if (!talk.sent) await this.sendTalk(path, talk.id, now);
+      else if (
+        !this.talking.has(talk.id) &&
+        (talk.sent.owner === this.deps.owner ||
+          now - talk.sent.at > crew.limits.turnMinutes * 60_000 * 2)
+      )
+        // Carried by a page that's gone: nothing will read its end.
+        this.dropTalk(path, talk.id, now);
+    }
+  }
+
+  /** Teammates' routines whose time came, within the team's limits. */
+  private startRoutines(crew: Crew, now: number) {
+    const due = crew.members.filter((member) => routineDue(member, now));
+    if (!due.length || !this.gate(crew, now).ok) return;
+    updateCrew(crew.path, (current) => {
+      let next = current;
+      for (const member of due)
+        next = withTalk(
+          withMemberId(next, member.id, (entry) =>
+            entry.routine
+              ? { ...entry, routine: { ...entry.routine, at: now } }
+              : entry,
+          ),
+          {
+            at: now,
+            from: "you",
+            to: member.id,
+            text: member.routine!.text,
+            hop: 0,
+            routine: true,
+          },
+        );
+      return next;
+    });
+  }
+
+  /** A message that won't arrive, said once when it was yours or it asks why. */
+  private dropTalk(path: string, talkId: string, now: number, why?: string) {
+    updateCrew(path, (current) => {
+      const next = {
+        ...current,
+        talks: current.talks?.filter((talk) => talk.id !== talkId),
+      };
+      return why
+        ? withFeed(next, { at: now, kind: "note", who: "aven", text: why })
+        : next;
+    });
+  }
+
+  private async sendTalk(path: string, talkId: string, now: number) {
+    let crew = getCrew(path);
+    const talk = crew?.talks?.find((entry) => entry.id === talkId);
+    if (!crew?.on || !talk || talk.sent) return;
+    const member = crewMemberById(crew, talk.to);
+    const toName = this.deps.name(crew, talk.to);
+    if (!member || !memberOn(member))
+      return this.dropTalk(
+        path,
+        talkId,
+        now,
+        `${toName} is off, so a message to it wasn't passed on.`,
+      );
+    // Your own message always goes; teammates talking keep to the crew's limits.
+    const costsARun = talk.from !== "you" || !!talk.routine;
+    if (costsARun && !this.gate(crew, now).ok) return;
+    const key = projectKey(path);
+    if (
+      this.turns.get(key)?.memberId === member.id ||
+      [...this.talking.values()].some(
+        (entry) => entry.path === path && entry.to === member.id,
+      )
+    )
+      return;
+    try {
+      if (!crew.copy) {
+        const prepared = await this.prepareCopy(path, false);
+        if (!prepared) return;
+        crew = prepared.crew;
+      }
+      const chat = await this.deps.ensureChat(crew, member.id);
+      if (!chat) throw new Error(`Couldn't open ${toName}'s chat.`);
+      if (chatAtWork(chat)) {
+        this.waitingOn.add(chat.id);
+        return;
+      }
+      const turnId = this.newId();
+      const owner = this.deps.owner;
+      let claimed = false;
+      updateCrew(path, (current) => {
+        const talks = current.talks?.map((entry) => {
+          if (entry.id !== talkId || entry.sent) return entry;
+          claimed = true;
+          return {
+            ...entry,
+            sent: { at: now, owner, turnId, sessionId: chat.id },
+          };
+        });
+        const claimedIt = claimed;
+        return claimedIt
+          ? withMemberId(
+              costsARun
+                ? withCrewRun({ ...current, talks }, now)
+                : { ...current, talks },
+              member.id,
+              (entry) => ({
+                ...entry,
+                sessionId: chat.id,
+                doing: { at: now, text: "Answering a message" },
+              }),
+            )
+          : current;
+      });
+      if (!claimed) return;
+      this.talking.set(talkId, { path, to: member.id, sessionId: chat.id });
+      this.updateWorking();
+      const fresh = getCrew(path) ?? crew;
+      const fromName =
+        talk.from === "you" ? "You" : this.deps.name(fresh, talk.from);
+      const text = talkMessage({
+        talk,
+        fromName,
+        isLead: member.role === "lead",
+        others: fresh.members
+          .filter(
+            (entry) =>
+              entry.id !== member.id &&
+              entry.role !== "fixer" &&
+              memberOn(entry),
+          )
+          .map((entry) => this.deps.name(fresh, entry.id)),
+        mayAsk: member.role !== "helper" && talkMayHop(talk),
+        // A turn that could read the web starts nobody: a page could ask it to.
+        mayStartHelpers:
+          member.role !== "helper" && !crewRoleUsesWeb(fresh, member.role),
+        ...(chat.providerSessionId
+          ? {}
+          : {
+              brief: crewBrief({
+                role: member.role as CrewChatRole,
+                name: toName,
+                project: fresh.path,
+                copyPath: fresh.copy?.path ?? "",
+                names: this.names(fresh),
+                harness: crewMemberApp(member).harness,
+                maxRounds: fresh.limits.roundsPerCard,
+              }),
+            }),
+      });
+      const label = talk.routine ? "Routine" : `From ${fromName}`;
+      const yours = talk.from === "you" && !talk.routine;
+      const sent = this.deps.send(chat.id, text, {
+        displayText: yours ? talk.text : label,
+        ...(yours ? {} : { botWake: { label } }),
+        blockId: turnId,
+        onSettled: (outcome) =>
+          void this.afterTalk(path, talkId, turnId, chat.id, outcome),
+      });
+      if (!sent) throw new Error(`Couldn't send ${toName} a message.`);
+      const carrying = this.talking.get(talkId);
+      if (carrying)
+        carrying.timer = this.deps.setTimer(() => {
+          carrying.timedOut = true;
+          this.deps.stopChat(chat.id);
+        }, fresh.limits.turnMinutes * 60_000);
+    } catch (error) {
+      logError("Crew message", error);
+      this.talking.delete(talkId);
+      this.updateWorking();
+      this.dropTalk(
+        path,
+        talkId,
+        now,
+        `A message to ${toName} didn't go through: ${errorText(error)}`,
+      );
+    }
+  }
+
+  /**
+   * A teammate answered. Its line goes in the team chat, the Lead's cards to
+   * Ideas (where they wait for you), and what it asks to the teammates it
+   * names, up to the limit. Only the block ending this reply is read, and
+   * nothing here can approve anything or move a card already on the Board.
+   */
+  private async afterTalk(
+    path: string,
+    talkId: string,
+    turnId: string,
+    sessionId: string,
+    outcome?: ControlOutcome,
+  ) {
+    if (!this.markHandled(turnId)) return;
+    const carrying = this.talking.get(talkId);
+    if (carrying?.timer != null) this.deps.clearTimer(carrying.timer);
+    this.talking.delete(talkId);
+    this.updateWorking();
+    const crew = getCrew(path);
+    const talk = crew?.talks?.find((entry) => entry.id === talkId);
+    if (!crew || !talk) return;
+    const now = this.deps.now();
+    const member = crewMemberById(crew, talk.to);
+    const who = this.deps.name(crew, talk.to);
+    const failed =
+      !!carrying?.timedOut ||
+      outcome?.status === "failed" ||
+      outcome?.status === "cancelled";
+    const reply = failed
+      ? ""
+      : withoutMemory(
+          replyForTurn(this.chatNow(sessionId), turnId) ||
+            outcome?.text?.trim() ||
+            "",
+        );
+    const isHelper = member?.role === "helper";
+    if (member && !failed && !isHelper)
+      this.remember(
+        path,
+        {
+          role: member.role as CrewChatRole,
+          memberId: member.id,
+          sessionId,
+          turnId,
+        },
+        outcome,
+      );
+    const said = parseTalk(reply);
+    const isLead = member?.role === "lead";
+    const cards =
+      isLead && crew.on && !failed && said.cards.length
+        ? await this.deps.board
+            .add(
+              path,
+              said.cards.map((card) => ({
+                title: card.title,
+                ...(card.why ? { note: card.why } : {}),
+                column: "idea" as const,
+              })),
+            )
+            .catch((error) => {
+              logError("Crew message cards", error);
+              return [];
+            })
+        : [];
+    updateCrew(path, (current) => {
+      let next: Crew = {
+        ...current,
+        talks: current.talks?.filter((entry) => entry.id !== talkId),
+      };
+      if (member)
+        next = withMemberId(next, member.id, (entry) =>
+          entry.doing ? { ...entry, doing: undefined } : entry,
+        );
+      // Done either way. Its answer goes back to who started it, whatever
+      // the hops: it's what that teammate is waiting for.
+      if (isHelper) {
+        next = withFeed(withoutHelper(next, talk.to), {
+          at: now,
+          kind: "say",
+          who: "helper",
+          text: failed
+            ? `Helper “${who}” didn't finish.`
+            : `Helper “${who}”${said.line ? `: ${said.line}` : " finished."}`,
+        });
+        return !failed && reply && crew.on
+          ? withTalk(next, {
+              at: now,
+              from: talk.to,
+              to: talk.from,
+              text: reply.slice(0, TALK_TEXT_MAX),
+              hop: talk.hop,
+              answer: true,
+            })
+          : next;
+      }
+      cards.forEach((card, index) => {
+        const asked = said.cards[index]!;
+        next = withIdea(next, card.id, {
+          at: now + index,
+          size: asked.size,
+          ...(asked.why ? { why: asked.why } : {}),
+          // Your own message builds like any idea; one passed along by
+          // another agent waits for you.
+          ...(talk.from === "you" ? {} : { by: "lead" as const }),
+        });
+      });
+      if (!member) return next;
+      if (failed)
+        return withFeed(next, {
+          at: now,
+          kind: "note",
+          who: "aven",
+          text: `${who} didn't finish answering.`,
+        });
+      if (said.line)
+        next = withFeed(next, {
+          at: now,
+          kind: "say",
+          who: member.role,
+          member: member.id,
+          text: said.line,
+        });
+      if (!crew.on) return next;
+      // Its answer goes back to whoever asked, while there are hops left.
+      const hop = talk.hop + 1;
+      if (talk.from !== "you" && !talk.answer && reply && talkMayHop(talk))
+        next = withTalk(next, {
+          at: now,
+          from: member.id,
+          to: talk.from,
+          text: reply.slice(0, TALK_TEXT_MAX),
+          hop,
+          answer: true,
+        });
+      const web = crewRoleUsesWeb(next, member.role);
+      for (const asked of web ? [] : said.helpers) {
+        if (helpersLeft(next, member.id, now) <= 0) {
+          next = withFeed(next, {
+            at: now,
+            kind: "note",
+            who: "aven",
+            text: `${who} wanted a helper for “${asked.title}”, but there are as many at work as there can be.`,
+          });
+          break;
+        }
+        const app = crewMemberApp(member);
+        const helper: CrewMember = {
+          id: `helper-${this.newId()}`.slice(0, 40),
+          role: "helper",
+          name: asked.title.slice(0, 40),
+          helperOf: member.id,
+          harness: app.harness,
+          ...(app.model ? { model: app.model } : {}),
+        };
+        next = withTalk(
+          withFeed(withHelper(next, helper, now), {
+            at: now,
+            kind: "say",
+            who: member.role,
+            member: member.id,
+            text: `${who} started a helper: ${asked.title}`,
+          }),
+          {
+            at: now,
+            from: member.id,
+            to: helper.id,
+            text: asked.task,
+            hop: talk.hop,
+            helper: true,
+          },
+        );
+      }
+      for (const ask of said.asks) {
+        if (!talkMayHop(talk)) {
+          next = withFeed(next, {
+            at: now,
+            kind: "note",
+            who: "aven",
+            text: `${who} wanted to ask ${botLine(ask.to, 60)}, but this message has been passed on as far as it goes.`,
+          });
+          break;
+        }
+        const target = talkTarget(next, member.id, ask.to);
+        next = target
+          ? withTalk(
+              withFeed(next, {
+                at: now,
+                kind: "say",
+                who: member.role,
+                member: member.id,
+                text: talkPassedLine(
+                  who,
+                  this.deps.name(next, target.id),
+                  ask.text,
+                ),
+              }),
+              {
+                at: now,
+                from: member.id,
+                to: target.id,
+                text: ask.text,
+                hop,
+              },
+            )
+          : withFeed(next, {
+              at: now,
+              kind: "note",
+              who: "aven",
+              text: `${who} asked for ${botLine(ask.to, 60)}, who isn't on this team.`,
+            });
+      }
+      return next;
+    });
+    this.schedule();
   }
 
   private async step(path: string) {
@@ -1018,7 +1459,9 @@ export class CrewRunner {
 
   private updateWorking() {
     const ids = new Set(
-      [...this.turns.values()].map((turn) => turn.sessionId).filter(Boolean),
+      [...this.turns.values(), ...this.talking.values()]
+        .map((turn) => turn.sessionId)
+        .filter(Boolean),
     );
     if (
       ids.size === this.working.size &&

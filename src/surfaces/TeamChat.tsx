@@ -34,6 +34,7 @@ import {
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
+  crewLead,
   crewMemberById,
   crewMemberName,
   getCrew,
@@ -116,6 +117,7 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   card: "a card",
   rule: "a rule for every card",
   goal: "the goal",
+  lead: "a question for the Lead",
 };
 
 type Mode = CrewMessageKind;
@@ -124,6 +126,7 @@ type Mode = CrewMessageKind;
 type Addressee = { id: string; name: string };
 
 const MODES: readonly { id: Mode; label: string; word: string }[] = [
+  { id: "lead", label: "Ask the Lead", word: "Lead" },
   { id: "card", label: "Build it", word: "Card" },
   { id: "rule", label: "Remember for every card", word: "Rule" },
   { id: "goal", label: "Make it a goal", word: "Goal" },
@@ -192,7 +195,15 @@ export function TeamChat({
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
-  const [mode, setMode] = useState<Mode>("card");
+  // Your choice for this message; otherwise the Lead, on a team that has one.
+  const [chosenMode, setMode] = useState<Mode | null>(null);
+  const hasLead = !!crewLead(crew);
+  const mode: Mode =
+    chosenMode && (chosenMode !== "lead" || hasLead)
+      ? chosenMode
+      : hasLead
+        ? "lead"
+        : "card";
   const input = useRef<HTMLTextAreaElement>(null);
   const filter =
     selected && members.some((member) => member.id === selected)
@@ -296,6 +307,7 @@ export function TeamChat({
           members={members}
           to={to}
           mode={mode}
+          hasLead={hasLead}
           input={input}
           onTo={setTo}
           onMode={setMode}
@@ -991,6 +1003,7 @@ function Composer({
   members,
   to,
   mode,
+  hasLead,
   input,
   onTo,
   onMode,
@@ -1000,9 +1013,11 @@ function Composer({
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
   mode: Mode;
+  hasLead: boolean;
   input: RefObject<HTMLTextAreaElement | null>;
   onTo: (to: Addressee | null) => void;
-  onMode: (mode: Mode) => void;
+  /** Null goes back to the usual: the Lead, or a card without one. */
+  onMode: (mode: Mode | null) => void;
 }) {
   const listId = useId();
   const [text, setText] = useState("");
@@ -1120,7 +1135,7 @@ function Composer({
       }
       return;
     }
-    onMode("card");
+    onMode(null);
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(event.nativeEvent)) return;
@@ -1175,7 +1190,9 @@ function Composer({
       ? "A rule for every card, like “Use pnpm”…"
       : mode === "goal"
         ? "A goal the team keeps going towards…"
-        : "Write to the team, or @ one teammate…";
+        : mode === "lead"
+          ? "Ask the team, or @ one teammate…"
+          : "Write to the team, or @ one teammate…";
   const current = MODES.find((item) => item.id === mode)!;
   return (
     <div className="team-compose-wrap">
@@ -1329,12 +1346,14 @@ function Composer({
           align="end"
           gap={4}
           ariaLabel="How the team takes this"
-          items={MODES.map((item) => ({
-            kind: "item" as const,
-            id: item.id,
-            label: item.label,
-            ...(item.id === mode ? { checked: true } : {}),
-          }))}
+          items={MODES.filter((item) => item.id !== "lead" || hasLead).map(
+            (item) => ({
+              kind: "item" as const,
+              id: item.id,
+              label: item.label,
+              ...(item.id === mode ? { checked: true } : {}),
+            }),
+          )}
           onClose={() => setMenu(null)}
           onPick={(id) => {
             setMenu(null);

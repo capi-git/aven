@@ -89,13 +89,18 @@ describe("Start team from the setup sheet", () => {
     expect(
       crew.members.map((member) => [member.role, member.preset, member.job]),
     ).toEqual([
+      ["lead", undefined, undefined],
       ["builder", "builder", "Builds each card in a copy of Pom"],
       ["checker", "checker", undefined],
       ["researcher", "researcher", "Reads up on ADHD planning"],
     ]);
     // Its ready-made settings come along; the Builder runs on the usual pick.
-    expect(crew.members[0]!.instructions).toContain("Keep each change small");
-    expect(crew.members[0]).toMatchObject({
+    expect(
+      crew.members.find((member) => member.role === "builder")!.instructions,
+    ).toContain("Keep each change small");
+    expect(
+      crew.members.find((member) => member.role === "builder"),
+    ).toMatchObject({
       harness: "claude",
       model: "claude:opus",
     });
@@ -248,7 +253,10 @@ describe("Start team from the setup sheet", () => {
     );
     expect(result).toEqual({ on: true, problem: null });
     const crew = getCrew(PATH)!;
-    expect(crew.members.map((member) => member.role)).toEqual(["builder"]);
+    expect(crew.members.map((member) => member.role)).toEqual([
+      "lead",
+      "builder",
+    ]);
     expect(crew.about).toBeUndefined();
     const [card] = featureBoardState(PATH).cards;
     expect(card!.column).toBe("idea");

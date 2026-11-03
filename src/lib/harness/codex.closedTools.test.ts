@@ -12,6 +12,11 @@ import {
  */
 
 const spawns: string[][] = [];
+const threadOpens: Record<string, unknown>[] = [];
+const turnStarts: Record<string, unknown>[] = [];
+/** The fake app-server honours a named permission profile unless this is off. */
+let profileApplies = true;
+let denyRead: string[] | undefined;
 let onLine: ((line: string) => void) | undefined;
 /** The fake app-server honours `-c` overrides unless this is off. */
 let honoursOverrides = true;
@@ -68,8 +73,23 @@ function respond(line: string) {
       return reply(effectiveConfig(currentArgs));
     case "thread/start":
     case "thread/resume":
-      return reply({ thread: { id: "thr_1" } });
+      threadOpens.push(
+        (message as { params?: Record<string, unknown> }).params ?? {},
+      );
+      return reply({
+        thread: { id: "thr_1" },
+        ...(profileApplies &&
+        currentArgs.includes('default_permissions="aven_read"')
+          ? {
+              activePermissionProfile: { id: "aven_read" },
+              sandbox: { type: "readOnly", networkAccess: false },
+            }
+          : {}),
+      });
     case "turn/start": {
+      turnStarts.push(
+        (message as { params?: Record<string, unknown> }).params ?? {},
+      );
       const id = `turn_${(turnCount += 1)}`;
       reply({ turn: { id, status: "inProgress" } });
       setTimeout(
@@ -123,6 +143,17 @@ function rules(): SessionPermissions | undefined {
     readOnly: true,
     noMcp: true,
     workFolder: COPY,
+    ...(denyRead
+      ? {
+          sandbox: {
+            enabled: true,
+            failIfUnavailable: true,
+            allowUnsandboxedCommands: false,
+            autoAllowBashIfSandboxed: true,
+            filesystem: { denyRead },
+          } as SessionPermissions["sandbox"],
+        }
+      : {}),
   };
 }
 
@@ -138,6 +169,10 @@ const turn = () =>
 
 beforeEach(() => {
   spawns.length = 0;
+  threadOpens.length = 0;
+  turnStarts.length = 0;
+  profileApplies = true;
+  denyRead = undefined;
   honoursOverrides = true;
   closed = true;
   uninstall = installSessionPermissions((id) =>
@@ -209,6 +244,33 @@ describe("a closed Codex chat", () => {
     const after = spawns.length;
     await turn();
     expect(spawns.length).toBe(after);
+  });
+});
+
+describe("a Codex chat that may not read your keys", () => {
+  it("starts with a profile naming them, and sends no sandbox that would replace it", async () => {
+    denyRead = ["~/.ssh", "~/.docker/config.json"];
+    await turn();
+    const args = spawns[0]!;
+    const filesystem = args.find((arg) =>
+      arg.startsWith("permissions.aven_read.filesystem="),
+    );
+    expect(filesystem).toContain('"~/.ssh"="none"');
+    expect(filesystem).toContain('"~/.docker/config.json"="none"');
+    // This chat's own Codex folder links to your sign-in.
+    expect(filesystem).toContain('"/aven/codex-home/auth.json"="none"');
+    expect(args).toContain('default_permissions="aven_read"');
+    expect(threadOpens[0]).not.toHaveProperty("sandbox");
+    expect(threadOpens[0]).not.toHaveProperty("sandboxPolicy");
+    expect(turnStarts[0]).not.toHaveProperty("sandboxPolicy");
+    expect(turnStarts[0]).toMatchObject({ approvalPolicy: "never" });
+  });
+
+  it("doesn't start when Codex doesn't report that profile", async () => {
+    denyRead = ["~/.ssh"];
+    profileApplies = false;
+    await expect(turn()).rejects.toThrow(/could read your keys/);
+    expect(turnStarts).toHaveLength(0);
   });
 });
 

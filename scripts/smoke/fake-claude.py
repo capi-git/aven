@@ -506,8 +506,43 @@ def crew_launch(args):
     ])
 
 
+# "AVEN_SMOKE_TALK" on a message to the Lead: it asks the Checker and starts a
+# helper; each answers; the Lead then gets each answer and says so.
+TALK_WORD = "AVEN_SMOKE_TALK"
+
+
+def talk_turn(text, args):
+    """A teammate's reply to a message; None when the turn isn't one."""
+    if TALK_WORD not in text or "aven-talk" not in text:
+        return None
+    settings = {}
+    try:
+        settings = json.loads(option(args, "--settings") or "{}")
+    except ValueError:
+        pass
+    deny = (settings.get("permissions") or {}).get("deny") or []
+    launch = crew_launch(args)
+    def said(who, body):
+        log({"pid": os.getpid(), "crew": who, "launch": launch, "web": "WebFetch" not in deny})
+        return crew_fence("aven-talk", body)
+    if "asks you to look into this" in text:
+        return said("helper", {"line": f"Read it. {TALK_WORD}"})
+    if f"{TALK_WORD}_QUESTION" in text and "sent you this" in text:
+        return said("checker", {"line": f"Checker says fine. {TALK_WORD}"})
+    if "sent you this" in text:
+        return said("lead", {"line": "Lead got it."})
+    return said("lead", {
+        "line": "Asking around.",
+        "ask": [{"to": "Checker", "text": f"Fine? {TALK_WORD}_QUESTION"}],
+        "helpers": [{"title": "Read it", "task": f"Read the project. {TALK_WORD}"}],
+    })
+
+
 def crew_turn(session, turn, text, args):
     """A crew member's reply, by role; None when the turn isn't a crew card's."""
+    talk = talk_turn(text, args)
+    if talk:
+        return talk
     if CREW_WORD not in text:
         return None
     launch = crew_launch(args)

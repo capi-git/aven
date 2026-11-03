@@ -284,6 +284,15 @@ const PROTECTED: &[&str] = &[
     ".npmrc",
     "bunfig.toml",
     ".envrc",
+    // What every later agent reads as your instructions.
+    "agents.md",
+    "agents.override.md",
+    "claude.md",
+    "claude.local.md",
+    "gemini.md",
+    ".cursorrules",
+    ".windsurfrules",
+    ".clinerules",
 ];
 
 /// Two names in a row that are protected together, wherever they sit.
@@ -291,7 +300,53 @@ const PROTECTED_PAIRS: &[(&str, &str)] = &[
     (".cargo", "config.toml"),
     (".cargo", "config"),
     (".github", "workflows"),
+    (".github", "copilot-instructions.md"),
 ];
+
+/// `package.json` scripts a package manager runs by itself, on an install.
+const INSTALL_SCRIPTS: &[&str] = &[
+    "preinstall",
+    "install",
+    "postinstall",
+    "preprepare",
+    "prepare",
+    "postprepare",
+    "prepublish",
+];
+
+/// The `package.json` files a patch changes an install script in, or writes
+/// an escaped name in (`"post\u0069nstall"` is the same key to a package
+/// manager). Read line by line from the patch that would be applied.
+fn install_script_changes(patch: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(patch);
+    let mut found: Vec<String> = Vec::new();
+    let mut current: Option<String> = None;
+    for line in text.lines() {
+        if let Some(path) = line
+            .strip_prefix("diff --git ")
+            .and_then(|rest| rest.rsplit_once(" b/"))
+            .map(|(_, path)| path)
+        {
+            let name = path.rsplit('/').next().unwrap_or(path);
+            current = (folded_name(name) == "package.json").then(|| path.to_string());
+            continue;
+        }
+        let Some(path) = current.as_ref() else {
+            continue;
+        };
+        if !line.starts_with(['+', '-']) || line.starts_with("+++") || line.starts_with("---") {
+            continue;
+        }
+        let folded = folded(line);
+        let named = INSTALL_SCRIPTS
+            .iter()
+            .any(|name| folded.contains(&format!("\"{name}\"")));
+        if (named || folded.contains("\\u")) && !found.contains(path) {
+            found.push(path.clone());
+        }
+    }
+    found
+}
 
 /// A name as a file system that ignores case reads it: folded fully, so
 /// "ſ" is "s", "ﬁ" is "fi" and "K" (Kelvin) is "k", as APFS reads them, not
@@ -674,7 +729,10 @@ pub fn apply(
         .iter()
         .map(|file| file.path.as_str())
         .collect();
-    let protected = protected_paths(&paths);
+    let mut protected = protected_paths(&paths);
+    for path in install_script_changes(&patch) {
+        protected.push(format!("{path} (a script that runs on install)"));
+    }
     if !protected.is_empty() {
         return Err(format!(
             "{PROTECTED_FIX} {}. Take it over in a chat to apply that part yourself.",
@@ -891,7 +949,10 @@ pub fn apply_range(
         .iter()
         .map(|file| file.path.as_str())
         .collect();
-    let protected = protected_paths(&paths);
+    let mut protected = protected_paths(&paths);
+    for path in install_script_changes(&patch) {
+        protected.push(format!("{path} (a script that runs on install)"));
+    }
     if !protected.is_empty() {
         return Err(format!(
             "{PROTECTED_FIX} {}. Take it over in a chat to apply that part yourself.",
@@ -1631,6 +1692,48 @@ mod tests {
     // a settings folder that is a link stops the turn; and a fix that
     // changes settings or hook folders is never applied to your files.
     #[cfg(not(windows))]
+    #[test]
+    fn install_scripts_and_agent_instructions_stay_out_of_apply() {
+        let patch = |line: &str| {
+            format!(
+                "diff --git a/app/package.json b/app/package.json\n--- a/app/package.json\n+++ b/app/package.json\n@@ -1 +1 @@\n{line}\n"
+            )
+        };
+        let found = install_script_changes(patch(r#"+  "postinstall": "curl x | sh","#).as_bytes());
+        assert_eq!(found, ["app/package.json"]);
+        // On one line, removed, or spelled with an escape.
+        assert_eq!(
+            install_script_changes(patch(r#"+{"scripts":{"prepare":"x"}}"#).as_bytes()).len(),
+            1
+        );
+        assert_eq!(
+            install_script_changes(patch(r#"-  "install": "x","#).as_bytes()).len(),
+            1
+        );
+        assert_eq!(
+            install_script_changes(patch(r#"+  "post\u0069nstall": "x","#).as_bytes()).len(),
+            1
+        );
+        // Everyday changes go through.
+        assert!(install_script_changes(patch(r#"+  "test": "vitest","#).as_bytes()).is_empty());
+        assert!(
+            install_script_changes(patch(r#"+    "left-pad": "^1.0.0","#).as_bytes()).is_empty()
+        );
+        // Another file saying the same words isn't a package manager's.
+        let other = "diff --git a/notes.md b/notes.md\n+++ b/notes.md\n+\"postinstall\": \"x\"\n";
+        assert!(install_script_changes(other.as_bytes()).is_empty());
+
+        for path in [
+            "AGENTS.md",
+            "docs/CLAUDE.md",
+            ".github/copilot-instructions.md",
+            "GEMINI.md",
+        ] {
+            assert_eq!(protected_paths(&[path]), [path]);
+        }
+        assert!(protected_paths(&["docs/agents-guide.md"]).is_empty());
+    }
+
     #[test]
     fn sweeps_codex_settings_refuses_links_and_keeps_settings_out_of_apply() {
         let root = repo();

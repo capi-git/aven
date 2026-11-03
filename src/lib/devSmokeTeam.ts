@@ -8,6 +8,7 @@ import {
   setCrewPaused,
   setCrewQuietHours,
   turnOffCrew,
+  tellTeam,
 } from "./crewActions";
 import {
   crewAccess,
@@ -17,6 +18,7 @@ import {
   MOCKUP_DIR,
   type Crew,
   type CrewCard,
+  crewLead,
 } from "./crews";
 import { waitFor } from "./devSmoke";
 import { crewDiagnostics, type SmokeCrew } from "./devSmokeCrew";
@@ -41,6 +43,7 @@ import type { Session } from "./session";
 
 /** On a research card: the stand-in Researcher answers with findings. */
 export const SMOKE_RESEARCH_WORD = "AVEN_SMOKE_RESEARCH";
+export const SMOKE_TALK_WORD = "AVEN_SMOKE_TALK";
 /** With it, the stand-in's reply also rewrites the member's notes. */
 export const SMOKE_NOTES_WORD = "AVEN_SMOKE_NOTES";
 /** In the notes the stand-in writes. */
@@ -1140,6 +1143,80 @@ export async function checkDesigner(
 
 // ---------------------------------------------------------------------------
 // Access
+
+/**
+ * A message to everyone, through the app: it reaches the Lead, the Lead asks
+ * the Checker and starts a helper, each runs sandboxed in the team's copy with
+ * no web, the answers come back, and the team chat shows the Lead's line.
+ */
+export async function checkTeamTalk(
+  config: { projectPath: string; binDir: string },
+  team: SmokeTeam,
+): Promise<string> {
+  const project = await newTeamProject(config.projectPath, "team-talk");
+  try {
+    const crew = await startTeam(team, project, []);
+    if (!crewLead(crew)) throw new Error("A new team started without a Lead");
+    await openBoard(project);
+    const problem = await tellTeam(
+      project,
+      `Is it fine? ${SMOKE_TALK_WORD}`,
+      "lead",
+    );
+    if (problem) throw new Error(problem);
+    await waitFor(
+      () => {
+        failOnHold(project);
+        const current = getCrew(project);
+        return !current?.talks?.length &&
+          !current?.helpers?.length &&
+          current?.feed.filter((entry) => entry.text === "Lead got it.")
+            .length === 2
+          ? current
+          : null;
+      },
+      150_000,
+      `the Lead to hear from the Checker and its helper (${JSON.stringify(
+        getCrew(project)
+          ?.feed.map((entry) => entry.text)
+          .slice(-6),
+      )})`,
+    );
+    await waitFor(
+      () =>
+        [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].some(
+          (chat) =>
+            onScreen(chat) && chat.textContent?.includes("Lead got it."),
+        ) || null,
+      10_000,
+      "the Lead's line in the team chat",
+    );
+    const turns = (await standInTurns(team, config.binDir)) ?? [];
+    const copy = getCrew(project)?.copy?.path;
+    for (const who of ["lead", "checker", "helper"]) {
+      const mine = turns.filter((turn) => turn.crew === who);
+      if (!mine.length) throw new Error(`The stand-in logged no ${who} turn`);
+      for (const turn of mine) {
+        const launch = String(turn.launch ?? "");
+        if (
+          !launch.includes("sandbox=on") ||
+          !launch.includes("mcp=strict") ||
+          !launch.includes("hooks=off") ||
+          (copy && !launch.includes(`cwd=${copy}`))
+        )
+          throw new Error(`The ${who} ran without its rules: ${launch}`);
+        if (who !== "checker" && turn.web !== false)
+          throw new Error(`The ${who} had the web`);
+      }
+    }
+    const left = getCrew(project);
+    return `the Lead asked the Checker and a helper, ${
+      left?.helperRuns?.count ?? 0
+    } helper run, every turn sandboxed in the team's copy`;
+  } finally {
+    await tidy(project);
+  }
+}
 
 export async function checkTeamAccess(
   get: Get,

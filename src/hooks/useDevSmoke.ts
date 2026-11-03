@@ -59,6 +59,7 @@ import {
   checkResearcher,
   checkTeamAccess,
   checkTeamSetup,
+  checkTeamTalk,
   type SmokeTeam,
 } from "../lib/devSmokeTeam";
 import { checkDividerRail } from "../lib/devSmokeRail";
@@ -490,7 +491,7 @@ function chatComposer(sessionId: string): HTMLElement | null {
  * Returns the modes page.
  */
 async function openComposerModes(sessionId: string): Promise<HTMLElement> {
-  const critter = await waitFor(
+  await waitFor(
     () =>
       chatComposer(sessionId)?.querySelector<HTMLButtonElement>(
         "[data-helm-critter]",
@@ -499,13 +500,21 @@ async function openComposerModes(sessionId: string): Promise<HTMLElement> {
     "the critter on the chat's message box",
   );
   if (!document.querySelector("[data-composer-plus]")) {
-    critter.click();
-    const next = await waitFor(
-      () =>
-        document.querySelector<HTMLElement>("[data-composer-plus]") ??
-        document.querySelector<HTMLElement>('[data-helm-row="modes"]'),
-      5_000,
-      "the critter's dialog",
+    const shown = () =>
+      document.querySelector<HTMLElement>("[data-composer-plus]") ??
+      document.querySelector<HTMLElement>('[data-helm-row="modes"]');
+    // A chat opened a moment ago can still be settling into its pane, which
+    // closes a dialog opened meanwhile: a second press, once it has settled.
+    const press = () => {
+      if (!shown())
+        chatComposer(sessionId)
+          ?.querySelector<HTMLButtonElement>("[data-helm-critter]")
+          ?.click();
+    };
+    press();
+    const again = setTimeout(press, 1_500);
+    const next = await waitFor(shown, 5_000, "the critter's dialog").finally(
+      () => clearTimeout(again),
     );
     if (next.matches('[data-helm-row="modes"]')) next.click();
   }
@@ -4076,6 +4085,11 @@ export async function runDevSmoke(
     await step(
       "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
       () => checkDesigner(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "a message to the Lead reaches a teammate and a helper and comes back",
+      () => checkTeamTalk(config, crew),
     );
   if (safe && crew)
     await step(

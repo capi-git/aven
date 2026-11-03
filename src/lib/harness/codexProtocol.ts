@@ -83,6 +83,57 @@ export const CODEX_NO_ESCALATION_CONFIG: CodexThreadConfig = {
   },
 };
 
+/** Codex's own permission profiles for a chat that also has folders it may not read. */
+export const CODEX_READ_PROFILE = "aven_read";
+export const CODEX_WRITE_PROFILE = "aven_write";
+
+/**
+ * `-c` settings for such a chat. `CODEX_READ_ONLY_CONFIG` and
+ * `CODEX_NO_ESCALATION_CONFIG` can't name a folder to keep out, and a command
+ * under either reads everything on the disk (real Codex, fake keys, a stand-in
+ * model: they reached it). A named profile can, but only applies when
+ * thread/start and turn/start leave out `sandbox` and `sandboxPolicy`, which
+ * would otherwise replace it (see `keyGuard`).
+ */
+export function codexKeyGuardArgs(
+  readOnly: boolean,
+  denyRead: readonly string[],
+): string[] {
+  const profile = readOnly ? CODEX_READ_PROFILE : CODEX_WRITE_PROFILE;
+  const access = [
+    ...denyRead.map((path) => `${JSON.stringify(path)}="none"`),
+    // As `CODEX_NO_ESCALATION_CONFIG`: not the temp folders others share.
+    ...(readOnly ? [] : ['":slash_tmp"="read"', '":tmpdir"="read"']),
+  ];
+  return [
+    "-c",
+    `permissions.${profile}.extends=${JSON.stringify(readOnly ? ":read-only" : ":workspace")}`,
+    "-c",
+    `permissions.${profile}.filesystem={${access.join(",")}}`,
+    "-c",
+    `default_permissions=${JSON.stringify(profile)}`,
+  ];
+}
+
+/**
+ * Why what Codex reports for a thread isn't the profile it was started with,
+ * or null. A chat that must keep folders out doesn't start without it.
+ */
+export function codexKeyGuardGap(
+  opened: unknown,
+  readOnly: boolean,
+): string | null {
+  const record = asRecord(opened);
+  const profile = asRecord(record?.activePermissionProfile)?.id;
+  if (profile !== (readOnly ? CODEX_READ_PROFILE : CODEX_WRITE_PROFILE))
+    return "its permission profile didn't apply";
+  const sandbox = asRecord(record?.sandbox);
+  if (sandbox?.type !== (readOnly ? "readOnly" : "workspaceWrite"))
+    return "its sandbox didn't apply";
+  if (sandbox?.networkAccess === true) return "its network stayed on";
+  return null;
+}
+
 export function runtimeModeToCodexConfig(
   mode: RuntimeMode,
   controlsAgents?: boolean,
@@ -135,6 +186,8 @@ export function buildThreadStartParams(input: {
   readOnly?: boolean;
   /** Never escalates, whatever the mode (see `CODEX_NO_ESCALATION_CONFIG`). */
   noEscalation?: boolean;
+  /** Started with a named profile (see `codexKeyGuardArgs`): it decides the sandbox. */
+  keyGuard?: boolean;
   model?: string;
   serviceTier?: string;
   /** Merged host/config instructions; isolated text helpers leave this unset. */
@@ -149,8 +202,9 @@ export function buildThreadStartParams(input: {
   return {
     cwd: input.cwd,
     approvalPolicy: config.approvalPolicy,
-    sandbox: config.sandbox,
-    sandboxPolicy: config.sandboxPolicy,
+    ...(input.keyGuard
+      ? {}
+      : { sandbox: config.sandbox, sandboxPolicy: config.sandboxPolicy }),
     approvalsReviewer: config.approvalsReviewer,
     ...(input.browserHostInstructions
       ? { developerInstructions: input.browserHostInstructions }
@@ -238,6 +292,8 @@ export function buildTurnStartParams(input: {
   readOnly?: boolean;
   /** Never escalates, whatever the mode (see `CODEX_NO_ESCALATION_CONFIG`). */
   noEscalation?: boolean;
+  /** Started with a named profile (see `codexKeyGuardArgs`): it decides the sandbox. */
+  keyGuard?: boolean;
   prompt?: string;
   attachments?: CodexAttachmentInput[];
   model?: string;
@@ -302,7 +358,7 @@ export function buildTurnStartParams(input: {
     input: turnInput,
     approvalPolicy: config.approvalPolicy,
     approvalsReviewer: config.approvalsReviewer,
-    sandboxPolicy: config.sandboxPolicy,
+    ...(input.keyGuard ? {} : { sandboxPolicy: config.sandboxPolicy }),
     ...(collaborationMode ? { collaborationMode } : {}),
     ...(model ? { model } : {}),
     ...(input.effort ? { effort: input.effort } : {}),

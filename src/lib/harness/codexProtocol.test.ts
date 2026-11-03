@@ -5,6 +5,8 @@ import {
   codexBrowserHostInstructionsFromConfig,
   buildTurnStartParams,
   buildTurnSteerParams,
+  codexKeyGuardArgs,
+  codexKeyGuardGap,
   codexAttachmentInputs,
   codexAsyncUserInputQuestions,
   codexAsyncUserInputReply,
@@ -1208,5 +1210,45 @@ describe("Codex connection requests", () => {
         message: "?",
       }),
     ).toEqual({ kind: "unsupported" });
+  });
+});
+
+describe("Codex key guard", () => {
+  it("writes a read-only profile, and a writing one kept out of shared temp folders", () => {
+    expect(codexKeyGuardArgs(true, ["~/.ssh"])).toEqual([
+      "-c",
+      'permissions.aven_read.extends=":read-only"',
+      "-c",
+      'permissions.aven_read.filesystem={"~/.ssh"="none"}',
+      "-c",
+      'default_permissions="aven_read"',
+    ]);
+    expect(codexKeyGuardArgs(false, ["/a b/auth.json"])).toEqual([
+      "-c",
+      'permissions.aven_write.extends=":workspace"',
+      "-c",
+      'permissions.aven_write.filesystem={"/a b/auth.json"="none",":slash_tmp"="read",":tmpdir"="read"}',
+      "-c",
+      'default_permissions="aven_write"',
+    ]);
+  });
+
+  it("says what is missing from what Codex reports", () => {
+    expect(codexKeyGuardGap({}, true)).toMatch(/profile/);
+    const read = { activePermissionProfile: { id: "aven_read" } };
+    expect(codexKeyGuardGap(read, false)).toMatch(/profile/);
+    expect(codexKeyGuardGap(read, true)).toMatch(/sandbox/);
+    expect(
+      codexKeyGuardGap(
+        { ...read, sandbox: { type: "readOnly", networkAccess: true } },
+        true,
+      ),
+    ).toMatch(/network/);
+    expect(
+      codexKeyGuardGap(
+        { ...read, sandbox: { type: "readOnly", networkAccess: false } },
+        true,
+      ),
+    ).toBeNull();
   });
 });

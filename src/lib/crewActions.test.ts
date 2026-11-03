@@ -695,6 +695,7 @@ describe("crew controls", () => {
       preferredCodex: "codex:gpt",
     });
     expect(models).toEqual({
+      lead: { harness: "claude", model: "claude:haiku" },
       builder: { harness: "claude", model: "claude:opus" },
       checker: { harness: "codex", model: "codex:gpt" },
       scout: { harness: "claude", model: "claude:haiku" },
