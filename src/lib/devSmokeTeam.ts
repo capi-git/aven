@@ -658,7 +658,7 @@ export async function checkTeamSetup(
       .map((member) => member.role)
       .sort()
       .join();
-    if (members !== "builder,designer,researcher")
+    if (members !== "builder,designer,lead,researcher")
       throw new Error(`The team's members are ${members}`);
     // The user's idea is an ordinary idea; a suggestion waits for a tick;
     // the question and the screen are the Researcher's and the Designer's.
