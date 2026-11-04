@@ -497,7 +497,7 @@ html:has(.aven-tour)
    does, with back and forward just before them; anything else sits at the end. */
 .personal-shell[data-sidebar-pinned="true"] .workspace-navigation {
   flex: 0 0
-    calc(var(--aven-sidebar-width, 216px) / var(--aven-toolbar-zoom, 1) - 95px);
+    calc(var(--aven-sidebar-width, 216px) / var(--aven-toolbar-zoom, 1) - 89px);
   min-width: 0;
 }
 .personal-shell[data-sidebar-pinned="true"]
