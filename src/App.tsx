@@ -11786,6 +11786,8 @@ export default function App({
     orchestration: {
       run: (leadId) => orchestrator.run(leadId),
       submissionError: (sessionId) => orchestrator.submissionError(sessionId),
+      inspect: (leadId) => orchestrator.inspect(leadId),
+      stopRun: (leadId) => orchestrator.stopRun(leadId),
     },
     race: {
       races: listRaces,
