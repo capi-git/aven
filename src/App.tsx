@@ -118,6 +118,7 @@ import { useUnreadAutomationRuns } from "./hooks/useUnreadAutomationRuns";
 import { useInboxReviewCount } from "./hooks/useAutomationChats";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
 import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
+import { useChatConnectionsSettings } from "./hooks/useChatConnections";
 import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
 import {
   agentKeepAwakeProgress,
@@ -1231,6 +1232,7 @@ export default function App({
     onSelectSettingsSection,
     onOpenHome,
   } = useUtilityViews();
+  useChatConnectionsSettings(openSettings, settingsOpen);
   // Settings, Search and the other views load on request; fetch them once
   // startup settles so opening one shows it at once.
   useEffect(() => whenIdle(() => void preloadLazyViews()), []);

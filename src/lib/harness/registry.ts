@@ -17,6 +17,7 @@ import {
   prepareProjectMemoryTurn,
   resetProjectMemoryDelivery,
 } from "./projectMemoryDelivery";
+import { clearChatConnections } from "../chatConnections";
 import {
   observeSharedWorkEvent,
   sharedWorkTurnEnded,
@@ -129,6 +130,8 @@ type IdleChild = {
 };
 /** Idle children, least recently used first. */
 const idleParkTimers = new Map<string, IdleChild>();
+/** Chats to restart for fresh connections once their work has settled. */
+const reconnectWhenIdle = new Set<string>();
 /** Parking stays quick for a while after the last memory pressure notice. */
 let pressureUntil = 0;
 let watchingPressure = false;
@@ -252,20 +255,27 @@ export function parkIdleHarnessesForMemory(level: MemoryPressureLevel): void {
   }
 }
 
-function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
-  const activity = runtimeActivity.get(sessionId);
-  if (activity && activity.harness !== harness) return;
-  cancelIdlePark(sessionId);
-  if (
-    activity &&
+function childBusy(activity: RuntimeActivity | undefined): boolean {
+  return (
+    !!activity &&
     (activity.turns > 0 ||
       activity.stopping ||
       [...activity.agents.values()].some(
         (status) =>
           status === "running" || status === "waiting" || status === "unknown",
       ))
-  )
+  );
+}
+
+function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
+  const activity = runtimeActivity.get(sessionId);
+  if (activity && activity.harness !== harness) return;
+  cancelIdlePark(sessionId);
+  if (childBusy(activity)) return;
+  if (reconnectWhenIdle.delete(sessionId)) {
+    void stopHarnessSession(harness, sessionId).catch(() => undefined);
     return;
+  }
   if (!watchingPressure) {
     watchingPressure = true;
     subscribeMemoryPressure(parkIdleHarnessesForMemory);
@@ -283,10 +293,30 @@ function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
     parkIdleChild(id);
 }
 
+/**
+ * Gives a chat fresh connections, keeping the conversation: the same parking
+ * that happens to any idle chat, so its next message resumes in a new provider
+ * process, which reads sign-ins made since it started. A chat that is working
+ * finishes first.
+ */
+export function reconnectHarnessSession(
+  harness: HarnessId,
+  sessionId: string,
+): void {
+  const activity = runtimeActivity.get(sessionId);
+  if ((activity && activity.harness !== harness) || activity?.stopping) return;
+  if (childBusy(activity)) {
+    reconnectWhenIdle.add(sessionId);
+    return;
+  }
+  void stopHarnessSession(harness, sessionId).catch(() => undefined);
+}
+
 /** Test seam. */
 export function resetHarnessIdlePark(): void {
   for (const idle of idleParkTimers.values()) clearTimeout(idle.timer);
   idleParkTimers.clear();
+  reconnectWhenIdle.clear();
   pressureUntil = 0;
   runtimeActivity.clear();
   turnStops.clear();
@@ -481,6 +511,8 @@ export async function forgetHarnessSession(
   if (activity) activity.stopping = true;
   forgetProviderConversation(harness, sessionId);
   resetSharedWorkDelivery(sessionId);
+  reconnectWhenIdle.delete(sessionId);
+  clearChatConnections(sessionId);
   turnStops.delete(sessionId);
   // Revoke before awaiting the old child; a replacement turn queues its bind after it.
   try {

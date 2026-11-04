@@ -1,0 +1,50 @@
+/* A connection this chat can't use: one neutral line, no colour. */
+.chat-connections-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 2px 0 9px;
+  border-radius: var(--aven-radius-md);
+  background: color-mix(in srgb, var(--color-content) 4.5%, transparent);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+}
+.chat-connections-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-connections-action,
+.chat-connections-dismiss {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border-radius: var(--aven-radius-sm);
+  outline: none;
+  white-space: nowrap;
+}
+.chat-connections-action {
+  padding: 0 8px;
+  color: var(--color-content);
+  font-weight: 500;
+}
+.chat-connections-dismiss {
+  width: 24px;
+  color: var(--aven-muted);
+}
+.chat-connections-action:hover,
+.chat-connections-dismiss:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.chat-connections-action:focus-visible,
+.chat-connections-dismiss:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}

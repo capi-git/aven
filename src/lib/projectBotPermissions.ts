@@ -166,7 +166,7 @@ export function absolutePathRule(folder: string): string {
 
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
-  "Everything stays in the team's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access.";
+  "Everything stays in the team's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access. Teammates don't use connections.";
 
 /** Who Access reaches, in one line; the roles it doesn't follow. */
 export const TEAM_ACCESS_SCOPE_LINE =
