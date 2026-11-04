@@ -1003,16 +1003,21 @@ html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  /* The pinned sidebar's colour, as see-through as the Glass slider says. Words
-     behind can't bleed through: the native frost (floating_sidebar.mm) blurs
-     them, and it doesn't drop out on repaint as a CSS blur does. */
+  /* Native code cuts the work away under the card, leaving the window's own
+     glass (floating_sidebar.mm). Paint it as the frame is (personal-shell.css),
+     so it matches a pinned sidebar. */
   --personal-navigation-overlay:
     var(--aven-tone),
-    color-mix(
-      in srgb,
-      #000 calc(20% + var(--sidebar-opacity, 1) * 70%),
-      transparent
-    );
+    linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05)),
+    color-mix(in srgb, #0d0d0d 62%, transparent);
+}
+html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar.sidebar-glass.personal-navigation {
+  --personal-navigation-overlay:
+    var(--aven-tone),
+    linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05));
 }
 /* As in the mock: the name alone. */
 .personal-shell

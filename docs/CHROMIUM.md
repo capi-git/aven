@@ -112,7 +112,7 @@ For an ordinary project preview, start the development server without browser au
 
 ### Floating sidebar over live pages
 
-Live Chromium pages are native views above the workspace webview. On macOS the hover (unpinned) sidebar therefore runs as a native layer above them: a transparent overlay webview renders the same `Sidebar` component from the workspace's snapshot and calls its callbacks back by name, and `floating_sidebar.mm` hosts it in the window. The card floats: the workspace and every page stay whole beneath it, and a frosted native view under the transparent overlay blurs what passes behind the card. Both slide together on one spring. Native code reports where the pointer is (the reveal edge, the card and its menus); the workspace decides when the card opens and closes. Builds without Chromium, and Windows, keep the workspace's own DOM sidebar.
+Live Chromium pages are native views above the workspace webview. On macOS the hover (unpinned) sidebar therefore runs as a native layer above them: a transparent overlay webview renders the same `Sidebar` component from the workspace's snapshot and calls its callbacks back by name, and `floating_sidebar.mm` hosts it in the window. The workspace webview has a hole the card's exact shape, so the card shows the window's own glass as a pinned sidebar does. Live pages stay whole, and a frosted native view under the transparent overlay blurs one lying behind the card. All of it slides together on one spring. Native code reports where the pointer is (the reveal edge, the card and its menus); the workspace decides when the card opens and closes. Builds without Chromium, and Windows, keep the workspace's own DOM sidebar.
 
 Run its focused native checks after building the wrapper:
 
