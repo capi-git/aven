@@ -230,6 +230,55 @@ describe("turn boundaries", () => {
   });
 });
 
+describe("a connection lost mid-response", () => {
+  const lost = {
+    type: "assistant",
+    error: "server_error",
+    isApiErrorMessage: true,
+    message: {
+      model: "<synthetic>",
+      stop_reason: "tool_use",
+      content: [{ type: "text", text: "API Error: Connection lost" }],
+    },
+    session_id: "sess_1",
+  };
+  const done = { type: "result", subtype: "success", session_id: "sess_1" };
+
+  it("is no error when Claude carries on", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit(lost);
+    emit({
+      type: "assistant",
+      message: { id: "m2", content: [{ type: "text", text: "Done" }] },
+      session_id: "sess_1",
+    });
+    emit(done);
+    await turn;
+    expect(events.some((event) => event.type === "session.error")).toBe(false);
+  });
+
+  it("is reported when nothing follows", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit(lost);
+    emit(done);
+    await turn;
+    expect(events.filter((event) => event.type === "session.error")).toEqual([
+      { type: "session.error", message: "API Error: Connection lost" },
+    ]);
+  });
+
+  it("still reports an error Claude can't carry on from at once", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      ...lost,
+      message: { ...lost.message, stop_reason: "stop_sequence" },
+    });
+    expect(events.some((event) => event.type === "session.error")).toBe(true);
+    emit(done);
+    await turn;
+  });
+});
+
 describe("claude interrupted turns", () => {
   it.each(["aborted_tools", "aborted_streaming"])(
     "reports %s once and settles without killing the conversation",

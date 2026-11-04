@@ -684,6 +684,14 @@ export function assistantErrorFromMessage(
   return "Claude API request failed.";
 }
 
+/**
+ * An API error on a message that had already asked for a tool. Claude runs the
+ * tool and carries on, so it's only a failure if nothing follows.
+ */
+export function assistantErrorCarriesOn(rec: Record<string, unknown>): boolean {
+  return stringField(asRecord(rec.message), "stop_reason") === "tool_use";
+}
+
 export function streamDeltaFromEvent(
   rec: Record<string, unknown>,
 ): { kind: "assistant" | "reasoning"; text: string } | null {
