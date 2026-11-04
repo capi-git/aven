@@ -977,8 +977,7 @@ html.has-sidebar-tint .personal-shell .personal-sidebar.personal-navigation {
 }
 
 /* The hover sidebar floats: a rounded card with room around it, under the top
-   row so the window's own buttons stay clear of it. Native pages can't be
-   blurred from the overlay, so its fill is the mock's colour rather than glass. */
+   row so the window's own buttons stay clear of it. */
 /* Written to outrank the theme's rule that gives a floating sidebar its window's
    square edge (macos-theme.css), in dark and light alike. */
 html
@@ -1001,7 +1000,9 @@ html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  --personal-navigation-overlay: #2f3331;
+  /* MonoCode's hover sidebar (MIT): the window's glass under a faint wash. The
+     work behind it is already cut away, so the wallpaper shows through. */
+  --personal-navigation-overlay: hsl(0 0% 92% / 0.05);
 }
 /* As in the mock: the name alone, and the usage line at the bottom; the rest of
    the footer comes up under the pointer. */
