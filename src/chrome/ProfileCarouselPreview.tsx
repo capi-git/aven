@@ -145,7 +145,6 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
   showNotes,
   showInbox,
   showAutomations,
-  showNewSession = true,
 }: {
   profile: WorkspaceProfile;
   preview?: WorkspaceProfilePreviewData;
@@ -154,7 +153,6 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
   showNotes?: boolean;
   showInbox?: boolean;
   showAutomations?: boolean;
-  showNewSession?: boolean;
 }) {
   if (snapshot)
     return <SnapshotPreview snapshot={snapshot} profileId={profile.id} />;
@@ -172,7 +170,6 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
         showNotes={showNotes}
         showInbox={showInbox}
         showAutomations={showAutomations}
-        showNewSession={showNewSession}
       />
       <div className="personal-projects-scroll min-h-0 flex-1 overflow-hidden">
         {!!preview?.standaloneTasks.length && (

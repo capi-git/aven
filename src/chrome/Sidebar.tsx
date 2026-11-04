@@ -1883,12 +1883,6 @@ function SidebarComponent({
           : undefined
       }
       homeActive={homeActive && !settingsOpen}
-      showNewSession={!settingsOpen && !!onNewStandalone}
-      startingNewSession={startingStandalone}
-      onNewSession={() => {
-        setTasksExpanded(true);
-        onNewStandalone?.();
-      }}
       showSearch={!!onSearch}
       searchActive={searchActive}
       onSearch={onSearch}
@@ -2025,7 +2019,6 @@ function SidebarComponent({
                     showNotes={notesEnabled && !!onOpenNotes}
                     showInbox={!!onOpenInbox}
                     showAutomations={!!onOpenAutomations}
-                    showNewSession={!!onNewStandalone}
                   />
                 ) : null}
               </div>
@@ -2057,7 +2050,7 @@ function SidebarComponent({
                     onOpen={onOpenDiscussion}
                   />
                 ) : null}
-                {onOpenStandalone ? (
+                {onOpenStandalone || onNewStandalone ? (
                   <section
                     className="personal-standalone-group"
                     aria-label="Chats without a project"
@@ -2069,11 +2062,23 @@ function SidebarComponent({
                         title="Chats that aren't in a project"
                         onClick={() => {
                           setTasksExpanded(true);
-                          onOpenStandalone();
+                          onOpenStandalone?.();
                         }}
                       >
                         Chats
                       </button>
+                      {onNewStandalone ? (
+                        <SessionsHeaderButton
+                          label="New chat without a project"
+                          onClick={() => {
+                            if (startingStandalone) return;
+                            setTasksExpanded(true);
+                            onNewStandalone();
+                          }}
+                        >
+                          <Plus className="size-3" />
+                        </SessionsHeaderButton>
+                      ) : null}
                     </div>
                     {standaloneActive ? (
                       currentProjectTasks

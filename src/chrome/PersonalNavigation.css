@@ -992,11 +992,9 @@ html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  --personal-navigation-overlay: color-mix(
-    in srgb,
-    var(--color-content) 8%,
-    color-mix(in srgb, #0d0d0d 62%, transparent)
-  );
+  /* Lighter than the frame around it, so it reads as floating. */
+  --personal-navigation-overlay: color-mix(in srgb, #3b3e3c 82%, transparent);
+  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
 }
 
 /* The footer, as MonoCode's: arrows either side of one wide pill holding the
@@ -1052,4 +1050,25 @@ html.is-mac.has-native-glass:not(.theme-light)
   ) {
   width: 22px;
   opacity: 1;
+}
+
+/* The workspace's row reads as one button: one fill across the row on hover,
+   with the menu's chevron inside it and no fill of its own. */
+.personal-shell .personal-profile-header {
+  border-radius: var(--aven-radius-row);
+}
+.personal-shell .personal-profile-header:hover {
+  background: var(--personal-hover);
+}
+.personal-shell .personal-profile-header .personal-profile-name {
+  flex: 1 1 auto;
+}
+.personal-shell
+  .personal-navigation
+  .personal-profile-header
+  :is(.personal-profile-name, .personal-profile-picker):is(
+    :hover,
+    [aria-expanded="true"]
+  ):not(:disabled) {
+  background: transparent;
 }

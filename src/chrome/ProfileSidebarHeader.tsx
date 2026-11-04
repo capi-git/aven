@@ -5,7 +5,6 @@ import {
   ChevronDown,
   Clock,
   Inbox,
-  Plus,
   Search,
   StickyNote,
   type IconComponent,
@@ -25,10 +24,6 @@ type Props = {
   /** The workspace's row opens its Home. */
   onOpenHome?: () => void;
   homeActive?: boolean;
-  /** New chat without a project, beside the workspace's name. */
-  showNewSession?: boolean;
-  startingNewSession?: boolean;
-  onNewSession?: () => void;
   showSearch?: boolean;
   searchActive?: boolean;
   onSearch?: () => void;
@@ -58,8 +53,8 @@ type Tile = {
 };
 
 /**
- * The top of the sidebar: the workspace's row (its Home, with its menu and
- * New chat beside it), Search as a field, then Notes, Inbox and Automations
+ * The top of the sidebar: the workspace's row (its Home, with its menu's
+ * chevron inside it, reading as one button), Search as a field, then Notes, Inbox and Automations
  * as a row of pinned tiles, as Arc pins its favourites. Live and preview
  * pages share geometry; previews never own focus or actions.
  */
@@ -71,9 +66,6 @@ export function ProfileSidebarHeader({
   onWorkspaceMenu,
   onOpenHome,
   homeActive = false,
-  showNewSession,
-  startingNewSession = false,
-  onNewSession,
   showSearch,
   searchActive,
   onSearch,
@@ -224,24 +216,6 @@ export function ProfileSidebarHeader({
             <ChevronDown className="size-3" />
           </button>
         )}
-        {showNewSession ? (
-          preview ? (
-            <span className="personal-profile-new">
-              <Plus className="size-4" />
-            </span>
-          ) : (
-            <button
-              type="button"
-              className="personal-profile-new"
-              aria-label="New chat without a project"
-              title={startingNewSession ? "Starting…" : "New chat"}
-              disabled={startingNewSession}
-              onClick={onNewSession}
-            >
-              <Plus className="size-4" />
-            </button>
-          )
-        ) : null}
       </div>
       {showSearch ? (
         preview ? (

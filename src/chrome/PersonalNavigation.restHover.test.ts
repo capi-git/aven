@@ -219,16 +219,9 @@ describe("one grid for every sidebar row", () => {
   });
 
   it("ends the last glyph on the right 8px short of the column, under Search's keys", () => {
-    // Search's keys end at its 8px padding. The workspace row's + (16px in a
-    // 28px button) stands 2px in; a project row's last action (a 12px
+    // Search's keys end at its 8px padding; a project row's last action (a 12px
     // chevron in 24px) has 2px of row padding after it; its status ends at
     // the name button's 6px; a chat row's time at 7px plus its border.
-    expect(
-      ruleFor(nav, ".personal-shell .personal-profile-new").get("margin-right"),
-    ).toBe("2px");
-    expect(
-      ruleFor(nav, ".personal-shell .personal-profile-new").get("width"),
-    ).toBe("28px");
     expect(ruleFor(nav, `${ROW} .personal-project-row`).get("padding")).toBe(
       "0 2px 0 0",
     );
@@ -306,22 +299,13 @@ describe("the pinned tiles", () => {
 });
 
 describe("the workspace row and section headings", () => {
-  it("keeps New chat at rest and shows the workspace menu's chevron on hover or focus", () => {
+  it("is one button across the sidebar", () => {
     expect(
-      ruleFor(nav, ".personal-shell .personal-profile-picker").get("opacity"),
-    ).toBe("0");
-    const shown = nav.find((rule) =>
-      rule.selectors.some(
-        (selector) =>
-          selector.includes(
-            ".personal-profile-header:is(:hover, :focus-within)",
-          ) && selector.endsWith(".personal-profile-picker"),
-      ),
-    );
-    expect(shown?.body.get("opacity")).toBe("1");
-    expect(
-      ruleFor(nav, ".personal-shell .personal-profile-new").has("opacity"),
-    ).toBe(false);
+      ruleFor(
+        nav,
+        ".personal-shell .personal-profile-header .personal-profile-name",
+      ).get("flex"),
+    ).toBe("1 1 auto");
   });
 
   it("keeps the section headings quiet, their buttons on hover or focus", () => {
