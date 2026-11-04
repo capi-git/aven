@@ -707,6 +707,52 @@ export async function runDevPerf(
         await dropOnRightEdge(measure, slot);
         await pause(1_000);
       });
+      // With a live page in front: what the page's presentation adds, and what
+      // it costs to take a picture of the page before something covers it.
+      await scenario("sidebar over a web page", async (measure) => {
+        pressShortcut("9");
+        await pause(800);
+        for (let index = 0; index < 12; index += 1) {
+          const before = get().sidebarOpen;
+          await measure.time(
+            () => pressShortcut("b"),
+            () => get().sidebarOpen !== before,
+          );
+          await pause(200);
+        }
+      });
+      await scenario("Settings over a web page", async (measure) => {
+        const settingsShown = () =>
+          document.querySelector("[data-app-settings]");
+        for (let index = 0; index < 6; index += 1) {
+          await measure.time(() => pressShortcut(","), settingsShown);
+          await pause(150);
+          await measure.time(
+            () => pressShortcut("w"),
+            () => !settingsShown(),
+          );
+          await pause(150);
+        }
+      });
+      await scenario("a dialog over a web page", async (measure) => {
+        const dialog = () => document.querySelector('[aria-modal="true"]');
+        for (let index = 0; index < 6; index += 1) {
+          await measure.time(() => pressShortcut("k"), dialog);
+          await pause(250);
+          await measure.time(
+            () => {
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+              );
+              (document.activeElement ?? document.body).dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+              );
+            },
+            () => !dialog(),
+          );
+          await pause(250);
+        }
+      });
       // Every change a chat makes beside a page reaches the page's watchers.
       await scenario("agent streaming beside a web page", async () => {
         const beside = chatIds[0];
