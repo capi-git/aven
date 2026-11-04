@@ -12,6 +12,7 @@ import {
 import {
   asRecord,
   askUserQuestionAllowInput,
+  assistantErrorCarriesOn,
   assistantErrorFromMessage,
   assistantTextBlocks,
   assistantToolUses,
@@ -145,6 +146,7 @@ type Live = {
   /** Ends the turn if a result arrived but the echo never does. */
   echoFallback: ReturnType<typeof setTimeout> | null;
   apiErrorReported: boolean;
+  heldApiError: string | null;
   retired: boolean;
   cancelled: boolean;
   muteUpdates: boolean;
@@ -516,6 +518,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     awaitingEcho: null,
     echoFallback: null,
     apiErrorReported: false,
+    heldApiError: null,
     retired: false,
     cancelled: false,
     muteUpdates: false,
@@ -644,6 +647,7 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   live.awaitingEcho = input.text.trim().startsWith("/") ? null : uuid;
   clearEchoFallback(live);
   live.apiErrorReported = false;
+  live.heldApiError = null;
 
   const turnPromise = new Promise<void>((resolve, reject) => {
     live.turnDone = resolve;
@@ -878,6 +882,12 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   // Claude can report API failures as synthetic assistant messages, even when
   // the final result does not carry the readable provider error.
   const providerError = assistantErrorFromMessage(rec);
+  if (providerError && assistantErrorCarriesOn(rec)) {
+    live.heldApiError = providerError;
+    return;
+  }
+  // Claude got through after all.
+  live.heldApiError = null;
   if (providerError) {
     if (!live.cancelled) {
       live.apiErrorReported = true;
@@ -1027,6 +1037,12 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
     if (context) live.onEvent({ type: "context", ...context });
   }
 
+  // The error Claude meant to carry on from, with nothing after it.
+  if (live.heldApiError && !live.cancelled && !live.apiErrorReported) {
+    live.apiErrorReported = true;
+    live.onEvent({ type: "session.error", message: live.heldApiError });
+  }
+  live.heldApiError = null;
   const result = turnStatusFromResult(rec);
   if (
     result.status === "failed" &&
