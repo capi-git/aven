@@ -206,7 +206,7 @@ function expectOneActiveBody() {
   ).toHaveLength(1);
   expect(accessible("[data-live-project]")).toHaveLength(1);
   expect(accessible(".personal-profile-header")).toHaveLength(1);
-  expect(accessible(".personal-profile-picker")).toHaveLength(1);
+  expect(accessible(".personal-profile-name")).toHaveLength(1);
   const ids = [...container.querySelectorAll("[id]")].map((node) => node.id);
   expect(new Set(ids).size).toBe(ids.length);
 }

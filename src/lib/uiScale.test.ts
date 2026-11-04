@@ -51,11 +51,12 @@ describe("ui scale", () => {
       document.documentElement.style.getPropertyValue("--aven-titlebar-scale"),
     ).toBe("0.5");
 
-    await applyUiScale(UI_SCALE_DEFAULT);
+    await applyUiScale(1);
     expect(document.documentElement.style.getPropertyValue("zoom")).toBe("1");
     expect(
       document.documentElement.style.getPropertyValue("--aven-titlebar-scale"),
     ).toBe("1");
+    expect(UI_SCALE_DEFAULT).toBe(0.9);
   });
 
   it("clamps to the supported range and rounds to one decimal", () => {

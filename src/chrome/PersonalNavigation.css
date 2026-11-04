@@ -68,7 +68,6 @@
   border-radius: var(--aven-radius-row);
   background: var(--personal-selected);
 }
-.personal-shell .personal-profile-picker,
 .personal-shell .personal-profile-new {
   display: grid;
   place-items: center;
@@ -77,14 +76,18 @@
   border-radius: var(--aven-radius-sm);
   color: var(--personal-muted);
 }
-.personal-shell .personal-profile-picker {
-  width: 20px;
+/* One button: the name, and its chevron under the pointer. */
+.personal-shell .personal-profile-chevron {
+  margin-left: -4px;
+  color: var(--personal-muted);
   opacity: 0;
 }
 .personal-shell
-  .personal-profile-header:is(:hover, :focus-within)
-  .personal-profile-picker,
-.personal-shell .personal-profile-picker[aria-expanded="true"] {
+  .personal-profile-name:is(:hover, :focus-visible)
+  .personal-profile-chevron,
+.personal-shell
+  .personal-profile-name[aria-expanded="true"]
+  .personal-profile-chevron {
   opacity: 1;
 }
 .personal-shell .personal-profile-new {
@@ -97,11 +100,10 @@
 }
 .personal-shell
   .personal-navigation
-  :is(
-    .personal-profile-name,
-    .personal-profile-picker,
-    .personal-profile-new
-  ):is(:hover, [aria-expanded="true"]):not(:disabled) {
+  :is(.personal-profile-name, .personal-profile-new):is(
+    :hover,
+    [aria-expanded="true"]
+  ):not(:disabled) {
   background: var(--personal-hover);
   color: var(--color-content);
 }
@@ -1003,17 +1005,21 @@ html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  /* The pinned sidebar's colour, as see-through as the Glass slider says. Words
-     behind can't bleed through: the native frost (floating_sidebar.mm) blurs
-     them, and it doesn't drop out on repaint as a CSS blur does. */
+  /* Native code cuts the work away under the card, leaving the window's own
+     glass (floating_sidebar.mm). Paint it as the frame is (personal-shell.css),
+     so it matches a pinned sidebar. */
   --personal-navigation-overlay:
     var(--aven-tone),
     linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05)),
-    color-mix(
-      in srgb,
-      #050505 calc(56% + var(--sidebar-opacity, 1) * 44%),
-      transparent
-    );
+    color-mix(in srgb, #0d0d0d 62%, transparent);
+}
+html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
+  .personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  > .personal-sidebar.sidebar-glass.personal-navigation {
+  --personal-navigation-overlay:
+    var(--aven-tone),
+    linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05));
 }
 /* As in the mock: the name alone. */
 .personal-shell

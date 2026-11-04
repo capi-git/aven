@@ -26,7 +26,6 @@ afterEach(async () => {
 
 const everything = (patch: Partial<Props> = {}): Props => ({
   profile: DEFAULT_WORKSPACE_PROFILES[0],
-  onOpenHome: vi.fn(),
   onMenuChange: vi.fn(),
   showNewSession: true,
   onNewSession: vi.fn(),
@@ -45,38 +44,30 @@ const render = (props: Props) =>
   act(async () => root.render(createElement(ProfileSidebarHeader, props)));
 
 describe("the workspace row", () => {
-  it("opens Home from the name, the workspace menu from its chevron and a new chat from +", async () => {
+  it("opens the workspace menu from one button, and a new chat from +", async () => {
     const props = everything({ homeActive: true });
     await render(props);
     const header = host.querySelector(".personal-profile-header")!;
-    const [home, picker, add] = [
-      ...header.querySelectorAll<HTMLButtonElement>("button"),
-    ];
-    expect(home.getAttribute("aria-label")).toBe("Home, Personal workspace");
-    expect(home.textContent).toBe("Personal");
-    expect(home.getAttribute("aria-current")).toBe("page");
-    expect(picker.getAttribute("aria-label")).toBe(
-      "Switch workspace, Personal",
-    );
-    expect(picker.getAttribute("aria-haspopup")).toBe("menu");
+    const buttons = [...header.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons).toHaveLength(2);
+    const [menu, add] = buttons;
+    expect(menu.getAttribute("aria-label")).toBe("Switch workspace, Personal");
+    expect(menu.textContent).toBe("Personal");
+    expect(menu.getAttribute("aria-current")).toBe("page");
+    expect(menu.getAttribute("aria-haspopup")).toBe("menu");
     expect(add.getAttribute("aria-label")).toBe("New chat without a project");
     expect(add.title).toBe("New chat");
 
-    await act(async () => home.click());
-    expect(props.onOpenHome).toHaveBeenCalledOnce();
-    await act(async () => picker.click());
-    expect(props.onMenuChange).toHaveBeenCalledWith(picker);
+    await act(async () => menu.click());
+    expect(props.onMenuChange).toHaveBeenCalledWith(menu);
     await act(async () => add.click());
     expect(props.onNewSession).toHaveBeenCalledOnce();
-
-    // The menu also opens from the name with the arrow keys, anchored on the
-    // chevron, as a menu button's would.
     await act(async () => {
-      home.dispatchEvent(
+      menu.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
       );
     });
-    expect(props.onMenuChange).toHaveBeenLastCalledWith(picker);
+    expect(props.onMenuChange).toHaveBeenLastCalledWith(menu);
   });
 
   it("marks Home only while it is on screen and holds New chat while one starts", async () => {
@@ -90,25 +81,24 @@ describe("the workspace row", () => {
     expect(add.title).toBe("Starting…");
   });
 
-  it("opens the workspace's actions on right-click of its name or chevron", async () => {
+  it("opens the workspace's actions on right-click", async () => {
     const onWorkspaceMenu = vi.fn();
     const props = everything({ onWorkspaceMenu });
     await render(props);
-    for (const target of host.querySelectorAll<HTMLButtonElement>(
-      ".personal-profile-name, .personal-profile-picker",
-    )) {
-      await act(async () => {
-        target.dispatchEvent(
-          new MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            clientX: 12,
-            clientY: 34,
-          }),
-        );
-      });
-    }
-    expect(onWorkspaceMenu).toHaveBeenCalledTimes(2);
+    const target = host.querySelector<HTMLButtonElement>(
+      ".personal-profile-name",
+    )!;
+    await act(async () => {
+      target.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 12,
+          clientY: 34,
+        }),
+      );
+    });
+    expect(onWorkspaceMenu).toHaveBeenCalledTimes(1);
     expect(onWorkspaceMenu).toHaveBeenCalledWith(12, 34);
   });
 });
@@ -215,7 +205,6 @@ describe("Search and the pinned tiles", () => {
         (button) => button.getAttribute("aria-label") ?? button.textContent,
       ),
     ).toEqual([
-      "Home, Personal workspace",
       "Switch workspace, Personal",
       "New chat without a project",
       "Search",

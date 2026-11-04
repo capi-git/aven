@@ -1873,15 +1873,6 @@ function SidebarComponent({
           ? (x, y) => openWorkspaceMenu(activeProfile, x, y)
           : undefined
       }
-      onOpenHome={
-        onOpenHome
-          ? () => {
-              // Home sits under Settings, so leave Settings for it.
-              if (settingsOpen) onCloseSettings?.();
-              onOpenHome();
-            }
-          : undefined
-      }
       homeActive={homeActive && !settingsOpen}
       showNewSession={!settingsOpen && !!onNewStandalone}
       startingNewSession={startingStandalone}
@@ -1964,7 +1955,16 @@ function SidebarComponent({
           profiles={profiles}
           activeProfileId={activeProfileId}
           anchor={profileMenuAnchor}
-          onSelect={selectProfile}
+          onSelect={(id) => {
+            if (id !== activeProfileId || !onOpenHome) {
+              selectProfile(id);
+              return;
+            }
+            // The workspace you're in: its Home. Home sits under Settings, so
+            // leave Settings for it.
+            if (settingsOpen) onCloseSettings?.();
+            onOpenHome();
+          }}
           onDelete={onDeleteProfile ? setDeletingProfile : undefined}
           onWorkspaceMenu={openWorkspaceMenu}
           onDismiss={() => setProfileMenuAnchor(null)}

@@ -191,11 +191,11 @@ html.theme-light .personal-shell {
 .aven-tab-close {
   position: absolute;
   top: 50%;
-  right: 4px;
+  right: 6px;
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 16px;
+  height: 16px;
   border-radius: var(--aven-radius-xs);
   color: var(--aven-label-secondary);
   opacity: 0;
@@ -421,8 +421,9 @@ html.theme-light .personal-shell {
   )
   button
   > svg.lucide:not(.size-2, .size-2\.5, .size-3) {
-  width: 16px;
-  height: 16px;
+  /* Whole screen pixels at any interface scale. */
+  width: var(--aven-icon-16);
+  height: var(--aven-icon-16);
   stroke-width: 1.5;
   shape-rendering: geometricPrecision;
 }

@@ -280,6 +280,15 @@ html:not(.is-mac) #root {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
+/* On a 1x display, antialiased text goes thin and soft. */
+@media (max-resolution: 1.24dppx) {
+  html,
+  body,
+  #root {
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
+  }
+}
 
 /* Hide scrollbar chrome throughout Aven without changing overflow, wheel,
    trackpad, touch or keyboard scrolling on the individual surfaces. */

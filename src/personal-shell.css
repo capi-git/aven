@@ -888,6 +888,18 @@ html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
 html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
   background: transparent;
 }
+/* Sizes that land on whole screen pixels at the interface scale, on a 1x
+   display too, so small icons and marks stay sharp at 80% or 90%. */
+:root {
+  --aven-icon-16: calc(
+    round(16px * var(--aven-ui-scale, 1), 1px) / var(--aven-ui-scale, 1)
+  );
+  --aven-mark-15: calc(15px / var(--aven-ui-scale, 1));
+}
+.personal-shell[data-unified-toolbar] > .workspace-status-bar {
+  --aven-ui-scale: 1;
+}
+
 /* Settings > Frame, in dark mode: a sheet over the frame around the work, and
    the hover sidebar that matches it. */
 :root {
@@ -960,8 +972,6 @@ html.has-native-glass.glass-body:not(.theme-light)
   .personal-shell[data-unified-toolbar]
   .personal-main.body-glass {
   background: color-mix(in srgb, var(--aven-inset-panel) 45%, transparent);
-  /* Its own backing surface, so repaints keep the same clip and tint. */
-  transform: translateZ(0);
 }
 html
   .personal-shell[data-unified-toolbar][data-sidebar-pinned="true"]

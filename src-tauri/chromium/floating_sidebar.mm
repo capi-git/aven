@@ -9,9 +9,11 @@
 
 #include "floating_sidebar.h"
 
-// The card floats over the workspace and live pages, which stay whole beneath
-// it. A frosted view under the transparent overlay blurs whatever passes
-// behind the card; both slide together on the springs below.
+// The card floats over the workspace and live pages. The workspace webview has
+// a hole the card's exact shape, so the card shows the window's own glass, as a
+// pinned sidebar does, and nothing behind it can show through. Live pages can't
+// be cut that way, so a frosted view blurs one that lies behind the card. All of
+// it slides together on the springs below.
 
 namespace {
 
@@ -80,8 +82,10 @@ bool Finite(std::initializer_list<double> values) {
   __weak NSView *_workspace;
   __weak NSView *_overlay;
   NSView *_slider;
-  // Frosts what lies behind the card: the work and pages stay whole beneath it.
+  // Frosts a live page behind the card; hidden otherwise.
   NSVisualEffectView *_frost;
+  // The workspace webview's mask while the card is out: everything but the card.
+  CAShapeLayer *_hole;
   id _monitor;
   NSTrackingArea *_tracking;
   // Host points, top-left origin.
@@ -118,6 +122,7 @@ bool Finite(std::initializer_list<double> values) {
   _frost.maskImage = RoundedMask(kCardRadius);
   // The slider isn't flipped: keep the card's distance from the window's top.
   _frost.autoresizingMask = NSViewMinYMargin;
+  _frost.hidden = YES;
   [_slider addSubview:_frost];
   return self;
 }
@@ -157,6 +162,7 @@ bool Finite(std::initializer_list<double> values) {
 }
 
 - (void)detach {
+  [self removeHole];
   if (_monitor) [NSEvent removeMonitor:_monitor];
   _monitor = nil;
   [self removeFromSuperview];
@@ -239,6 +245,7 @@ bool Finite(std::initializer_list<double> values) {
 
 - (void)setEdge:(NSRect)edge enabled:(BOOL)enabled {
   _edge = edge;
+  if (_workspace.layer.mask == _hole && _hole) [self layoutHole];
   if (!enabled && _open) [self setOpen:NO animated:NO];
   _enabled = enabled;
   self.hidden = !enabled;
@@ -258,6 +265,8 @@ bool Finite(std::initializer_list<double> values) {
   [CATransaction setDisableActions:YES];
   _frost.frame = NSMakeRect(NSMinX(card), NSHeight(_slider.bounds) - NSMaxY(card), NSWidth(card),
                             NSHeight(card));
+  if (_workspace.layer.mask == _hole && _hole) [self layoutHole];
+  [self updateFrost];
   [CATransaction commit];
   [self refreshPointer];
 }
@@ -302,6 +311,7 @@ bool Finite(std::initializer_list<double> values) {
     from = [[shown valueForKeyPath:@"sublayerTransform.translation.x"] doubleValue];
   }
   const double to = open ? 0 : -distance;
+  [self updateFrost];
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
   __weak AvenFloatingSidebarHost *weak = self;
@@ -315,6 +325,7 @@ bool Finite(std::initializer_list<double> values) {
   if (motion)
     [slide addAnimation:SpringAnimation(@"sublayerTransform.translation.x", spring, from, to)
                  forKey:@"slide"];
+  [self slideHoleFrom:from to:to spring:motion ? &spring : nullptr];
   [CATransaction commit];
   if (!open) [self returnFocus];
   [self refreshPointer];
@@ -327,8 +338,64 @@ bool Finite(std::initializer_list<double> values) {
   // Still on the edge: stay warm for the next reveal.
   _slider.hidden = !_pointerEdge;
   _shown = _pointerEdge;
+  [self removeHole];
   [CATransaction commit];
   [self emit:"closed" json:@"{}"];
+}
+
+// Whatever else in the window lies behind the card: a live page.
+- (void)updateFrost {
+  BOOL page = NO;
+  for (NSView *view in self.superview.subviews)
+    if (view != self && view != _workspace && !view.hidden &&
+        NSIntersectsRect(view.frame, _card))
+      page = YES;
+  _frost.hidden = !page;
+}
+
+- (void)layoutHole {
+  NSView *workspace = _workspace;
+  if (!workspace || !_hole) return;
+  const NSRect bounds = workspace.bounds;
+  const CGFloat y =
+      workspace.flipped ? NSMinY(_card) : NSHeight(bounds) - NSMaxY(_card);
+  // Wide enough to cover the view wherever the slide has moved the hole.
+  const CGFloat reach = NSWidth(bounds) + [self closedDistance];
+  CGMutablePathRef path = CGPathCreateMutable();
+  CGPathAddRect(path, nullptr,
+                CGRectMake(-reach, 0, NSWidth(bounds) + 2 * reach, NSHeight(bounds)));
+  CGPathAddRoundedRect(
+      path, nullptr, CGRectMake(NSMinX(_card), y, NSWidth(_card), NSHeight(_card)),
+      kCardRadius, kCardRadius);
+  _hole.frame = bounds;
+  _hole.path = path;
+  CGPathRelease(path);
+}
+
+// The hole moves as the card does: `from` and `to` are the card's offsets.
+- (void)slideHoleFrom:(double)from to:(double)to spring:(const Spring *)spring {
+  NSView *workspace = _workspace;
+  if (!workspace) return;
+  workspace.wantsLayer = YES;
+  if (!_hole) {
+    _hole = [CAShapeLayer layer];
+    _hole.fillRule = kCAFillRuleEvenOdd;
+    _hole.fillColor = NSColor.blackColor.CGColor;
+  }
+  workspace.layer.mask = _hole;
+  [self layoutHole];
+  const double rest = NSMidX(workspace.bounds);
+  [_hole removeAnimationForKey:@"slide"];
+  _hole.position = CGPointMake(rest + to, NSMidY(workspace.bounds));
+  if (spring)
+    [_hole addAnimation:SpringAnimation(@"position.x", *spring, rest + from, rest + to)
+                 forKey:@"slide"];
+}
+
+- (void)removeHole {
+  NSView *workspace = _workspace;
+  [_hole removeAnimationForKey:@"slide"];
+  if (workspace && workspace.layer.mask == _hole) workspace.layer.mask = nil;
 }
 
 // A closed sidebar must not keep the keyboard.
