@@ -2571,6 +2571,8 @@ function SidebarComponent({
         aria-valuemax={MAX_WIDTH}
         tabIndex={open ? 0 : -1}
         className="personal-panel-resizer personal-sidebar-divider"
+        // Dragging leaves no focus ring behind; Tab still reaches it.
+        onMouseDown={(event) => event.preventDefault()}
         data-native-hit-margin=""
         data-resizing={resize.dragging || undefined}
         onPointerDown={resize.onPointerDown}

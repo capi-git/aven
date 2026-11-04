@@ -788,6 +788,10 @@ html.theme-light.is-mac
   background: transparent;
   pointer-events: none;
 }
+/* A pinned sidebar's line ends with the work card, above the bottom row. */
+.personal-shell .personal-sidebar-divider::after {
+  bottom: 30px;
+}
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   .personal-sidebar-divider::after {
