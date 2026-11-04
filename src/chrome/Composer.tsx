@@ -2238,7 +2238,7 @@ function ComposerComponent({
           className={`relative z-10 rounded-lg border bg-content/3 ${
             fileDrag
               ? "border-content/40"
-              : "border-content/10 has-focus:border-content/20"
+              : "border-content/10 focus-within:border-content/20"
           }`}
         >
           {fileDrag ? (

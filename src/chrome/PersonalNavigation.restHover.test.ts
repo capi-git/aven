@@ -104,12 +104,16 @@ describe("project rows at rest and on hover", () => {
 
   it("shows the actions on hover, on keyboard focus anywhere in the row and while ··· is open", () => {
     const reveal = nav.find((rule) =>
-      rule.selectors.some(
-        (selector) =>
-          selector.includes(":hover") &&
-          selector.includes(":focus-within") &&
-          selector.includes('.personal-project-more[aria-expanded="true"]') &&
-          selector.endsWith(".personal-project-row-action"),
+      [
+        ":hover",
+        ":focus-within",
+        ':has(.personal-project-more[aria-expanded="true"])',
+      ].every((state) =>
+        rule.selectors.some(
+          (selector) =>
+            selector.includes(`.personal-project-row${state}`) &&
+            selector.endsWith(".personal-project-row-action"),
+        ),
       ),
     );
     expect(reveal).toBeDefined();
@@ -157,11 +161,13 @@ describe("project rows at rest and on hover", () => {
       ".personal-project-files",
       ".personal-project-memory",
     ]) {
-      const shown = rulesNaming(nav, target, ":is(:hover, :focus-within)");
-      expect(shown.length, target).toBeGreaterThan(0);
-      expect(shown.some((rule) => rule.body.get("display") !== "none")).toBe(
-        true,
-      );
+      for (const state of [":hover", ":focus-within"]) {
+        const shown = rulesNaming(nav, target, state);
+        expect(shown.length, target).toBeGreaterThan(0);
+        expect(shown.some((rule) => rule.body.get("display") !== "none")).toBe(
+          true,
+        );
+      }
     }
   });
 });
@@ -310,15 +316,16 @@ describe("the workspace row and section headings", () => {
     expect(
       ruleFor(nav, ".personal-shell .personal-profile-picker").get("opacity"),
     ).toBe("0");
-    const shown = nav.find((rule) =>
-      rule.selectors.some(
-        (selector) =>
-          selector.includes(
-            ".personal-profile-header:is(:hover, :focus-within)",
-          ) && selector.endsWith(".personal-profile-picker"),
-      ),
-    );
-    expect(shown?.body.get("opacity")).toBe("1");
+    for (const state of [":hover", ":focus-within"]) {
+      const shown = nav.find((rule) =>
+        rule.selectors.some(
+          (selector) =>
+            selector.includes(`.personal-profile-header${state}`) &&
+            selector.endsWith(".personal-profile-picker"),
+        ),
+      );
+      expect(shown?.body.get("opacity")).toBe("1");
+    }
     expect(
       ruleFor(nav, ".personal-shell .personal-profile-new").has("opacity"),
     ).toBe(false);
@@ -348,15 +355,16 @@ describe("the footer", () => {
     expect(ruleFor(nav, `${ROW} .personal-workspace-add`).get("opacity")).toBe(
       "0",
     );
-    const shown = nav.find((rule) =>
-      rule.selectors.some(
-        (selector) =>
-          selector.includes(
-            ".personal-workspace-switcher:is(:hover, :focus-within)",
-          ) && selector.endsWith(".personal-workspace-add"),
-      ),
-    );
-    expect(shown?.body.get("opacity")).toBe("1");
+    for (const state of [":hover", ":focus-within"]) {
+      const shown = nav.find((rule) =>
+        rule.selectors.some(
+          (selector) =>
+            selector.includes(`.personal-workspace-switcher${state}`) &&
+            selector.endsWith(".personal-workspace-add"),
+        ),
+      );
+      expect(shown?.body.get("opacity")).toBe("1");
+    }
     expect(ruleFor(nav, `${ROW} .personal-workspace-tool`).has("opacity")).toBe(
       false,
     );
@@ -369,11 +377,13 @@ describe("Home's project cards", () => {
     expect(ruleFor(home, ".workspace-home-agent-tools").get("opacity")).toBe(
       "0",
     );
-    const shown = ruleFor(
-      home,
-      ".workspace-home-agent:is(:hover, :focus-within) .workspace-home-agent-tools",
-    );
-    expect(shown.get("opacity")).toBe("1");
+    for (const state of [":hover", ":focus-within"]) {
+      const shown = ruleFor(
+        home,
+        `.workspace-home-agent${state} .workspace-home-agent-tools`,
+      );
+      expect(shown.get("opacity")).toBe("1");
+    }
     expect(
       ruleFor(
         home,
@@ -390,11 +400,10 @@ describe("the toolbar's strip", () => {
     expect(ruleFor(bar, `.workspace-status-bar ${extras}`).get("opacity")).toBe(
       "0",
     );
-    const shown = ruleFor(
-      bar,
-      `.workspace-status-bar:is(:hover, :focus-within) ${extras}`,
-    );
-    expect(shown.get("opacity")).toBe("1");
+    for (const state of [":hover", ":focus-within"]) {
+      const shown = ruleFor(bar, `.workspace-status-bar${state} ${extras}`);
+      expect(shown.get("opacity")).toBe("1");
+    }
     expect(
       bar.some((rule) =>
         rule.selectors.includes(

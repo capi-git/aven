@@ -433,7 +433,7 @@ html.theme-light .personal-shell {
     .workspace-footer,
     .personal-sidebar-footer
   )
-  button:not(:hover, :disabled)
+  button:not(:where(button:hover), :disabled)
   > svg.lucide {
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
@@ -1281,7 +1281,7 @@ html.theme-light .personal-shell {
 }
 .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]:hover
   .personal-tab-strip,
-[data-pane-strip]:hover > .aven-tab-strip {
+div[data-pane-strip]:hover > .aven-tab-strip {
   opacity: 1;
 }
 .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]

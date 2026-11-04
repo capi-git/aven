@@ -5,10 +5,27 @@
 
 @custom-variant dark (&:where(html:not(.theme-light), html:not(.theme-light) *));
 
-/* Tailwind's own `:is(:where(.group):focus-within *)` hides `.group` from
-   WebKit's invalidation, so every focus move rechecks the whole page. With
-   the whole group inside `:where()` WebKit keys the rule on `.group`. */
+/* Tailwind's own `:is(:where(.group):hover *)` hides `.group` from WebKit's
+   invalidation, so every hover or focus move rechecks the whole page, once
+   for each ancestor. With the whole group inside `:where()` WebKit keys the
+   rule on `.group`. A named group needs a variant of its own here. */
 @custom-variant group-focus-within (&:where(.group:focus-within *));
+@custom-variant group-focus-visible (&:where(.group:focus-visible *));
+@custom-variant group-hover {
+  @media (hover: hover) {
+    &:where(.group:hover *) {
+      @slot;
+    }
+  }
+}
+@custom-variant agent-row-focus-visible (&:where(.group\/agent:focus-visible *));
+@custom-variant agent-row-hover {
+  @media (hover: hover) {
+    &:where(.group\/agent:hover *) {
+      @slot;
+    }
+  }
+}
 
 @theme {
   /* Shared UI sizes only. Line heights remain owned by each surface and its

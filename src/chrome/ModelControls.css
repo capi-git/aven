@@ -108,12 +108,14 @@
   box-shadow: inset -1px -1px 0
     color-mix(in srgb, var(--model-effort-color) 32%, transparent);
 }
-.model-effort-option:is(:hover, :focus-visible, [data-effort-active])
-  > .model-effort-tiles {
+.model-effort-option:hover > .model-effort-tiles,
+.model-effort-option:focus-visible > .model-effort-tiles,
+.model-effort-option[data-effort-active] > .model-effort-tiles {
   animation: aven-effort-tiles-clear 5000ms linear 1 both;
 }
-.model-effort-option:is(:hover, :focus-visible, [data-effort-active])
-  .model-effort-tile-filled {
+.model-effort-option:hover .model-effort-tile-filled,
+.model-effort-option:focus-visible .model-effort-tile-filled,
+.model-effort-option[data-effort-active] .model-effort-tile-filled {
   animation: aven-effort-tile-fill 1400ms ease-out 3 both;
   animation-delay: calc(var(--tile-distance) * 420ms);
   will-change: background-color;
@@ -208,8 +210,9 @@
   .model-effort-option > .model-effort-tiles {
     transition: none;
   }
-  .model-effort-option:is(:hover, :focus-visible, [data-effort-active])
-    > .model-effort-tiles {
+  .model-effort-option:hover > .model-effort-tiles,
+  .model-effort-option:focus-visible > .model-effort-tiles,
+  .model-effort-option[data-effort-active] > .model-effort-tiles {
     animation: none;
     opacity: 0.72;
     visibility: visible;
@@ -220,8 +223,9 @@
     box-shadow: none;
     will-change: auto;
   }
-  .model-effort-option:is(:hover, :focus-visible, [data-effort-active])
-    .model-effort-tile-filled {
+  .model-effort-option:hover .model-effort-tile-filled,
+  .model-effort-option:focus-visible .model-effort-tile-filled,
+  .model-effort-option[data-effort-active] .model-effort-tile-filled {
     animation: none;
     background-color: var(--model-effort-color);
     will-change: auto;

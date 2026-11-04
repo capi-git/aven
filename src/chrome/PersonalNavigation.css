@@ -81,9 +81,8 @@
   width: 20px;
   opacity: 0;
 }
-.personal-shell
-  .personal-profile-header:is(:hover, :focus-within)
-  .personal-profile-picker,
+.personal-shell .personal-profile-header:hover .personal-profile-picker,
+.personal-shell .personal-profile-header:focus-within .personal-profile-picker,
 .personal-shell .personal-profile-picker[aria-expanded="true"] {
   opacity: 1;
 }
@@ -329,19 +328,31 @@
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(:hover, :focus-within)
+  .personal-project-row:hover
+  .personal-project-files,
+.personal-shell
+  .personal-navigation
+  .personal-project-row:focus-within
   .personal-project-files {
   display: inline;
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(:hover, :focus-within)
+  .personal-project-row:hover
+  .personal-project-files-count,
+.personal-shell
+  .personal-navigation
+  .personal-project-row:focus-within
   .personal-project-files-count {
   display: inline;
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(:hover, :focus-within)
+  .personal-project-row:hover
+  .personal-project-memory,
+.personal-shell
+  .personal-navigation
+  .personal-project-row:focus-within
   .personal-project-memory {
   display: inline-block;
 }
@@ -378,11 +389,15 @@
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(
-    :hover,
-    :focus-within,
-    :has(.personal-project-more[aria-expanded="true"])
-  )
+  .personal-project-row:hover
+  .personal-project-row-action,
+.personal-shell
+  .personal-navigation
+  .personal-project-row:focus-within
+  .personal-project-row-action,
+.personal-shell
+  .personal-navigation
+  .personal-project-row:has(.personal-project-more[aria-expanded="true"])
   .personal-project-row-action,
 .personal-shell
   .personal-navigation
@@ -572,7 +587,11 @@
 }
 .personal-shell
   .personal-navigation
-  .personal-workspace-switcher:is(:hover, :focus-within)
+  .personal-workspace-switcher:hover
+  .personal-workspace-add,
+.personal-shell
+  .personal-navigation
+  .personal-workspace-switcher:focus-within
   .personal-workspace-add,
 .personal-shell
   .personal-navigation

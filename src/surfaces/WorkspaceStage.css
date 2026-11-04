@@ -139,13 +139,10 @@ html.has-chat-background:not(.chat-background-empty-only)
   opacity: 0;
   transition: opacity var(--aven-motion-fast) ease;
 }
-.workspace-stage-header:is(
-    :hover,
-    :focus-within,
-    [data-focused="true"],
-    [data-pointed="true"]
-  )
-  .workspace-pane-minimize-controls {
+.workspace-stage-header:hover .workspace-pane-minimize-controls,
+.workspace-stage-header:focus-within .workspace-pane-minimize-controls,
+.workspace-stage-header[data-focused="true"] .workspace-pane-minimize-controls,
+.workspace-stage-header[data-pointed="true"] .workspace-pane-minimize-controls {
   opacity: 1;
 }
 .workspace-pane-toggle {

@@ -239,9 +239,16 @@
    Under the pointer or the keyboard its actions take the status's place.
    A row that needs you keeps its fix in view beside the status; its menu
    joins it then. */
-.mcp-row:not([data-pinned]):not(:hover, :focus-within, [data-open])
+.mcp-row:not([data-pinned]):not(
+    :where(.mcp-row:hover, .mcp-row:focus-within),
+    [data-open]
+  )
   .mcp-row-actions,
-.mcp-row[data-pinned]:not(:hover, :focus-within, [data-open]) .mcp-more {
+.mcp-row[data-pinned]:not(
+    :where(.mcp-row:hover, .mcp-row:focus-within),
+    [data-open]
+  )
+  .mcp-more {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -249,8 +256,9 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.mcp-row:not([data-pinned], [data-busy]):is(:hover, :focus-within, [data-open])
-  .mcp-row-status {
+.mcp-row:not([data-pinned], [data-busy]):hover .mcp-row-status,
+.mcp-row:not([data-pinned], [data-busy]):focus-within .mcp-row-status,
+.mcp-row:not([data-pinned], [data-busy])[data-open] .mcp-row-status {
   display: none;
 }
 @media (hover: none) {

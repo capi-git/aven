@@ -201,10 +201,10 @@ export function OrchestrationSidebarAgents({
                     <>
                       <HarnessIcon
                         harness={task.harness}
-                        className="size-3.5 opacity-75 group-focus-visible/agent:hidden group-hover/agent:hidden"
+                        className="size-3.5 opacity-75 agent-row-focus-visible:hidden agent-row-hover:hidden"
                       />
                       <ChevronRight
-                        className="hidden size-3 group-focus-visible/agent:block group-hover/agent:block"
+                        className="hidden size-3 agent-row-focus-visible:block agent-row-hover:block"
                         strokeWidth={1.75}
                       />
                     </>

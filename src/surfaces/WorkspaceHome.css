@@ -676,7 +676,8 @@ html.has-chat-background .workspace-home::before {
   transition: opacity 120ms ease;
 }
 
-.workspace-home-agent:is(:hover, :focus-within) .workspace-home-agent-tools,
+.workspace-home-agent:hover .workspace-home-agent-tools,
+.workspace-home-agent:focus-within .workspace-home-agent-tools,
 .workspace-home-agent-tools:has([aria-expanded="true"]) {
   opacity: 1;
 }
