@@ -23,6 +23,7 @@ import {
   clientRectScale,
   effectiveCssZoom,
   suppressTextSelection,
+  setDragCursor,
 } from "../lib/drag";
 import {
   defaultPaneMinimum,
@@ -1680,8 +1681,7 @@ export function WorkspaceStage({
     handle.focus({ preventScroll: true });
     handle.setPointerCapture(pointerId);
     const restoreSelection = suppressTextSelection();
-    const previousCursor = document.body.style.cursor;
-    document.body.style.cursor = horizontal ? "col-resize" : "row-resize";
+    setDragCursor(horizontal ? "col-resize" : "row-resize");
     container.dataset.resizing = "true";
     let offset = startOffset;
     let drawnRails = railedLeafIds(tree).join("\0");
@@ -1782,7 +1782,7 @@ export function WorkspaceStage({
         /* Already released. */
       }
       restoreSelection();
-      document.body.style.cursor = previousCursor;
+      setDragCursor(null);
       delete container.dataset.resizing;
       dragDraft.current = null;
       setDraftRails(null);

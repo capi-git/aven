@@ -13,6 +13,7 @@ import {
   effectiveCssZoom,
   setGrabbing,
   suppressTextSelection,
+  setDragCursor,
 } from "../lib/drag";
 import { paneDropFromPoint, useExternalPaneDrop } from "../lib/paneDrop";
 import type { ApprovalDecision, UserQuestionReply } from "../lib/harness";
@@ -595,8 +596,7 @@ function Sash({
             height: box.height * toViewport,
           };
           const restoreSelection = suppressTextSelection();
-          const previousCursor = document.body.style.cursor;
-          document.body.style.cursor = row ? "col-resize" : "row-resize";
+          setDragCursor(row ? "col-resize" : "row-resize");
           const origin = row
             ? rect.left + group.x * rect.width
             : rect.top + group.y * rect.height;
@@ -640,7 +640,7 @@ function Sash({
             handle.removeEventListener("pointercancel", cancel);
             window.removeEventListener("keydown", keydown);
             restoreSelection();
-            document.body.style.cursor = previousCursor;
+            setDragCursor(null);
             if (!moved) return;
             if (commit) onCommit(nextBoundary);
             else onCancel();

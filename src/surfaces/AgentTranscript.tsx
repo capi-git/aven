@@ -82,6 +82,7 @@ import {
 } from "../lib/session";
 import { holdUpAt, type SessionHoldUp } from "../lib/sessionHoldUp";
 import { HarnessIcon } from "../chrome/HarnessIcon";
+import { useNarrowMark } from "../hooks/useNarrow";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
 import {
@@ -148,6 +149,8 @@ import {
   type WorkFold,
 } from "./transcriptActivity";
 
+/** Below this the chat tightens its spacing and the bubbles their inset. */
+const TRANSCRIPT_NARROW_PX = 480;
 const NEAR_BOTTOM_PX = 16;
 /** How long a trackpad gesture with no direction yet holds the bottom pin. */
 const WHEEL_HOLD_MS = 150;
@@ -278,6 +281,7 @@ function AgentTranscriptComponent({
   // Set when the tab is shown; the ResizeObserver settles it after layout.
   const openedPending = useRef(false);
   const [scrollerEl, setScrollerEl] = useState<HTMLDivElement | null>(null);
+  useNarrowMark(scrollerEl, TRANSCRIPT_NARROW_PX);
   const [visibleTurnCount, setVisibleTurnCount] = useState(INITIAL_TURNS);
   // Turns whose folded work the reader has opened, by turn id.
   const [openWork, setOpenWork] = useState<Record<string, boolean>>({});

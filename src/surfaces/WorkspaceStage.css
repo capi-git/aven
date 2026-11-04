@@ -5,9 +5,8 @@
   --aven-drop-wash: color-mix(in srgb, var(--color-content) 6%, transparent);
 }
 .workspace-stage {
-  /* Wallpaper coordinates follow this workspace, including nested splits.
-     Container units resize with the window without layout observers. */
-  container-type: size;
+  /* What a size container also does, for what lays out inside it. */
+  contain: layout size style;
   position: relative;
   flex: 1;
   width: 100%;
@@ -15,6 +14,14 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Wallpaper coordinates follow this workspace, including nested splits:
+   container units resize with the window without layout observers. Only with a
+   wallpaper, as WebKit rechecks everything under a size container each time it
+   changes size, about 4 ms per open chat on every frame of a sidebar drag. */
+html.has-chat-background .workspace-stage {
+  container-type: size;
 }
 
 /* The chat background is painted once behind every pane, tab row, border
@@ -328,10 +335,9 @@ html.has-chat-background:not(.chat-background-empty-only)
   touch-action: none;
   outline: none;
 }
-/* A seam, as in Cydonia: a hairline in a 9px target. Pointing at it or
-   dragging it thickens the line to 2px in the muted text colour; keyboard
-   focus shows the focus ring's colour. Beside a native page the target is
-   kept clear of the page (data-native-hit-margin, browserHitMargins.ts). */
+/* A faint line in a 9px target: pointing at it or dragging changes only the
+   cursor. Beside a native page the target is kept clear of the page
+   (data-native-hit-margin, browserHitMargins.ts). */
 .workspace-stage-sash[data-direction="right"] {
   width: 9px;
   transform: translateX(-50%);
@@ -365,24 +371,22 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: calc(50% - var(--aven-hairline) / 2);
   height: var(--aven-hairline);
 }
-.workspace-stage-sash:is(:hover, :active)::after,
-.workspace-stage[data-resizing="true"] .workspace-stage-sash:focus::after {
-  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
-}
-.workspace-stage-sash:focus-visible::after {
+/* Pointed at or dragged, only the cursor changes. Keyboard focus shows a line
+   in the focus ring's colour, as nothing else shows where the focus is. A drag
+   focuses the divider too, so it is left out. */
+.workspace-stage:not([data-resizing="true"])
+  .workspace-stage-sash:focus-visible:not(:active)::after {
   background: var(--aven-focus-ring, var(--color-accent));
 }
-.workspace-stage-sash[data-direction="right"]:is(
-    :hover,
-    :focus-visible,
+.workspace-stage:not([data-resizing="true"])
+  .workspace-stage-sash[data-direction="right"]:focus-visible:not(
     :active
   )::after {
   left: calc(50% - 1px);
   width: 2px;
 }
-.workspace-stage-sash[data-direction="down"]:is(
-    :hover,
-    :focus-visible,
+.workspace-stage:not([data-resizing="true"])
+  .workspace-stage-sash[data-direction="down"]:focus-visible:not(
     :active
   )::after {
   top: calc(50% - 1px);
@@ -394,22 +398,6 @@ html.has-chat-background:not(.chat-background-empty-only)
 }
 .aven-pane-drop-line {
   background: var(--aven-drop-line);
-}
-/* A split inside a tab has the same seam: a hairline in a 9px target that
-   thickens to 2px in the muted text colour while pointed at or dragged. */
-.aven-pane-seam {
-  transition:
-    background-color var(--aven-motion-fast) ease,
-    box-shadow var(--aven-motion-fast) ease;
-}
-.aven-pane-seam:is(:hover, :active) {
-  --aven-seam-used: color-mix(
-    in srgb,
-    var(--aven-label-secondary) 45%,
-    transparent
-  );
-  background: var(--aven-seam-used);
-  box-shadow: 0 0 0 0.5px var(--aven-seam-used);
 }
 /* Where a drop lands in the target pane's body: half of it, or all of it to
    stack, inset 4px. Drop feedback is neutral grey, never a colour: a line in
@@ -460,28 +448,20 @@ html.has-chat-background:not(.chat-background-empty-only)
   pointer-events: none;
 }
 
-/* Between panes at rest, a very faint whole-pixel line says they are split; it
-   strengthens as you point at it or drag it. */
-.workspace-stage-sash:not(:hover, :active, :focus-visible)::after {
+/* Between panes, a very faint whole-pixel line says they are split. It stays
+   the same while you point at it or drag it. */
+.workspace-stage-sash::after {
   background: color-mix(in srgb, var(--color-content) 9%, transparent);
 }
-.workspace-stage-sash[data-direction="right"]:not(
-    :hover,
-    :active,
-    :focus-visible
-  )::after {
+.workspace-stage-sash[data-direction="right"]::after {
   left: calc(50% - 0.5px);
   width: 1px;
 }
-.workspace-stage-sash[data-direction="down"]:not(
-    :hover,
-    :active,
-    :focus-visible
-  )::after {
+.workspace-stage-sash[data-direction="down"]::after {
   top: calc(50% - 0.5px);
   height: 1px;
 }
-.aven-pane-seam:not(:hover, :active) {
+.aven-pane-seam {
   background: color-mix(in srgb, var(--color-content) 9%, transparent);
 }
 

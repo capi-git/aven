@@ -8,7 +8,7 @@ import {
 import { ChevronDown, ChevronRight, GitBranch } from "./icons";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useGitHistory } from "../hooks/useGitHistory";
-import { suppressTextSelection } from "../lib/drag";
+import { setDragCursor, suppressTextSelection } from "../lib/drag";
 import type { GitHistoryCommit } from "../lib/fs";
 import { shortTimeAgo } from "../lib/gitChangesView";
 import {
@@ -366,8 +366,7 @@ export function GraphResizeSash({
     drag.current = { start: event.clientY, size: paintedRef.current };
     setDragging(true);
     const restoreSelection = suppressTextSelection();
-    const previousCursor = document.body.style.cursor;
-    document.body.style.cursor = "row-resize";
+    setDragCursor("row-resize");
     document.documentElement.classList.add("is-resizing");
 
     const onMove = (ev: PointerEvent) => {
@@ -382,7 +381,7 @@ export function GraphResizeSash({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
       restoreSelection();
-      document.body.style.cursor = previousCursor;
+      setDragCursor(null);
       document.documentElement.classList.remove("is-resizing");
       setDragging(false);
       drag.current = null;

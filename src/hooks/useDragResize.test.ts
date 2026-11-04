@@ -16,6 +16,7 @@ describe("pane resize lifecycle", () => {
   let container: HTMLDivElement;
   let root: Root;
   let onCommit: Mock<(width: number) => void>;
+  let onLiveWidth: Mock<(width: number) => void>;
   let renders: Mock<() => void>;
   let frames: Map<number, FrameRequestCallback>;
   let nextFrame: number;
@@ -38,6 +39,7 @@ describe("pane resize lifecycle", () => {
       defaultWidth: 280,
       initial,
       onCommit,
+      onLiveWidth,
     });
     return createElement(
       "aside",
@@ -89,6 +91,7 @@ describe("pane resize lifecycle", () => {
       () => {},
     );
     onCommit = vi.fn();
+    onLiveWidth = vi.fn();
     renders = vi.fn();
     container = document.createElement("div");
     document.body.append(container);
@@ -103,6 +106,19 @@ describe("pane resize lifecycle", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("reports each width as it is applied, before the drag commits", async () => {
+    await act(async () => root.render(createElement(Pane)));
+    start();
+    onLiveWidth.mockClear();
+    const before = renders.mock.calls.length;
+    act(() => handle().dispatchEvent(pointer("pointermove", 430)));
+    flushFrame();
+    expect(onLiveWidth).toHaveBeenLastCalledWith(310);
+    expect(width()).toBe("310px");
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(renders.mock.calls.length).toBe(before);
   });
 
   it.each(["left", "right"] as const)(

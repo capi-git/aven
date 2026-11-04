@@ -1,3 +1,4 @@
+import { setTopRowNavigation } from "../lib/dockedSidebarWidth";
 import {
   memo,
   useEffect,
@@ -251,6 +252,7 @@ export function WorkspaceNavigation({
 
   return (
     <div
+      ref={setTopRowNavigation}
       className="workspace-navigation"
       data-compact={compact || undefined}
       data-tauri-drag-region="false"
