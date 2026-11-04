@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 const board = readFileSync("src/surfaces/WorkBoard.css", "utf8");
 const crew = readFileSync("src/surfaces/CrewBoard.css", "utf8");
 const team = readFileSync("src/surfaces/TeamScreen.css", "utf8");
+const teamScreen = readFileSync("src/surfaces/TeamScreen.tsx", "utf8");
 
 function rule(css: string, selector: string, from = 0): string {
   const at = css.indexOf(`${selector} {`, from);
@@ -56,9 +57,10 @@ describe("the Board's columns scroll on their own", () => {
 
 describe("a team's Board", () => {
   it("gets more of the pane than the other tabs", () => {
-    expect(rule(team, '.team-screen[data-team-view="board"]')).toContain(
-      "grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);",
+    expect(rule(team, ".team-screen")).toContain(
+      "grid-template-columns: minmax(0, 1fr) auto;",
     );
+    expect(teamScreen).toContain("board ? Math.round(available() * 0.6) : 380");
   });
 });
 
