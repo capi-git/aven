@@ -218,7 +218,7 @@ describe("browser workspace presentation lifecycle", () => {
     await act(async () => {
       pane.style.setProperty("left", "10%");
       pane.style.setProperty("width", "40%");
-      pane.style.setProperty("--workspace-background-left", "-10cqw");
+      pane.style.setProperty("--surface-background-left", "-10cqw");
     });
     expect(search).toHaveBeenCalledOnce();
     pane.remove();

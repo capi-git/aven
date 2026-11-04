@@ -149,6 +149,9 @@ describe("query containers around a lot of content", () => {
   // A query container restyles everything inside it when its size changes:
   // 20 ms per sidebar toggle around the stage and a chat in the speed test.
   it("keeps a chat from being one, and the stage unless a wallpaper needs it", () => {
+    expect(readFileSync("src/surfaces/SessionPane.tsx", "utf8")).not.toMatch(
+      /["` ]@container[ "`]/,
+    );
     const transcript = readFileSync("src/surfaces/AgentTranscript.css", "utf8");
     expect(transcript).not.toMatch(
       /\.agent-transcript \{[^}]*\bcontainer(-type)?:/,
@@ -166,6 +169,27 @@ describe("query containers around a lot of content", () => {
 
 describe("properties that change with a chat's size", () => {
   // An inherited property restyles everything beneath it: 44 ms in a long chat.
+  it("passes a pane's wallpaper position down only under a wallpaper", () => {
+    const stage = readFileSync("src/surfaces/WorkspaceStage.css", "utf8");
+    for (const name of [
+      "--surface-background-left",
+      "--surface-background-top",
+      "--workspace-background-header-offset",
+    ])
+      expect(stage).toMatch(
+        new RegExp(`@property ${name} \\{[^}]*inherits: false;`),
+      );
+    const tsx = readFileSync("src/surfaces/WorkspaceStage.tsx", "utf8");
+    expect(tsx).not.toContain('"--workspace-background-left"');
+    expect(tsx).not.toContain('"--workspace-background-top"');
+  });
+
+  it("keeps the sidebar's width off the root", () => {
+    expect(readFileSync("src/chrome/Sidebar.tsx", "utf8")).not.toMatch(
+      /documentElement\.style\.setProperty\(\s*"--aven-sidebar-width"/,
+    );
+  });
+
   it("keeps the transcript's height from being inherited by every turn", () => {
     expect(readFileSync("src/index.css", "utf8")).toMatch(
       /@property --transcript-viewport \{[^}]*inherits: false;/,

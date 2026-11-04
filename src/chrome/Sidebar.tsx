@@ -179,6 +179,7 @@ import {
 import { projectAppearance } from "../lib/projectAppearance";
 import { useAutomationChatIds } from "../hooks/useAutomationChats";
 import "./PersonalNavigation.css";
+import { publishDockedSidebarWidth } from "../lib/dockedSidebarWidth";
 
 const MIN_WIDTH = 190;
 const MAX_WIDTH = 320;
@@ -2589,11 +2590,7 @@ function SidebarComponent({
   // The top row's tabs start where the work does, past a pinned sidebar.
   const dockedWidth = floating ? null : resize.width;
   useLayoutEffect(() => {
-    if (dockedWidth == null) return;
-    document.documentElement.style.setProperty(
-      "--aven-sidebar-width",
-      `${dockedWidth}px`,
-    );
+    if (dockedWidth != null) publishDockedSidebarWidth(dockedWidth);
   }, [dockedWidth]);
 
   return (

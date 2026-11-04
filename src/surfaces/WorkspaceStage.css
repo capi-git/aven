@@ -25,6 +25,22 @@ html.has-chat-background .workspace-stage,
 ) {
   container-type: size;
 }
+/* Where each pane's piece of the wallpaper lies. A pane's share of the stage
+   changes as it resizes, and an inherited property restyles everything beneath
+   it: 50 ms a change beside a long chat. So they pass down only under a wallpaper. */
+@property --surface-background-left {
+  syntax: "*";
+  inherits: false;
+}
+@property --surface-background-top {
+  syntax: "*";
+  inherits: false;
+}
+@property --workspace-background-header-offset {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
 
 /* The chat background is painted once behind every pane, tab row, border
    and gutter, so panes read as one glass surface with no dark seams between
@@ -120,6 +136,12 @@ html.has-chat-background:not(.chat-background-empty-only)
 .workspace-stage-surface[data-has-header="true"] {
   --workspace-background-header-offset: 32px;
   padding-top: 32px;
+}
+html.has-chat-background .workspace-stage-surface,
+.workspace-stage:has(.chat-pane-background[data-project-chat-background="true"])
+  .workspace-stage-surface {
+  --workspace-background-left: var(--surface-background-left);
+  --workspace-background-top: var(--surface-background-top);
 }
 /* The pane's tab bar: one row with a hairline beneath it, like every tab
    strip in a pane. */

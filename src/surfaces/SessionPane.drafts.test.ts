@@ -183,7 +183,7 @@ describe("session pane draft and header ownership", () => {
     const strip = container.querySelector<HTMLElement>("[data-pane-strip]")!;
     expect(strip.parentElement?.classList).toContain("chat-pane-background");
     expect(strip.classList).toContain("aven-tab-bar");
-    expect(strip.nextElementSibling?.classList).toContain("@container");
+    expect(strip.nextElementSibling?.classList).toContain("flex-1");
     expect(container.querySelectorAll("[data-pane-strip]")).toHaveLength(1);
     // The floating chip is gone.
     expect(container.querySelector("[data-session-pane-controls]")).toBeNull();

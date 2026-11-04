@@ -37,6 +37,7 @@ import {
 } from "../lib/session";
 import "./Menu.css";
 import "./WorkspaceStatusBar.css";
+import { attachDockedSidebarWidth } from "../lib/dockedSidebarWidth";
 
 export type WorkspaceStatusBarProps = {
   sessions: readonly Session[];
@@ -433,6 +434,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
 
   return (
     <div
+      ref={attachDockedSidebarWidth}
       className="workspace-status-bar"
       data-settings={showingSettings}
       aria-label="Workspace status"

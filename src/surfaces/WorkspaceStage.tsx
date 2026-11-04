@@ -473,8 +473,8 @@ function surfaceBackgroundStyle(rect: LayoutRect) {
   const left = rect.x > 0.000001 ? GUTTER : EDGE;
   const top = rect.y > 0.000001 ? GUTTER : EDGE;
   return {
-    "--workspace-background-left": `calc(${-rect.x * 100}cqw - ${left}px)`,
-    "--workspace-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
+    "--surface-background-left": `calc(${-rect.x * 100}cqw - ${left}px)`,
+    "--surface-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
   };
 }
 const headerStyle = (rect: LayoutRect): CSSProperties => ({

@@ -143,10 +143,10 @@ describe("workspace stage", () => {
     expect(browserWrapper.hidden).toBe(false);
     expect(surface("chat").style.width).toBe("calc(50% - 0.5px)");
     expect(
-      surface("chat").style.getPropertyValue("--workspace-background-left"),
+      surface("chat").style.getPropertyValue("--surface-background-left"),
     ).toBe("calc(0cqw - 0px)");
     expect(
-      surface("browser").style.getPropertyValue("--workspace-background-left"),
+      surface("browser").style.getPropertyValue("--surface-background-left"),
     ).toBe("calc(-50cqw - 0.5px)");
     await render({
       layout: {
@@ -159,13 +159,13 @@ describe("workspace stage", () => {
     });
     expect(surface("chat").style.top).toBe("calc(30% + 0.5px)");
     expect(
-      surface("chat").style.getPropertyValue("--workspace-background-top"),
+      surface("chat").style.getPropertyValue("--surface-background-top"),
     ).toBe("calc(-30cqh - 0.5px - var(--workspace-background-header-offset))");
     expect(surface("browser")).toBe(browserWrapper);
     await render({ layout: leaf("browser") });
     expect(surface("chat").hidden).toBe(true);
     expect(
-      surface("browser").style.getPropertyValue("--workspace-background-left"),
+      surface("browser").style.getPropertyValue("--surface-background-left"),
     ).toBe("calc(0cqw - 0px)");
     await render({ visible: false });
     expect(stage().hidden).toBe(true);
@@ -450,7 +450,7 @@ describe("workspace stage", () => {
     expect(surface("chat").style.width).toBe("calc(65% - 0.5px)");
     expect(surface("browser").style.left).toBe("calc(65% + 0.5px)");
     expect(
-      surface("browser").style.getPropertyValue("--workspace-background-left"),
+      surface("browser").style.getPropertyValue("--surface-background-left"),
     ).toBe("calc(-65cqw - 0.5px)");
     expect(sash().getAttribute("aria-valuenow")).toBe("65");
     expect(rendered).not.toHaveBeenCalled();
