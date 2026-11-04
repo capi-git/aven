@@ -126,10 +126,12 @@
     transparent
   );
   --aven-glass-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
-  --aven-glass-overlay-opacity: 76%;
+  --aven-glass-overlay-opacity: 2%;
+  /* As in MonoCode's popovers: the window's own glass and the blurred scene
+     behind, not a dark fill of their own. */
   --aven-glass-overlay: color-mix(
     in srgb,
-    var(--aven-popup) var(--aven-glass-overlay-opacity),
+    var(--color-content) var(--aven-glass-overlay-opacity),
     transparent
   );
   --aven-glass-blur: blur(40px) saturate(125%);
