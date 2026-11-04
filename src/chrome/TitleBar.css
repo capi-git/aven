@@ -409,35 +409,33 @@ html.theme-light .personal-shell {
 .personal-shell .personal-title-browser-new {
   width: 28px;
 }
-/* The strip's tools: whole-pixel 16pt marks with a thin line and steady
-   contrast. Smaller and fainter, they read as a smudge. */
+/* Icons in the window's frame: 16pt with a thin line and steady contrast.
+   Smaller and fainter, they read as a smudge. Hover, disabled and tiny marks
+   keep their own colours and sizes. */
 .personal-shell
   :is(
-    .personal-title-session-new,
-    .personal-title-browser-new,
-    .personal-title-board-open
-  ) {
-  color: color-mix(in srgb, var(--color-content) 72%, transparent);
-}
-.personal-shell
-  :is(
-    .personal-title-session-new,
-    .personal-title-browser-new,
-    .personal-title-board-open
-  ):hover {
-  color: var(--color-content);
-}
-.personal-shell
-  :is(
-    .personal-title-session-new,
-    .personal-title-browser-new,
-    .personal-title-board-open
+    .workspace-status-bar,
+    .personal-titlebar,
+    .workspace-footer,
+    .personal-sidebar-footer
   )
-  > svg {
+  button
+  > svg.lucide:not(.size-2, .size-2\.5, .size-3) {
   width: 16px;
   height: 16px;
   stroke-width: 1.5;
   shape-rendering: geometricPrecision;
+}
+.personal-shell
+  :is(
+    .workspace-status-bar,
+    .personal-titlebar,
+    .workspace-footer,
+    .personal-sidebar-footer
+  )
+  button:not(:hover, :disabled)
+  > svg.lucide {
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
 .personal-shell .personal-title-board-open {
   width: 28px;

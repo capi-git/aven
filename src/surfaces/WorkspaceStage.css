@@ -285,6 +285,8 @@ html.has-chat-background:not(.chat-background-empty-only)
 }
 .workspace-pane-rail[data-axis="x"] .aven-pane-rail-label {
   writing-mode: vertical-rl;
+  /* Sideways type renders softer: a heavier weight keeps it crisp. */
+  font-weight: 500;
 }
 .aven-pane-rail-critter {
   display: grid;

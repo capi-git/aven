@@ -566,6 +566,18 @@
   border-color: color-mix(in srgb, var(--color-content) 26%, transparent);
 }
 
+/* Flat in dark mode, as the chat's message box is (Composer.css). */
+@media not (prefers-contrast: more) {
+  html:not(.theme-light) .team-compose {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--color-content) 4.5%, transparent);
+  }
+  html:not(.theme-light) .team-compose:focus-within {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--color-content) 6.5%, transparent);
+  }
+}
+
 .team-compose-input {
   min-width: 0;
   min-height: 30px;
