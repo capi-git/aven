@@ -145,6 +145,25 @@ function selectorsIn(css: string): string[] {
     .filter((head) => !head.startsWith("@"));
 }
 
+describe("query containers around a lot of content", () => {
+  // A query container restyles everything inside it when its size changes:
+  // 20 ms per sidebar toggle around the stage and a chat in the speed test.
+  it("keeps a chat from being one, and the stage unless a wallpaper needs it", () => {
+    const transcript = readFileSync("src/surfaces/AgentTranscript.css", "utf8");
+    expect(transcript).not.toMatch(
+      /\.agent-transcript \{[^}]*\bcontainer(-type)?:/,
+    );
+    expect(transcript).not.toMatch(/@container personal-transcript/);
+    const stage = readFileSync("src/surfaces/WorkspaceStage.css", "utf8");
+    expect(stage).not.toMatch(
+      /^\.workspace-stage \{[^}]*\bcontainer(-type)?:/m,
+    );
+    expect(stage).toMatch(
+      /html\.has-chat-background \.workspace-stage,\s*\.workspace-stage:has\([^{]*\{\s*container-type: size;/,
+    );
+  });
+});
+
 describe("hover and focus rules WebKit can find by class", () => {
   it("tells a keyed rule from an unkeyed one", () => {
     for (const unkeyed of [

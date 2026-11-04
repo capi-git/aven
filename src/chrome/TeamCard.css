@@ -344,6 +344,9 @@ button.team-card-member-open:hover {
     display: none;
   }
 }
+.agent-transcript[data-width-bands~="520"] .team-card-member-meta {
+  display: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .team-card[data-state="live"] .team-card-link {

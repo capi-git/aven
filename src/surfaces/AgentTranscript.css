@@ -1,7 +1,9 @@
 /* One reading lane in either appearance. Keep transcript scrolling, anchoring,
    code overflow, and live phase geometry owned by the existing components. */
 .personal-shell .agent-transcript {
-  container: personal-transcript / inline-size;
+  /* Not a query container, which would restyle every turn each time the pane's
+     width changes. useWidthBands marks the widths the rules below ask about. */
+  contain: inline-size;
   font-family: var(--font-sans);
   font-size: var(--text-ui-reading);
   line-height: 23px;
@@ -265,14 +267,16 @@
   max-width: 832px;
   padding: 4px 16px 16px;
 }
-@container personal-transcript (max-width: 480px) {
-  .personal-shell .personal-user-message[data-message-layout="chat"] {
-    padding-left: 30px;
-  }
-  .personal-shell .personal-transcript-content {
-    gap: 18px;
-    padding-top: 18px;
-  }
+.personal-shell
+  .agent-transcript[data-width-bands~="480"]
+  .personal-user-message[data-message-layout="chat"] {
+  padding-left: 30px;
+}
+.personal-shell
+  .agent-transcript[data-width-bands~="480"]
+  .personal-transcript-content {
+  gap: 18px;
+  padding-top: 18px;
 }
 @media (prefers-reduced-transparency: reduce) {
   .personal-shell .personal-user-bubble {

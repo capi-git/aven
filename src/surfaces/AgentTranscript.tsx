@@ -83,6 +83,7 @@ import {
 import { holdUpAt, type SessionHoldUp } from "../lib/sessionHoldUp";
 import { HarnessIcon } from "../chrome/HarnessIcon";
 import { useTranscriptLayout } from "../hooks/useTranscriptLayout";
+import { useWidthBands } from "../hooks/useWidthBands";
 import { useTranscriptAnchor } from "../hooks/useTranscriptAnchor";
 import {
   captureScrollAnchor,
@@ -164,6 +165,7 @@ const SCROLL_KEYS = new Set([
   " ",
 ]);
 const INITIAL_TURNS = 20;
+const TRANSCRIPT_WIDTH_BANDS = [480, 520];
 const TURN_PAGE_SIZE = 20;
 
 type Props = {
@@ -292,6 +294,7 @@ function AgentTranscriptComponent({
     scrollerEl,
     onAddToChat !== undefined,
   );
+  useWidthBands(scrollerEl, TRANSCRIPT_WIDTH_BANDS);
   const transcriptLayout = useTranscriptLayout();
   const promptAnchor = useTranscriptAnchor();
   const lastUserId = lastUserBlockId(blocks, managed);
