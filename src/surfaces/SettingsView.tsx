@@ -58,6 +58,7 @@ import { useSetting } from "../hooks/useSetting";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import {
+  applySidebarOpacity,
   applyStatusBarOpacity,
   saveStatusBarOpacity,
   STATUS_BAR_OPACITY_DEFAULT,
@@ -203,6 +204,7 @@ import {
   resetWorkspaceTheme,
   saveWorkspaceTheme,
   useActiveWorkspaceTheme,
+  type FrameTone,
 } from "../lib/workspaceThemes";
 import {
   saveWorkspaceAccentPreset,
@@ -1038,6 +1040,8 @@ function UpdateRow({
 
 type AppearanceSettings = ReturnType<typeof useAppearanceSettings>;
 
+const GLASS_SAVE_DELAY_MS = 200;
+
 function useAppearanceSettings() {
   const { profileId, theme } = useActiveWorkspaceTheme();
   const colorScheme = useColorScheme();
@@ -1046,7 +1050,6 @@ function useAppearanceSettings() {
   const themePreference = theme.preference;
   // Read from the saved opacity; blur, "Include workspace" and the status bar
   // keep their saved values until the slider moves.
-  const glassLevel = glassLevelFromOpacity(theme.opacity);
   const [chatBackgroundPath, setChatBackgroundPath] = useState(
     loadChatBackgroundPath,
   );
@@ -1068,18 +1071,51 @@ function useAppearanceSettings() {
     [profileId],
   );
 
+  // A drag paints the window each frame and saves once it settles: saving
+  // repaints every view that reads the workspace's look.
+  const [draggedGlass, setDraggedGlass] = useState<number | null>(null);
+  const glassLevel = draggedGlass ?? glassLevelFromOpacity(theme.opacity);
+  const glassSave = useRef<{
+    frame: number;
+    timer: ReturnType<typeof setTimeout>;
+    save: () => void;
+  } | null>(null);
+  const saveGlassNow = useCallback(() => {
+    const pending = glassSave.current;
+    if (!pending) return;
+    cancelAnimationFrame(pending.frame);
+    clearTimeout(pending.timer);
+    glassSave.current = null;
+    pending.save();
+  }, []);
+  useEffect(() => saveGlassNow, [saveGlassNow]);
   const onGlass = useCallback(
     (level: number) => {
       const { opacity, blur, bodyGlass, statusBarOpacity } =
         glassSettingsForLevel(level);
-      saveWorkspaceTheme(profileId, { opacity, blur, bodyGlass });
-      saveStatusBarOpacity(applyStatusBarOpacity(statusBarOpacity));
+      if (glassSave.current) {
+        cancelAnimationFrame(glassSave.current.frame);
+        clearTimeout(glassSave.current.timer);
+      }
+      setDraggedGlass(level);
+      glassSave.current = {
+        frame: requestAnimationFrame(() => applySidebarOpacity(opacity)),
+        timer: setTimeout(saveGlassNow, GLASS_SAVE_DELAY_MS),
+        save: () => {
+          saveWorkspaceTheme(profileId, { opacity, blur, bodyGlass });
+          saveStatusBarOpacity(applyStatusBarOpacity(statusBarOpacity));
+          setDraggedGlass(null);
+        },
+      };
     },
-    [profileId],
+    [profileId, saveGlassNow],
   );
 
-  const onBrightness = useCallback(
-    (brightness: number) => saveWorkspaceTheme(profileId, { brightness }),
+  const onFrameTone = useCallback(
+    (tone: FrameTone | "default") =>
+      saveWorkspaceTheme(profileId, {
+        frameTone: tone === "default" ? undefined : tone,
+      }),
     [profileId],
   );
 
@@ -1147,6 +1183,7 @@ function useAppearanceSettings() {
   }, []);
 
   const restoreDefaults = useCallback(() => {
+    saveGlassNow();
     resetWorkspaceTheme(profileId);
     onChatBackgroundOpacity(Math.round(CHAT_BACKGROUND_OPACITY_DEFAULT * 100));
     // "Show on" is no longer offered; a reset returns it to every session.
@@ -1157,6 +1194,7 @@ function useAppearanceSettings() {
     onUiScale(Math.round(UI_SCALE_DEFAULT * 100));
     saveStatusBarOpacity(applyStatusBarOpacity(STATUS_BAR_OPACITY_DEFAULT));
   }, [
+    saveGlassNow,
     chatBackgroundPath,
     onChatBackgroundOpacity,
     onClearChatBackground,
@@ -1171,7 +1209,7 @@ function useAppearanceSettings() {
     accent,
     accentPreset,
     glassLevel,
-    brightness: theme.brightness ?? 0,
+    frameTone: theme.frameTone ?? ("default" as const),
     chatBackgroundPath,
     chatBackgroundOpacity,
     chatBackgroundBusy,
@@ -1179,7 +1217,7 @@ function useAppearanceSettings() {
     uiScale,
     onThemePreference,
     onGlass,
-    onBrightness,
+    onFrameTone,
     onAccentPreset,
     onCustomAccent,
     onPreviewAccent,
@@ -1269,25 +1307,22 @@ function AppearancePage({
           </Row>
         )}
         <Row
-          {...SETTINGS.brightness.row}
+          {...SETTINGS.frameTone.row}
           description={
             glassDisabled
-              ? SETTINGS.brightness.disabledDescription
-              : SETTINGS.brightness.row.description
+              ? SETTINGS.frameTone.disabledDescription
+              : SETTINGS.frameTone.row.description
           }
         >
-          <Slider
-            label={SETTINGS.brightness.label}
-            value={appearance.brightness}
-            display={
-              appearance.brightness === 0
-                ? "Default"
-                : `${appearance.brightness > 0 ? "+" : ""}${appearance.brightness}`
-            }
-            min={-100}
-            max={100}
-            onChange={appearance.onBrightness}
-            disabled={glassDisabled}
+          <Segmented
+            label={SETTINGS.frameTone.label}
+            value={appearance.frameTone}
+            options={[
+              { value: "lighter", label: "Lighter", disabled: glassDisabled },
+              { value: "default", label: "Default", disabled: glassDisabled },
+              { value: "darker", label: "Darker", disabled: glassDisabled },
+            ]}
+            onChange={appearance.onFrameTone}
           />
         </Row>
         <ReduceMotionRow />

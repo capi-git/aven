@@ -884,25 +884,19 @@ html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
 html .personal-shell[data-unified-toolbar] > .workspace-status-bar {
   background: transparent;
 }
-/* Settings > Brightness, in dark mode: a sheet of white or black over the
-   frame, the card and popups. */
+/* Settings > Frame, in dark mode: a sheet over the frame around the work, and
+   the hover sidebar that matches it. */
 :root {
-  --aven-tone-light: calc(max(var(--aven-brightness, 0), 0) * 0.24);
-  --aven-tone-dark: calc(max(var(--aven-brightness, 0) * -1, 0) * 0.6);
-  --aven-tone:
-    linear-gradient(
-      rgb(255 255 255 / var(--aven-tone-light)),
-      rgb(255 255 255 / var(--aven-tone-light))
-    ),
-    linear-gradient(
-      rgb(0 0 0 / var(--aven-tone-dark)),
-      rgb(0 0 0 / var(--aven-tone-dark))
-    );
+  --aven-tone: none;
 }
-html.theme-light {
-  --aven-tone: none, none;
-  --aven-tone-light: 0;
-  --aven-tone-dark: 0;
+html.frame-lighter:not(.theme-light) {
+  --aven-tone: linear-gradient(
+    rgb(255 255 255 / 0.05),
+    rgb(255 255 255 / 0.05)
+  );
+}
+html.frame-darker:not(.theme-light) {
+  --aven-tone: linear-gradient(rgb(0 0 0 / 0.42), rgb(0 0 0 / 0.42));
 }
 html .personal-shell[data-unified-toolbar] {
   background:
@@ -956,14 +950,12 @@ html.has-native-glass.glass-body:not(.theme-light)
   margin: 0 6px 0;
   border: 1px solid color-mix(in srgb, var(--color-content) 4%, transparent);
   border-radius: 10px;
-  background: var(--aven-tone), var(--aven-inset-panel);
+  background: var(--aven-inset-panel);
 }
 html.has-native-glass.glass-body:not(.theme-light)
   .personal-shell[data-unified-toolbar]
   .personal-main.body-glass {
-  background:
-    var(--aven-tone),
-    color-mix(in srgb, var(--aven-inset-panel) 45%, transparent);
+  background: color-mix(in srgb, var(--aven-inset-panel) 45%, transparent);
   /* Its own backing surface, so repaints keep the same clip and tint. */
   transform: translateZ(0);
 }

@@ -353,13 +353,13 @@ export const SETTINGS = {
       "Light mode always uses a solid window. Glass applies in dark mode.",
     nativeGlass: true,
   }),
-  brightness: defineSetting({
+  frameTone: defineSetting({
     section: "appearance",
-    label: "Brightness",
-    description: "Make dark mode lighter or darker.",
-    keywords: "dark mode light lighter darker shade tone contrast",
-    rowDescription: "Make dark mode lighter or darker.",
-    disabledDescription: "Light mode has one brightness.",
+    label: "Frame",
+    description: "How dark the sidebar and the rows around your work are.",
+    keywords: "dark darker lighter shade tone border brightness sidebar",
+    rowDescription: "How dark the sidebar and the rows around your work are.",
+    disabledDescription: "Applies in dark mode.",
   }),
   reduceMotion: defineSetting({
     ...defineStoredSetting<boolean>({

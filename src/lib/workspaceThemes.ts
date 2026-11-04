@@ -49,6 +49,8 @@ const ACTIVE_THEME_CHANGED = "monocode:active-workspace-theme-changed";
 let activeThemeProfileId = "personal";
 let validatedSnapshot: string | null = null;
 
+export type FrameTone = "lighter" | "darker";
+
 export type WorkspaceTheme = {
   hue: number;
   saturation: number;
@@ -64,8 +66,8 @@ export type WorkspaceTheme = {
   sidebarTint?: ColorChoice;
   /** How strong the sidebar wash is, in percent. */
   sidebarTintStrength?: number;
-  /** Dark mode, from darkest (-100) to lightest (100); absent is 0. */
-  brightness?: number;
+  /** How dark the frame around the work is, in dark mode; absent is default. */
+  frameTone?: FrameTone;
 };
 
 export const SIDEBAR_TINT_STRENGTH_MIN = 5;
@@ -446,9 +448,8 @@ export function normalizeWorkspaceTheme(
       typeof candidate.bodyGlass === "boolean"
         ? candidate.bodyGlass
         : fallback.bodyGlass,
-    ...(typeof candidate.brightness === "number" &&
-    Number.isFinite(candidate.brightness)
-      ? { brightness: Math.max(-100, Math.min(100, candidate.brightness)) }
+    ...(candidate.frameTone === "lighter" || candidate.frameTone === "darker"
+      ? { frameTone: candidate.frameTone }
       : {}),
     matchPanels:
       typeof candidate.matchPanels === "boolean"
@@ -723,12 +724,14 @@ export function useActivateWorkspaceTheme(profileId: string) {
     applyThemeColors(theme.colors);
     applySidebarOpacity(theme.opacity);
     applyBodyGlass(theme.bodyGlass);
-    if (theme.brightness)
-      document.documentElement.style.setProperty(
-        "--aven-brightness",
-        String(theme.brightness / 100),
-      );
-    else document.documentElement.style.removeProperty("--aven-brightness");
+    document.documentElement.classList.toggle(
+      "frame-lighter",
+      theme.frameTone === "lighter",
+    );
+    document.documentElement.classList.toggle(
+      "frame-darker",
+      theme.frameTone === "darker",
+    );
     // Sidebars always share the workspace surface; a saved `matchPanels`
     // from before that became the only look is kept but no longer read.
     document.documentElement.classList.add("match-workspace-panels");
@@ -749,7 +752,7 @@ export function useActivateWorkspaceTheme(profileId: string) {
     theme.opacity,
     theme.blur,
     theme.bodyGlass,
-    theme.brightness,
+    theme.frameTone,
     theme.sidebarTint,
     theme.sidebarTintStrength,
     theme.colors?.dark?.background,

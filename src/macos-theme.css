@@ -925,7 +925,7 @@ html:not(.theme-light)
    does. On the element itself, WebKit drops it whenever the content repaints
    (hovering a row, scrolling) and whatever is behind bleeds through the text. */
 html:not(.theme-light) :is(.popover-backdrop, .aven-popover-panel-backdrop) {
-  background: var(--aven-tone), var(--aven-glass-overlay);
+  background: var(--aven-glass-overlay);
   border-color: var(--aven-glass-overlay-edge);
   -webkit-backdrop-filter: var(--aven-glass-blur);
   backdrop-filter: var(--aven-glass-blur);
@@ -1012,7 +1012,7 @@ html:not(.theme-light)
   z-index: -1;
   border-radius: inherit;
   pointer-events: none;
-  background: var(--aven-tone), var(--aven-glass-overlay);
+  background: var(--aven-glass-overlay);
   -webkit-backdrop-filter: var(--aven-glass-blur);
   backdrop-filter: var(--aven-glass-blur);
 }
