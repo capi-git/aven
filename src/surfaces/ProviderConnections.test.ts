@@ -90,6 +90,15 @@ const CODEX_ROWS: ProviderConnection[] = [
     toolCount: 170,
   },
 ];
+const signedIn = (
+  rows: ProviderConnection[],
+  key: string,
+): ProviderConnection[] =>
+  structuredClone(rows).map((row) => {
+    if (row.key !== key) return row;
+    const { canSignIn: _unused, ...rest } = row;
+    return { ...rest, state: "ready", toolCount: 3 };
+  });
 const signIns = (count: number): ProviderConnection[] =>
   Array.from({ length: count }, (_, i) => ({
     name: `service${i}`,
@@ -211,7 +220,8 @@ describe("MCP servers page", () => {
     expect(row("Gmail").dataset.pinned).toBe("true");
     expect(row("rea").dataset.pinned).toBeUndefined();
     expect(button("Remove scape")).toBeDefined();
-    expect(button("Sign in Gmail")).toBeDefined();
+    expect(button("Sign in to Gmail for Claude")).toBeDefined();
+    expect(button("Sign in for Claude")).toBeDefined();
     expect(button("Turn off rea")).toBeDefined();
     expect(button("Hide ChatGPT apps")).toBeDefined();
     expect(button("Remove ChatGPT apps")).toBeUndefined();
@@ -234,12 +244,15 @@ describe("MCP servers page", () => {
 
   it("signs in and removes through the provider, then checks again", async () => {
     await mount();
-    await click(button("Sign in Gmail"));
+    claude.mockResolvedValue(signedIn(CLAUDE_ROWS, "claude.ai Gmail"));
+    await click(button("Sign in to Gmail for Claude"));
     expect(invoke).toHaveBeenCalledWith("provider_mcp", {
       request: { action: "login", provider: "claude", name: "claude.ai Gmail" },
       cwd: expect.stringContaining("/tmp/p-"),
     });
-    expect(notice()).toBe("Signed in to Gmail.");
+    expect(notice()).toBe("Signed in to Gmail for Claude.");
+    // The fresh check counts, and the row says what it found.
+    expect(rowNames(group("Working"))).toContain("Gmail");
 
     await click(button("Remove scape"));
     expect(container.textContent).toContain("Remove from Claude (Personal)?");
@@ -256,6 +269,98 @@ describe("MCP servers page", () => {
     });
     expect(notice()).toBe("Removed scape from Claude (Personal).");
     expect(claude.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("names the agent still waiting after one sign-in, and offers it next", async () => {
+    const acme: ProviderConnection = {
+      name: "acme",
+      key: "acme",
+      state: "needs-sign-in",
+      canSignIn: true,
+    };
+    claude.mockResolvedValue([acme]);
+    codex.mockResolvedValue([acme]);
+    await mount();
+    claude.mockResolvedValue(signedIn([acme], "acme"));
+    await click(button("Sign in to acme for Claude"));
+    expect(notice()).toBe(
+      "Signed in to acme for Claude. Codex still needs sign-in.",
+    );
+    expect(rowNames(group("Needs you"))).toEqual(["acme"]);
+    expect(container.querySelector(".mcp-row-status")?.textContent).toBe(
+      "Needs sign-in",
+    );
+
+    codex.mockResolvedValue(signedIn([acme], "acme"));
+    await click(button("Sign in to acme for Codex"));
+    expect(invoke).toHaveBeenLastCalledWith("provider_mcp", {
+      request: { action: "login", provider: "codex", name: "acme" },
+      cwd: expect.any(String),
+    });
+    expect(notice()).toBe("Signed in to acme for Codex.");
+    expect(group("Needs you")).toBeUndefined();
+  });
+
+  it("doesn't claim a sign-in the provider doesn't agree with", async () => {
+    await mount();
+    await click(button("Sign in to Gmail for Claude"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Claude still says Gmail needs sign-in. Try again, or check again in a minute.",
+    );
+    expect(rowNames(group("Needs you"))).toContain("Gmail");
+  });
+
+  it("checks again when a sign-in fails, and keeps secrets out of the notice", async () => {
+    invoke.mockRejectedValueOnce("login failed: Bearer abcDEF123456 refused");
+    await mount();
+    const before = claude.mock.calls.length;
+    await click(button("Sign in to Gmail for Claude"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "login failed: Bearer [hidden] refused",
+    );
+    expect(claude.mock.calls.length).toBe(before + 1);
+  });
+
+  it("gives the next step for a server waiting for approval", async () => {
+    claude.mockResolvedValue([
+      {
+        name: "shared",
+        key: "shared",
+        state: "failed",
+        scope: "project",
+        removable: true,
+        canTurnOff: true,
+        errorCode: "APPROVAL_REQUIRED",
+      },
+    ]);
+    codex.mockResolvedValue([]);
+    await mount();
+    expect(container.textContent).toContain(
+      "In Terminal, run claude in this project, type /mcp and approve it.",
+    );
+    expect(container.querySelector(".mcp-row-status")?.textContent).toBe(
+      "Needs approval",
+    );
+    expect(button("Check again shared")).toBeDefined();
+  });
+
+  it("lists same-named servers with different targets apart", async () => {
+    const github = (host: string): ProviderConnection => ({
+      name: "github",
+      key: "github",
+      state: "ready",
+      removable: true,
+      toolCount: 1,
+      target: `https://${host}/mcp`,
+      targetLabel: host,
+    });
+    claude.mockResolvedValue([github("a.example")]);
+    codex.mockResolvedValue([github("b.example")]);
+    await mount();
+    expect(rowNames(group("Working"))).toEqual([
+      "github (a.example)",
+      "github (b.example)",
+    ]);
   });
 
   it("turns a server off in every agent that has it, and on again from Turned off", async () => {

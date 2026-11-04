@@ -169,6 +169,54 @@ async function setEachEnabled(
   return notes;
 }
 
+/** An action's full name for a screen reader, where the row isn't in view. */
+function actionName(action: McpAction, row: McpRow): string {
+  return action.kind === "sign-in" && action.agent
+    ? `Sign in to ${row.name} for ${MCP_AGENT_LABEL[action.agent]}`
+    : `${action.label} ${row.name}`;
+}
+
+/**
+ * What a finished sign-in means, from the provider's fresh answer. It says so
+ * when the provider disagrees, and names who still needs a sign-in.
+ */
+function signInResult(row: McpRow, entry: McpEntry, fresh: Inventory): string {
+  const agent = MCP_AGENT_LABEL[entry.provider];
+  const now =
+    fresh.status === "loaded"
+      ? fresh.connections.find(
+          (connection) => connection.key === entry.connection.key,
+        )
+      : undefined;
+  if (now?.state === "needs-sign-in")
+    throw new Error(
+      `${agent} still says ${row.name} needs sign-in. Try again, or check again in a minute.`,
+    );
+  if (now?.state === "failed")
+    return `Signed in for ${agent}, but ${row.name} still isn’t working.`;
+  const others = row.entries.filter(
+    (other) =>
+      other.id !== entry.id &&
+      other.connection.state === "needs-sign-in" &&
+      other.connection.canSignIn,
+  );
+  const next = [
+    ...new Set(
+      others.map((other) =>
+        other.provider === entry.provider
+          ? entryLabel(other)
+          : MCP_AGENT_LABEL[other.provider],
+      ),
+    ),
+  ];
+  return [
+    `Signed in to ${row.name} for ${agent}.`,
+    next.length ? `${joinAnd(next)} still needs sign-in.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 const BUSY_LABEL: Record<McpAction["kind"], string> = {
   "sign-in": "Signing in…",
   remove: "Removing…",
@@ -205,21 +253,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
   }, [cwd]);
   const folder = cwd || home || "";
 
-  const load = useCallback(
-    (provider: (typeof PROVIDERS)[number], force: boolean) => {
+  const ask = useCallback(
+    (provider: (typeof PROVIDERS)[number]): Promise<Inventory> => {
       const key = `${provider.id}:${cwd}`;
-      const recent = force ? undefined : cached(key);
-      if (recent) {
-        setInventories((prev) => ({ ...prev, [provider.id]: recent }));
-        return () => {};
-      }
-      let active = true;
-      setInventories((prev) => ({
-        ...prev,
-        [provider.id]: { status: "loading" },
-      }));
       // Settings can open without a project; the user's own setup still applies.
-      void (cwd ? Promise.resolve(cwd) : homeDir())
+      return (cwd ? Promise.resolve(cwd) : homeDir())
         .then((dir) => provider.list(dir))
         .then(
           (connections): Inventory => ({ status: "loaded", connections }),
@@ -233,14 +271,33 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           if (inventory.status === "loaded")
             cache.set(key, { inventory, at: Date.now() });
           else cache.delete(key);
-          if (active)
-            setInventories((prev) => ({ ...prev, [provider.id]: inventory }));
+          return inventory;
         });
+    },
+    [cwd],
+  );
+
+  const load = useCallback(
+    (provider: (typeof PROVIDERS)[number], force: boolean) => {
+      const recent = force ? undefined : cached(`${provider.id}:${cwd}`);
+      if (recent) {
+        setInventories((prev) => ({ ...prev, [provider.id]: recent }));
+        return () => {};
+      }
+      let active = true;
+      setInventories((prev) => ({
+        ...prev,
+        [provider.id]: { status: "loading" },
+      }));
+      void ask(provider).then((inventory) => {
+        if (active)
+          setInventories((prev) => ({ ...prev, [provider.id]: inventory }));
+      });
       return () => {
         active = false;
       };
     },
-    [cwd],
+    [ask, cwd],
   );
 
   useEffect(() => {
@@ -251,6 +308,15 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
   const refresh = (ids: Provider[]) => {
     for (const provider of PROVIDERS)
       if (ids.includes(provider.id)) load(provider, true);
+  };
+
+  /** A fresh check that the caller can read the answer of. */
+  const recheck = async (id: Provider): Promise<Inventory> => {
+    const provider = PROVIDERS.find((candidate) => candidate.id === id)!;
+    setInventories((prev) => ({ ...prev, [id]: { status: "loading" } }));
+    const inventory = await ask(provider);
+    setInventories((prev) => ({ ...prev, [id]: inventory }));
+    return inventory;
   };
 
   // Claude turns servers off per project, so it needs one open.
@@ -300,17 +366,24 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       case "sign-in": {
         const entry = targets[0];
         if (!entry) return;
+        // No refresh after: the result comes from a check made here.
         void run(label, async () => {
-          await manageMcpServer(
-            {
-              action: "login",
-              provider: entry.provider,
-              name: entry.connection.key,
-            },
-            folder,
-          );
-          return `Signed in to ${row.name}.`;
-        }, [entry.provider]);
+          try {
+            await manageMcpServer(
+              {
+                action: "login",
+                provider: entry.provider,
+                name: entry.connection.key,
+              },
+              folder,
+            );
+          } catch (error) {
+            refresh([entry.provider]);
+            throw error;
+          }
+          setBusy(`check:${row.id}`);
+          return signInResult(row, entry, await recheck(entry.provider));
+        }, []);
         return;
       }
       case "remove": {
@@ -841,7 +914,7 @@ function McpRowView({
                     className="settings-button mcp-action"
                     data-primary
                     disabled={disabled}
-                    aria-label={`${row.primary.label} ${row.name}`}
+                    aria-label={actionName(row.primary, row)}
                     onClick={() => pick(row.primary!)}
                   >
                     {row.primary.label}
@@ -920,6 +993,57 @@ function McpSkeleton() {
         </ul>
       </div>
     </section>
+  );
+}
+
+/**
+ * A box of `NAME=value` or `Header: value` lines that can hold secrets. It is
+ * hidden once there is text to hide, as a password field would be, and can be
+ * shown to check a line.
+ */
+function SecretLines({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="provider-field">
+      <span>
+        {label}
+        {value ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="mcp-link"
+              aria-label={`${shown ? "Hide" : "Show"} ${label}`}
+              onClick={() => setShown((prev) => !prev)}
+            >
+              {shown ? "Hide" : "Show"}
+            </button>
+          </>
+        ) : null}
+      </span>
+      <textarea
+        aria-label={label}
+        value={value}
+        data-masked={(value && !shown) || undefined}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        rows={2}
+        autoComplete="off"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+    </div>
   );
 }
 
@@ -1007,57 +1131,6 @@ function AddServerForm({
         <Segmented
           label="Server type"
           value={draft.kind}
-/**
- * A box of `NAME=value` or `Header: value` lines that can hold secrets. It is
- * hidden once there is text to hide, as a password field would be, and can be
- * shown to check a line.
- */
-function SecretLines({
-  label,
-  value,
-  placeholder,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  onChange: (value: string) => void;
-}) {
-  const [shown, setShown] = useState(false);
-  return (
-    <div className="provider-field">
-      <span>
-        {label}
-        {value ? (
-          <>
-            {" "}
-            <button
-              type="button"
-              className="mcp-link"
-              aria-label={`${shown ? "Hide" : "Show"} ${label}`}
-              onClick={() => setShown((prev) => !prev)}
-            >
-              {shown ? "Hide" : "Show"}
-            </button>
-          </>
-        ) : null}
-      </span>
-      <textarea
-        aria-label={label}
-        value={value}
-        data-masked={(value && !shown) || undefined}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        rows={2}
-        autoComplete="off"
-        autoCapitalize="off"
-        autoCorrect="off"
-        spellCheck={false}
-      />
-    </div>
-  );
-}
-
           options={[
             { value: "stdio", label: "Command on this Mac" },
             { value: "http", label: "Remote URL" },
@@ -1128,6 +1201,12 @@ function SecretLines({
                 spellCheck={false}
               />
             </label>
+          ) : null}
+          {chosen.codex && draft.bearerTokenEnvVar.trim() ? (
+            <p className="skills-note" data-mcp-token-note>
+              Aven opened from the Dock can’t pass on shell variables, so this
+              token probably won’t reach Codex. Leave it empty to sign in.
+            </p>
           ) : null}
           <p className="skills-note">
             Servers that use sign-in show “Sign in” once they’re added.
@@ -1201,9 +1280,3 @@ function SecretLines({
     </form>
   );
 }
-          {chosen.codex && draft.bearerTokenEnvVar.trim() ? (
-            <p className="skills-note" data-mcp-token-note>
-              Aven opened from the Dock can’t pass on shell variables, so this
-              token probably won’t reach Codex. Leave it empty to sign in.
-            </p>
-          ) : null}

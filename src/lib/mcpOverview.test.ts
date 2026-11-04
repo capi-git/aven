@@ -582,8 +582,67 @@ describe("actions per state", () => {
       more: [],
     });
     expect(row(overview, "Slack")).toMatchObject({
-      primary: { kind: "sign-in", label: "Sign in" },
+      primary: {
+        kind: "sign-in",
+        label: "Sign in for Claude",
+        agent: "claude",
+      },
       more: [{ kind: "turn-off", label: "Turn off" }],
+    });
+  });
+
+  it("offers one agent's sign-in at a time, by name", () => {
+    const entry = (signedIn: boolean): ProviderConnection => ({
+      name: "acme",
+      key: "acme",
+      state: signedIn ? "ready" : "needs-sign-in",
+      ...(signedIn ? {} : { canSignIn: true }),
+    });
+    const both = buildMcpOverview({
+      claude: loaded([entry(false)]),
+      codex: loaded([entry(false)]),
+    });
+    expect(row(both, "acme").primary).toEqual({
+      kind: "sign-in",
+      label: "Sign in for Claude",
+      targets: ["claude:acme"],
+      agent: "claude",
+    });
+    // Once Claude is signed in, the same row offers Codex and still needs you.
+    const next = buildMcpOverview({
+      claude: loaded([entry(true)]),
+      codex: loaded([entry(false)]),
+    });
+    expect(next.signIn.map((item) => item.name)).toEqual(["acme"]);
+    expect(row(next, "acme")).toMatchObject({
+      status: "Needs sign-in",
+      primary: { label: "Sign in for Codex", targets: ["codex:acme"] },
+    });
+  });
+
+  it("gives the next step for a shared server waiting for approval", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([
+        {
+          name: "shared",
+          key: "shared",
+          state: "failed",
+          scope: "project",
+          removable: true,
+          canTurnOff: true,
+          errorCode: "APPROVAL_REQUIRED",
+          detail: "Not approved for this project - approve it via /mcp first",
+        },
+      ]),
+      codex: loaded([]),
+    });
+    expect(row(overview, "shared")).toMatchObject({
+      status: "Needs approval",
+      problem: {
+        kind: "needs-approval",
+        text: "In Terminal, run claude in this project, type /mcp and approve it. Then check again.",
+      },
+      primary: { kind: "check", label: "Check again" },
     });
   });
 

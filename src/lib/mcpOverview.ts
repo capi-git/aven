@@ -9,8 +9,8 @@ import type {
   ConnectionState,
   ProviderConnection,
 } from "./harness/providerConnections";
-import { defineStoredSetting } from "./settingsRegistry";
 import { scrubSecrets } from "./scrubSecrets";
+import { defineStoredSetting } from "./settingsRegistry";
 import type { McpProvider } from "./mcpServers";
 
 export type McpInventory =
@@ -36,7 +36,12 @@ export type McpEntry = {
 };
 
 export type McpProblemKind =
-  "missing-program" | "sign-in-broken" | "no-address" | "no-answer" | "unknown";
+  | "missing-program"
+  | "sign-in-broken"
+  | "no-address"
+  | "no-answer"
+  | "needs-approval"
+  | "unknown";
 
 export type McpProblem = {
   kind: McpProblemKind;
@@ -52,6 +57,8 @@ export type McpAction = {
   label: string;
   /** The entries it acts on, by id: on a row with a problem, only those. */
   targets: string[];
+  /** Sign-in is per agent, so the action says which one. */
+  agent?: McpProvider;
 };
 
 export type McpRowState = ConnectionState | "hidden";
@@ -212,10 +219,11 @@ export function explainMcpProblem(
       kind: "sign-in-broken",
       text: `${possessive(name)} sign-in is broken. Sign in to Claude again.`,
     };
+  // Claude has no command for this: only its own /mcp screen approves.
   if (code === "APPROVAL_REQUIRED")
     return {
-      kind: "unknown",
-      text: "Claude Code is waiting for you to approve this project’s server.",
+      kind: "needs-approval",
+      text: "In Terminal, run claude in this project, type /mcp and approve it. Then check again.",
     };
   if (NO_ADDRESS.test(raw))
     return { kind: "no-address", text: "This entry has no address." };
@@ -419,8 +427,9 @@ export function rowActions(
   const signing = affected.find((entry) => entry.connection.canSignIn);
   const signIn: McpAction | false = !!signing && {
     kind: "sign-in",
-    label: "Sign in",
+    label: `Sign in for ${MCP_AGENT_LABEL[signing.provider]}`,
     targets: [signing.id],
+    agent: signing.provider,
   };
   const check: McpAction = {
     kind: "check",
@@ -471,15 +480,6 @@ function urgentState(entries: McpEntry[]): ConnectionState {
   );
 }
 
-function rowFor(
-  id: string,
-  visible: McpEntry[],
-  hidden: boolean,
-  claudeProject: boolean,
-): McpRow | null {
-  if (!visible.length) return null;
-  const copies = hidden
-    ? []
 /**
  * One name's entries as rows. Entries with the same target share a row, and
  * different targets never do. An entry whose target isn't known joins the only
@@ -502,12 +502,21 @@ function splitByTarget(id: string, entries: McpEntry[]) {
   }));
 }
 
+function rowFor(
+  id: string,
+  visible: McpEntry[],
+  hidden: boolean,
+  claudeProject: boolean,
+  targetLabel?: string,
+): McpRow | null {
+  if (!visible.length) return null;
+  const copies = hidden
+    ? []
     : visible.filter((entry) => isCopy(entry, visible));
   const rest = visible.filter((entry) => !copies.includes(entry));
   const on = rest.filter((entry) => entry.connection.state !== "off");
   const off = rest.filter((entry) => entry.connection.state === "off");
   // Prefer a connector's or a brand's casing over a plugin's lower case.
-  targetLabel?: string,
   const named =
     rest.find((entry) => entry.connection.account) ??
     rest.find((entry) => /[A-Z]/.test(entry.connection.name)) ??
@@ -570,7 +579,8 @@ function splitByTarget(id: string, entries: McpEntry[]) {
     entries: rest,
     copies,
     state,
-    status: STATUS[state],
+    status:
+      problem?.kind === "needs-approval" ? "Needs approval" : STATUS[state],
     context:
       state === "off" || state === "hidden"
         ? context(state === "off" ? off : rest, [], state)
