@@ -10,12 +10,6 @@
 
 // Real AppKit views in a hidden window; no webviews, CEF or rendering.
 
-// Stands in for the live pages' edge in supermono_chromium.mm.
-static std::vector<std::pair<double, bool>> edges;
-void SMSetFloatingSidebarEdge(NSView *, double edge, bool animated) {
-  edges.push_back({edge, animated});
-}
-
 static std::vector<std::string> events;
 static void Record(const char *, const char *event, const char *json, void *) {
   events.push_back(std::string(event) + " " + json);
@@ -25,7 +19,7 @@ static void Record(const char *, const char *event, const char *json, void *) {
 - (void)trackEvent:(NSEvent *)event;
 @end
 
-// WKWebView is flipped; the workspace mask follows the view's orientation.
+// WKWebView is flipped; the workspace stays whole beneath the card either way.
 @interface FlippedWorkspace : NSView
 @end
 @implementation FlippedWorkspace
@@ -82,7 +76,7 @@ int main() {
 
     // One CSS pixel per point keeps the expectations readable.
     const double dpr = window.backingScaleFactor;
-    CHECK(sm_sidebar_workspace("main", dpr, 800, 600, 40, 600, 40, 570, 1) == 1);
+    CHECK(sm_sidebar_workspace("main", dpr, 800, 600, 40, 570, 1) == 1);
     const double card[] = {5, 45, 260, 550};
     CHECK(sm_sidebar_regions("main", dpr, 800, 600, 5, 45, 260, 550, card, 1) == 1);
     const auto hit = [&](double x, double y) {
@@ -110,23 +104,25 @@ int main() {
     move(3, 300);
     CHECK(Seen("pointer {\"inside\":false,\"edge\":true}"));
     CHECK(!overlay.superview.hidden);
-    CHECK(overlay.superview.layer.sublayerTransform.m41 == -265);
+    // Far enough that the card's shadow waits off-screen too.
+    CHECK(overlay.superview.layer.sublayerTransform.m41 == -309);
     move(500, 300);
     CHECK(overlay.superview.hidden);
 
-    // Open without motion: the card takes the pointer, the workspace and pages
-    // are cut to its edge.
+    // Open without motion: the card takes the pointer and the workspace stays
+    // whole beneath it, with a frosted view exactly behind the card.
     CHECK(sm_sidebar_set_open("main", 1, 0) == 1);
     Settle();
     CHECK(!overlay.superview.hidden);
     CHECK(overlay.superview.layer.sublayerTransform.m41 == 0);
     CHECK(hit(100, 300) == overlay);
     CHECK(hit(500, 300) == nil);
-    CHECK(edges.back() == std::make_pair(265.0, false));
-    CALayer *mask = workspace.layer.mask;
-    CHECK(mask != nil && mask.sublayers.count == 3);
-    CHECK(mask.sublayers[0].frame.size.height == 40);
-    CHECK(mask.sublayers[2].position.x == 265 && mask.sublayers[2].position.y == 40);
+    CHECK(workspace.layer.mask == nil);
+    NSView *frost = overlay.superview.subviews.firstObject;
+    CHECK([frost isKindOfClass:NSVisualEffectView.class]);
+    CHECK(overlay.superview.subviews.lastObject == overlay);
+    CHECK(NSMinX(frost.frame) == 5 && NSWidth(frost.frame) == 260);
+    CHECK(NSMinY(frost.frame) == 5 && NSHeight(frost.frame) == 550);
     move(100, 300);
     CHECK(Seen("pointer {\"inside\":true,\"edge\":false}"));
 
@@ -140,29 +136,23 @@ int main() {
     // The pointer did not move, but the menu that held it is gone.
     CHECK(events.back() == "pointer {\"inside\":false,\"edge\":false}");
 
-    // Close without motion: everything beneath is whole again.
+    // Close without motion.
     CHECK(sm_sidebar_set_open("main", 0, 0) == 1);
     Settle();
     CHECK(overlay.superview.hidden);
-    CHECK(workspace.layer.mask == nil);
-    CHECK(edges.back() == std::make_pair(0.0, false));
     CHECK(Seen("closed {}"));
     CHECK(hit(100, 300) == nil);
 
-    // Animated: the card, the cut-out and the pages move on one spring.
+    // Animated: the card slides on a spring.
     CHECK(sm_sidebar_set_open("main", 1, 1) == 1);
     CHECK([overlay.superview.layer animationForKey:@"slide"] != nil);
-    CHECK([workspace.layer.mask.sublayers[2] animationForKey:@"slide"] != nil);
-    CHECK(edges.back() == std::make_pair(265.0, true));
 
     // Pinning disables the layer and closes an open card at once.
     events.clear();
-    CHECK(sm_sidebar_workspace("main", dpr, 800, 600, 40, 600, 40, 570, 0) == 1);
+    CHECK(sm_sidebar_workspace("main", dpr, 800, 600, 40, 570, 0) == 1);
     Settle();
     CHECK(host.hidden);
     CHECK(overlay.superview.hidden);
-    CHECK(workspace.layer.mask == nil);
-    CHECK(edges.back() == std::make_pair(0.0, false));
     CHECK(sm_sidebar_set_open("main", 1, 0) == 1);
     CHECK(overlay.superview.hidden);
 

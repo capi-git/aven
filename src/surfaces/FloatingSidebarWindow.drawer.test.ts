@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 const shell = readFileSync("src/personal-shell.css", "utf8");
 const overlay = readFileSync("src/surfaces/FloatingSidebarWindow.css", "utf8");
+const navigation = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
+const native = readFileSync("src-tauri/chromium/floating_sidebar.mm", "utf8");
 
 /** The body of the rule whose selector ends `> .personal-sidebar {`. */
 function rule(css: string, selector: RegExp) {
@@ -30,14 +32,11 @@ describe("the hover sidebar's drawer", () => {
     );
   });
 
-  it("draws no shadow past the edge native code slides the overlay by", () => {
-    expect(
-      rule(
-        overlay,
-        /\.aven-floating-sidebar-overlay\s*\.personal-shell\s*\.personal-sidebar-slot\[data-floating="true"\]\s*> \.personal-sidebar \{\s*box-shadow/,
-      ),
-    ).toContain("box-shadow: none;");
-    // The overlay itself paints nothing but the drawer and its menus.
+  it("keeps its shadow within how far native code hides the closed card", () => {
+    const blur = /0 12px (\d+)px rgb\(0 0 0 \/ 0\.28\)/.exec(navigation);
+    const reach = /kShadowReach = (\d+)/.exec(native);
+    expect(Number(blur?.[1])).toBeLessThan(Number(reach?.[1]));
+    // The overlay itself paints nothing but the card and its menus.
     expect(overlay).toContain("background: transparent !important;");
   });
 });

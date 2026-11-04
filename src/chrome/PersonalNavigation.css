@@ -994,6 +994,9 @@ html:not(.theme-light)
   padding-top: 10px;
   border: 1px solid color-mix(in srgb, var(--color-content) 8%, transparent);
   border-radius: 12px;
+  box-shadow:
+    0 12px 32px rgb(0 0 0 / 0.28),
+    0 2px 6px rgb(0 0 0 / 0.16);
   overflow: hidden;
 }
 html.is-mac.has-native-glass:not(.theme-light)

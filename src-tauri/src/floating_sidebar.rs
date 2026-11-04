@@ -28,14 +28,12 @@ pub struct Rect {
     height: f64,
 }
 
-/// The workspace document's band under the card and its reveal edge.
+/// The workspace document's reveal edge.
 #[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceGeometry {
     viewport: Viewport,
-    cover_top: f64,
-    cover_bottom: f64,
     edge_top: f64,
     edge_bottom: f64,
     enabled: bool,
@@ -146,8 +144,6 @@ mod imp {
             device_pixel_ratio: f64,
             viewport_width: f64,
             viewport_height: f64,
-            cover_top: f64,
-            cover_bottom: f64,
             edge_top: f64,
             edge_bottom: f64,
             enabled: c_int,
@@ -306,8 +302,6 @@ mod imp {
                 viewport.device_pixel_ratio,
                 viewport.width,
                 viewport.height,
-                geometry.cover_top,
-                geometry.cover_bottom,
                 geometry.edge_top,
                 geometry.edge_bottom,
                 c_int::from(geometry.enabled),
@@ -408,7 +402,7 @@ mod tests {
     fn geometry_deserializes_from_the_renderer_shape() {
         let geometry: WorkspaceGeometry = serde_json::from_value(serde_json::json!({
             "viewport": { "devicePixelRatio": 2, "width": 1440, "height": 900 },
-            "coverTop": 40, "coverBottom": 900, "edgeTop": 0, "edgeBottom": 870,
+            "edgeTop": 0, "edgeBottom": 870,
             "enabled": true
         }))
         .unwrap();
