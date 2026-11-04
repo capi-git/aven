@@ -693,12 +693,6 @@ html:not(.theme-light)
   background: transparent;
 }
 
-html:not(.theme-light)
-  :is(.personal-shell, .detached-workspace)
-  :is(.cm-tooltip, .cm-panel.cm-find) {
-  background: var(--aven-popup);
-}
-
 /* A floating sidebar/inspector sits above the workspace. Pinned panels keep
    using the window's native glass and the user's opacity preference. */
 html:not(.theme-light)
@@ -951,6 +945,12 @@ html:not(.theme-light) :is(.popover-backdrop, .aven-popover-panel-backdrop) {
       .aven-tour-popover,
       .browser-actions-menu,
       .discussion-float,
+      .discussion-pill,
+      .team-mention,
+      .team-thread-new,
+      .browser-markup-toolbar,
+      .browser-markup-palette,
+      .cm-panel.cm-find,
       .cm-tooltip
     )
 ) {
@@ -970,6 +970,12 @@ html:not(.theme-light)
     .aven-tour-popover,
     .browser-actions-menu,
     .discussion-float,
+    .discussion-pill,
+    .team-mention,
+    .team-thread-new,
+    .browser-markup-toolbar,
+    .browser-markup-palette,
+    .cm-panel.cm-find,
     .cm-tooltip
   ) {
   isolation: isolate;
@@ -992,6 +998,12 @@ html:not(.theme-light)
     .aven-tour-popover,
     .browser-actions-menu,
     .discussion-float,
+    .discussion-pill,
+    .team-mention,
+    .team-thread-new,
+    .browser-markup-toolbar,
+    .browser-markup-palette,
+    .cm-panel.cm-find,
     .cm-tooltip
   )::before {
   content: "";

@@ -21,6 +21,14 @@
 }
 
 /* Shrunk teams sit beside the tools; usage keeps at least half the row. */
+/* The hover card rests over the row's start: usage steps out to stay readable. */
+.workspace-footer-usage {
+  transition: transform var(--aven-motion-base) var(--aven-ease-spring);
+}
+.personal-shell[data-sidebar-card="open"] .workspace-footer-usage {
+  transform: translateX(224px);
+}
+
 .workspace-footer-teams {
   display: flex;
   align-items: center;

@@ -12346,6 +12346,7 @@ export default function App({
           <div
             className="personal-shell flex h-full text-content"
             data-sidebar-pinned={sidebarOpen}
+            data-sidebar-card={floatingSidebar.revealed ? "open" : undefined}
             data-unified-toolbar
           >
             <WorkspaceStatusBar
