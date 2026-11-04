@@ -1,3 +1,4 @@
+import { setDragCursor } from "../lib/drag";
 import { useEffect, useRef, type PointerEvent } from "react";
 import { BrowserPane } from "./BrowserPane";
 import { requestAddToChat } from "../lib/quoteDraft";
@@ -41,8 +42,7 @@ export function PersonalBrowserDock({
     // once: reading layout after each width write forces a synchronous reflow
     // of the whole workspace on every pointer event.
     const bounds = parent.getBoundingClientRect();
-    const originalCursor = document.body.style.cursor;
-    document.body.style.cursor = "col-resize";
+    setDragCursor("col-resize");
     document.body.dataset.personalResizing = "true";
     document.documentElement.classList.add("is-resizing");
     let frame: number | null = null;
@@ -76,7 +76,7 @@ export function PersonalBrowserDock({
     };
     const finish = () => {
       cancelPaint();
-      document.body.style.cursor = originalCursor;
+      setDragCursor(null);
       delete document.body.dataset.personalResizing;
       document.documentElement.classList.remove("is-resizing");
       window.removeEventListener("pointermove", move);

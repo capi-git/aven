@@ -11840,6 +11840,7 @@ export default function App({
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
+    hoverSidebarRevealed: floatingSidebar.revealed,
     board: true,
     ...(botsAvailable()
       ? {

@@ -1291,3 +1291,54 @@ html.theme-light .personal-shell {
 [data-pane-strip] > .aven-tab-strip > span[aria-hidden] {
   display: none;
 }
+
+/* The window's own row of tabs, as MonoCode has it: each tab named and starting
+   at its left, up to 224px wide and shrinking together only once the row is
+   full, with New chat right after the last one. The rest of the row is free to
+   take the window by. A pane's row of tabs keeps its equal widths. */
+.workspace-status-strip .personal-titlebar > .personal-title-tabs {
+  flex: 0 1 auto;
+}
+.workspace-status-strip
+  .aven-tab-strip[data-tab-track]
+  .aven-tab-slot:not([data-pinned]) {
+  flex: 0 1 224px;
+  width: 224px;
+  min-width: 88px;
+  max-width: 224px;
+}
+.workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-button {
+  justify-content: flex-start;
+}
+.workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-label {
+  flex: 1 1 auto;
+}
+.workspace-status-strip .aven-tab-strip[data-tab-track] .aven-split-entry {
+  flex: 0 1 calc(var(--aven-split-panes, 2) * 200px);
+  width: calc(var(--aven-split-panes, 2) * 200px);
+  max-width: calc(var(--aven-split-panes, 2) * 224px);
+}
+.workspace-status-strip .aven-tab-button,
+.workspace-status-strip .aven-split {
+  height: 30px;
+  min-height: 30px;
+}
+.workspace-status-strip .aven-split-segment {
+  height: 26px;
+}
+.workspace-status-strip .aven-tab-highlight {
+  top: calc(50% - 15px);
+  height: 30px;
+}
+/* Tabs at rest sit on a faint plate of their own, with no lines between them. */
+.workspace-status-strip .aven-tab[data-active="false"] .aven-tab-button {
+  background: var(--aven-fill-quaternary);
+}
+.workspace-status-strip .aven-tab[data-active="false"] .aven-tab-button:hover {
+  background: var(--aven-fill-tertiary);
+}
+.workspace-status-strip
+  .aven-tab-strip[data-tab-track]
+  [data-tab-separator]::before {
+  content: none;
+}

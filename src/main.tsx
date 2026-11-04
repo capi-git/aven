@@ -8,6 +8,7 @@ import { syncBrowserEngineOptions } from "./lib/browserEngine";
 import { consumeInstalledUpdate } from "./lib/updateNotice";
 import { showRenderFailure } from "./lib/renderFailure";
 import { preventFileDropNavigation } from "./lib/attachments";
+import { IS_MAC } from "./lib/platform";
 import { watchWindowResize } from "./lib/windowResizeFlag";
 import { loadDevSmoke } from "./lib/devSmoke";
 import { revealWindow } from "./lib/windowReveal";
@@ -21,7 +22,9 @@ import "./motion.css";
 // Keep an unhandled file drop from navigating away from Aven.
 window.addEventListener("dragover", preventFileDropNavigation);
 window.addEventListener("drop", preventFileDropNavigation);
-const stopWatchingWindowResize = watchWindowResize();
+// Off the Mac only: see frost-pause.css.
+if (!IS_MAC) void import("./frost-pause.css");
+const stopWatchingWindowResize = IS_MAC ? () => {} : watchWindowResize();
 let stopWatchingMotion: (() => void) | undefined;
 /**
  * Every window, panel and pop-out follows one reduced-motion switch. Read

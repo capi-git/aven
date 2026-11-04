@@ -1,7 +1,6 @@
 /* One reading lane in either appearance. Keep transcript scrolling, anchoring,
    code overflow, and live phase geometry owned by the existing components. */
 .personal-shell .agent-transcript {
-  container: personal-transcript / inline-size;
   font-family: var(--font-sans);
   font-size: var(--text-ui-reading);
   line-height: 23px;
@@ -268,14 +267,15 @@ html:not(.theme-light) .personal-shell .personal-user-bubble {
   max-width: 832px;
   padding: 4px 16px 16px;
 }
-@container personal-transcript (max-width: 480px) {
-  .personal-shell .personal-user-message[data-message-layout="chat"] {
-    padding-left: 30px;
-  }
-  .personal-shell .personal-transcript-content {
-    gap: 18px;
-    padding-top: 18px;
-  }
+/* useNarrowMark, not a container query: this holds a whole chat. */
+.personal-shell
+  .agent-transcript[data-narrow]
+  .personal-user-message[data-message-layout="chat"] {
+  padding-left: 30px;
+}
+.personal-shell .agent-transcript[data-narrow] .personal-transcript-content {
+  gap: 18px;
+  padding-top: 18px;
 }
 @media (prefers-reduced-transparency: reduce) {
   .personal-shell .personal-user-bubble {

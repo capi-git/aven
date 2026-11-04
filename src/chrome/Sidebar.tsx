@@ -1,4 +1,5 @@
 import { useFloatingSidebarClip } from "../hooks/useFloatingSidebarClip";
+import { setDockedSidebarWidth } from "../lib/dockedSidebarWidth";
 import { usePanelDockHandoff } from "../hooks/usePanelDockHandoff";
 import { useChromeProps } from "../hooks/useChromeProps";
 import {
@@ -629,6 +630,11 @@ function SidebarComponent({
     initial: rememberedWidth,
     onCommit: (next) => {
       rememberedWidth = next;
+    },
+    // A drag writes the pane's width without a render; the top row moves in the
+    // same frame.
+    onLiveWidth: (next) => {
+      if (!floating) setDockedSidebarWidth(next);
     },
   });
   const [now, setNow] = useState(() => Date.now());
@@ -2592,10 +2598,7 @@ function SidebarComponent({
   const dockedWidth = floating ? null : resize.width;
   useLayoutEffect(() => {
     if (dockedWidth == null) return;
-    document.documentElement.style.setProperty(
-      "--aven-sidebar-width",
-      `${dockedWidth}px`,
-    );
+    setDockedSidebarWidth(dockedWidth);
   }, [dockedWidth]);
 
   return (

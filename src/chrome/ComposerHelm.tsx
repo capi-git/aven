@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
-import { useWidth } from "../hooks/useNarrow";
+import { useWidthChoice } from "../hooks/useNarrow";
 import { appName } from "../lib/agentNames";
 import {
   helmAccessibleName,
@@ -249,7 +249,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const critterRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const [perchRef, perchWidth] = useWidth<HTMLDivElement>();
   const [opened, setOpened] = useState<Opened>(null);
   const [page, setPage] = useState<Page>("main");
   const [cursor, setCursor] = useState(0);
@@ -667,7 +666,10 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     mode: activeMode?.label ?? null,
   });
   const contextWords = context ? contextTooltip(context) : null;
-  const fit = composerFit(perchWidth, !!activeMode);
+  const [perchRef, fit] = useWidthChoice<
+    HTMLDivElement,
+    ReturnType<typeof composerFit>
+  >((width) => composerFit(width, !!activeMode));
 
   const row = (id: HelmRowId, index: number) => {
     const active = page === "main" && index === safeCursor;

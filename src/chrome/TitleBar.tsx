@@ -38,6 +38,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  useReducer,
 } from "react";
 import { basename } from "../lib/fs";
 import {
@@ -2067,7 +2068,10 @@ function TitleBarComponent({
   // the row's single title, and a row whose tabs are on the window's strip
   // names only the tab in front.
   const paneTabs = titleRow && !stackOnStrip && orderedIds.length > 1;
-  const [paneRowWidth, setPaneRowWidth] = useState(0);
+  // Measured without a render: a drag resizes this every frame, and only how
+  // many tabs fit matters.
+  const paneRowWidth = useRef(0);
+  const [, renderPaneRow] = useReducer((count: number) => count + 1, 0);
   const paneFolded = paneTabs
     ? new Set(
         orderedIds.filter(
@@ -2082,13 +2086,18 @@ function TitleBarComponent({
         orderedIds,
         frontId,
         titleRowCapacity(
-          paneRowWidth,
+          paneRowWidth.current,
           orderedIds.length - paneFolded.size,
           paneFolded.size > 0,
         ),
         paneFolded,
       )
     : null;
+  const paneRowTabs = useRef({ count: 0, folding: false });
+  paneRowTabs.current = {
+    count: orderedIds.length - (paneFolded?.size ?? 0),
+    folding: (paneFolded?.size ?? 0) > 0,
+  };
   // Labels sit in the sortable sequence so a group drags like a tab.
   const displayIds = paneRow
     ? paneRow.shown
@@ -2924,9 +2933,10 @@ function TitleBarComponent({
         ":scope > [data-strip-tool]",
       ))
         width -= tool.offsetWidth + TAB_TRACK_GAP;
-      setPaneRowWidth((previous) =>
-        Math.abs(previous - width) < 0.5 ? previous : width,
-      );
+      const { count, folding } = paneRowTabs.current;
+      const before = titleRowCapacity(paneRowWidth.current, count, folding);
+      paneRowWidth.current = width;
+      if (before !== titleRowCapacity(width, count, folding)) renderPaneRow();
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -2934,6 +2944,18 @@ function TitleBarComponent({
     observer.observe(el);
     return () => observer.disconnect();
   }, [tabStripElement, paneTabs, hasStripTools]);
+
+  // A tab growing in, or a closed one's space collapsing, changes what overflows
+  // while the strip keeps its size, so the tabs are watched too.
+  const stripSlotKey = displayedTabIds.join("\0");
+  useLayoutEffect(() => {
+    const el = tabStripElement;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncTabOverflow);
+    for (const slot of el.querySelectorAll("[data-motion-slot]"))
+      observer.observe(slot);
+    return () => observer.disconnect();
+  }, [tabStripElement, syncTabOverflow, stripSlotKey]);
 
   const overflowSignature = JSON.stringify(
     orderedIds.map((id) => {
@@ -4168,7 +4190,7 @@ function TitleBarComponent({
           />
         ) : (
           <div
-            className="relative h-full min-w-0 flex-1 overflow-hidden"
+            className="personal-title-tabs relative h-full min-w-0 flex-1 overflow-hidden"
             style={
               pinnedIds.size
                 ? ({

@@ -48,6 +48,9 @@ export type DevPerfOptions = {
   focusedSurfaceId?: string;
   sidebarOpen?: boolean;
   openWebLink?: (url: string) => void | Promise<void>;
+  /** The hover sidebar's layer, once attached, and whether its card is out. */
+  floatingSidebarLabel?: string | null;
+  hoverSidebarRevealed?: boolean;
 };
 
 type PerfSettings = {
@@ -63,6 +66,8 @@ type PerfSettings = {
   only?: string[];
   /** Profile the interface process during the scenario whose name contains this. */
   sample?: string;
+  /** Record the window from outside during the scenario whose name contains this. */
+  record?: string;
 };
 
 export type ScenarioResult = {
@@ -222,7 +227,11 @@ export async function runDevPerf(
       return;
     await invoke("dev_perf_mark", { label: `start:${name}` }).catch(() => {});
     // Let a profiler the runner starts on this mark attach first.
-    if (settings.sample && name.includes(settings.sample)) await pause(1_500);
+    if (
+      (settings.sample && name.includes(settings.sample)) ||
+      (settings.record && name.includes(settings.record))
+    )
+      await pause(1_500);
     const before = await sampleProcesses();
     const frames = options.frames === false ? null : recordFrames(refreshMs);
     const longTasks = recordLongTasks();
@@ -558,6 +567,93 @@ export async function runDevPerf(
       }
     });
 
+    // The hover sidebar as a person opens it: the pointer rests on the
+    // window's edge, the card slides out, the pointer leaves, it slides back.
+    const hoverSidebarSlides = async (measure: Measure, rounds = 10) => {
+      const unpinned = get().sidebarOpen;
+      if (unpinned) {
+        pressShortcut("b");
+        await waitFor(
+          () => get().sidebarOpen === false,
+          5_000,
+          "the sidebar to unpin",
+        );
+      }
+      await waitFor(
+        () => get().floatingSidebarLabel,
+        20_000,
+        "the hover sidebar's layer",
+      );
+      await pause(800);
+      const edge = () => ({ x: 1, y: window.innerHeight / 2 });
+      const away = () => ({
+        x: window.innerWidth * 0.6,
+        y: window.innerHeight / 2,
+      });
+      for (let round_ = 0; round_ < rounds; round_ += 1) {
+        measure.mark("slide in");
+        await measure.time(
+          () => smokeMouse("move", edge(), { settle: false }),
+          () => get().hoverSidebarRevealed,
+        );
+        await pause(520);
+        measure.mark("slide out");
+        await measure.time(
+          () => smokeMouse("move", away(), { settle: false }),
+          () => !get().hoverSidebarRevealed,
+        );
+        await pause(400);
+      }
+      if (unpinned) {
+        pressShortcut("b");
+        await pause(300);
+      }
+    };
+
+    await scenario("hover sidebar over a chat", (measure) =>
+      hoverSidebarSlides(measure),
+    );
+
+    // Dragging the pinned sidebar's edge wider and narrower, a frame at a time
+    // as a hand does: the whole workspace follows it.
+    const dragSidebarEdge = async (measure: Measure, rounds = 3) => {
+      if (!get().sidebarOpen) {
+        pressShortcut("b");
+        await waitFor(() => get().sidebarOpen, 5_000, "the sidebar to pin");
+        await pause(300);
+      }
+      const edge = document.querySelector<HTMLElement>(
+        '[role="separator"][aria-label="Resize sidebar"]',
+      );
+      if (!edge) throw new Error("No sidebar edge");
+      for (let round_ = 0; round_ < rounds; round_ += 1) {
+        const box = edge.getBoundingClientRect();
+        const from = { x: box.left + box.width / 2, y: box.top + 200 };
+        measure.mark("lift");
+        await smokeMouse("down", from, { settle: false });
+        await nextPaint();
+        measure.mark("motion");
+        const steps = 90;
+        for (let step = 1; step <= steps; step += 1) {
+          // Out by 90 px and back again.
+          const share = 1 - Math.abs((step / steps) * 2 - 1);
+          await smokeMouse(
+            "drag",
+            { x: from.x + share * 90, y: from.y },
+            { settle: false },
+          );
+          await pause(refreshMs);
+        }
+        measure.mark("drop");
+        await measure.time(() => smokeMouse("up", from, { settle: false }));
+        await pause(300);
+      }
+    };
+
+    await scenario("dragging the sidebar edge over a chat", (measure) =>
+      dragSidebarEdge(measure),
+    );
+
     await scenario("Settings open and close", async (measure) => {
       const settingsShown = () => document.querySelector("[data-app-settings]");
       for (let index = 0; index < 8; index += 1) {
@@ -633,6 +729,23 @@ export async function runDevPerf(
               await pause(150);
             }
           }
+        },
+      );
+      await scenario("hover sidebar over a web page", async (measure) => {
+        pressShortcut("9");
+        await pause(1_000);
+        if (!document.querySelector("[data-browser-pane]"))
+          throw new Error("No web page in front");
+        await hoverSidebarSlides(measure);
+      });
+      await scenario(
+        "dragging the sidebar edge over a web page",
+        async (measure) => {
+          pressShortcut("9");
+          await pause(1_000);
+          if (!document.querySelector("[data-browser-pane]"))
+            throw new Error("No web page in front");
+          await dragSidebarEdge(measure);
         },
       );
       // Leave a chat in front for the idle measurement.

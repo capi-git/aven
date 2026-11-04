@@ -23,7 +23,8 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / 'target/debug/Aven Dev.app'
 IDENTITY = 'com.capi.aven.dev'
-PORT = 1420
+# AVEN_DEV_PORT runs this checkout beside another checkout's preview.
+PORT = int(os.environ.get('AVEN_DEV_PORT', '1420'))
 
 
 def run(*args):
@@ -139,7 +140,7 @@ def development_server(child_env):
     require(port_is_available(), f'Port {PORT} is in use. Close its owning preview first; no process was stopped.')
     log_path = ROOT / 'target/aven-dev-vite.log'
     with log_path.open('w') as log:
-        server = subprocess.Popen(['npm', 'run', 'dev', '--', '--host', '127.0.0.1'],
+        server = subprocess.Popen(['npm', 'run', 'dev', '--', '--host', '127.0.0.1', '--port', str(PORT)],
                                   cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                                   env=child_env, start_new_session=True)
         try:
@@ -545,6 +546,73 @@ def webkit_content_pids(since):
     return pids
 
 
+def compile_frame_recorder():
+    (ROOT / 'target/perf').mkdir(parents=True, exist_ok=True)
+    binary = ROOT / 'target/perf/record-window-frames'
+    run('xcrun', 'swiftc', '-O', ROOT / 'scripts/record-window-frames.swift', '-o', binary)
+    return binary
+
+
+def window_server_seconds():
+    """CPU the window server has used so far: it composites what the app's layers do."""
+    pid = subprocess.check_output(['pgrep', '-x', 'WindowServer'], text=True).split()[0]
+    text = subprocess.check_output(['ps', '-o', 'time=', '-p', pid], text=True).strip()
+    seconds = 0.0
+    for part in text.split(':'):
+        seconds = seconds * 60 + float(part)
+    return seconds
+
+
+def record_scenario(root, name, recorder, app, seconds):
+    """Frames as the window server delivers them, and its CPU, during one scenario."""
+    marks = root / 'marks.log'
+    deadline = time.time() + PERF_TIMEOUT
+    while time.time() < deadline and app.poll() is None:
+        if marks.is_file() and any(line.startswith('start:') and name in line
+                                   for line in marks.read_text().splitlines()):
+            break
+        time.sleep(.1)
+    else:
+        return None
+    before = window_server_seconds()
+    done = subprocess.run([str(recorder), '0', str(app.pid), str(seconds * 1000)],
+                          capture_output=True, text=True)
+    used = window_server_seconds() - before
+    try:
+        frames = json.loads(done.stdout)
+    except ValueError:
+        return {'error': (done.stdout or done.stderr).strip()[:200]}
+    return {'frames': frames, 'windowServerCpuPct': used / seconds * 100}
+
+
+def print_recording(name, recorded):
+    if not recorded or recorded.get('error'):
+        print(f'Could not record "{name}": {(recorded or {}).get("error", "the scenario did not start")}')
+        return
+    changed = [frame['at'] for frame in recorded['frames'] if frame['rows'] > 0]
+    # A run of frames in motion, from a burst of three or more. Longer gaps are
+    # the waits around a motion (a reveal's rest on the edge), not a dropped frame.
+    gaps = []
+    run = []
+    for a, b in zip(changed, changed[1:]):
+        if b - a <= 60:
+            run.append(b - a)
+            continue
+        if len(run) >= 3:
+            gaps.extend(run)
+        run = []
+    if len(run) >= 3:
+        gaps.extend(run)
+    gaps.sort()
+    if not gaps:
+        print(f'Recording of "{name}": no motion captured.')
+        return
+    print(f'Recording of "{name}": {len(gaps) + 1} changed frames; gap between frames, ms: '
+          f'median {gaps[len(gaps) // 2]:.1f}, 95th {gaps[int(len(gaps) * .95)]:.1f}, worst {gaps[-1]:.1f}; '
+          f'over 20 ms: {sum(gap > 20 for gap in gaps)}, over 33 ms: {sum(gap > 33 for gap in gaps)}; '
+          f'window server CPU {recorded["windowServerCpuPct"]:.0f}%')
+
+
 def profile_scenario(root, name, launched, seconds=8):
     """Sample the interface's WebKit processes while one scenario runs."""
     marks = root / 'marks.log'
@@ -594,7 +662,7 @@ RESPONSE_LIMIT_MS = 33.4
 RENDER_BUDGETS = {'agent streaming a long reply': {'App': 60, 'SessionPane2': 60, 'WorkspaceStage': 10}}
 
 
-def perf(keep=False, compare=None, only=None, sample=None, idle=None):
+def perf(keep=False, compare=None, only=None, sample=None, idle=None, record=None, record_seconds=11):
     """Run Aven Dev's speed test and print what each scenario cost."""
     # macOS scans a newly signed app on its first launch (about 1.5 s here),
     # which users pay once per update. Absorb it so launch time is Aven's own.
@@ -613,6 +681,8 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None):
                 settings['only'] = [part.strip() for part in only.split(',') if part.strip()]
             if sample:
                 settings['sample'] = sample
+            if record:
+                settings['record'] = record
             if idle:
                 settings['idleSeconds'] = idle
             (root / 'perf.json').write_text(json.dumps(settings))
@@ -627,6 +697,8 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None):
             }
             launched_at = time.time() * 1000
             profiles = []
+            recorded = None
+            recorder = compile_frame_recorder() if record else None
             with (root / 'app.log').open('w') as log:
                 app = subprocess.Popen([str(APP / 'Contents/MacOS/aven')], env=app_env,
                                        stdout=log, stderr=subprocess.STDOUT,
@@ -634,6 +706,8 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None):
                 if sample:
                     (ROOT / 'target/perf').mkdir(parents=True, exist_ok=True)
                     profiles = profile_scenario(root, sample, launched_at / 1000)
+                if record:
+                    recorded = record_scenario(root, record, recorder, app, record_seconds)
                 try:
                     app.wait(timeout=PERF_TIMEOUT)
                 except subprocess.TimeoutExpired:
@@ -645,6 +719,8 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None):
                     print(f'The speed test did not finish within {PERF_TIMEOUT} seconds.', file=sys.stderr)
         stop_stand_ins(root)
         finished = report_perf(root, launched_at, compare)
+        if record:
+            print_recording(record, recorded)
         for path in profiles:
             rows = summarize_sample(path)
             if rows:
@@ -908,6 +984,8 @@ def main():
     parser.add_argument('--perf-compare', metavar='FILE', help='A saved speed test result to compare against')
     parser.add_argument('--perf-sample', metavar='NAME',
                         help='Profile the interface process with `sample` during the scenario whose name contains NAME')
+    parser.add_argument('--perf-record', metavar='NAME',
+                        help='Record frame timing from outside the app during the scenario whose name contains NAME')
     parser.add_argument('--perf-idle', metavar='SECONDS', type=int,
                         help='Stay on the idle scenario this long, to record the window or drive it from outside')
     parser.add_argument('--perf-only', metavar='NAMES',
@@ -936,7 +1014,7 @@ def main():
                 raise RuntimeError('The iPhone check failed.')
         elif args.perf:
             if not perf(keep=args.keep_smoke_folder, compare=args.perf_compare, only=args.perf_only,
-                        sample=args.perf_sample, idle=args.perf_idle):
+                        sample=args.perf_sample, idle=args.perf_idle, record=args.perf_record):
                 raise RuntimeError('The speed test did not finish cleanly.')
         elif not args.build_only:
             launch()

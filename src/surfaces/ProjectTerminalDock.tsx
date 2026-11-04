@@ -1,3 +1,4 @@
+import { setDragCursor } from "../lib/drag";
 import {
   ChevronDown,
   ChevronLeft,
@@ -105,11 +106,8 @@ export function ProjectTerminalDock({
 
   useEffect(() => {
     if (!dragging) return;
-    const previous = document.body.style.cursor;
-    document.body.style.cursor = vertical ? "row-resize" : "col-resize";
-    return () => {
-      document.body.style.cursor = previous;
-    };
+    setDragCursor(vertical ? "row-resize" : "col-resize");
+    return () => setDragCursor(null);
   }, [dragging, vertical]);
 
   useEffect(

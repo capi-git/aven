@@ -106,7 +106,7 @@ export const frame = () =>
  * next one follows at once (a release with no rest before it).
  */
 export async function smokeMouse(
-  kind: "down" | "drag" | "up",
+  kind: "down" | "drag" | "up" | "move",
   at: Point,
   { settle = true }: { settle?: boolean } = {},
 ) {

@@ -294,6 +294,10 @@ pub fn dev_perf_keep_visible(webview: Webview) -> Result<(), String> {
     window
         .set_always_on_top(true)
         .map_err(|error| error.to_string())?;
+    // On another Space it isn't drawn either, and the test would stall there.
+    window
+        .set_visible_on_all_workspaces(true)
+        .map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())
 }
 
