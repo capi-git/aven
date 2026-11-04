@@ -422,6 +422,10 @@
   flex-direction: column;
   min-height: 0;
 }
+/* A chat grows up from its message box; a finished run reads from the top. */
+.personal-shell .automation-run-transcript .personal-transcript-content {
+  justify-content: flex-start;
+}
 .automation-run-summary {
   max-width: 760px;
   padding: 20px 32px;

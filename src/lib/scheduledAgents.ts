@@ -937,7 +937,9 @@ export async function runDueScheduledAgents({
 // (an Activity entry, the Inbox card, a notification for a run's chat).
 
 export type AutomationsRequest =
-  { kind: "new"; project?: string } | { kind: "run"; runId: string };
+  | { kind: "new"; project?: string }
+  | { kind: "automation"; id: string }
+  | { kind: "run"; runId: string };
 
 const VIEW_REQUEST = "aven:scheduled-agent-editor";
 let pendingRequest: AutomationsRequest | null = null;
@@ -955,6 +957,15 @@ export function requestScheduleEditor(project?: string) {
 /** One run's conversation, under its automation. */
 export function requestAutomationRun(runId: string) {
   request({ kind: "run", runId });
+}
+
+/** Asks the app to show Automations, for what isn't given a way to itself. */
+export const OPEN_AUTOMATIONS_EVENT = "aven:open-automations";
+
+/** Shows one automation, from anywhere (a chat's card). */
+export function openAutomation(id: string) {
+  request({ kind: "automation", id });
+  window.dispatchEvent(new Event(OPEN_AUTOMATIONS_EVENT));
 }
 
 /** The pending request, once. */

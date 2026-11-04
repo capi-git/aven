@@ -113,6 +113,14 @@ export function useAutomationSelection() {
         setEditor({ mode: "new", project: request.project });
         return;
       }
+      if (request.kind === "automation") {
+        const agent = getScheduledAgent(request.id);
+        if (!agent) return;
+        setEditor(null);
+        setSelection({ automation: agent.id, run: null });
+        setFolderCollapsed(automationFolderKey(agent.project), false);
+        return;
+      }
       const run = getScheduledRun(request.runId);
       if (!run) return;
       setEditor(null);

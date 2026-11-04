@@ -23,6 +23,8 @@
 #include "browser_pump.h"
 #include "browser_host_view.h"
 #include "browser_tab_zoom.h"
+#include "browser_download_policy.h"
+#include <sys/xattr.h>
 #include "browser_workspace_keys.h"
 #include "browser_actions_menu.h"
 #include "browser_drop_indicator.h"
@@ -713,7 +715,18 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const auto key=std::to_string(browser->GetIdentifier())+":"+std::to_string(item->GetId());
     download_names_[key]=filename.empty()?"Download":filename;
     NSString *directory=download_root.empty() ? NSSearchPathForDirectoriesInDomains(NSDownloadsDirectory,NSUserDomainMask,YES).firstObject : Ns(download_root);
-    NSString *path=[directory stringByAppendingPathComponent:Ns(filename.empty()?"Download":filename)];
+    const auto name=filename.empty()?std::string("Download"):filename;
+    NSString *path=[directory stringByAppendingPathComponent:Ns(name)];
+    const auto quiet=supermono::QuietDownloadName(name,item->GetMimeType().ToString());
+    if (!quiet.empty()) {
+      // Data files save straight away, as an agent can't answer a chooser.
+      path=[directory stringByAppendingPathComponent:Ns(quiet)];
+      for (int number=2; number<1000 && [NSFileManager.defaultManager fileExistsAtPath:path]; number++)
+        path=[directory stringByAppendingPathComponent:Ns(supermono::NumberedDownloadName(quiet,number))];
+      quiet_downloads_.insert(key);
+      callback->Continue(Str(path),false);
+      return true;
+    }
     // CEF's native Save As chooser makes overwrites an explicit user choice.
     callback->Continue(Str(path),true);
     return true;
@@ -728,14 +741,37 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (filename.empty()) filename="Download";
     download_names_[key]=filename;
     if (item->IsInProgress()) downloads_[key]=callback; else downloads_.erase(key);
+    bool removed=false;
+    if (!item->IsInProgress()&&quiet_downloads_.erase(key)&&item->IsComplete())
+      removed=!SettleQuietDownload(item->GetFullPath().ToString(),filename);
     auto d=Object(), entry=Object();
     entry->SetString("id",key); entry->SetString("filename",filename);
-    entry->SetString("path",item->GetFullPath());
+    entry->SetString("path",removed?CefString():item->GetFullPath());
     entry->SetDouble("receivedBytes",item->GetReceivedBytes()); entry->SetDouble("totalBytes",item->GetTotalBytes());
-    entry->SetString("state",item->IsComplete()?"completed":item->IsCanceled()?"cancelled":item->IsInProgress()?"in-progress":"failed");
-    if (!item->IsComplete()&&!item->IsCanceled()&&!item->IsInProgress()) entry->SetString("error","Download could not be completed");
+    entry->SetString("state",removed?"failed":item->IsComplete()?"completed":item->IsCanceled()?"cancelled":item->IsInProgress()?"in-progress":"failed");
+    if (removed) entry->SetString("error","Removed: this file was really a program");
+    else if (!item->IsComplete()&&!item->IsCanceled()&&!item->IsInProgress()) entry->SetString("error","Download could not be completed");
     d->SetString("type","download"); d->SetDictionary("download",entry); Emit(id_,d);
     if (!item->IsInProgress()) download_names_.erase(key);
+  }
+  // A quiet download is checked once it lands: false when it was really a
+  // program and is gone. Otherwise macOS still treats it as from the internet,
+  // so Gatekeeper checks anything inside it when it's opened.
+  bool SettleQuietDownload(const std::string& path,const std::string& filename) {
+    NSFileHandle *file=[NSFileHandle fileHandleForReadingAtPath:Ns(path)];
+    NSData *head=[file readDataOfLength:8];
+    [file closeFile];
+    if (supermono::DownloadLooksRunnable(static_cast<const unsigned char*>(head.bytes),head.length)) {
+      [NSFileManager.defaultManager removeItemAtPath:Ns(path) error:nil];
+      Notice("Removed "+filename+": it was really a program, not the file its name says.");
+      return false;
+    }
+    if (getxattr(path.c_str(),"com.apple.quarantine",nullptr,0,0,0)<0) {
+      const auto flag=[NSString stringWithFormat:@"0081;%08lx;Aven;",static_cast<unsigned long>(time(nullptr))];
+      const char *value=flag.UTF8String;
+      setxattr(path.c_str(),"com.apple.quarantine",value,strlen(value),0,0);
+    }
+    return true;
   }
   bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser,CefRefPtr<CefFrame> frame,
       const CefString& origin,uint32_t permissions,CefRefPtr<CefMediaAccessCallback> callback) override {
@@ -2418,6 +2454,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   std::map<int,Completion> pending_;
   std::map<std::string,CefRefPtr<CefDownloadItemCallback>> downloads_;
   std::map<std::string,std::string> download_names_;
+  std::set<std::string> quiet_downloads_;
   std::map<std::string,std::shared_ptr<PromptState>> prompts_;
   int dev_sequence_=0,context_id_=0,find_count_=0,find_ordinal_=0;
   uint64_t prompt_sequence_=0;
