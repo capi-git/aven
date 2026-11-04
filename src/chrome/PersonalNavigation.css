@@ -1003,110 +1003,16 @@ html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  /* MonoCode's hover sidebar (MIT): the window's glass under a faint wash. The
-     work behind it is already cut away, so the wallpaper shows through. */
+  /* MonoCode's hover sidebar (MIT): a faint wash over the native frost that
+     blurs the work behind it (floating_sidebar.mm). */
   --personal-navigation-overlay: hsl(0 0% 92% / 0.05);
 }
-/* As in the mock: the name alone, and the usage line at the bottom; the rest of
-   the footer comes up under the pointer. */
+/* As in the mock: the name alone. */
 .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   .personal-profile-name
   > svg {
   display: none;
-}
-.personal-shell
-  .personal-sidebar-slot[data-floating="true"]
-  .personal-sidebar-footer:not(:hover, :focus-within)
-  .personal-workspace-switcher {
-  min-height: 0;
-  height: 0;
-  overflow: hidden;
-  opacity: 0;
-}
-.personal-shell .personal-navigation .personal-sidebar-usage {
-  display: none;
-  align-items: center;
-  gap: 8px;
-  min-height: 24px;
-  padding: 0 8px;
-  color: var(--aven-label-secondary);
-  font-size: var(--text-ui-caption);
-  font-variant-numeric: tabular-nums;
-}
-.personal-shell
-  .personal-sidebar-slot[data-floating="true"]
-  .personal-sidebar-usage {
-  display: flex;
-}
-.personal-shell .personal-navigation .personal-sidebar-usage > i {
-  position: relative;
-  overflow: hidden;
-  width: 44px;
-  height: 3px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--color-content) 28%, transparent);
-}
-.personal-shell .personal-navigation .personal-sidebar-usage > i > b {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: inherit;
-  background: var(--aven-label-secondary);
-}
-
-/* The footer, as MonoCode's: arrows either side of one wide pill holding the
-   workspace you're in. Settings and the rest show under the pointer. */
-.personal-shell .personal-navigation .personal-workspace-switcher {
-  min-height: 26px;
-  gap: 2px;
-}
-.personal-shell .personal-navigation .personal-profile-switches {
-  flex: 1 1 auto;
-  justify-content: center;
-  height: 22px;
-  margin-left: 0;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
-}
-.personal-shell
-  .personal-navigation
-  .personal-profile-switches
-  > .personal-profile-switch[aria-pressed="false"] {
-  display: none;
-}
-.personal-shell
-  .personal-navigation
-  .personal-profile-switches
-  > .personal-profile-switch[aria-pressed="true"] {
-  background: transparent;
-}
-.personal-shell .personal-navigation .personal-workspace-step {
-  width: 18px;
-  opacity: 0.6;
-}
-.personal-shell .personal-navigation .personal-workspace-step:disabled {
-  opacity: 0.25;
-}
-.personal-shell
-  .personal-navigation
-  .personal-workspace-tool:is(
-    [aria-label^="Settings"],
-    [aria-label="Add project"],
-    .personal-workspace-add
-  ) {
-  width: 0;
-  overflow: hidden;
-  opacity: 0;
-}
-.personal-shell
-  .personal-navigation
-  .personal-workspace-switcher:is(:hover, :focus-within)
-  .personal-workspace-tool:is(
-    [aria-label^="Settings"],
-    .personal-workspace-add
-  ) {
-  width: 22px;
-  opacity: 1;
 }
 
 /* The open chat's row is its fill: no bar beside it. */

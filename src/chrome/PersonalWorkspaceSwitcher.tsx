@@ -4,8 +4,6 @@ import type { LiveAgent } from "../lib/liveAgents";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 import {
   Briefcase,
-  ChevronLeft,
-  ChevronRight,
   Folder,
   FolderPlus,
   Home,
@@ -123,20 +121,6 @@ export function PersonalWorkspaceSwitcher({
       {onAddProject
         ? tool("Add project", <FolderPlus className="size-3.5" />, onAddProject)
         : null}
-      <button
-        type="button"
-        className="personal-workspace-tool personal-workspace-step"
-        aria-label="Previous workspace"
-        title="Previous workspace"
-        disabled={profiles.length < 2}
-        onClick={() =>
-          onSelectProfile?.(
-            profiles[(activeIndex - 1 + profiles.length) % profiles.length]!.id,
-          )
-        }
-      >
-        <ChevronLeft className="size-3.5" />
-      </button>
       <div
         className="personal-profile-switches"
         role="group"
@@ -184,18 +168,6 @@ export function PersonalWorkspaceSwitcher({
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        className="personal-workspace-tool personal-workspace-step"
-        aria-label="Next workspace"
-        title="Next workspace"
-        disabled={profiles.length < 2}
-        onClick={() =>
-          onSelectProfile?.(profiles[(activeIndex + 1) % profiles.length]!.id)
-        }
-      >
-        <ChevronRight className="size-3.5" />
-      </button>
       {onCreateProfile ? (
         <button
           ref={addRef}

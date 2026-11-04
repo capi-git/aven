@@ -205,10 +205,8 @@ it("names every footer control in its tooltip, saying what pressing it does", as
       expect.stringMatching(/^Settings \(/),
     ],
     ["Add project", "Add project"],
-    ["Previous workspace", "Previous workspace"],
     ["Personal workspace", "Personal workspace"],
     ["Work workspace", "Switch to Work"],
-    ["Next workspace", "Next workspace"],
     ["Add workspace", "New workspace"],
   ]);
   // New workspace waits for the pointer or focus (the stylesheet), but is
