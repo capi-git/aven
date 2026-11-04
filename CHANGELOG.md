@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [0.1.166] - 2026-11-03
+
+### Added
+
+- **Teammates that work together.** A team gets a Lead who answers messages to everyone. Teammates can ask each other things and start read-only helpers, and each one can have its own routine on the Schedule tab.
+- **Frame in Settings → Appearance.** Choose Lighter, Default or Darker for the sidebar and the rows around your work.
+- **Pull a divider to fold several panes.** Keep pulling and the next pane folds too. Pull back and they all open together.
+
+### Changed
+
+- **A new look.** One top row and sidebar on the window's glass, with your work in one rounded card and no lines between them. The bottom row has your limits and Terminal.
+- **The hover sidebar floats.** A rounded card over your work, blurred behind and in the pinned sidebar's colour.
+- **Popups share one glass.** Menus, sheets and dialogs now look alike. The Glass slider sets how see-through they are.
+- **Flat message boxes** in chats and teams, in dark mode.
+- **Tabs.** A split's tab gets real width, tabs with the same name are numbered, a pane is named once, and the New chat, browser and board buttons stay at the end of the row.
+- **Panes.** A pane's tools show wherever you point in it, only the pane you're in shows the empty headline, and panes glide as they fold.
+- **Team page.** Board comes first in the tabs, and long lines in team chat stay readable.
+- **Settings.** One plain list, with Back to app on top.
+- **Sharper icons** in the top row, pane headers and bottom rows.
+- **Faster.** Hidden panes keep their size, tabs reorder without moving chats, and resizing and dragging repaint much less. The Glass slider no longer lags.
+
+### Fixed
+
+- A save that never finishes now pauses a team run where you can see it, instead of hanging.
+- Teammates can't read your Codex keys, and agent instruction files stay out of Apply.
+- The message box menu keeps its blur.
+- The resize line no longer stays after a click.
+- The Mac icon is one tile, not a bubble within a bubble.
+
 ## [0.1.165] - 2026-11-03
 
 ### Added
