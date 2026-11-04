@@ -1,8 +1,9 @@
 /**
  * Turns what Claude Code and Codex report about their MCP servers into the
  * Settings page's groups: what needs you, what works, and what is turned off
- * or hidden. A server both agents load is one row; a plugin's copy with no
- * address, beside a connector that works, is folded into that row.
+ * or hidden. A server both agents load is one row, unless the same name points
+ * at different servers; a plugin's copy with no address, beside a connector
+ * that works, is folded into that row.
  */
 import type {
   ConnectionState,
@@ -144,8 +145,8 @@ export function setMcpHidden(ids: readonly string[], hidden: boolean): void {
 // Names
 
 /**
- * Rows merge on the name alone, ignoring case and spacing: "Google Calendar"
- * and "google calendar" match, but "my-db" and "my_db" stay apart.
+ * Rows start from the name, ignoring case and spacing: "Google Calendar" and
+ * "google calendar" match, but "my-db" and "my_db" stay apart.
  */
 export function normalizeServerName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
@@ -479,16 +480,42 @@ function rowFor(
   if (!visible.length) return null;
   const copies = hidden
     ? []
+/**
+ * One name's entries as rows. Entries with the same target share a row, and
+ * different targets never do. An entry whose target isn't known joins the only
+ * target there is, and stands alone when there are several to choose from.
+ */
+function splitByTarget(id: string, entries: McpEntry[]) {
+  const byTarget = new Map<string, McpEntry[]>();
+  for (const entry of entries) {
+    const target = entry.connection.target;
+    if (target) byTarget.set(target, [...(byTarget.get(target) ?? []), entry]);
+  }
+  const unknown = entries.filter((entry) => !entry.connection.target);
+  if (byTarget.size <= 1) return [{ id, entries, label: undefined }];
+  const groups = [...byTarget.values()];
+  if (unknown.length) groups.push(unknown);
+  return groups.map((group, index) => ({
+    id: index ? `${id}#${index}` : id,
+    entries: group,
+    label: group[0]!.connection.targetLabel,
+  }));
+}
+
     : visible.filter((entry) => isCopy(entry, visible));
   const rest = visible.filter((entry) => !copies.includes(entry));
   const on = rest.filter((entry) => entry.connection.state !== "off");
   const off = rest.filter((entry) => entry.connection.state === "off");
   // Prefer a connector's or a brand's casing over a plugin's lower case.
+  targetLabel?: string,
   const named =
     rest.find((entry) => entry.connection.account) ??
     rest.find((entry) => /[A-Z]/.test(entry.connection.name)) ??
     rest[0]!;
-  const name = displayName(named);
+  // Same-named servers are told apart by where they point.
+  const name = targetLabel
+    ? `${displayName(named)} (${targetLabel})`
+    : displayName(named);
   const state: McpRowState = hidden
     ? "hidden"
     : on.length
@@ -622,17 +649,21 @@ export function buildMcpOverview(
   const signIn: McpRow[] = [];
   const working: McpRow[] = [];
   const off: McpRow[] = [];
-  for (const [id, entries] of shown) {
-    const row = rowFor(id, entries, false, claudeProject);
-    if (!row) continue;
-    if (row.state === "failed") needsYou.push(row);
-    else if (row.state === "needs-sign-in") signIn.push(row);
-    else if (row.state === "off") off.push(row);
-    else working.push(row);
+  for (const [name, all] of shown) {
+    for (const { id, entries, label } of splitByTarget(name, all)) {
+      const row = rowFor(id, entries, false, claudeProject, label);
+      if (!row) continue;
+      if (row.state === "failed") needsYou.push(row);
+      else if (row.state === "needs-sign-in") signIn.push(row);
+      else if (row.state === "off") off.push(row);
+      else working.push(row);
+    }
   }
-  for (const [id, entries] of tucked) {
-    const row = rowFor(`hidden:${id}`, entries, true, claudeProject);
-    if (row) off.push(row);
+  for (const [name, all] of tucked) {
+    for (const { id, entries, label } of splitByTarget(name, all)) {
+      const row = rowFor(`hidden:${id}`, entries, true, claudeProject, label);
+      if (row) off.push(row);
+    }
   }
 
   return {

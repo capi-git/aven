@@ -24,6 +24,7 @@ import {
 import { asRecord, stringField } from "./codexProtocol";
 import { JsonRpcClient } from "./jsonRpc";
 import { errorText } from "../errors";
+import { scrubSecrets } from "../scrubSecrets";
 
 export type ConnectionState =
   "ready" | "needs-sign-in" | "failed" | "starting" | "inactive" | "off";
@@ -56,7 +57,51 @@ export type ProviderConnection = {
   errorCode?: string;
   /** Where a server is turned off, when Aven can't turn it on itself. */
   offNote?: string;
+  /**
+   * What it connects to, for comparing same-named servers. Absent when the
+   * provider doesn't say, or the address isn't the service's own. May hold a
+   * URL's query or a command's arguments, so it is never shown.
+   */
+  target?: string;
+  /** A short name for the target that is safe to show: a host or a program. */
+  targetLabel?: string;
 };
+
+/**
+ * The address or program in a provider's description of a server. Reads only
+ * those fields: the same record can hold headers and environment values.
+ */
+export function connectionTarget(
+  config: Record<string, unknown> | null | undefined,
+): Pick<ProviderConnection, "target" | "targetLabel"> {
+  const url = stringField(config, "url");
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      const path = parsed.pathname.replace(/\/+$/, "");
+      return {
+        target: `${parsed.protocol}//${parsed.host}${path}${parsed.search}`,
+        targetLabel: parsed.hostname,
+      };
+    } catch {
+      return { target: url };
+    }
+  }
+  const command = stringField(config, "command");
+  if (!command) return {};
+  const args = Array.isArray(config?.args)
+    ? config.args.filter((arg): arg is string => typeof arg === "string")
+    : [];
+  const program = command.split(/[\\/]/).at(-1) || command;
+  // "npx @acme/mcp", skipping flags and whatever a long flag takes as its value.
+  const subject = args.find(
+    (arg, index) => !arg.startsWith("-") && !args[index - 1]?.startsWith("--"),
+  );
+  return {
+    target: [program, ...args].join("\0"),
+    targetLabel: scrubSecrets(subject ? `${program} ${subject}` : program),
+  };
+}
 
 /** The provider's CLI isn't installed: there is nothing of its to check. */
 export class ProviderNotInstalledError extends Error {}
@@ -344,6 +389,10 @@ export function claudeConnectionsFromStatus(
             : {}),
           ...(error ? { detail: error.trim() } : {}),
           ...(errorCode ? { errorCode } : {}),
+          // A claude.ai connector's address is Anthropic's proxy, not the service.
+          ...(scope === "claudeai"
+            ? {}
+            : connectionTarget(asRecord(server.config))),
         },
       ];
     }),
@@ -785,6 +834,7 @@ export function codexConnectionsFromStatus(
         ...(state === "off" && !switchable
           ? { offNote: codexOffNote(config, name) }
           : {}),
+        ...connectionTarget(entry),
       },
     ];
   });
@@ -802,6 +852,7 @@ export function codexConnectionsFromStatus(
       ...(switchable
         ? { canTurnOff: true }
         : { offNote: codexOffNote(config, name) }),
+      ...connectionTarget(asRecord(value)),
     });
   }
   return sortConnections(connections);
