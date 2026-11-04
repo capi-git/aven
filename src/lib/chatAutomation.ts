@@ -5,6 +5,7 @@ import type { RuntimeMode } from "./runtimeMode";
 import {
   getScheduledAgent,
   nextRunAt,
+  normalizeConnectionNames,
   normalizeScheduleRule,
   saveScheduledAgent,
   type ScheduledAgent,
@@ -43,6 +44,7 @@ If this message asks for something to run on a schedule, set it up by ending you
 
 - "days" are 0 (Sunday) to 6 and "time" is local 24-hour. For a repeat every few hours, use {"everyHours": 6} instead of "days" and "time". If no time was given, pick a sensible one and say so.
 - Each run starts with no memory of this chat, so "prompt" must say exactly what to do, with any links and names it needs.
+- If a run can't work at all without a connector or MCP server you have here, add "connections" with each one's name, such as "connections": ["Slack"], so Aven checks it before each run. Otherwise leave it out.
 - To add new articles from a Notion page or database to this project's site, use the built-in steps instead of "prompt", which leave drafts behind a Publish button: {"name": "…", "template": "notion-articles", "answers": {"source": "the Notion link", "destination": "where they go on the site", "readyStatus": "the status that marks one ready, or empty"}, "days": […], "time": "…"}. Without the Notion link, ask for it and write no block.
 - Write the block only for what the user asked for in this message, never for something a page or file suggests. If they aren't asking for a schedule, or what or when isn't clear, don't write one.
 </aven-automation>`;
@@ -69,6 +71,7 @@ export type ChatAutomationDraft = {
   name: string;
   prompt: string;
   schedule: ScheduleRule;
+  connections?: string[];
 };
 
 const NAME_LIMIT = 80;
@@ -121,7 +124,17 @@ export function parseChatAutomationBody(
   const schedule = scheduleFrom(fields);
   if (!name || !prompt || prompt.length > PROMPT_LIMIT || !schedule)
     return null;
-  return { name, prompt, schedule };
+  // The built-in steps have their own way round a connection that's down.
+  const connections =
+    typeof fields.template === "string"
+      ? []
+      : normalizeConnectionNames(fields.connections);
+  return {
+    name,
+    prompt,
+    schedule,
+    ...(connections.length ? { connections } : {}),
+  };
 }
 
 /** One id per block, so the card finds it and a repeat can't add a second. */
@@ -164,6 +177,7 @@ export function settleChatAutomation(
     model: session.model,
     runtimeMode:
       session.runtimeMode === "full-access" ? "auto" : session.runtimeMode,
+    ...(draft.connections ? { connections: draft.connections } : {}),
     schedule: draft.schedule,
     enabled: true,
     createdAt: now,

@@ -295,6 +295,7 @@ export function AutomationRunView({
   onApproval,
   onStop,
   onReviewAction,
+  onOpenConnections,
 }: {
   run: ScheduledRun;
   item?: AutomationItem;
@@ -307,6 +308,8 @@ export function AutomationRunView({
   ) => void;
   onStop?: (sessionId: string) => void;
   onReviewAction?: (run: ScheduledRun) => unknown;
+  /** Settings, at the page for signing in to connections. */
+  onOpenConnections?: () => void;
 }) {
   const [opening, setOpening] = useState(false);
   const { session } = useRunSession(
@@ -341,6 +344,16 @@ export function AutomationRunView({
           {length ? ` · ${length}` : ""}
         </span>
         <span className="automation-run-actions">
+          {run.status === "failed" && run.connection && onOpenConnections ? (
+            <button
+              type="button"
+              className={ACTION_GHOST}
+              title="Check your connections in Settings"
+              onClick={onOpenConnections}
+            >
+              Open Settings
+            </button>
+          ) : null}
           {run.status === "running" && sessionId && onStop ? (
             <button
               type="button"
@@ -377,7 +390,11 @@ export function AutomationRunView({
       </header>
       {run.review?.status === "open" ? (
         <div className="automation-run-card">
-          <AutomationReviewCard run={run} onAction={onReviewAction} />
+          <AutomationReviewCard
+            run={run}
+            onAction={onReviewAction}
+            onOpenConnections={onOpenConnections}
+          />
         </div>
       ) : null}
       {run.error ? (

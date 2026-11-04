@@ -119,6 +119,61 @@ describe("the block", () => {
   });
 });
 
+describe("the connections a block names", () => {
+  const block = (fields: Record<string, unknown>) =>
+    JSON.stringify({
+      name: "Slack digest",
+      days: [1],
+      time: "09:00",
+      prompt: "Summarise my Slack.",
+      ...fields,
+    });
+
+  it("asks only for what a run can't work without", () => {
+    expect(armChatAutomation(chat.id, "every morning", true)).toContain(
+      '"connections": ["Slack"]',
+    );
+    settleChatAutomation(chat, "", false, 0);
+  });
+
+  it("keeps them on the automation it creates", () => {
+    armChatAutomation(chat.id, "every morning", true);
+    const created = settleChatAutomation(
+      chat,
+      `\`\`\`${AUTOMATION_FENCE}\n${block({ connections: ["Slack", "slack", 3, " "] })}\n\`\`\``,
+      true,
+      1_000,
+    );
+    expect(created?.connections).toEqual(["Slack"]);
+    expect(getScheduledAgent(created!.id)?.connections).toEqual(["Slack"]);
+  });
+
+  it("leaves them off when there are none, or they aren't a list", () => {
+    expect(parseChatAutomationBody(block({}))).not.toHaveProperty(
+      "connections",
+    );
+    expect(
+      parseChatAutomationBody(block({ connections: "Slack" })),
+    ).not.toHaveProperty("connections");
+  });
+
+  it("ignores them on the built-in steps, which have a way round", () => {
+    const draft = parseChatAutomationBody(
+      block({
+        prompt: undefined,
+        template: "notion-articles",
+        answers: {
+          source: "https://www.notion.so/team/Articles-0123456789abcdef",
+          destination: "the blog",
+        },
+        connections: ["Notion"],
+      }),
+    );
+    expect(draft?.prompt).toContain("Notion");
+    expect(draft).not.toHaveProperty("connections");
+  });
+});
+
 describe("when the turn settles", () => {
   it("creates it for an armed turn, once, and never with Full access", () => {
     armChatAutomation(chat.id, "do this every morning", true);

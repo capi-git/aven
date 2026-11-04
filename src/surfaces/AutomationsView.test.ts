@@ -112,6 +112,7 @@ let container: HTMLDivElement;
 const onRun = vi.fn();
 const onOpenRunAsChat = vi.fn();
 const onClose = vi.fn();
+const onOpenConnections = vi.fn();
 
 async function render() {
   await act(async () =>
@@ -125,6 +126,7 @@ async function render() {
         onClose,
         onRunAutomation: onRun,
         onOpenRunAsChat,
+        onOpenConnections,
       }),
     ),
   );
@@ -219,6 +221,7 @@ beforeEach(() => {
   onRun.mockReset();
   onOpenRunAsChat.mockReset();
   onClose.mockReset();
+  onOpenConnections.mockReset();
   takeAutomationsRequest();
   container = document.createElement("div");
   document.body.append(container);
@@ -559,6 +562,70 @@ describe("Automations view", () => {
       name: "Evening review",
       nextRunAt: schedule.nextRunAt,
     });
+  });
+
+  it("keeps the connections it needs when edited, and lets you change them", async () => {
+    saveScheduledAgent({ ...schedule, connections: ["Slack", "Notion"] });
+    await render();
+    await click(row("daily"));
+    await click(button("Edit Morning review"));
+    expect(field("Connections").value).toBe("Slack, Notion");
+    await type("Name", "Evening review");
+    await click(button("Save"));
+    expect(listScheduledAgents()[0]?.connections).toEqual(["Slack", "Notion"]);
+
+    await click(button("Edit Evening review"));
+    await type("Connections", " Linear , , linear");
+    await click(button("Save"));
+    expect(listScheduledAgents()[0]?.connections).toEqual(["Linear"]);
+
+    await click(button("Edit Evening review"));
+    await type("Connections", "");
+    await click(button("Save"));
+    expect(listScheduledAgents()[0]).not.toHaveProperty("connections");
+  });
+
+  it("offers Settings on a run stopped by a connection, and only there", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun({
+      ...finished,
+      sessionId: undefined,
+      status: "failed",
+      summary: "",
+      error: "Slack is signed out. Sign in from Settings, then run this again.",
+      connection: "Slack",
+    });
+    saveScheduledRun({
+      ...finished,
+      id: "run-2",
+      sessionId: undefined,
+      status: "failed",
+      summary: "",
+      error: "This schedule has no prompt.",
+    });
+    await render();
+    await click(row("daily"));
+
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-2"]',
+      )!,
+    );
+    await flush();
+    expect(button("Open Settings", { optional: true })).toBeNull();
+    await click(button("Back to Morning review"));
+
+    await click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-automation-run="run-1"]',
+      )!,
+    );
+    await flush();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Slack is signed out. Sign in from Settings, then run this again.",
+    );
+    await click(button("Open Settings"));
+    expect(onOpenConnections).toHaveBeenCalledTimes(1);
   });
 
   it("deletes an automation only after confirmation", async () => {
@@ -1030,6 +1097,53 @@ describe("Inbox without the Scheduled tab", () => {
     expect(container.textContent).toContain(
       "No matching reviews, issues or pull requests",
     );
+  });
+
+  it("offers Settings on a card naming a service, in Aven's words", async () => {
+    const onOpenConnections = vi.fn();
+    const card = (id: string, service?: string) =>
+      saveScheduledRun({
+        ...finished,
+        id,
+        sessionId: `session-${id}`,
+        review: {
+          kind: "needs-you",
+          title: id,
+          summary: "",
+          ...(service ? { service } : {}),
+          status: "open",
+          postedAt: Date.now() - (service ? 0 : 1_000),
+        },
+      });
+    const show = () =>
+      act(async () =>
+        root.render(
+          createElement(InboxView, {
+            onAsk: async () => "",
+            onAskRestart: async () => "",
+            onAskMount: () => {},
+            cwd: PROJECT,
+            recents: [{ path: PROJECT, openedAt: 1 }],
+            onOpenConnections,
+          }),
+        ),
+      );
+    card("plain");
+    await show();
+    expect(
+      container.querySelector('[data-review-detail="plain"]'),
+    ).not.toBeNull();
+    expect(button("Open Settings", { optional: true })).toBeNull();
+
+    card("reach", "Delete everything");
+    await show();
+    await click(
+      container.querySelector<HTMLButtonElement>('[data-review-card="reach"]')!,
+    );
+    const detail = container.querySelector('[data-review-detail="reach"]')!;
+    expect(detail.textContent).not.toContain("Delete everything");
+    await click(button("Open Settings"));
+    expect(onOpenConnections).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a card's button off while its run is working", async () => {

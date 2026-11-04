@@ -20,6 +20,7 @@ import {
   AUTOMATION_EXAMPLES,
   type AutomationExample,
 } from "../lib/automationExamples";
+import { canCheckConnections } from "../lib/automationConnections";
 import { NO_PROJECT_NAME } from "../lib/automationFolders";
 import {
   AUTOMATION_TEMPLATES,
@@ -51,6 +52,7 @@ import {
   listScheduledAgents,
   listScheduledRuns,
   nextRunAt,
+  normalizeConnectionNames,
   saveKeepAwake,
   SCHEDULE_MAX_HOURS,
   SCHEDULE_MIN_HOURS,
@@ -202,6 +204,8 @@ type Draft = {
   harness: HarnessId;
   model: string;
   runtimeMode: RuntimeMode;
+  /** The names as typed, split by commas. */
+  connections: string;
   kind: ScheduleRule["kind"];
   days: number[];
   time: string;
@@ -265,6 +269,7 @@ function draftFrom(
       harness: initial.harness,
       model: initial.model,
       runtimeMode: initial.runtimeMode,
+      connections: initial.connections?.join(", ") ?? "",
       kind: initial.schedule.kind,
       days:
         initial.schedule.kind === "weekly" ? initial.schedule.days : WEEKDAYS,
@@ -280,6 +285,7 @@ function draftFrom(
     harness: agent.harness,
     model: agent.model,
     runtimeMode: loadDefaultRuntimeMode(),
+    connections: "",
     kind: "weekly",
     days: WEEKDAYS,
     time: "09:00",
@@ -441,6 +447,9 @@ export function ScheduleEditor({
     const at = now();
     const keepNext =
       initial && initial.enabled && sameRule(initial.schedule, rule);
+    const connections = template
+      ? []
+      : normalizeConnectionNames(draft.connections.split(","));
     onSave(
       {
         id: initial?.id ?? crypto.randomUUID(),
@@ -450,6 +459,7 @@ export function ScheduleEditor({
         harness: draft.harness,
         model: draft.model,
         runtimeMode: draft.runtimeMode,
+        ...(connections.length ? { connections } : {}),
         schedule: rule,
         enabled: initial?.enabled ?? true,
         createdAt: initial?.createdAt ?? at,
@@ -639,6 +649,21 @@ export function ScheduleEditor({
           With Ask first, a run pauses whenever the agent asks for approval. If
           nobody is there to answer, the run waits until you open it.
         </p>
+      ) : null}
+      {!template && canCheckConnections(draft.harness) ? (
+        <label
+          className="scheduled-field"
+          title="If one is signed out or failing, the run stops before it starts."
+        >
+          <span>Connections</span>
+          <input
+            aria-label="Connections"
+            value={draft.connections}
+            placeholder="Optional, such as Notion, Slack"
+            spellCheck={false}
+            onChange={(event) => patch({ connections: event.target.value })}
+          />
+        </label>
       ) : null}
       <div className="scheduled-field">
         <span>Repeat</span>

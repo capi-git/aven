@@ -196,6 +196,8 @@ type Props = {
   onReviewAction?: (run: ScheduledRun) => unknown;
   /** Shows the run a card came from, in Automations. */
   onOpenAutomationRun?: (runId: string) => void;
+  /** Settings, at the page for signing in to connections. */
+  onOpenConnections?: () => void;
 };
 
 const reviewKey = (run: ScheduledRun) => `review:${run.id}`;
@@ -212,6 +214,7 @@ export function InboxView({
   onStart,
   onReviewAction,
   onOpenAutomationRun,
+  onOpenConnections,
 }: Props) {
   const [discussionOpen, setDiscussionOpen] = useState(false);
   const listLock = useLockOverscroll<HTMLDivElement>();
@@ -637,6 +640,7 @@ export function InboxView({
                       ? (run) => onOpenAutomationRun(run.id)
                       : undefined
                   }
+                  onOpenConnections={onOpenConnections}
                 />
               </div>
             ) : (

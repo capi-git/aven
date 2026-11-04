@@ -92,6 +92,8 @@ type Props = {
   onStopRun?: (sessionId: string) => void;
   /** The card's button: sends its message to the run's conversation. */
   onReviewAction?: (run: ScheduledRun) => unknown;
+  /** Settings, at the page for signing in to connections. */
+  onOpenConnections?: () => void;
 };
 
 /**
@@ -155,6 +157,7 @@ export function AutomationsView({
   onApproval,
   onStopRun,
   onReviewAction,
+  onOpenConnections,
 }: Props) {
   const detailLock = useLockOverscroll<HTMLDivElement>();
   const listLock = useLockOverscroll<HTMLDivElement>();
@@ -279,6 +282,7 @@ export function AutomationsView({
       onApproval={onApproval}
       onStop={onStopRun}
       onReviewAction={onReviewAction}
+      onOpenConnections={onOpenConnections}
     />
   ) : current ? (
     <AutomationDetail

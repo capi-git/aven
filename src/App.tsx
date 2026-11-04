@@ -12933,6 +12933,7 @@ export default function App({
                           onOpenAutomationRun={(id) =>
                             void showAutomationRun(id)
                           }
+                          onOpenConnections={() => openSettings("connections")}
                         />
                       </LazyViewSlot>
                     ) : null}
@@ -12954,6 +12955,7 @@ export default function App({
                           onReviewAction={(run) =>
                             automationReviewActionRef.current(run)
                           }
+                          onOpenConnections={() => openSettings("connections")}
                         />
                       </LazyViewSlot>
                     ) : null}
