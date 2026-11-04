@@ -87,19 +87,15 @@ describe("flush panes", () => {
     );
   });
 
-  it("keeps the docked sidebar's and side panel's resting hairline", () => {
-    const shell = readFileSync("src/personal-shell.css", "utf8");
+  it("draws no line beside a docked sidebar or side panel until you go to resize", () => {
     const divider = rule(
       "src/personal-shell.css",
       ".personal-shell .personal-panel-resizer::after",
     );
-    expect(divider).toContain("width: var(--aven-hairline, 1px);");
-    expect(divider).toContain(
-      "background: var(--aven-separator, var(--personal-sidebar-edge));",
-    );
-    // The iOS look hid it at rest behind the floating cards' gap.
-    expect(shell).not.toMatch(
-      /\.personal-panel-resizer:not\([^)]*:hover[\s\S]*?\)::after \{\s*background: transparent;/,
+    expect(divider).toContain("background: transparent;");
+    // Pointing at it or dragging still shows the 2px seam.
+    expect(readFileSync("src/personal-shell.css", "utf8")).toMatch(
+      /\.personal-panel-resizer\[data-resizing="true"\]::after \{[^}]*width: 2px;/,
     );
   });
 

@@ -784,7 +784,8 @@ html.theme-light.is-mac
   bottom: 0;
   left: 4px;
   width: var(--aven-hairline, 1px);
-  background: var(--aven-separator, var(--personal-sidebar-edge));
+  /* No line at rest: the panels are one surface until you go to resize. */
+  background: transparent;
   pointer-events: none;
 }
 .personal-shell
@@ -818,8 +819,6 @@ html.theme-light.is-mac
   background: transparent;
   outline: none;
 }
-/* Docked panels meet the workspace edge to edge: the resizer's resting line
-   is the hairline between them, and pointing at it or dragging widens it. */
 
 /* Design A: a single window toolbar over the workspace. The native window
    supplies the outer curve; panes meet flush between hairlines
