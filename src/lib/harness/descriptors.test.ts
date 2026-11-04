@@ -75,7 +75,7 @@ describe("harness descriptors", () => {
     ).toEqual(["claude", "codex"]);
     expect(
       HARNESS_IDS.filter((id) => harnessDescriptor(id).connections),
-    ).toEqual(["claude", "codex"]);
+    ).toEqual(["claude", "codex", "pi"]);
     expect(HARNESS_IDS.filter((id) => harnessDescriptor(id).usage)).toEqual([
       "claude",
       "codex",

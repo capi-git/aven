@@ -1,10 +1,11 @@
 /**
  * Inventory of the MCP connections each provider loads from its own
- * configuration: what Claude Code and Codex say they will start for a task.
+ * configuration: what Claude Code, Codex and Pi say they will start for a task.
  * Adding, removing and signing in go through the provider's own CLI (see
  * mcpServers.ts); turning a server off and on goes through the provider's own
  * protocol, which writes only that server's entry.
  */
+import { invoke } from "@tauri-apps/api/core";
 import {
   acquireHarnessBridge,
   killChild,
@@ -883,6 +884,80 @@ function codexOffNote(
     default:
       return "Turned off by your organization’s Codex settings.";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pi
+// ---------------------------------------------------------------------------
+
+/**
+ * What `pi mcp list --json` says. A Pi with no such command, or one that isn't
+ * installed, reads as not installed: a provider's missing MCP support isn't a
+ * problem for this page to raise.
+ */
+export function listPiConnections(cwd: string): Promise<ProviderConnection[]> {
+  return once(`pi:${cwd}`, async () => {
+    let output: unknown;
+    try {
+      output = await invoke("provider_mcp", {
+        request: { action: "list", provider: "pi" },
+        cwd: cwd || null,
+      });
+    } catch (error) {
+      throw new ProviderNotInstalledError(errorText(error));
+    }
+    const rows = piConnectionsFromList(output);
+    if (!rows)
+      throw new ProviderNotInstalledError("Pi didn't list its servers.");
+    return rows;
+  });
+}
+
+export function piConnectionsFromList(
+  output: unknown,
+): ProviderConnection[] | null {
+  if (typeof output !== "string") return null;
+  let parsed: Record<string, unknown> | null;
+  try {
+    parsed = asRecord(JSON.parse(output));
+  } catch {
+    return null;
+  }
+  if (!parsed || !Array.isArray(parsed.servers)) return null;
+  return sortConnections(
+    parsed.servers.flatMap((item): ProviderConnection[] => {
+      const server = asRecord(item);
+      const name = stringField(server, "name");
+      if (!server || !name) return [];
+      const status = stringField(server, "state");
+      const state: ConnectionState =
+        status === "connected"
+          ? "ready"
+          : status === "needs-auth"
+            ? "needs-sign-in"
+            : status === "disabled"
+              ? "off"
+              : status === "failed"
+                ? "failed"
+                : status === "connecting"
+                  ? "starting"
+                  : "inactive";
+      const tools = Array.isArray(server.tools) ? server.tools.length : 0;
+      const error = stringField(server, "error");
+      const personal = stringField(server, "scope") !== "project";
+      return [
+        {
+          name,
+          key: name,
+          ...(personal ? { removable: true, source: "Personal" } : {}),
+          ...(state === "needs-sign-in" ? { canSignIn: true } : {}),
+          state,
+          ...(state === "ready" ? { toolCount: tools } : {}),
+          ...(error ? { detail: error.trim() } : {}),
+        },
+      ];
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

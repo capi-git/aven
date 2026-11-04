@@ -23,7 +23,8 @@ export type HarnessDescriptor = {
   connections?: {
     label: string;
     manage: string;
-    list: "listClaudeConnections" | "listCodexConnections";
+    list:
+      "listClaudeConnections" | "listCodexConnections" | "listPiConnections";
     supportsScope: boolean;
   };
   usage?: {
@@ -162,6 +163,12 @@ const DESCRIPTORS: Record<HarnessId, HarnessDescriptor> = {
       description: "Use your Pi provider configuration.",
       guided: false,
       supportsTest: false,
+    },
+    connections: {
+      label: "Pi",
+      list: "listPiConnections",
+      manage: "Pi keeps its own list of servers.",
+      supportsScope: false,
     },
   },
   omp: {

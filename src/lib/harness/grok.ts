@@ -37,6 +37,11 @@ import type {
   SteerTurnInput,
 } from "./types";
 import { questionPromptTitle, type UserQuestionReply } from "../userQuestion";
+import {
+  acpResumeParams,
+  acpServersForChat,
+  withServersOrWithout,
+} from "../mcpShared";
 
 type Live = {
   acp: AcpClient;
@@ -333,30 +338,40 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
         });
     }
 
+    const mcpServers = await acpServersForChat(
+      "grok",
+      input.sessionId,
+      input.cwd,
+      init,
+    );
     let setup: unknown;
     let acpSessionId: string | undefined;
     let didLoad = false;
 
     if (canLoad && resume) {
       try {
-        setup = await acp.request(
-          "session/resume",
-          { sessionId: resume.acpSessionId },
-          SESSION_TIMEOUT_MS,
+        setup = await withServersOrWithout(mcpServers, (servers) =>
+          acp.request(
+            "session/resume",
+            acpResumeParams(resume.acpSessionId, input.cwd, servers),
+            SESSION_TIMEOUT_MS,
+          ),
         );
         acpSessionId = sessionIdFromResult(setup) ?? resume.acpSessionId;
         didLoad = true;
       } catch {
         muteGate.current = true;
         try {
-          setup = await acp.request(
-            "session/load",
-            {
-              sessionId: resume.acpSessionId,
-              cwd: input.cwd,
-              mcpServers: [],
-            },
-            SESSION_TIMEOUT_MS,
+          setup = await withServersOrWithout(mcpServers, (servers) =>
+            acp.request(
+              "session/load",
+              {
+                sessionId: resume.acpSessionId,
+                cwd: input.cwd,
+                mcpServers: servers,
+              },
+              SESSION_TIMEOUT_MS,
+            ),
           );
           acpSessionId = sessionIdFromResult(setup) ?? resume.acpSessionId;
           didLoad = true;
@@ -372,10 +387,12 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
 
     if (!acpSessionId) {
       try {
-        setup = await acp.request(
-          "session/new",
-          grokSessionNewParams(input.cwd, input.runtimeMode),
-          SESSION_TIMEOUT_MS,
+        setup = await withServersOrWithout(mcpServers, (servers) =>
+          acp.request(
+            "session/new",
+            grokSessionNewParams(input.cwd, input.runtimeMode, servers),
+            SESSION_TIMEOUT_MS,
+          ),
         );
       } catch (error) {
         throw grokAuthError(error);

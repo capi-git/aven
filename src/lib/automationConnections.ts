@@ -127,7 +127,7 @@ export async function automationConnectionProblem(
     // The provider couldn't say, so nothing is known to be wrong.
     return null;
   }
-  const inventories: Record<McpProvider, McpInventory> = {
+  const inventories: Partial<Record<McpProvider, McpInventory>> = {
     claude: { status: "missing" },
     codex: { status: "missing" },
     [harness]: { status: "loaded", connections },

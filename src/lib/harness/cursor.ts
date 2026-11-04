@@ -28,6 +28,7 @@ import {
   type UserQuestion,
   type UserQuestionReply,
 } from "../userQuestion";
+import { acpServersForChat, withServersOrWithout } from "../mcpShared";
 import {
   agentToolTitle,
   composeToolTitle,
@@ -283,7 +284,7 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
   await spawnChild(input.sessionId, path, ["acp"], input.cwd);
 
   try {
-    await acp.request("initialize", {
+    const init = await acp.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: CLIENT_CAPABILITIES,
       clientInfo: { name: "aven", version: "0.1.0" },
@@ -291,6 +292,12 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
     await acp
       .request("authenticate", { methodId: "cursor_login" })
       .catch(() => undefined);
+    const mcpServers = await acpServersForChat(
+      "cursor",
+      input.sessionId,
+      input.cwd,
+      init,
+    );
 
     let setup: SessionSetupResult | undefined;
     let acpSessionId: string | undefined;
@@ -299,11 +306,13 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
     if (canLoad && resume) {
       muteGate.current = true;
       try {
-        setup = await acp.request<SessionSetupResult>("session/load", {
-          sessionId: resume.acpSessionId,
-          cwd: input.cwd,
-          mcpServers: [],
-        });
+        setup = await withServersOrWithout(mcpServers, (servers) =>
+          acp.request<SessionSetupResult>("session/load", {
+            sessionId: resume.acpSessionId,
+            cwd: input.cwd,
+            mcpServers: servers,
+          }),
+        );
         acpSessionId = resume.acpSessionId;
         didLoad = true;
       } catch {
@@ -316,10 +325,12 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
     }
 
     if (!acpSessionId) {
-      setup = await acp.request<SessionSetupResult>("session/new", {
-        cwd: input.cwd,
-        mcpServers: [],
-      });
+      setup = await withServersOrWithout(mcpServers, (servers) =>
+        acp.request<SessionSetupResult>("session/new", {
+          cwd: input.cwd,
+          mcpServers: servers,
+        }),
+      );
       acpSessionId = setup.sessionId?.trim();
     }
     if (!acpSessionId) throw new Error("Cursor did not return a session id");

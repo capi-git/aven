@@ -38,6 +38,14 @@ export class OpenCodeClient {
     return this.request<OpenCodeSession>("GET", `/session/${enc(sessionID)}`);
   }
 
+  /** Gives this server an MCP server for as long as it runs. */
+  async addMcpServer(
+    name: string,
+    config: Record<string, unknown>,
+  ): Promise<void> {
+    await this.request("POST", "/mcp", { body: { name, config } });
+  }
+
   async createSession(input: {
     title?: string;
     permission?: unknown;

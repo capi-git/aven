@@ -1,5 +1,5 @@
 /**
- * Turns what Claude Code and Codex report about their MCP servers into the
+ * Turns what Claude Code, Codex and Pi report about their MCP servers into the
  * Settings page's groups: what needs you, what works, and what is turned off
  * or hidden. A server both agents load is one row, unless the same name points
  * at different servers; a plugin's copy with no address, beside a connector
@@ -20,11 +20,12 @@ export type McpInventory =
   | { status: "missing" }
   | { status: "error"; message: string };
 
-export const MCP_AGENTS: readonly McpProvider[] = ["claude", "codex"];
+export const MCP_AGENTS: readonly McpProvider[] = ["claude", "codex", "pi"];
 
 export const MCP_AGENT_LABEL: Record<McpProvider, string> = {
   claude: "Claude",
   codex: "Codex",
+  pi: "Pi",
 };
 
 /** One server as one agent reports it. */
@@ -599,7 +600,7 @@ function byName(a: McpRow, b: McpRow): number {
 }
 
 export function buildMcpOverview(
-  inventories: Record<McpProvider, McpInventory>,
+  inventories: Partial<Record<McpProvider, McpInventory>>,
   hiddenIds: ReadonlySet<string> | readonly string[] = [],
   { claudeProject = true }: { claudeProject?: boolean } = {},
 ): McpOverview {
@@ -614,6 +615,8 @@ export function buildMcpOverview(
 
   for (const provider of MCP_AGENTS) {
     const inventory = inventories[provider];
+    // Not asked yet (Pi): nothing to say about it.
+    if (!inventory) continue;
     if (inventory.status === "loading") {
       checking.push(provider);
       continue;

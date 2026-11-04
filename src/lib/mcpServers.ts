@@ -1,13 +1,14 @@
 /**
  * Add, remove, and sign in to MCP servers. Each provider's own CLI makes the
  * change, so its configuration stays the single source of truth; the native
- * side validates every field and builds the exact command.
+ * side validates every field and builds the exact command. See mcpShared.ts for
+ * the providers that have no such CLI.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { errorText } from "./errors";
 import { scrubSecrets } from "./scrubSecrets";
 
-export type McpProvider = "claude" | "codex";
+export type McpProvider = "claude" | "codex" | "pi";
 
 /** Claude only. user: every project; project: shared .mcp.json; local: just you here. */
 export type ClaudeMcpScope = "user" | "project" | "local";
@@ -41,7 +42,8 @@ export type McpRequest =
       scope?: ClaudeMcpScope;
     }
   | { action: "login"; provider: McpProvider; name: string }
-  | { action: "logout"; provider: McpProvider; name: string };
+  | { action: "logout"; provider: McpProvider; name: string }
+  | { action: "list"; provider: McpProvider };
 
 /** The values in a request that must never come back in an error. */
 export function mcpRequestSecrets(request: McpRequest): string[] {
@@ -172,8 +174,40 @@ export const EMPTY_MCP_DRAFT: McpServerDraft = {
 };
 
 /**
+ * The draft has a key in it, or names where one is. Such a server goes only to
+ * the providers it was typed for, not on to any other. The native side refuses
+ * the same for a CLI that shouldn't see them.
+ */
+export function draftHoldsKey(draft: McpServerDraft): boolean {
+  const random = (text: string) =>
+    text
+      .split(/[^A-Za-z0-9_-]+/)
+      .some(
+        (run) => run.length >= 32 && /\d/.test(run) && /[A-Za-z]/.test(run),
+      );
+  if (draft.kind === "stdio")
+    return (
+      !!draft.env.trim() ||
+      /token|secret|password|passwd|api[-_]?key|credential|bearer|authorization/i.test(
+        draft.args,
+      ) ||
+      random(draft.args)
+    );
+  if (draft.headers.trim() || draft.bearerTokenEnvVar.trim()) return true;
+  try {
+    const url = new URL(draft.url.trim());
+    return (
+      !!url.search || !!url.username || !!url.password || random(url.pathname)
+    );
+  } catch {
+    return true;
+  }
+}
+
+/**
  * The request for one provider. Claude sends tokens as headers; Codex reads
  * one from an environment variable, so each only receives what it supports.
+ * Pi gets neither from Aven: see `draftHoldsKey`.
  */
 export function draftToSpec(
   draft: McpServerDraft,
@@ -192,6 +226,7 @@ export function draftToSpec(
   const url = draft.url.trim();
   if (!/^https?:\/\/\S+$/i.test(url))
     throw new Error("Enter a server URL starting with https://.");
+  if (provider === "pi") return { type: "http", url, headers: {} };
   if (provider === "claude")
     return { type: "http", url, headers: parseHeaderLines(draft.headers) };
   const token = draft.bearerTokenEnvVar.trim();

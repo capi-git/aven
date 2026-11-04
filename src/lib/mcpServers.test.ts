@@ -8,6 +8,7 @@ vi.mock("@tauri-apps/api/core", async (original) => ({
 
 import {
   EMPTY_MCP_DRAFT,
+  draftHoldsKey,
   draftToSpec,
   manageMcpServer,
   mcpRequestSecrets,
@@ -16,6 +17,59 @@ import {
   splitArguments,
   type McpRequest,
 } from "./mcpServers";
+
+describe("keys in a draft", () => {
+  const remote = (url: string) => ({
+    ...EMPTY_MCP_DRAFT,
+    kind: "http" as const,
+    url,
+  });
+  const local = (args: string, env = "") => ({
+    ...EMPTY_MCP_DRAFT,
+    command: "npx",
+    args,
+    env,
+  });
+
+  it("sees a key however it was typed", () => {
+    expect(draftHoldsKey(local("-y @acme/mcp"))).toBe(false);
+    expect(draftHoldsKey(remote("https://mcp.example.com/mcp"))).toBe(false);
+    expect(draftHoldsKey(local("-y @acme/mcp", "A=1"))).toBe(true);
+    expect(draftHoldsKey(local("--api-key x"))).toBe(true);
+    expect(draftHoldsKey(local("abcdef0123456789abcdef0123456789"))).toBe(true);
+    expect(draftHoldsKey(remote("https://mcp.example.com/mcp?k=1"))).toBe(true);
+    expect(draftHoldsKey(remote("https://u:p@mcp.example.com/mcp"))).toBe(true);
+    expect(
+      draftHoldsKey({
+        ...remote("https://mcp.example.com/mcp"),
+        headers: "X-Key: 1",
+      }),
+    ).toBe(true);
+    expect(
+      draftHoldsKey({
+        ...remote("https://mcp.example.com/mcp"),
+        bearerTokenEnvVar: "TOKEN",
+      }),
+    ).toBe(true);
+  });
+
+  it("gives Pi no headers or token variable", () => {
+    expect(
+      draftToSpec(
+        {
+          ...remote("https://mcp.example.com/mcp"),
+          headers: "X-Key: 1",
+          bearerTokenEnvVar: "TOKEN",
+        },
+        "pi",
+      ),
+    ).toEqual({
+      type: "http",
+      url: "https://mcp.example.com/mcp",
+      headers: {},
+    });
+  });
+});
 
 describe("MCP server drafts", () => {
   it("splits arguments like a shell for quotes and escapes", () => {
