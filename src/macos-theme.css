@@ -126,12 +126,13 @@
     transparent
   );
   --aven-glass-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
-  /* WebKit drops a CSS backdrop blur for a frame whenever a popup repaints
-     (hovering a row), showing the text behind. So popups are opaque enough to
-     hide it at the Glass slider's default, and slide from there. */
+  /* Opaque enough that text behind stays hidden if a blur is ever lost, and the
+     Glass slider slides it. A popup keeps its blur only while it and its
+     ancestors have no opacity, filter, mask or clip-path, even a finished
+     animation's: animate glass by scale alone. */
   --aven-glass-overlay-opacity: min(
     100%,
-    calc(82% + var(--sidebar-opacity, 1) * 24%)
+    calc(62% + var(--sidebar-opacity, 1) * 38%)
   );
   --aven-glass-overlay: color-mix(
     in srgb,
@@ -923,8 +924,7 @@ html:not(.theme-light)
    and turn the blur off.
 
    The blur sits on its own layer beside the content, as MonoCode's GlassBackdrop
-   does. On the element itself, WebKit drops it whenever the content repaints
-   (hovering a row, scrolling) and whatever is behind bleeds through the text. */
+   does. */
 html:not(.theme-light) :is(.popover-backdrop, .aven-popover-panel-backdrop) {
   background: var(--aven-glass-overlay);
   border-color: var(--aven-glass-overlay-edge);
