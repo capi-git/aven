@@ -386,7 +386,7 @@ pub(crate) struct Support {
 
 /// (CoreSimulator, SimulatorKit) bundle versions the live path was tested
 /// with. Other versions use basic mode unless `AVEN_IOS_SIM_ALLOW_UNTESTED=1`.
-const TESTED_FRAMEWORKS: &[(&str, &str)] = &[("1174.9.2", "1005.3")];
+const TESTED_FRAMEWORKS: &[(&str, &str)] = &[("1174.9.2", "1005.3"), ("1174.21", "1005.14")];
 
 /// Whether live mode may load these framework versions.
 pub(crate) fn live_allowed(core: &str, kit: &str, allow_untested: bool) -> Result<(), String> {
@@ -2978,6 +2978,7 @@ mod tests {
     #[test]
     fn allows_live_mode_only_on_tested_frameworks() {
         assert!(live_allowed("1174.9.2", "1005.3", false).is_ok());
+        assert!(live_allowed("1174.21", "1005.14", false).is_ok());
         let newer = live_allowed("1175.1", "1006", false).unwrap_err();
         assert!(newer.contains("CoreSimulator 1175.1") && newer.contains("SimulatorKit 1006"));
         assert!(live_allowed("1175.1", "1006", true).is_ok());

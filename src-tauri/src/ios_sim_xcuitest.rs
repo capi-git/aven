@@ -22,6 +22,9 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+/// A capture unchanged for this long belongs to no running test.
+const LEFTOVER_RECORDING_AGE: Duration = Duration::from_secs(10 * 60);
+
 const SOURCES: [(&str, &str); 4] = [
     (
         "AvenSimAgent.xcodeproj/project.pbxproj",
@@ -110,6 +113,103 @@ fn find_xctestrun(products: &Path) -> Option<PathBuf> {
         .find(|path| path.extension().is_some_and(|ext| ext == "xctestrun"))
 }
 
+/// Tells the test run to keep nothing it captures. Xcode's default is a video
+/// of the whole test, and the runner's one test lasts as long as the iPhone
+/// pane is in use: the video grew by gigabytes an hour and stayed behind when
+/// the runner was stopped. Input and snapshots do not depend on it, so a file
+/// this cannot change does not stop the pane.
+fn stop_recording(xctestrun: &Path) {
+    let path = xctestrun.to_string_lossy();
+    for setting in ["SystemAttachmentLifetime", "UserAttachmentLifetime"] {
+        let key = format!("AvenSimAgentUITests.{setting}");
+        let plutil = |args: &[&str]| {
+            crate::ios_sim::run(
+                crate::ios_sim::tool("/usr/bin/plutil", args),
+                Duration::from_secs(10),
+                None,
+            )
+        };
+        let set = plutil(&["-extract", &key, "raw", "-o", "-", &path])
+            .is_ok_and(|now| String::from_utf8_lossy(&now.stdout).trim() == "keepNever");
+        if !set {
+            let _ = plutil(&["-replace", &key, "-string", "keepNever", &path]);
+        }
+    }
+}
+
+/// A simulator's own folder, when it is in the default device set.
+fn device_dir(udid: &str) -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(
+        Path::new(&home)
+            .join("Library/Developer/CoreSimulator/Devices")
+            .join(udid.to_uppercase()),
+    )
+}
+
+/// Where a device's test daemon keeps what test runs capture.
+fn attachment_folders(device: &Path) -> Vec<PathBuf> {
+    let Ok(daemons) = std::fs::read_dir(device.join("data/Containers/Data/InternalDaemon")) else {
+        return Vec::new();
+    };
+    daemons
+        .flatten()
+        .map(|daemon| daemon.path().join("tmp/Attachments"))
+        .collect()
+}
+
+/// Removes captures that stopped test runs left behind on a device, which
+/// nothing else ever does. Another run on the device may be writing one, so
+/// only files that have not changed for `age` go.
+fn remove_leftover_recordings(device: &Path, age: Duration) {
+    for folder in attachment_folders(device) {
+        let Ok(files) = std::fs::read_dir(folder) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let old = file
+                .metadata()
+                .ok()
+                .filter(|meta| meta.is_file())
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|changed| changed.elapsed().ok())
+                .is_some_and(|since| since >= age);
+            if old {
+                let _ = std::fs::remove_file(file.path());
+            }
+        }
+    }
+}
+
+/// How many captures a device is holding, for the live check.
+#[cfg(test)]
+pub(crate) fn recordings_on(udid: &str) -> usize {
+    device_dir(udid)
+        .map(|device| attachment_folders(&device))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|folder| std::fs::read_dir(folder).ok())
+        .map(|files| files.flatten().count())
+        .sum()
+}
+
+/// Leaves a capture on the device as a stopped run would, for the live check.
+#[cfg(test)]
+pub(crate) fn plant_old_recording(udid: &str) -> PathBuf {
+    let device = device_dir(udid).unwrap();
+    let folder = attachment_folders(&device).into_iter().next().unwrap();
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join("left-behind");
+    std::fs::write(&path, "x").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now() - 2 * LEFTOVER_RECORDING_AGE)
+        .unwrap();
+    path
+}
+
 /// Builds the runner once; later calls reuse it.
 /// Removes runners built for other Xcode versions or older sources.
 fn prune_old_builds(root: &Path) {
@@ -132,6 +232,7 @@ fn ensure_built() -> Result<PathBuf, String> {
     prune_old_builds(&root);
     let products = root.join("DerivedData/Build/Products");
     if let Some(found) = find_xctestrun(&products) {
+        stop_recording(&found);
         return Ok(found);
     }
     let source = root.join("src");
@@ -179,7 +280,10 @@ fn ensure_built() -> Result<PathBuf, String> {
             .trim()
             .to_owned());
     }
-    find_xctestrun(&products).ok_or_else(|| "The simulator agent build produced no test run".into())
+    let found = find_xctestrun(&products)
+        .ok_or_else(|| String::from("The simulator agent build produced no test run"))?;
+    stop_recording(&found);
+    Ok(found)
 }
 
 fn alive(server: &Server) -> bool {
@@ -442,6 +546,9 @@ fn start(udid: &str, bundle: Option<&str>) -> Result<(u16, String), String> {
     let until = Instant::now() + RUN_FIRST_WAIT;
     while crate::ios_sim::installing_on(&key) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(200));
+    }
+    if let Some(device) = device_dir(&key) {
+        remove_leftover_recordings(&device, LEFTOVER_RECORDING_AGE);
     }
     let root = agent_root()?;
     let results = root.join("results").join(format!("{key}.xcresult"));
@@ -744,6 +851,94 @@ pub(crate) fn outline(snapshot: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn scratch_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("aven-agent-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_runs_keep_nothing_they_capture() {
+        let dir = scratch_dir();
+        let run = dir.join("agent.xctestrun");
+        std::fs::write(
+            &run,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>AvenSimAgentUITests</key><dict>
+<key>RunOrder</key><integer>0</integer>
+<key>SystemAttachmentLifetime</key><string>deleteOnSuccess</string>
+<key>UserAttachmentLifetime</key><string>deleteOnSuccess</string>
+</dict></dict></plist>"#,
+        )
+        .unwrap();
+        stop_recording(&run);
+        let settings = crate::ios_sim::run(
+            crate::ios_sim::tool("/usr/bin/plutil", &["-p", &run.to_string_lossy()]),
+            Duration::from_secs(10),
+            None,
+        )
+        .unwrap();
+        let settings = String::from_utf8_lossy(&settings.stdout).into_owned();
+        assert_eq!(settings.matches("keepNever").count(), 2, "{settings}");
+        assert!(!settings.contains("deleteOnSuccess"), "{settings}");
+        assert!(settings.contains("RunOrder"), "{settings}");
+
+        // Already set: the file is left as it is, for runners reading it.
+        let written = std::fs::metadata(&run).unwrap().modified().unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        stop_recording(&run);
+        assert_eq!(
+            std::fs::metadata(&run).unwrap().modified().unwrap(),
+            written
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_file_without_the_runner_is_left_alone() {
+        let dir = scratch_dir();
+        let run = dir.join("agent.xctestrun");
+        std::fs::write(&run, "not a test run").unwrap();
+        stop_recording(&run);
+        assert_eq!(std::fs::read_to_string(&run).unwrap(), "not a test run");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn removes_only_old_captures() {
+        let device = scratch_dir();
+        let daemon = device.join("data/Containers/Data/InternalDaemon/ABC/tmp");
+        let captures = daemon.join("Attachments");
+        std::fs::create_dir_all(captures.join("folder")).unwrap();
+        let write = |path: PathBuf, age: Duration| {
+            std::fs::write(&path, "x").unwrap();
+            let file = std::fs::File::options().write(true).open(&path).unwrap();
+            file.set_modified(std::time::SystemTime::now() - age)
+                .unwrap();
+        };
+        let hour = Duration::from_secs(3600);
+        write(captures.join("old"), hour);
+        write(captures.join("being-written"), Duration::ZERO);
+        write(daemon.join("not-a-capture"), hour);
+
+        remove_leftover_recordings(&device, LEFTOVER_RECORDING_AGE);
+
+        assert!(!captures.join("old").exists());
+        assert!(captures.join("being-written").exists());
+        assert!(captures.join("folder").exists());
+        assert!(daemon.join("not-a-capture").exists());
+        let _ = std::fs::remove_dir_all(device);
+    }
+
+    #[test]
+    fn a_device_without_captures_is_fine() {
+        let device = scratch_dir();
+        remove_leftover_recordings(&device, LEFTOVER_RECORDING_AGE);
+        assert!(attachment_folders(&device).is_empty());
+        let _ = std::fs::remove_dir_all(device);
+    }
 
     #[test]
     fn outlines_named_elements_with_frames() {
