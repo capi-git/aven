@@ -2339,6 +2339,11 @@ describe("Claude question cards", () => {
         { name: "bad-stdio", status: "failed", source: "dynamic" },
         { name: "authy", status: "needs-auth", source: "dynamic" },
         { name: "fine", status: "connected", source: "dynamic" },
+        {
+          name: "plugin:design:slack",
+          status: "needs-auth",
+          source: "dynamic",
+        },
       ],
     });
     expect(chatConnectionLine("connections")?.text).toBe(

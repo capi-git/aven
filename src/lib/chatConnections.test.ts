@@ -37,6 +37,9 @@ const init = (...servers: [name: string, status: string][]) => ({
 });
 
 /** The shape Codex 0.166.0 printed, against a local fake server. */
+const CONFIGURED = new Set(["a", "b"]);
+const codexNote = (chat: string, params: unknown, threadId?: string) =>
+  noteCodexServerStatus(chat, params, threadId, CONFIGURED);
 const codexStatus = (name: string, status: string, error?: string) => ({
   threadId: "thr_1",
   name,
@@ -101,16 +104,46 @@ describe("Claude's init line", () => {
       "c",
       init(
         ["tools", "failed"],
-        ["claude.ai Notion", "needs-auth"],
-        ["plugin:design:slack", "needs-auth"],
+        ["notion", "needs-auth"],
+        ["slack", "needs-auth"],
       ),
     );
     expect(chatConnectionLine("c")).toEqual({
       harness: "claude",
-      text: "Notion and 2 others aren't connected",
+      text: "notion and 2 others aren't connected",
       action: "Sign in",
-      title: "Notion, slack, tools",
+      title: "notion, slack, tools",
     });
+  });
+
+  it("stays quiet about servers a plugin or an account brought", () => {
+    noteClaudeInit(
+      "c",
+      init(
+        ["plugin:design:asana", "needs-auth"],
+        ["plugin:design:figma", "needs-auth"],
+        ["plugin:vercel:vercel", "failed"],
+        ["claude.ai Gmail", "needs-auth"],
+      ),
+    );
+    expect(chatConnectionLine("c")).toBeNull();
+  });
+
+  it("still names a server the person added, among those", () => {
+    // `source` is "user" for a user-level server, as Claude Code printed it.
+    noteClaudeInit("c", {
+      type: "system",
+      subtype: "init",
+      mcp_servers: [
+        {
+          name: "plugin:design:asana",
+          status: "needs-auth",
+          source: "dynamic",
+        },
+        { name: "mine", status: "needs-auth", source: "user" },
+      ],
+    });
+    expect(chatConnectionLine("c")?.text).toBe("mine isn't signed in");
   });
 
   it("goes away when a later turn reports the server working", () => {
@@ -137,9 +170,9 @@ describe("Claude's init line", () => {
 
 describe("Codex's status updates", () => {
   it("adds up one server at a time, and clears when it starts again", () => {
-    noteCodexServerStatus("x", codexStatus("a", "starting"), undefined);
+    codexNote("x", codexStatus("a", "starting"), undefined);
     expect(chatConnectionLine("x")).toBeNull();
-    noteCodexServerStatus(
+    codexNote(
       "x",
       codexStatus(
         "a",
@@ -153,25 +186,21 @@ describe("Codex's status updates", () => {
       text: "a isn't signed in",
       action: "Sign in",
     });
-    noteCodexServerStatus(
-      "x",
-      codexStatus("b", "failed", "No such file"),
-      "thr_1",
-    );
+    codexNote("x", codexStatus("b", "failed", "No such file"), "thr_1");
     expect(chatConnectionLine("x")?.text).toBe(
       "a and 1 other aren't connected",
     );
-    noteCodexServerStatus("x", codexStatus("a", "starting"), "thr_1");
+    codexNote("x", codexStatus("a", "starting"), "thr_1");
     expect(chatConnectionLine("x")).toMatchObject({
       text: "b couldn't connect",
       action: "Connections",
     });
-    noteCodexServerStatus("x", codexStatus("b", "ready"), "thr_1");
+    codexNote("x", codexStatus("b", "ready"), "thr_1");
     expect(chatConnectionLine("x")).toBeNull();
   });
 
   it("treats Codex's reauthentication reason as signed out", () => {
-    noteCodexServerStatus(
+    codexNote(
       "x",
       {
         ...codexStatus("a", "failed"),
@@ -183,17 +212,14 @@ describe("Codex's status updates", () => {
   });
 
   it("ignores another thread's servers", () => {
-    noteCodexServerStatus("x", codexStatus("a", "failed", "no"), "thr_2");
+    codexNote("x", codexStatus("a", "failed", "no"), "thr_2");
     expect(chatConnectionLine("x")).toBeNull();
   });
 
-  it("uses the name Settings shows for a built-in server", () => {
-    noteCodexServerStatus(
-      "x",
-      codexStatus("codex_apps", "failed", "no"),
-      "thr_1",
-    );
-    expect(chatConnectionLine("x")?.text).toBe("ChatGPT apps couldn't connect");
+  it("stays quiet about a server it didn't configure, like a plugin's", () => {
+    codexNote("x", codexStatus("codex_apps", "failed", "no"), "thr_1");
+    codexNote("x", codexStatus("fx-plugin", "failed", "no"), "thr_1");
+    expect(chatConnectionLine("x")).toBeNull();
   });
 });
 
@@ -203,30 +229,78 @@ describe("teammate and bot chats", () => {
       id === "closed" ? { mode: "auto", rules: {}, noMcp: true } : undefined,
     );
     noteClaudeInit("closed", init(["notion", "needs-auth"]));
-    noteCodexServerStatus("closed", codexStatus("a", "failed", "no"), "thr_1");
+    codexNote("closed", codexStatus("a", "failed", "no"), "thr_1");
     expect(chatConnectionLine("closed")).toBeNull();
   });
 });
 
 describe("dismissing", () => {
-  it("holds for that chat, across a restart of Aven, and not for others", () => {
+  it("holds for that connection in every chat, across a restart of Aven", () => {
     noteClaudeInit("c", init(["notion", "needs-auth"]));
     noteClaudeInit("d", init(["notion", "needs-auth"]));
+    const heard = vi.fn();
+    subscribeChatConnections("d", heard);
     dismissChatConnections("c");
     expect(chatConnectionLine("c")).toBeNull();
-    expect(chatConnectionLine("d")).not.toBeNull();
-    expect(values.has("aven.chatConnections.dismissed")).toBe(true);
+    // A chat with the line open loses it at once.
+    expect(chatConnectionLine("d")).toBeNull();
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(values.get("aven.chatConnections.dismissed")!)).toEqual([
+      "claude:notion",
+    ]);
 
     __chatConnectionsTestReset();
-    noteClaudeInit("c", init(["notion", "needs-auth"]));
-    expect(chatConnectionLine("c")).toBeNull();
+    noteClaudeInit("new", init(["notion", "needs-auth"]));
+    expect(chatConnectionLine("new")).toBeNull();
   });
 
-  it("still speaks up about a different server", () => {
+  it("still speaks up about a different connection", () => {
     noteClaudeInit("c", init(["notion", "needs-auth"]));
     dismissChatConnections("c");
     noteClaudeInit("c", init(["notion", "needs-auth"], ["slack", "failed"]));
     expect(chatConnectionLine("c")?.text).toBe("slack couldn't connect");
+  });
+
+  it("keeps each provider's connections apart", () => {
+    noteClaudeInit("c", init(["a", "failed"]));
+    dismissChatConnections("c");
+    codexNote("x", codexStatus("a", "failed", "no"), "thr_1");
+    expect(chatConnectionLine("x")?.text).toBe("a couldn't connect");
+  });
+
+  it("forgets once the connection works, so a new failure is news", () => {
+    noteClaudeInit("c", init(["notion", "needs-auth"]));
+    dismissChatConnections("c");
+    noteClaudeInit("d", init(["notion", "connected"]));
+    expect(JSON.parse(values.get("aven.chatConnections.dismissed")!)).toEqual(
+      [],
+    );
+    noteClaudeInit("e", init(["notion", "failed"]));
+    expect(chatConnectionLine("e")?.text).toBe("notion couldn't connect");
+  });
+
+  it("forgets from Codex's own report too", () => {
+    codexNote("x", codexStatus("a", "failed", "no"), "thr_1");
+    dismissChatConnections("x");
+    codexNote("x", codexStatus("a", "ready"), "thr_1");
+    codexNote("x", codexStatus("a", "failed", "no"), "thr_1");
+    expect(chatConnectionLine("x")?.text).toBe("a couldn't connect");
+  });
+
+  it("forgets when the check after Settings finds it working", async () => {
+    noteClaudeInit("c", init(["notion", "needs-auth"]));
+    dismissChatConnections("c");
+    noteClaudeInit("d", init(["slack", "needs-auth"]));
+    lists.claude.mockResolvedValue([
+      { name: "notion", key: "notion", state: "ready" },
+    ]);
+    const uninstall2 = installChatConnectionsOpener(() => undefined);
+    openConnectionsFromChat("d", "/repo");
+    await checkChatConnectionsAfterSettings();
+    uninstall2();
+    expect(JSON.parse(values.get("aven.chatConnections.dismissed")!)).toEqual(
+      [],
+    );
   });
 
   it("survives unreadable storage", () => {
@@ -235,17 +309,17 @@ describe("dismissing", () => {
     expect(chatConnectionLine("c")).not.toBeNull();
   });
 
-  it("remembers only so many chats", () => {
-    noteClaudeInit("first", init(["a", "failed"]));
-    dismissChatConnections("first");
-    for (let i = 0; i < 200; i++) {
-      noteClaudeInit(`c${i}`, init(["a", "failed"]));
-      dismissChatConnections(`c${i}`);
+  it("remembers only so many connections, dropping the oldest", () => {
+    for (let i = 0; i <= 200; i++) {
+      noteClaudeInit("c", init([`s${i}`, "failed"]));
+      dismissChatConnections("c");
     }
-    const stored = JSON.parse(values.get("aven.chatConnections.dismissed")!);
-    expect(Object.keys(stored)).toHaveLength(200);
-    expect(stored.first).toBeUndefined();
-    expect(stored.c199).toEqual(["a"]);
+    const stored: string[] = JSON.parse(
+      values.get("aven.chatConnections.dismissed")!,
+    );
+    expect(stored).toHaveLength(200);
+    expect(stored).not.toContain("claude:s0");
+    expect(stored).toContain("claude:s200");
   });
 });
 
@@ -319,7 +393,7 @@ describe("coming back from Settings", () => {
   });
 
   it("checks with the chat's own provider, and only once", async () => {
-    noteCodexServerStatus("x", codexStatus("a", "failed", "no"), "thr_1");
+    codexNote("x", codexStatus("a", "failed", "no"), "thr_1");
     lists.codex.mockResolvedValue([ready("a")]);
     signIn("x");
     await checkChatConnectionsAfterSettings();

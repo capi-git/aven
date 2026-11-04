@@ -1,6 +1,5 @@
 import {
   claudeConnectionsFromStatus,
-  codexConnectionsFromStatus,
   listClaudeConnections,
   listCodexConnections,
 } from "./harness/providerConnections";
@@ -18,6 +17,12 @@ import type { HarnessId } from "./session";
  * transcript, and subscribers hear only about their own chat, only when its
  * line changes. Kept in memory: a chat reports again on its next message.
  * Only dismissals persist.
+ *
+ * Only servers someone chose count. Plugins and accounts bring servers nobody
+ * asked for, many of them signed out and never used; those stay quiet here and
+ * Settings still lists them. Neither provider's events can say a turn tried one
+ * and failed: such a server offers no tools, and a working server's tool
+ * failing looks the same as its connection failing.
  */
 
 type ChatConnectionProblem = {
@@ -48,43 +53,49 @@ type ChatEntry = {
 };
 
 const DISMISSED_KEY = "aven.chatConnections.dismissed";
-/** Chats whose dismissals are remembered; the oldest are dropped first. */
-const DISMISSED_CHATS = 200;
+/** Connections whose dismissals are remembered; the oldest go first. */
+const DISMISSED_LIMIT = 200;
 
 const entries = new Map<string, ChatEntry>();
 const listeners = new Map<string, Set<() => void>>();
-let dismissed: Map<string, readonly string[]> | null = null;
+/** Dismissed connections, whichever chat it was in, as "provider:server". */
+let dismissed: Set<string> | null = null;
 let openConnections: (() => void) | null = null;
 
-function loadDismissed(): Map<string, readonly string[]> {
+function connectionId(harness: HarnessId, key: string): string {
+  return `${harness}:${key}`;
+}
+
+function loadDismissed(): Set<string> {
   if (dismissed) return dismissed;
-  dismissed = new Map();
+  dismissed = new Set();
   try {
     const stored: unknown = JSON.parse(
-      localStorage.getItem(DISMISSED_KEY) ?? "{}",
+      localStorage.getItem(DISMISSED_KEY) ?? "[]",
     );
-    for (const [id, keys] of Object.entries(asRecord(stored) ?? {})) {
-      if (Array.isArray(keys))
-        dismissed.set(
-          id,
-          keys.filter((key): key is string => typeof key === "string"),
-        );
-    }
+    if (Array.isArray(stored))
+      for (const id of stored) if (typeof id === "string") dismissed.add(id);
   } catch {
     // Unreadable storage only means a dismissed line can come back.
   }
   return dismissed;
 }
 
-function saveDismissed(next: Map<string, readonly string[]>): void {
+function saveDismissed(next: Set<string>): void {
   try {
-    localStorage.setItem(
-      DISMISSED_KEY,
-      JSON.stringify(Object.fromEntries(next)),
-    );
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
   } catch {
     // The dismissal still holds until Aven restarts.
   }
+}
+
+/** It works again, so if it ever stops, that's news. */
+function forgetDismissed(harness: HarnessId, keys: Iterable<string>): void {
+  const all = loadDismissed();
+  let changed = false;
+  for (const key of keys)
+    if (all.delete(connectionId(harness, key))) changed = true;
+  if (changed) saveDismissed(all);
 }
 
 function joinedNames(names: readonly string[]): string {
@@ -97,12 +108,13 @@ function titleFor(names: readonly string[]): { title?: string } {
   return names.length > 1 ? { title: names.join(", ") } : {};
 }
 
-function lineFor(
-  entry: Omit<ChatEntry, "line">,
-  hidden: readonly string[],
-): ChatConnectionLine | null {
+function lineFor(entry: Omit<ChatEntry, "line">): ChatConnectionLine | null {
   const { harness } = entry;
-  const ready = entry.problems
+  const hidden = loadDismissed();
+  const shown = entry.problems.filter(
+    (problem) => !hidden.has(connectionId(harness, problem.key)),
+  );
+  const ready = shown
     .filter((problem) => entry.ready.has(problem.key))
     .map((problem) => problem.name);
   if (ready.length)
@@ -121,9 +133,6 @@ function lineFor(
       text: "Signed in? Reconnect this chat to use it.",
       action: "Reconnect",
     };
-  const shown = entry.problems.filter(
-    (problem) => !hidden.includes(problem.key),
-  );
   const signedOut = shown.filter((problem) => problem.state !== "failed");
   // Whoever can be fixed by signing in comes first.
   const ordered = [
@@ -165,7 +174,7 @@ function sameLine(
 /** Stores the chat's new state, telling its line only when the line changed. */
 function commit(sessionId: string, next: Omit<ChatEntry, "line">): void {
   const previous = entries.get(sessionId)?.line ?? null;
-  const computed = lineFor(next, loadDismissed().get(sessionId) ?? []);
+  const computed = lineFor(next);
   const line = sameLine(previous, computed) ? previous : computed;
   entries.set(sessionId, { ...next, line });
   if (line !== previous) notify(sessionId);
@@ -207,17 +216,9 @@ function closedChat(sessionId: string): boolean {
   return sessionPermissions(sessionId)?.noMcp === true;
 }
 
-function problemFrom(
-  connection: ReturnType<typeof claudeConnectionsFromStatus>[number],
-): ChatConnectionProblem | null {
-  if (connection.state !== "needs-sign-in" && connection.state !== "failed")
-    return null;
-  return {
-    key: connection.key,
-    // Accounts' servers are "claude.ai Gmail" here, with no scope to tell.
-    name: connection.name.replace(/^claude\.ai\s+/i, ""),
-    state: connection.state,
-  };
+/** Brought by a plugin or an account rather than added by this person. */
+function claudeBundled(key: string): boolean {
+  return key.startsWith("plugin:") || /^claude\.ai\s/i.test(key);
 }
 
 /** Claude Code's whole list, from a `system`/`init` line. */
@@ -227,22 +228,41 @@ export function noteClaudeInit(
 ): void {
   const servers = rec.mcp_servers;
   if (!Array.isArray(servers) || closedChat(sessionId)) return;
-  const problems = claudeConnectionsFromStatus({ mcpServers: servers }).flatMap(
-    (connection) => problemFrom(connection) ?? [],
+  const connections = claudeConnectionsFromStatus({ mcpServers: servers });
+  forgetDismissed(
+    "claude",
+    connections
+      .filter((connection) => connection.state === "ready")
+      .map((connection) => connection.key),
+  );
+  const problems = connections.flatMap((connection) =>
+    (connection.state === "needs-sign-in" || connection.state === "failed") &&
+    !claudeBundled(connection.key)
+      ? [
+          {
+            key: connection.key,
+            name: connection.name,
+            state: connection.state,
+          },
+        ]
+      : [],
   );
   commit(sessionId, mergedEntry(sessionId, "claude", problems));
 }
 
 /**
- * One server's change, from Codex's `mcpServer/startupStatus/updated`. Codex
- * has no signed-out state here: a signed-out server is `failed`, sometimes
- * with `failureReason`, otherwise only recognisable by its error. Getting that
- * wrong changes the words and the button's label, not where it goes.
+ * One server's change, from Codex's `mcpServer/startupStatus/updated`, which
+ * names the server and no more. `configured` is what Codex's effective config
+ * lists: everything someone added. Codex has no signed-out state here: a
+ * signed-out server is `failed`, sometimes with `failureReason`, otherwise only
+ * recognisable by its error. Getting that wrong changes the words and the
+ * button's label, not where it goes.
  */
 export function noteCodexServerStatus(
   sessionId: string,
   params: unknown,
   threadId: string | undefined,
+  configured: ReadonlySet<string>,
 ): void {
   const record = asRecord(params);
   const key = stringField(record, "name");
@@ -250,7 +270,8 @@ export function noteCodexServerStatus(
   const from = stringField(record, "threadId");
   // A sub-agent's thread is not this chat's.
   if (from && threadId && from !== threadId) return;
-  const failed = stringField(record, "status") === "failed";
+  const status = stringField(record, "status");
+  if (status === "ready") forgetDismissed("codex", [key]);
   const signedOut =
     stringField(record, "failureReason") === "reauthenticationRequired" ||
     /not logged in/i.test(stringField(record, "error") ?? "");
@@ -258,16 +279,17 @@ export function noteCodexServerStatus(
   const others = (current?.harness === "codex" ? current.problems : []).filter(
     (problem) => problem.key !== key,
   );
-  const problems: ChatConnectionProblem[] = failed
-    ? [
-        ...others,
-        {
-          key,
-          name: codexConnectionsFromStatus([{ name: key }])[0]?.name ?? key,
-          state: signedOut ? "needs-sign-in" : "failed",
-        },
-      ]
-    : others;
+  const problems: ChatConnectionProblem[] =
+    status === "failed" && configured.has(key)
+      ? [
+          ...others,
+          {
+            key,
+            name: key,
+            state: signedOut ? "needs-sign-in" : "failed",
+          },
+        ]
+      : others;
   commit(sessionId, mergedEntry(sessionId, "codex", problems));
 }
 
@@ -302,24 +324,25 @@ export function subscribeChatConnections(
   };
 }
 
-/** Says it once: what's on the line stays quiet in this chat from now on. */
+/**
+ * Says it once: what's on the line stays quiet in every chat until that
+ * connection works again.
+ */
 export function dismissChatConnections(sessionId: string): void {
   const entry = entries.get(sessionId);
   if (!entry) return;
   const all = loadDismissed();
-  const keys = new Set([
-    ...(all.get(sessionId) ?? []),
-    ...entry.problems.map((problem) => problem.key),
-  ]);
-  all.delete(sessionId);
-  all.set(sessionId, [...keys]);
-  for (const id of [...all.keys()].slice(
-    0,
-    Math.max(0, all.size - DISMISSED_CHATS),
-  ))
+  for (const problem of entry.problems) {
+    const id = connectionId(entry.harness, problem.key);
+    // Most recently dismissed last, so the limit drops the oldest.
+    all.delete(id);
+    all.add(id);
+  }
+  for (const id of [...all].slice(0, Math.max(0, all.size - DISMISSED_LIMIT)))
     all.delete(id);
   saveDismissed(all);
-  commit(sessionId, { ...entry, ready: new Set(), unsure: false });
+  entries.set(sessionId, { ...entry, ready: new Set(), unsure: false });
+  for (const [id, other] of entries) commit(id, other);
 }
 
 /** Registered by the app, which owns Settings. */
@@ -370,6 +393,7 @@ async function checkChat(
         .filter((connection) => connection.state === "ready")
         .map((connection) => connection.key),
     );
+    forgetDismissed(entry.harness, nowReady);
     commit(sessionId, {
       ...current,
       ready: new Set(

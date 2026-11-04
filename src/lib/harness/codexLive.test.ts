@@ -1599,6 +1599,13 @@ describe("Codex server status", () => {
   });
 
   it("hears servers that report while the thread opens", async () => {
+    // A list like this is what Codex 0.166.0 returned for a configured server.
+    configReadResponse = {
+      config: {
+        sqlite_home: "/aven/codex-home",
+        mcp_servers: { notion: { url: "https://mcp.example" } },
+      },
+    };
     const events: HarnessEvent[] = [];
     const turn = sendCodexTurn({
       sessionId: "status",
@@ -1622,6 +1629,12 @@ describe("Codex server status", () => {
     notify(
       "mcpServer/startupStatus/updated",
       status("thr_1", "notion", "failed"),
+    );
+    expect(chatConnectionLine("status")?.text).toBe("notion isn't signed in");
+    // One the config doesn't list, as a plugin's isn't, stays quiet.
+    notify(
+      "mcpServer/startupStatus/updated",
+      status("thr_1", "fromplugin", "failed"),
     );
     expect(chatConnectionLine("status")?.text).toBe("notion isn't signed in");
     reply(parse().find((m) => m.method === "thread/start")!.id as number, {

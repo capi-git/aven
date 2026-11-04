@@ -623,6 +623,8 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
   );
   const { path } = await resolveCodexBinaryImpl();
   const liveRef: { current: Live | null } = { current: null };
+  // Read before the thread opens, which is when servers start reporting.
+  const configuredServers = new Set<string>();
 
   const rpc = new JsonRpcClient(
     input.sessionId,
@@ -631,7 +633,12 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
         const live = liveRef.current;
         // Sent while the thread opens, so often before `live` exists.
         if (method === "mcpServer/startupStatus/updated") {
-          noteCodexServerStatus(input.sessionId, params, live?.threadId);
+          noteCodexServerStatus(
+            input.sessionId,
+            params,
+            live?.threadId,
+            configuredServers,
+          );
           return;
         }
         if (
@@ -721,8 +728,10 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
       );
     }
     assertCodexStorage(effectiveConfig, storage.home);
-    for (const name of enabledMcpServers(effectiveConfig))
+    for (const name of enabledMcpServers(effectiveConfig)) {
       knownMcpServers.add(name);
+      configuredServers.add(name);
+    }
     for (const name of enabledPlugins(effectiveConfig)) knownPlugins.add(name);
     // A closed chat starts only once Codex itself reports everything off.
     if (noMcp) {
