@@ -1192,21 +1192,23 @@ export async function checkTeamTalk(
       "the Lead's line in the team chat",
     );
     const turns = (await standInTurns(team, config.binDir)) ?? [];
-    const copy = getCrew(project)?.copy?.path;
+    // macOS spells the temp folder both with and without /private.
+    const plain = (path: string) => path.replace(/^\/private\//, "/");
+    const copy = plain(getCrew(project)?.copy?.path ?? "");
     for (const who of ["lead", "checker", "helper"]) {
-      const mine = turns.filter((turn) => turn.crew === who);
+      // Only this team's: the log holds every team this check has run.
+      const mine = turns.filter(
+        (turn) =>
+          turn.crew === who &&
+          plain(String(turn.launch ?? "").split("cwd=")[1] ?? "") === copy,
+      );
       if (!mine.length) throw new Error(`The stand-in logged no ${who} turn`);
       for (const turn of mine) {
         const launch = String(turn.launch ?? "");
         if (
           !launch.includes("sandbox=on") ||
           !launch.includes("mcp=strict") ||
-          !launch.includes("hooks=off") ||
-          // macOS spells the temp folder both with and without /private.
-          (copy &&
-            !launch
-              .replace("cwd=/private/", "cwd=/")
-              .includes(`cwd=${copy.replace(/^\/private\//, "/")}`))
+          !launch.includes("hooks=off")
         )
           throw new Error(`The ${who} ran without its rules: ${launch}`);
         if (who !== "checker" && turn.web !== false)
