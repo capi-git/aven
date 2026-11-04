@@ -77,6 +77,9 @@ const CLAUDE_SCOPES: {
 /** More sign-ins than this fold into one "N need sign-in" line. */
 const SIGN_IN_FOLD = 3;
 
+/** Codex may sign in to a remote server while adding it. */
+const ADD_WITH_SIGN_IN = "add-with-sign-in";
+
 /**
  * Checking starts each provider and its servers, so a recent result is reused
  * when Settings reopens. Failures are never reused, and results expire.
@@ -553,6 +556,12 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           Finish signing in in your browser. This waits up to five minutes.
         </p>
       ) : null}
+      {busy === ADD_WITH_SIGN_IN ? (
+        <p className="mcp-notice" role="status">
+          If your browser opens, finish signing in there. This waits up to five
+          minutes.
+        </p>
+      ) : null}
       {notice ? (
         <p
           className="mcp-notice"
@@ -572,7 +581,9 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
               onCancel={() => setAdding(false)}
               onAdd={async (draft, providers, scope) => {
                 const added = await run(
-                  "add",
+                  draft.kind === "http" && providers.includes("codex")
+                    ? ADD_WITH_SIGN_IN
+                    : "add",
                   async () => {
                     const done: string[] = [];
                     for (const provider of providers) {
@@ -598,7 +609,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                           harnessDescriptor(provider).connections!.label;
                         throw new Error(
                           done.length
-                            ? `Added to ${done.join(" and ")}, but ${who} failed: ${errorText(error)}`
+                            ? `Added to ${done.join(" and ")}, but ${who} failed: ${errorText(error)} Add server again to finish.`
                             : `${who} couldn’t add it: ${errorText(error)}`,
                         );
                       }

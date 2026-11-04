@@ -6,9 +6,11 @@
 //! interpreted as a CLI option.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Deserialize;
+use serde_json::Value;
 use tauri::AppHandle;
 
 use crate::harness;
@@ -83,10 +85,33 @@ impl McpRequest {
     }
 
     fn timeout(&self) -> Duration {
-        match self {
-            Self::Login { .. } => LOGIN_TIMEOUT,
-            _ => EDIT_TIMEOUT,
+        if matches!(self, Self::Login { .. }) || self.may_sign_in_while_adding() {
+            LOGIN_TIMEOUT
+        } else {
+            EDIT_TIMEOUT
         }
+    }
+
+    /// Codex offers OAuth during `mcp add` ("the immediate login"), so adding a
+    /// remote server can wait on the user's browser just as `mcp login` does.
+    fn may_sign_in_while_adding(&self) -> bool {
+        matches!(
+            self,
+            Self::Add {
+                provider: McpProvider::Codex,
+                server: McpServerSpec::Http { .. },
+                ..
+            }
+        )
+    }
+
+    /// A failure in plain words, when Aven knows more than the CLI's message.
+    fn explain_failure(&self, message: String) -> String {
+        if self.may_sign_in_while_adding() && message.ends_with("took too long and was stopped.") {
+            return "Sign-in didn’t finish in time. Add it again, or use Sign in on its row."
+                .to_string();
+        }
+        message
     }
 
     /// Finishes "Aven is still …" if an update restart has to wait for it.
@@ -237,6 +262,98 @@ fn claude_json(server: &McpServerSpec) -> String {
     value.to_string()
 }
 
+/// The settings that decide whether a saved Claude server is the one asked for.
+/// Absent fields read as their defaults, so a hand-written entry still matches.
+fn comparable_claude_server(server: &Value) -> Value {
+    let field = |name: &str, default: Value| server.get(name).cloned().unwrap_or(default);
+    serde_json::json!({
+        "type": field("type", Value::from("stdio")),
+        "command": field("command", Value::Null),
+        "args": field("args", serde_json::json!([])),
+        "env": field("env", serde_json::json!({})),
+        "url": field("url", Value::Null),
+        "headers": field("headers", serde_json::json!({})),
+    })
+}
+
+fn read_json(path: &Path) -> Option<Value> {
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+/// Claude's settings file for this person: read here, only ever written by Claude.
+fn claude_settings_path() -> PathBuf {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| crate::fs::expand_home("~"))
+        .join(".claude.json")
+}
+
+/// The folders Claude may have filed a private project server under: this one,
+/// and the Git root above it.
+fn claude_project_keys(folder: &Path) -> Vec<String> {
+    let start = folder
+        .canonicalize()
+        .unwrap_or_else(|_| folder.to_path_buf());
+    let mut keys = vec![start.to_string_lossy().into_owned()];
+    if let Some(root) = start.ancestors().find(|dir| dir.join(".git").exists()) {
+        let root = root.to_string_lossy().into_owned();
+        if !keys.contains(&root) {
+            keys.push(root);
+        }
+    }
+    keys
+}
+
+/// The entry Claude already has under this name in the chosen scope, if any.
+fn saved_claude_server(
+    settings_path: &Path,
+    folder: Option<&Path>,
+    scope: Option<&str>,
+    name: &str,
+) -> Option<Value> {
+    match scope.unwrap_or("local") {
+        "user" => read_json(settings_path)?
+            .get("mcpServers")?
+            .get(name)
+            .cloned(),
+        "project" => read_json(&folder?.join(".mcp.json"))?
+            .get("mcpServers")?
+            .get(name)
+            .cloned(),
+        _ => {
+            let settings = read_json(settings_path)?;
+            let projects = settings.get("projects")?;
+            claude_project_keys(folder?)
+                .iter()
+                .find_map(|key| projects.get(key)?.get("mcpServers")?.get(name).cloned())
+        }
+    }
+}
+
+/// Claude refuses to add a name it already has. When that entry has the same
+/// settings, an earlier try already did this part: `Ok(true)` skips the CLI, so
+/// a retry can carry on to the provider that missed out. Different settings are
+/// never replaced. Unreadable settings give `Ok(false)` and the CLI decides.
+fn claude_already_has(
+    settings_path: &Path,
+    folder: Option<&Path>,
+    scope: Option<&str>,
+    name: &str,
+    server: &McpServerSpec,
+) -> Result<bool, String> {
+    let Some(saved) = saved_claude_server(settings_path, folder, scope, name) else {
+        return Ok(false);
+    };
+    let wanted: Value = serde_json::from_str(&claude_json(server)).map_err(|e| e.to_string())?;
+    if comparable_claude_server(&saved) == comparable_claude_server(&wanted) {
+        return Ok(true);
+    }
+    Err(format!(
+        "Claude already has a server called {name} with different settings. Remove it or use another name."
+    ))
+}
+
 /// The exact arguments for the provider CLI, after validating every field.
 pub fn mcp_args(request: &McpRequest) -> Result<Vec<String>, String> {
     let s = |v: &str| v.to_string();
@@ -351,6 +468,24 @@ pub async fn provider_mcp(
     let provider = request.provider();
     tauri::async_runtime::spawn_blocking(move || {
         let _work = work;
+        if let McpRequest::Add {
+            provider: McpProvider::Claude,
+            name,
+            scope,
+            server,
+        } = &request
+        {
+            let already = claude_already_has(
+                &claude_settings_path(),
+                project_folder.as_deref(),
+                scope.as_deref(),
+                name,
+                server,
+            )?;
+            if already {
+                return Ok(String::new());
+            }
+        }
         let binary = match provider {
             McpProvider::Claude => harness::resolved_claude_binary(),
             McpProvider::Codex => harness::resolved_codex_binary(),
@@ -360,6 +495,7 @@ pub async fn provider_mcp(
             McpProvider::Codex => "Codex is not installed.".to_string(),
         })?;
         harness::run_provider_cli(&binary, &args, cwd.as_deref(), timeout)
+            .map_err(|message| request.explain_failure(message))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -368,6 +504,175 @@ pub async fn provider_mcp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A folder of its own for each test: never the real home or settings.
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new(label: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("aven-mcp-manage-{label}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(dir.join("repo/.git")).unwrap();
+            std::fs::create_dir_all(dir.join("repo/app")).unwrap();
+            Self(dir.canonicalize().unwrap())
+        }
+        fn settings(&self) -> PathBuf {
+            self.0.join(".claude.json")
+        }
+        fn repo(&self) -> PathBuf {
+            self.0.join("repo")
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn remote(url: &str, token: &str) -> McpServerSpec {
+        McpServerSpec::Http {
+            url: url.into(),
+            headers: BTreeMap::from([("Authorization".into(), format!("Bearer {token}"))]),
+            bearer_token_env_var: None,
+        }
+    }
+
+    #[test]
+    fn a_retry_skips_claude_only_when_its_entry_has_the_same_settings() {
+        let fixture = Fixture::new("same");
+        let server = remote("https://mcp.example.com/mcp", "fixture");
+        std::fs::write(
+            fixture.settings(),
+            serde_json::json!({
+                "mcpServers": { "acme": serde_json::from_str::<Value>(&claude_json(&server)).unwrap() }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let check = |name: &str, spec: &McpServerSpec| {
+            claude_already_has(&fixture.settings(), None, Some("user"), name, spec)
+        };
+        assert_eq!(check("acme", &server), Ok(true));
+        assert_eq!(check("other", &server), Ok(false));
+        let different = check(
+            "acme",
+            &remote("https://elsewhere.example.com/mcp", "fixture"),
+        );
+        assert!(different.unwrap_err().contains("different settings"));
+        // Only the token differs: still a different server, and it isn't quoted.
+        let error = check("acme", &remote("https://mcp.example.com/mcp", "changed")).unwrap_err();
+        assert!(!error.contains("changed"));
+    }
+
+    #[test]
+    fn a_saved_stdio_entry_matches_without_its_empty_fields() {
+        let fixture = Fixture::new("defaults");
+        std::fs::write(
+            fixture.settings(),
+            r#"{"mcpServers":{"acme":{"command":"npx"}}}"#,
+        )
+        .unwrap();
+        let server = McpServerSpec::Stdio {
+            command: "npx".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+        };
+        assert_eq!(
+            claude_already_has(&fixture.settings(), None, Some("user"), "acme", &server),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn each_claude_scope_is_read_from_its_own_place() {
+        let fixture = Fixture::new("scopes");
+        let repo = fixture.repo();
+        let entry = |command: &str| serde_json::json!({ "type": "stdio", "command": command });
+        std::fs::write(
+            fixture.settings(),
+            serde_json::json!({
+                "mcpServers": { "acme": entry("personal") },
+                "projects": { repo.to_string_lossy(): { "mcpServers": { "acme": entry("private") } } },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            repo.join(".mcp.json"),
+            serde_json::json!({ "mcpServers": { "acme": entry("shared") } }).to_string(),
+        )
+        .unwrap();
+        let command = |folder: &Path, scope: Option<&str>| {
+            saved_claude_server(&fixture.settings(), Some(folder), scope, "acme")
+                .map(|saved| saved["command"].as_str().unwrap().to_string())
+        };
+        assert_eq!(command(&repo, Some("user")).as_deref(), Some("personal"));
+        assert_eq!(command(&repo, Some("project")).as_deref(), Some("shared"));
+        assert_eq!(command(&repo, Some("local")).as_deref(), Some("private"));
+        // No scope is Claude's default, and a subfolder finds its Git root.
+        assert_eq!(command(&repo, None).as_deref(), Some("private"));
+        assert_eq!(
+            command(&repo.join("app"), Some("local")).as_deref(),
+            Some("private")
+        );
+        // A missing project entry is simply not there.
+        assert_eq!(command(&fixture.0, Some("project")), None);
+    }
+
+    #[test]
+    fn unreadable_settings_leave_the_decision_to_the_cli() {
+        let fixture = Fixture::new("unreadable");
+        let server = remote("https://mcp.example.com/mcp", "fixture");
+        let check = || claude_already_has(&fixture.settings(), None, Some("user"), "acme", &server);
+        assert_eq!(check(), Ok(false));
+        std::fs::write(fixture.settings(), "not json").unwrap();
+        assert_eq!(check(), Ok(false));
+    }
+
+    #[test]
+    fn only_a_remote_codex_add_waits_for_a_browser() {
+        let add = |provider, server| McpRequest::Add {
+            provider,
+            name: "acme".into(),
+            scope: None,
+            server,
+        };
+        let url = || remote("https://mcp.example.com/mcp", "fixture");
+        assert_eq!(add(McpProvider::Codex, url()).timeout(), LOGIN_TIMEOUT);
+        assert_eq!(add(McpProvider::Claude, url()).timeout(), EDIT_TIMEOUT);
+        assert_eq!(add(McpProvider::Codex, stdio()).timeout(), EDIT_TIMEOUT);
+        assert_eq!(
+            McpRequest::Login {
+                provider: McpProvider::Codex,
+                name: "acme".into()
+            }
+            .timeout(),
+            LOGIN_TIMEOUT
+        );
+    }
+
+    #[test]
+    fn a_timed_out_codex_add_says_what_to_do_next() {
+        let request = McpRequest::Add {
+            provider: McpProvider::Codex,
+            name: "acme".into(),
+            scope: None,
+            server: remote("https://mcp.example.com/mcp", "fixture"),
+        };
+        let timed_out = "codex took too long and was stopped.".to_string();
+        assert!(request
+            .explain_failure(timed_out.clone())
+            .contains("Sign in"));
+        assert_eq!(request.explain_failure("other".into()), "other");
+        let remove = McpRequest::Remove {
+            provider: McpProvider::Codex,
+            name: "acme".into(),
+            scope: None,
+        };
+        assert_eq!(remove.explain_failure(timed_out.clone()), timed_out);
+    }
 
     fn stdio() -> McpServerSpec {
         McpServerSpec::Stdio {
