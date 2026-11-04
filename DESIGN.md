@@ -57,6 +57,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A work area** has the thing you talk to or work in on the left and a panel on the right. The panel has one header, a row of tabs and one scrolling body.
 
+**Tabs join only on purpose.** Passing over a tab, or letting go on it quickly, only moves yours. Rest on it while a line fills around it, about half a second, and letting go then joins them.
+
 **A menu** is solid, not see-through. It lists what applies, most common first, with sentence-case labels. Group rows with one separator, and move rare choices into a page inside the menu.
 
 **An empty state** is one centred sentence saying what will appear here, in muted text. Add no illustration and no button unless the next step is obvious.

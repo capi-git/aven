@@ -1227,6 +1227,57 @@ describe("useSortable external drops and cancellation", () => {
       expect(targets.every((target) => target === null)).toBe(true);
     });
 
+    describe("that takes a whole rest", () => {
+      beforeEach(() => {
+        options.dropOnRest = true;
+      });
+
+      it("only moves an item let go on a middle too soon", async () => {
+        await press();
+        await hold(260);
+        expect(sortable.joinHint).toBe("session-b");
+        expect(sortable.joinRest).not.toBeNull();
+        now += 100;
+        await pointer(window, "pointerup", 260, 15);
+        expect(options.onDropOnItem).not.toHaveBeenCalled();
+        expect(onReorder).toHaveBeenCalledOnce();
+        expect(sortable.joinRest).toBeNull();
+      });
+
+      it("joins once the rest is over, with no rest left to show", async () => {
+        await press();
+        await hold(250);
+        now += 200;
+        await hold(250);
+        expect(sortable.dropTarget?.id).toBe("session-b");
+        expect(sortable.joinRest).toBeNull();
+        await pointer(window, "pointerup", 250, 15);
+        expect(options.onDropOnItem).toHaveBeenCalledExactlyOnceWith(
+          "browser-a",
+          "session-b",
+        );
+        expect(onReorder).not.toHaveBeenCalled();
+      });
+
+      it("joins let go just as the rest ends, before it has armed", async () => {
+        await press();
+        await hold(250);
+        now += 200;
+        await pointer(window, "pointerup", 250, 15);
+        expect(options.onDropOnItem).toHaveBeenCalledOnce();
+      });
+
+      it("starts the rest again on a move within the middle", async () => {
+        await press();
+        await hold(235);
+        const first = sortable.joinRest;
+        now += 100;
+        await hold(260);
+        expect(sortable.joinRest).not.toBe(first);
+        expect(sortable.dropTarget).toBeNull();
+      });
+    });
+
     it("drops onto an item let go on its middle without resting", async () => {
       const targets: Array<string | null> = [];
       probeTarget = (target) => targets.push(target);

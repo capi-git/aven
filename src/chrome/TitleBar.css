@@ -1174,6 +1174,44 @@ html.theme-light .personal-shell {
   outline: 1px solid color-mix(in srgb, var(--color-content) 26%, transparent);
   outline-offset: -1px;
 }
+/* Resting on it: a line fills around the tab, over that light ring. Once it
+   closes the preview above takes over; let go sooner, the tab only moves. */
+.aven-join-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.aven-join-ring rect {
+  x: 0.75px;
+  y: 0.75px;
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+  rx: var(--aven-radius-sm);
+  fill: none;
+  stroke: var(--color-content);
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation-name: aven-join-ring;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes aven-join-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aven-join-ring rect {
+    animation-name: none;
+    stroke-dashoffset: 0;
+    stroke-opacity: 0.5;
+  }
+}
 /* A segment pulled out of its split: the rest of the entry stays put, the
    segment faded where it was. */
 .aven-split-segment {
