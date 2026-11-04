@@ -96,6 +96,38 @@ fn wait_for(what: &str, timeout: Duration, mut check: impl FnMut() -> bool) {
     }
 }
 
+/// The agent alone, which needs no native path: it records nothing while it
+/// runs, and starting it clears what an earlier run left on the device.
+#[test]
+#[ignore]
+fn ios_sim_live_agent_records_nothing() {
+    if std::env::var_os("AVEN_IOS_SIM_LIVE").is_none() {
+        eprintln!("set AVEN_IOS_SIM_LIVE=1 to run");
+        return;
+    }
+    let (device_type, runtime) = newest_iphone();
+    let name = format!("Aven Dev iPhone Test {}", std::process::id());
+    let created = simctl(
+        &["create", &name, &device_type, &runtime],
+        Duration::from_secs(120),
+    )
+    .unwrap();
+    let udid = String::from_utf8_lossy(&checked(created, "create").unwrap())
+        .trim()
+        .to_owned();
+    let _cleanup = Throwaway(udid.clone());
+
+    crate::ios_sim_xcuitest::connect(&udid, None).unwrap();
+    std::thread::sleep(Duration::from_secs(40));
+    assert_eq!(crate::ios_sim_xcuitest::recordings_on(&udid), 0);
+
+    crate::ios_sim_xcuitest::stop_device(&udid);
+    let left = crate::ios_sim_xcuitest::plant_old_recording(&udid);
+    assert!(left.exists());
+    crate::ios_sim_xcuitest::connect(&udid, None).unwrap();
+    assert!(!left.exists(), "an old recording stays on the device");
+}
+
 #[test]
 #[ignore]
 fn ios_sim_live_round_trip() {
@@ -365,6 +397,8 @@ fn ios_sim_live_round_trip() {
     );
     // A pick that is not a listed simulator never reaches devicectl.
     assert!(set_orientation("6D1B1E5A-2F44-4C1B-9E5A-0E4D1C2B3A49", "portrait").is_err());
+    // The agent has been running all this time: it records nothing.
+    assert_eq!(crate::ios_sim_xcuitest::recordings_on(&udid), 0);
 
     stop(&project);
     assert_eq!(status_of(&project).phase, Phase::Stopped);
