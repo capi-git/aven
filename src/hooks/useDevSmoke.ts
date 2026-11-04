@@ -4352,18 +4352,28 @@ export async function runDevSmoke(
         };
         await stopWorking();
         const had = work();
+        // Delete removes the project's chats one by one, and by now this check
+        // has made dozens. A real hang still fails here, saying how far it got.
+        const chatsLeft = () =>
+          get().sessions.filter((session) => sameProjectPath(session.cwd, path))
+            .length;
+        const chatsBefore = chatsLeft();
         let refused = await withTimeout(
           deleteProject(path),
-          30_000,
+          DELETE_PROJECT_LIMIT_MS,
           "deleting the project",
-        );
+        ).catch((error: unknown) => {
+          throw new Error(
+            `${errorText(error)}: ${chatsLeft()} of ${chatsBefore} open chats were left`,
+          );
+        });
         let retried = "";
         if (refused?.includes("still has open work")) {
           const left = work();
           await stopWorking();
           const again = await withTimeout(
             deleteProject(path),
-            30_000,
+            DELETE_PROJECT_LIMIT_MS,
             "deleting the project again",
           );
           retried = `; the first Delete left ${left.join("; ") || "nothing it names"} (before it: ${had.join("; ") || "nothing"})${again ? `, and the second was refused: ${again}` : ", and the second went through"}`;
@@ -4469,6 +4479,8 @@ async function waitForAsync(
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
+
+const DELETE_PROJECT_LIMIT_MS = 90_000;
 
 function withTimeout<T>(
   work: Promise<T>,
