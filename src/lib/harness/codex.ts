@@ -1,5 +1,9 @@
 import { codexNativeModelId } from "../models";
 import { logError } from "../errors";
+import {
+  clearChatConnections,
+  noteCodexServerStatus,
+} from "../chatConnections";
 import type { RuntimeMode } from "../session";
 import {
   killChild,
@@ -597,6 +601,8 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
   ) {
     return existing;
   }
+  // This process reports its own connections from the start.
+  clearChatConnections(input.sessionId);
   // A new app-server takes a moment before it answers; the chat says so.
   input.onEvent({ type: "turn.waiting", set: { starting: Date.now() } });
   if (existing) {
@@ -623,6 +629,11 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
     {
       onNotification: (method, params) => {
         const live = liveRef.current;
+        // Sent while the thread opens, so often before `live` exists.
+        if (method === "mcpServer/startupStatus/updated") {
+          noteCodexServerStatus(input.sessionId, params, live?.threadId);
+          return;
+        }
         if (
           !live ||
           liveByThread.get(input.sessionId) !== live ||

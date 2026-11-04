@@ -173,6 +173,7 @@ import {
 } from "../lib/discussions";
 import { useStartedDiscussionId } from "../hooks/useDiscussions";
 import { useWidth } from "../hooks/useNarrow";
+import { ChatConnectionsBar } from "./ChatConnectionsBar";
 import { SharedWorkBar } from "./SharedWorkBar";
 import {
   DiscussionChip,
@@ -2127,6 +2128,11 @@ function ComposerComponent({
       {/* The team this chat started or belongs to (see TeamBar). */}
       {teamBar}
       <SharedWorkBar sessionId={sessionId} />
+      <ChatConnectionsBar
+        sessionId={sessionId}
+        harness={harness}
+        folder={executionCwd}
+      />
       {children}
       <MessageQueue
         messages={queuedMessages}

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { chatConnectionLine } from "../chatConnections";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 const sent: string[] = [];
@@ -1567,6 +1568,92 @@ describe("codex live turn sequence", () => {
     reply(request.id as number, {});
     await compact;
     expect(settled).toBe(true);
+  });
+});
+
+describe("Codex server status", () => {
+  beforeEach(() => {
+    sent.length = 0;
+    onLine = undefined;
+    onExit = undefined;
+    killError = undefined;
+    killPending = undefined;
+    spawnCount = 0;
+    spawnError = undefined;
+  });
+
+  afterEach(async () => {
+    await stopCodexSession("status").catch(() => undefined);
+  });
+
+  // In the shape Codex 0.166.0 prints.
+  const status = (threadId: string, name: string, state: string) => ({
+    threadId,
+    name,
+    status: state,
+    error:
+      state === "failed"
+        ? `The ${name} MCP server is not logged in. Run \`codex mcp login ${name}\`.`
+        : null,
+    failureReason: null,
+  });
+
+  it("hears servers that report while the thread opens", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = sendCodexTurn({
+      sessionId: "status",
+      cwd: "/repo",
+      model: "codex:gpt-5.4",
+      modelSettings: {},
+      runtimeMode: "supervised",
+      text: "hello",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+    await waitFor(
+      () => parse().some((m) => m.method === "initialize"),
+      "initialize",
+    );
+    reply(parse().find((m) => m.method === "initialize")!.id as number, {});
+    await waitFor(
+      () => parse().some((m) => m.method === "thread/start"),
+      "thread/start",
+    );
+    notify(
+      "mcpServer/startupStatus/updated",
+      status("thr_1", "notion", "failed"),
+    );
+    expect(chatConnectionLine("status")?.text).toBe("notion isn't signed in");
+    reply(parse().find((m) => m.method === "thread/start")!.id as number, {
+      thread: { id: "thr_1" },
+    });
+    await waitFor(
+      () => parse().some((m) => m.method === "turn/start"),
+      "turn/start",
+    );
+    reply(parse().find((m) => m.method === "turn/start")!.id as number, {
+      turn: { id: "turn_1", status: "inProgress" },
+    });
+    notify("turn/started", { turn: { id: "turn_1", status: "inProgress" } });
+
+    // A sub-agent's thread isn't this chat's, and none of this is transcript.
+    const before = events.length;
+    notify(
+      "mcpServer/startupStatus/updated",
+      status("thr_child", "slack", "failed"),
+    );
+    expect(chatConnectionLine("status")?.text).toBe("notion isn't signed in");
+    notify(
+      "mcpServer/startupStatus/updated",
+      status("thr_1", "notion", "ready"),
+    );
+    expect(chatConnectionLine("status")).toBeNull();
+    expect(events.slice(before)).toEqual([]);
+
+    notify("turn/completed", {
+      turn: { id: "turn_1", status: "completed" },
+    });
+    await turn;
   });
 });
 

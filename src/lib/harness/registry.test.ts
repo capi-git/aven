@@ -19,6 +19,8 @@ import {
   isLiveHarness,
   listHarnesses,
   refreshHarnessCatalogs,
+  forgetHarnessSession,
+  reconnectHarnessSession,
   registerHarness,
   resetHarnessIdlePark,
   sendHarnessTurn,
@@ -478,6 +480,75 @@ describe("harness registry", () => {
     await expect(
       refreshHarnessCatalogs(["claude"], { force: true }),
     ).rejects.toThrow("does not support model refresh");
+  });
+
+  it("reconnects an idle chat at once, keeping its conversation", async () => {
+    const stopSession = vi.fn(async () => undefined);
+    const forgetSession = vi.fn(async () => undefined);
+    registerHarness(stub("cursor", { stopSession, forgetSession }));
+    reconnectHarnessSession("cursor", "s1");
+    await Promise.resolve();
+    expect(stopSession).toHaveBeenCalledWith("s1");
+    expect(forgetSession).not.toHaveBeenCalled();
+  });
+
+  it("reconnects a working chat only once its turn settles", async () => {
+    const stopSession = vi.fn(async () => undefined);
+    let finish = () => {};
+    registerHarness(
+      stub("cursor", {
+        stopSession,
+        sendTurn: () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      }),
+    );
+    const turn = sendHarnessTurn({
+      harness: "cursor",
+      sessionId: "s1",
+      cwd: "/tmp",
+      model: "cursor:composer-2.5",
+      text: "hi",
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+    });
+    await Promise.resolve();
+    reconnectHarnessSession("cursor", "s1");
+    expect(stopSession).not.toHaveBeenCalled();
+    finish();
+    await turn;
+    await vi.waitFor(() => expect(stopSession).toHaveBeenCalledTimes(1));
+  });
+
+  it("drops a waiting reconnect when the chat is forgotten", async () => {
+    const stopSession = vi.fn(async () => undefined);
+    let finish = () => {};
+    registerHarness(
+      stub("cursor", {
+        stopSession,
+        sendTurn: () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      }),
+    );
+    const turn = sendHarnessTurn({
+      harness: "cursor",
+      sessionId: "s1",
+      cwd: "/tmp",
+      model: "cursor:composer-2.5",
+      text: "hi",
+      runtimeMode: "supervised",
+      onEvent: () => undefined,
+    });
+    await Promise.resolve();
+    reconnectHarnessSession("cursor", "s1");
+    await forgetHarnessSession("cursor", "s1");
+    finish();
+    await turn;
+    await Promise.resolve();
+    expect(stopSession).not.toHaveBeenCalled();
   });
 
   it("parks a live child a few minutes after the turn settles", async () => {

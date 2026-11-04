@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { chatConnectionLine } from "../chatConnections";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 
 const sent: string[] = [];
@@ -2324,5 +2325,27 @@ describe("Claude question cards", () => {
     );
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await second;
+  });
+
+  it("reports the provider's server statuses, without touching the transcript", async () => {
+    const { events, turn } = await startTurn("connections");
+    const before = events.length;
+    // Each turn opens with this line, in the shape Claude Code 2.1.318 prints.
+    emit({
+      type: "system",
+      subtype: "init",
+      session_id: "sess_1",
+      mcp_servers: [
+        { name: "bad-stdio", status: "failed", source: "dynamic" },
+        { name: "authy", status: "needs-auth", source: "dynamic" },
+        { name: "fine", status: "connected", source: "dynamic" },
+      ],
+    });
+    expect(chatConnectionLine("connections")?.text).toBe(
+      "authy and 1 other aren't connected",
+    );
+    expect(events.slice(before)).toEqual([]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
   });
 });
