@@ -428,7 +428,7 @@ describe("sidebar workspace navigation", () => {
       [...container.querySelectorAll<HTMLElement>(selector)].filter(
         (node) => !node.closest('[inert],[aria-hidden="true"]'),
       );
-    // One New chat, on the Chats heading; no separate button below.
+    // One New chat, beside the workspace's name; no separate button below.
     expect(
       visible('button[aria-label="New chat without a project"]'),
     ).toHaveLength(1);

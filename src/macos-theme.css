@@ -745,7 +745,10 @@ html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
     .workspace-menu-panel-window
   )
   .aven-popover-panel-backdrop {
-  background: var(--aven-popover-panel-bg, var(--aven-popup));
+  /* The window's glass: see the rule for menus and sheets below. */
+  background: var(--aven-glass-overlay);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
 }
 
 html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
@@ -923,13 +926,22 @@ html:not(.theme-light)
     .aven-glass-overlay,
     .aven-sheet,
     .popover-backdrop,
+    .aven-popover-frame .popover-backdrop,
     .aven-popover-panel-backdrop,
     .modal-panel[role="dialog"],
     .workspace-action-dialog,
     .settings-search-results,
-    .workspace-theme-popover
+    .workspace-theme-popover,
+    .helm-dialog-frame,
+    .helm-say,
+    .aven-split-tip,
+    .aven-tour-popover,
+    .browser-actions-menu,
+    .discussion-float,
+    .cm-tooltip
   ) {
   background: var(--aven-glass-overlay);
+  border-color: var(--aven-glass-overlay-edge);
   -webkit-backdrop-filter: var(--aven-glass-blur);
   backdrop-filter: var(--aven-glass-blur);
 }

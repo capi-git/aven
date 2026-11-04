@@ -709,6 +709,8 @@ import {
   liveAgentsFromSessions,
   workerAgentsByLead,
 } from "./lib/liveAgents";
+import { sidebarUsage } from "./lib/usageMeter";
+import { useUsageForecasts } from "./hooks/useUsageForecasts";
 import {
   activeSessionAgents,
   uncertainSessionAgents,
@@ -3319,6 +3321,11 @@ export default function App({
   const unseenFinishedRef = useRef(unseenFinishedIds);
   unseenFinishedRef.current = unseenFinishedIds;
 
+  const usageForecasts = useUsageForecasts();
+  const usage = useMemo(
+    () => sidebarUsage(usageForecasts, Date.now()),
+    [usageForecasts],
+  );
   const liveAgents = useMemo(
     () =>
       liveAgentsEnabled
@@ -11643,6 +11650,7 @@ export default function App({
     recents: profiles.profileProjects,
     projectStatus,
     liveAgents,
+    usage,
     discussions: discussions.sidebar,
     bots: sidebarBots,
     onOpenBot,

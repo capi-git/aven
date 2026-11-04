@@ -138,12 +138,10 @@ describe("usage panel", () => {
       }),
     );
     await render(snapshot({ providers: [claude] }));
-    const progress = bar("Claude Code Fable weekly");
-    expect(progress.hasAttribute("aria-valuenow")).toBe(false);
-    expect(progress.getAttribute("aria-valuetext")).toBe("Unknown");
-    expect(progress.parentElement?.textContent).toContain(
-      "Not reported by provider",
-    );
+    // A limit the provider doesn't report isn't worth a card.
+    expect(
+      container.querySelector('[aria-label="Claude Code Fable weekly used"]'),
+    ).toBeNull();
   });
 
   it("shows usage consistently for context and each provider window", async () => {
@@ -162,9 +160,6 @@ describe("usage panel", () => {
     expect(
       container.querySelector('[role="slider"], input[type="range"]'),
     ).toBeNull();
-    expect(container.textContent).toContain(
-      "Provider limits apply across all your chats.",
-    );
   });
 
   it.each([
@@ -222,7 +217,7 @@ describe("usage panel", () => {
       "40K tokens used · capacity unavailable",
     );
     expect(container.textContent).toContain("Not checked yet");
-    expect(container.textContent).toContain("Not reported by provider");
+    expect(container.textContent).not.toContain("Not reported by provider");
   });
 
   it("labels loading without inventing values and disables duplicate refresh requests", async () => {

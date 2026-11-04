@@ -106,26 +106,26 @@ afterEach(async () => {
 });
 
 describe("the hover sidebar's overlay", () => {
-  it("keeps the card at the window's top when its own height changes", async () => {
+  it("places the card below the title bar again when its own height changes", async () => {
     // The window grew after the overlay started: a snapshot from the
     // resized workspace reaches it before its own new height does.
     setOwnHeight(810);
     await act(async () => root.render(createElement(FloatingSidebarWindow)));
     await act(async () => native.handlers.get(SNAPSHOT_EVENT)?.(snapshot));
-    expect(bodyTop()).toBe(`${810 - 897}px`);
+    expect(bodyTop()).toBe(`${40 + 810 - 897}px`);
 
     // Its own resize arrives with no new snapshot; the card must still
-    // move to the window's top.
+    // move to where the workspace's body is.
     setOwnHeight(897);
     await act(async () => window.dispatchEvent(new Event("resize")));
-    expect(bodyTop()).toBe("0px");
+    expect(bodyTop()).toBe("40px");
   });
 
-  it("keeps the card at the window's top when its viewport is shorter", async () => {
+  it("keeps the card level with the workspace's body when its viewport is shorter", async () => {
     // A viewport shorter than its view is anchored at the window's bottom.
     setOwnHeight(869);
     await act(async () => root.render(createElement(FloatingSidebarWindow)));
     await act(async () => native.handlers.get(SNAPSHOT_EVENT)?.(snapshot));
-    expect(bodyTop()).toBe("-28px");
+    expect(bodyTop()).toBe("12px");
   });
 });

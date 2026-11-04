@@ -95,6 +95,7 @@ import {
 } from "../lib/sessionFilters";
 import type { HarnessId } from "../lib/session";
 import type { LiveAgent } from "../lib/liveAgents";
+import type { SidebarUsage } from "../lib/usageMeter";
 import { projectStatusFor, type ProjectStatusMap } from "../lib/projectStatus";
 import type { SessionSummary } from "../lib/sessionStore";
 import type { SettingsSectionId } from "../lib/settings";
@@ -279,6 +280,8 @@ export type SidebarProps = {
   /** Per-project activity and changed files, keyed by `projectKey(path)`. */
   projectStatus?: ProjectStatusMap;
   liveAgents?: LiveAgent[];
+  /** How much of the account is used: the hover card's one line. */
+  usage?: SidebarUsage | null;
   /** Chats discussing with each other; their rows talk and are linked. */
   discussions?: readonly SidebarDiscussion[];
   /**
@@ -460,6 +463,7 @@ function SidebarComponent({
   onNewProjectTask,
   projectStatus,
   liveAgents = [],
+  usage = null,
   discussions = NO_DISCUSSIONS,
   onOpenDiscussion,
   bots = NO_BOTS,
@@ -1883,6 +1887,12 @@ function SidebarComponent({
           : undefined
       }
       homeActive={homeActive && !settingsOpen}
+      showNewSession={!settingsOpen && !!onNewStandalone}
+      startingNewSession={startingStandalone}
+      onNewSession={() => {
+        setTasksExpanded(true);
+        onNewStandalone?.();
+      }}
       showSearch={!!onSearch}
       searchActive={searchActive}
       onSearch={onSearch}
@@ -2019,6 +2029,7 @@ function SidebarComponent({
                     showNotes={notesEnabled && !!onOpenNotes}
                     showInbox={!!onOpenInbox}
                     showAutomations={!!onOpenAutomations}
+                    showNewSession={!!onNewStandalone}
                   />
                 ) : null}
               </div>
@@ -2050,7 +2061,7 @@ function SidebarComponent({
                     onOpen={onOpenDiscussion}
                   />
                 ) : null}
-                {onOpenStandalone || onNewStandalone ? (
+                {onOpenStandalone ? (
                   <section
                     className="personal-standalone-group"
                     aria-label="Chats without a project"
@@ -2062,23 +2073,11 @@ function SidebarComponent({
                         title="Chats that aren't in a project"
                         onClick={() => {
                           setTasksExpanded(true);
-                          onOpenStandalone?.();
+                          onOpenStandalone();
                         }}
                       >
                         Chats
                       </button>
-                      {onNewStandalone ? (
-                        <SessionsHeaderButton
-                          label="New chat without a project"
-                          onClick={() => {
-                            if (startingStandalone) return;
-                            setTasksExpanded(true);
-                            onNewStandalone();
-                          }}
-                        >
-                          <Plus className="size-3" />
-                        </SessionsHeaderButton>
-                      ) : null}
                     </div>
                     {standaloneActive ? (
                       currentProjectTasks
@@ -2470,6 +2469,18 @@ function SidebarComponent({
         onDismissUpdate={onDismissUpdate}
       />
       <div className="personal-sidebar-footer">
+        {open && !settingsOpen && usage ? (
+          <div
+            className="personal-sidebar-usage"
+            data-sidebar-usage
+            title={usage.title}
+          >
+            <i>
+              <b style={{ width: `${usage.percent}%` }} />
+            </i>
+            {usage.text}
+          </div>
+        ) : null}
         {open && !settingsOpen ? (
           <PersonalWorkspaceSwitcher
             profiles={profiles}
@@ -2633,6 +2644,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "recents",
   "projectStatus",
   "liveAgents",
+  "usage",
   "discussions",
   "bots",
   "teams",

@@ -976,15 +976,18 @@ html.has-sidebar-tint .personal-shell .personal-sidebar.personal-navigation {
   justify-content: flex-end;
 }
 
-/* The hover sidebar floats: a rounded card with room all round it, over the
-   window's glass, as in Arc. */
+/* The hover sidebar floats: a rounded card with room around it, under the top
+   row so the window's own buttons stay clear of it. Native pages can't be
+   blurred from the overlay, so its fill is the mock's colour rather than glass. */
 html
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.personal-navigation {
-  inset: 8px auto 8px 8px;
-  height: calc(100% - 16px);
-  border: 1px solid color-mix(in srgb, var(--color-content) 10%, transparent);
+  inset: 2px auto 8px 8px;
+  width: 216px;
+  height: calc(100% - 10px);
+  padding-top: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-content) 8%, transparent);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -992,9 +995,53 @@ html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  /* Lighter than the frame around it, so it reads as floating. */
-  --personal-navigation-overlay: color-mix(in srgb, #3b3e3c 82%, transparent);
-  border-color: color-mix(in srgb, var(--color-content) 16%, transparent);
+  --personal-navigation-overlay: #2f3331;
+}
+/* As in the mock: the name alone, and the usage line at the bottom; the rest of
+   the footer comes up under the pointer. */
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  .personal-profile-name
+  > svg {
+  display: none;
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  .personal-sidebar-footer:not(:hover, :focus-within)
+  .personal-workspace-switcher {
+  min-height: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+}
+.personal-shell .personal-navigation .personal-sidebar-usage {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 8px;
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  .personal-sidebar-usage {
+  display: flex;
+}
+.personal-shell .personal-navigation .personal-sidebar-usage > i {
+  position: relative;
+  overflow: hidden;
+  width: 44px;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-content) 28%, transparent);
+}
+.personal-shell .personal-navigation .personal-sidebar-usage > i > b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--aven-label-secondary);
 }
 
 /* The footer, as MonoCode's: arrows either side of one wide pill holding the
@@ -1050,25 +1097,4 @@ html.is-mac.has-native-glass:not(.theme-light)
   ) {
   width: 22px;
   opacity: 1;
-}
-
-/* The workspace's row reads as one button: one fill across the row on hover,
-   with the menu's chevron inside it and no fill of its own. */
-.personal-shell .personal-profile-header {
-  border-radius: var(--aven-radius-row);
-}
-.personal-shell .personal-profile-header:hover {
-  background: var(--personal-hover);
-}
-.personal-shell .personal-profile-header .personal-profile-name {
-  flex: 1 1 auto;
-}
-.personal-shell
-  .personal-navigation
-  .personal-profile-header
-  :is(.personal-profile-name, .personal-profile-picker):is(
-    :hover,
-    [aria-expanded="true"]
-  ):not(:disabled) {
-  background: transparent;
 }

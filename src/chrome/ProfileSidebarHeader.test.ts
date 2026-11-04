@@ -28,6 +28,8 @@ const everything = (patch: Partial<Props> = {}): Props => ({
   profile: DEFAULT_WORKSPACE_PROFILES[0],
   onOpenHome: vi.fn(),
   onMenuChange: vi.fn(),
+  showNewSession: true,
+  onNewSession: vi.fn(),
   showSearch: true,
   onSearch: vi.fn(),
   showNotes: true,
@@ -43,11 +45,11 @@ const render = (props: Props) =>
   act(async () => root.render(createElement(ProfileSidebarHeader, props)));
 
 describe("the workspace row", () => {
-  it("opens Home from the name and the workspace menu from its chevron", async () => {
+  it("opens Home from the name, the workspace menu from its chevron and a new chat from +", async () => {
     const props = everything({ homeActive: true });
     await render(props);
     const header = host.querySelector(".personal-profile-header")!;
-    const [home, picker] = [
+    const [home, picker, add] = [
       ...header.querySelectorAll<HTMLButtonElement>("button"),
     ];
     expect(home.getAttribute("aria-label")).toBe("Home, Personal workspace");
@@ -57,11 +59,15 @@ describe("the workspace row", () => {
       "Switch workspace, Personal",
     );
     expect(picker.getAttribute("aria-haspopup")).toBe("menu");
+    expect(add.getAttribute("aria-label")).toBe("New chat without a project");
+    expect(add.title).toBe("New chat");
 
     await act(async () => home.click());
     expect(props.onOpenHome).toHaveBeenCalledOnce();
     await act(async () => picker.click());
     expect(props.onMenuChange).toHaveBeenCalledWith(picker);
+    await act(async () => add.click());
+    expect(props.onNewSession).toHaveBeenCalledOnce();
 
     // The menu also opens from the name with the arrow keys, anchored on the
     // chevron, as a menu button's would.
@@ -73,12 +79,15 @@ describe("the workspace row", () => {
     expect(props.onMenuChange).toHaveBeenLastCalledWith(picker);
   });
 
-  it("marks Home only while it is on screen", async () => {
-    await render(everything());
+  it("marks Home only while it is on screen and holds New chat while one starts", async () => {
+    await render(everything({ startingNewSession: true }));
     const home = host.querySelector<HTMLButtonElement>(
       ".personal-profile-name",
     )!;
     expect(home.hasAttribute("aria-current")).toBe(false);
+    const add = host.querySelector<HTMLButtonElement>(".personal-profile-new")!;
+    expect(add.disabled).toBe(true);
+    expect(add.title).toBe("Starting…");
   });
 
   it("opens the workspace's actions on right-click of its name or chevron", async () => {
@@ -208,6 +217,7 @@ describe("Search and the pinned tiles", () => {
     ).toEqual([
       "Home, Personal workspace",
       "Switch workspace, Personal",
+      "New chat without a project",
       "Search",
       "Notes",
       "Inbox",
@@ -234,5 +244,6 @@ describe("Search and the pinned tiles", () => {
     expect(preview.querySelector(".personal-profile-name")?.textContent).toBe(
       "Personal",
     );
+    expect(preview.querySelector(".personal-profile-new")).not.toBeNull();
   });
 });
