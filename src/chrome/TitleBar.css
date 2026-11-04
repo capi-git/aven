@@ -894,10 +894,26 @@ html.theme-light .personal-shell {
   min-width: max(120px, calc(var(--aven-split-panes, 2) * 72px));
   max-width: none;
 }
-/* The strip takes the row, so the tools after it stay at the row's end however
-   many tabs it holds. */
+/* The strip takes the row, and the tools at its end stay at the row's end
+   however many tabs it holds. */
 .personal-titlebar:not([data-variant="title"]) .personal-tab-strip {
   flex: 1 1 auto;
+}
+.personal-titlebar:not([data-variant="title"])
+  .personal-tab-strip
+  > :is(
+    .personal-title-session-new,
+    .personal-title-browser-new,
+    .personal-title-board-open
+  ):not(
+    :is(
+        .personal-title-session-new,
+        .personal-title-browser-new,
+        .personal-title-board-open
+      )
+      + *
+  ) {
+  margin-left: auto;
 }
 /* A pane with its own row of tabs is named there; here, its mark alone. */
 .aven-split-segment[data-named-below] .aven-split-label {
