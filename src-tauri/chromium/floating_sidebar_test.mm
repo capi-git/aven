@@ -109,20 +109,31 @@ int main() {
     move(500, 300);
     CHECK(overlay.superview.hidden);
 
-    // Open without motion: the card takes the pointer and the workspace stays
-    // whole beneath it, with a frosted view exactly behind the card.
+    // Open without motion: the card takes the pointer and the workspace has a
+    // hole for it. The frost, exactly behind the card, waits for a live page.
     CHECK(sm_sidebar_set_open("main", 1, 0) == 1);
     Settle();
     CHECK(!overlay.superview.hidden);
     CHECK(overlay.superview.layer.sublayerTransform.m41 == 0);
     CHECK(hit(100, 300) == overlay);
     CHECK(hit(500, 300) == nil);
-    CHECK(workspace.layer.mask == nil);
+    CHECK(workspace.layer.mask != nil);
+    CGPathRef hole = ((CAShapeLayer *)workspace.layer.mask).path;
+    CHECK(!CGPathContainsPoint(hole, nullptr, CGPointMake(100, 300), true));
+    CHECK(CGPathContainsPoint(hole, nullptr, CGPointMake(500, 300), true));
+    CHECK(CGPathContainsPoint(hole, nullptr, CGPointMake(100, 20), true));
     NSView *frost = overlay.superview.subviews.firstObject;
     CHECK([frost isKindOfClass:NSVisualEffectView.class]);
     CHECK(overlay.superview.subviews.lastObject == overlay);
     CHECK(NSMinX(frost.frame) == 5 && NSWidth(frost.frame) == 260);
     CHECK(NSMinY(frost.frame) == 5 && NSHeight(frost.frame) == 550);
+    // The page behind the card is frosted; with it hidden, there's no need.
+    CHECK(!frost.hidden);
+    page.hidden = YES;
+    sm_sidebar_regions("main", dpr, 800, 600, 5, 45, 260, 550, card, 1);
+    CHECK(frost.hidden);
+    page.hidden = NO;
+    sm_sidebar_regions("main", dpr, 800, 600, 5, 45, 260, 550, card, 1);
     move(100, 300);
     CHECK(Seen("pointer {\"inside\":true,\"edge\":false}"));
 
@@ -140,12 +151,14 @@ int main() {
     CHECK(sm_sidebar_set_open("main", 0, 0) == 1);
     Settle();
     CHECK(overlay.superview.hidden);
+    CHECK(workspace.layer.mask == nil);
     CHECK(Seen("closed {}"));
     CHECK(hit(100, 300) == nil);
 
-    // Animated: the card slides on a spring.
+    // Animated: the card and its hole slide on one spring.
     CHECK(sm_sidebar_set_open("main", 1, 1) == 1);
     CHECK([overlay.superview.layer animationForKey:@"slide"] != nil);
+    CHECK([workspace.layer.mask animationForKey:@"slide"] != nil);
 
     // Pinning disables the layer and closes an open card at once.
     events.clear();
