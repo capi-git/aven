@@ -49,8 +49,6 @@ export function PersonalInspectorDock({
           aria-valuenow={resize.width}
           tabIndex={props.active ? 0 : -1}
           className="personal-panel-resizer personal-inspector-divider"
-          // Dragging leaves no focus ring behind; Tab still reaches it.
-          onMouseDown={(event) => event.preventDefault()}
           data-native-hit-margin=""
           data-resizing={resize.dragging || undefined}
           onPointerDown={resize.onPointerDown}

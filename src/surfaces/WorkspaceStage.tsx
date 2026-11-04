@@ -1743,6 +1743,8 @@ export function WorkspaceStage({
       delete container.dataset.resizing;
       dragDraft.current = null;
       setDraftRails(null);
+      // A mouse drag leaves no focus ring behind; Tab still reaches the divider.
+      handle.blur();
       if (commit && moved) {
         const next = resizeSash(tree, fitted, offset).layout;
         paint(next, measured);

@@ -262,7 +262,8 @@ function replaceSplit(
  * and a pane that collapses keeps its share from before for when it opens.
  * A rail across the divider from a pane that folds stays a rail unless the
  * divider was taken past its threshold too, so nudging the divider between
- * two rails opens neither; the split always keeps a pane open.
+ * two rails opens neither; the split always keeps a pane open. Pulled on past
+ * a folded pane, it folds the panes beyond as well.
  */
 export function resizeSash(
   layout: LayoutNode,
@@ -298,14 +299,39 @@ export function resizeSash(
   }
   lengths[i] = before;
   lengths[i + 1] = pair - before;
+  // Pulled on past the pane it folded, the divider folds the next ones too,
+  // and the pane on its other side takes their room. Moving back opens them.
+  const pushed = new Set<number>();
+  const push = (at: number, receiver: number) => {
+    pushed.add(at);
+    lengths[receiver] += lengths[at] - PANE_RAIL_PX;
+    lengths[at] = PANE_RAIL_PX;
+  };
+  if (railAfter)
+    for (let at = i + 2; at < lengths.length; at++) {
+      const later = lengths.slice(at + 1).reduce((sum, n) => sum + n, 0);
+      const room = total - offset - (at - i - 1) * PANE_RAIL_PX - later;
+      if (!sash.railed[at] && room >= collapseThreshold(sash.opens[at])) break;
+      push(at, i);
+    }
+  if (railBefore)
+    for (let at = i - 1; at >= 0; at--) {
+      const earlier = lengths.slice(0, at).reduce((sum, n) => sum + n, 0);
+      const room = offset - (i - at) * PANE_RAIL_PX - earlier;
+      if (!sash.railed[at] && room >= collapseThreshold(sash.opens[at])) break;
+      push(at, i + 1);
+    }
   const kept = { before: false, after: false };
   const next = replaceSplit(layout, sash.splitId, (split) => {
     const othersOpen = split.children.some(
       (child, at) => at !== i && at !== i + 1 && child.rail === undefined,
     );
     const children = split.children.map((child, at): LayoutNode => {
-      if (at !== i && at !== i + 1) return child;
-      const collapse = at === i ? railBefore : railAfter;
+      const collapse =
+        pushed.has(at) ||
+        (at === i && railBefore) ||
+        (at === i + 1 && railAfter);
+      if (at !== i && at !== i + 1 && !collapse) return child;
       if (!collapse) {
         if (child.rail === undefined) return child;
         const length = at === i ? wanted : pair - wanted;

@@ -144,6 +144,8 @@ export function useDragResize({
       if (stopDrag.current !== stop) return;
       stopDrag.current = null;
       cancelPaint();
+      // A mouse drag leaves no focus ring behind; Tab still reaches the handle.
+      handle.blur();
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
