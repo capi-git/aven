@@ -707,6 +707,15 @@ export async function runDevPerf(
         await dropOnRightEdge(measure, slot);
         await pause(1_000);
       });
+      // Every change a chat makes beside a page reaches the page's watchers.
+      await scenario("agent streaming beside a web page", async () => {
+        const beside = chatIds[0];
+        await turn(
+          beside,
+          `Beside the page. AVEN_PERF_STREAM ${streamChunks}`,
+          replies(beside) + 1,
+        );
+      });
     }
   } catch (error) {
     steps.push({

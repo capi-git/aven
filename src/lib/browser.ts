@@ -404,6 +404,27 @@ function browserRendererEpoch(): Promise<number> {
   return handshake;
 }
 
+const AFTER_PAINT_DEADLINE_MS = 34;
+
+/**
+ * Once what is on the page now has reached the screen: the frame after the next
+ * has begun, or a little later when WebKit defers frames (a hidden window).
+ */
+function afterNextPaint(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let frame = 0;
+    const finish = () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(deadline);
+      resolve();
+    };
+    frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(finish);
+    });
+    const deadline = setTimeout(finish, AFTER_PAINT_DEADLINE_MS);
+  });
+}
+
 export const nativeBrowser = {
   dropIndicator: (id: string, indicator: BrowserDropIndicator | null) =>
     invoke<void>("browser_drop_indicator", { id, indicator }),
@@ -423,6 +444,10 @@ export const nativeBrowser = {
     bounds: BrowserBounds,
     profile?: "agents",
   ) => {
+    // The pane shows first: creating a page, above all the first one a session
+    // starts the engine for, holds the main thread and the window's frames
+    // with it for up to a few hundred ms. Layout places the page once created.
+    if (typeof requestAnimationFrame === "function") await afterNextPaint();
     const rendererEpoch = await browserRendererEpoch();
     return invoke<void>("browser_create", {
       id,

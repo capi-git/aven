@@ -106,3 +106,44 @@ it("does not create a page after a failed document handshake and asks again next
     ["browser_create", expect.objectContaining({ id: "c", rendererEpoch: 9 })],
   ]);
 });
+
+it("creates a page only after the pane has reached the screen", async () => {
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.push(callback);
+    return frames.length;
+  });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  mocks.invoke.mockResolvedValue(7);
+  const { nativeBrowser } = await import("./browser");
+  const created = nativeBrowser.create("a", "https://example.com", bounds);
+  const asked = () =>
+    mocks.invoke.mock.calls.filter(([command]) => command === "browser_create")
+      .length;
+  await Promise.resolve();
+  expect(asked()).toBe(0);
+  frames.shift()!(0);
+  await Promise.resolve();
+  expect(asked()).toBe(0);
+  frames.shift()!(0);
+  await created;
+  expect(asked()).toBe(1);
+  vi.unstubAllGlobals();
+});
+
+it("does not wait on frames a hidden window defers", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("requestAnimationFrame", () => 1);
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  mocks.invoke.mockResolvedValue(7);
+  const { nativeBrowser } = await import("./browser");
+  const created = nativeBrowser.create("a", "https://example.com", bounds);
+  await vi.advanceTimersByTimeAsync(40);
+  await created;
+  expect(mocks.invoke).toHaveBeenLastCalledWith(
+    "browser_create",
+    expect.objectContaining({ id: "a" }),
+  );
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
