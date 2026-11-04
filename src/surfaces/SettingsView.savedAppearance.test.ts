@@ -78,6 +78,7 @@ const DARK_LOOK = {
   ],
   style: {
     "--aven-titlebar-scale": "1.25",
+    "--aven-ui-scale": "0.8",
     "--chat-background-opacity": "0.24",
     "--sidebar-opacity": "0.35",
     "--status-bar-opacity": "0.21",

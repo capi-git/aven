@@ -9,11 +9,8 @@
   min-height: 440px;
   flex: 1 1 0;
   container-type: inline-size;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
-}
-/* The Board needs its four columns' room. */
-.team-screen[data-team-view="board"] {
-  grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);
+  /* The panel's width is its own, set by dragging the line between them. */
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .team-main {
@@ -25,6 +22,7 @@
 }
 
 .team-panel {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -348,7 +346,11 @@
   }
   .team-panel {
     grid-row: 1;
+    width: auto !important;
     border-bottom: 1px solid var(--aven-line);
+  }
+  .team-panel > .personal-panel-resizer {
+    display: none;
   }
   .team-main {
     grid-row: 2;

@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 export const UI_SCALE_KEY = "monocode.uiScale";
 
-export const UI_SCALE_DEFAULT = 1;
+export const UI_SCALE_DEFAULT = 0.9;
 export const UI_SCALE_MIN = 0.5;
 export const UI_SCALE_MAX = 2;
 export const UI_SCALE_STEP = 0.1;
@@ -70,6 +70,7 @@ export async function applyUiScale(value: number) {
     "--aven-titlebar-scale",
     String(1 / next),
   );
+  document.documentElement.style.setProperty("--aven-ui-scale", String(next));
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent<number>(UI_SCALE_CHANGE_EVENT, { detail: next }),

@@ -15,9 +15,10 @@
 
 /* Its size, in a layer so a utility (size-3) or a caller's own rule wins. */
 @layer components {
+  /* A whole number of screen pixels, so each dot's cell is too. */
   .dot-mark {
-    width: 15px;
-    height: 15px;
+    width: var(--aven-mark-15);
+    height: var(--aven-mark-15);
   }
 }
 

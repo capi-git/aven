@@ -23,7 +23,6 @@ type Props = {
   /** Right-click on the workspace name, at a window point. */
   onWorkspaceMenu?: (x: number, y: number) => void;
   /** The workspace's row opens its Home. */
-  onOpenHome?: () => void;
   homeActive?: boolean;
   /** New chat without a project, beside the workspace's name. */
   showNewSession?: boolean;
@@ -69,7 +68,6 @@ export function ProfileSidebarHeader({
   menuOpen = false,
   onMenuChange,
   onWorkspaceMenu,
-  onOpenHome,
   homeActive = false,
   showNewSession,
   startingNewSession = false,
@@ -135,7 +133,7 @@ export function ProfileSidebarHeader({
         ]
       : []),
   ];
-  // Right-click on the name or its chevron: the workspace's own actions.
+  // Right-click: the workspace's own actions.
   const contextMenu = onWorkspaceMenu
     ? (event: MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
@@ -172,44 +170,19 @@ export function ProfileSidebarHeader({
     <>
       <div className="personal-profile-header">
         {preview ? (
-          <div className="personal-profile-name">{name}</div>
+          <div className="personal-profile-name">
+            {name}
+            <ChevronDown className="personal-profile-chevron size-3" />
+          </div>
         ) : (
           <button
             className="personal-profile-name"
-            type="button"
-            aria-label={`Home, ${profile.name} workspace`}
-            title={`${profile.name} · Home`}
-            aria-current={homeActive ? "page" : undefined}
-            onClick={onOpenHome}
-            onContextMenu={contextMenu}
-            onKeyDown={(event) => {
-              // The workspace menu also opens from its name, as a menu
-              // button's would.
-              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-              const picker =
-                event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
-                  ".personal-profile-picker",
-                );
-              if (!picker) return;
-              event.preventDefault();
-              onMenuChange?.(picker);
-            }}
-          >
-            {name}
-          </button>
-        )}
-        {preview ? (
-          <span className="personal-profile-picker">
-            <ChevronDown className="size-3" />
-          </span>
-        ) : (
-          <button
-            className="personal-profile-picker"
             type="button"
             aria-label={`Switch workspace, ${profile.name}`}
             title="Switch workspace"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
+            aria-current={homeActive ? "page" : undefined}
             onClick={(event) =>
               onMenuChange?.(menuOpen ? null : event.currentTarget)
             }
@@ -221,7 +194,8 @@ export function ProfileSidebarHeader({
               }
             }}
           >
-            <ChevronDown className="size-3" />
+            {name}
+            <ChevronDown className="personal-profile-chevron size-3" />
           </button>
         )}
         {showNewSession ? (

@@ -1,5 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { ConfirmDialog } from "../chrome/ConfirmDialog";
+import { useDragResize } from "../hooks/useDragResize";
 import { CrewCritters } from "../chrome/CrewCritter";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { MoreHorizontal, Pause, Play } from "../chrome/icons";
@@ -50,6 +59,70 @@ const TABS: readonly { id: TeamView; label: string }[] = [
   { id: "schedule", label: "Schedule" },
   { id: "changes", label: "Changes" },
 ];
+
+const PANEL_MIN_WIDTH = 320;
+
+function savedPanelWidth(key: string): number | null {
+  try {
+    const value = Number(localStorage.getItem(key));
+    return value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The line between the chat and the panel. The Board and the other tabs each
+ * keep their own width: the Board needs the room. */
+function TeamPanelResizer({
+  panel,
+  board,
+}: {
+  panel: RefObject<HTMLElement | null>;
+  board: boolean;
+}) {
+  const key = `aven.teamPanelWidth.${board ? "board" : "side"}`;
+  const available = () =>
+    panel.current?.parentElement?.clientWidth || window.innerWidth;
+  const defaultWidth = board ? Math.round(available() * 0.6) : 380;
+  const resize = useDragResize({
+    min: PANEL_MIN_WIDTH,
+    max: () => Math.max(PANEL_MIN_WIDTH, available() - PANEL_MIN_WIDTH),
+    direction: "left",
+    defaultWidth,
+    initial: savedPanelWidth(key) ?? defaultWidth,
+    onCommit: (width) => {
+      try {
+        localStorage.setItem(key, String(width));
+      } catch {
+        // The width just isn't remembered.
+      }
+    },
+  });
+  const { setPaneRef } = resize;
+  useLayoutEffect(() => {
+    setPaneRef(panel.current);
+    return () => setPaneRef(null);
+  }, [panel, setPaneRef]);
+  return (
+    <div
+      role="separator"
+      aria-label="Resize team panel"
+      aria-orientation="vertical"
+      aria-valuemin={PANEL_MIN_WIDTH}
+      aria-valuenow={resize.width}
+      tabIndex={0}
+      className="personal-panel-resizer personal-inspector-divider"
+      data-resizing={resize.dragging || undefined}
+      onPointerDown={resize.onPointerDown}
+      onDoubleClick={resize.onDoubleClick}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        resize.setWidth(resize.width + (event.key === "ArrowLeft" ? 20 : -20));
+      }}
+    />
+  );
+}
 
 export function TeamScreen({
   project,
@@ -121,6 +194,7 @@ export function TeamScreen({
   useEffect(() => {
     if (reviewing && !hasBatch) setReviewing(false);
   }, [reviewing, hasBatch]);
+  const panel = useRef<HTMLElement | null>(null);
   // ⋯ → Set a goal…: the Chat's box turns to the goal.
   const chat = useRef<{
     goal: () => void;
@@ -150,7 +224,8 @@ export function TeamScreen({
           control={chat}
         />
       </div>
-      <aside className="team-panel" aria-label="Team panel">
+      <aside ref={panel} className="team-panel" aria-label="Team panel">
+        <TeamPanelResizer key={mode} panel={panel} board={mode === "board"} />
         <TeamHeader
           crew={crew}
           project={project}

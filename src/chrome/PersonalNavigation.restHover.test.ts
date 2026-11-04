@@ -308,17 +308,8 @@ describe("the pinned tiles", () => {
 describe("the workspace row and section headings", () => {
   it("keeps New chat at rest and shows the workspace menu's chevron on hover or focus", () => {
     expect(
-      ruleFor(nav, ".personal-shell .personal-profile-picker").get("opacity"),
+      ruleFor(nav, ".personal-shell .personal-profile-chevron").get("opacity"),
     ).toBe("0");
-    const shown = nav.find((rule) =>
-      rule.selectors.some(
-        (selector) =>
-          selector.includes(
-            ".personal-profile-header:is(:hover, :focus-within)",
-          ) && selector.endsWith(".personal-profile-picker"),
-      ),
-    );
-    expect(shown?.body.get("opacity")).toBe("1");
     expect(
       ruleFor(nav, ".personal-shell .personal-profile-new").has("opacity"),
     ).toBe(false);

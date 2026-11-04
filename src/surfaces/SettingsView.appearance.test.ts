@@ -357,7 +357,7 @@ describe("workspace appearance settings", () => {
     const trigger = container.querySelector<HTMLButtonElement>(
       'button[aria-haspopup="listbox"][aria-label="Interface scale"]',
     )!;
-    expect(trigger.textContent).toContain("100%");
+    expect(trigger.textContent).toContain("90%");
     await act(async () => trigger.click());
     const options = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),

@@ -433,7 +433,13 @@ describe("sidebar workspace navigation", () => {
       visible('button[aria-label="New chat without a project"]'),
     ).toHaveLength(1);
     expect(visible(".personal-new-session")).toHaveLength(0);
-    await click(button("Home, Personal workspace"));
+    // The workspace button opens its menu; the workspace you're in is its Home.
+    await click(button("Switch workspace, Personal"));
+    await click(
+      document.querySelector<HTMLElement>(
+        '[role="menuitemradio"][aria-checked="true"]',
+      )!,
+    );
     await click(button("New chat without a project"));
     expect(home).toHaveBeenCalledOnce();
     expect(newChat).toHaveBeenCalledOnce();
@@ -452,7 +458,7 @@ describe("sidebar workspace navigation", () => {
       root.render(createElement(Sidebar, { ...live, homeActive: true })),
     );
     expect(
-      button("Home, Personal workspace").getAttribute("aria-current"),
+      button("Switch workspace, Personal").getAttribute("aria-current"),
     ).toBe("page");
   });
 
