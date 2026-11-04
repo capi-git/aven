@@ -166,6 +166,7 @@ const SCROLL_KEYS = new Set([
 ]);
 const INITIAL_TURNS = 20;
 const TRANSCRIPT_WIDTH_BANDS = [480, 520];
+const VIEWPORT_PROPERTY = "--transcript-viewport";
 const TURN_PAGE_SIZE = 20;
 
 type Props = {
@@ -548,6 +549,9 @@ function AgentTranscriptComponent({
     syncPinned,
     visible,
   ]);
+
+  // Before the effects below read heights: the anchor may just have moved.
+  useLayoutEffect(() => holdTranscriptViewport(scroller.current));
 
   useLayoutEffect(() => {
     stickToBottom.current = true;
@@ -3189,6 +3193,19 @@ function syncTranscriptViewport(el: HTMLElement | null) {
     ? Number.parseFloat(getComputedStyle(inner).paddingBottom) || 0
     : 0;
   const next = `${Math.max(0, el.clientHeight - pad)}px`;
-  if (el.style.getPropertyValue("--transcript-viewport") === next) return;
-  el.style.setProperty("--transcript-viewport", next);
+  if (el.style.getPropertyValue(VIEWPORT_PROPERTY) !== next)
+    el.style.setProperty(VIEWPORT_PROPERTY, next);
+  holdTranscriptViewport(el);
+}
+
+/**
+ * The anchored turn holds its own copy: inherited from the scroller, each
+ * change of the transcript's height restyled the whole chat (index.css).
+ */
+function holdTranscriptViewport(el: HTMLElement | null) {
+  const value = el?.style.getPropertyValue(VIEWPORT_PROPERTY);
+  if (!value) return;
+  const anchor = el?.querySelector<HTMLElement>(".transcript-turn-anchor");
+  if (anchor && anchor.style.getPropertyValue(VIEWPORT_PROPERTY) !== value)
+    anchor.style.setProperty(VIEWPORT_PROPERTY, value);
 }

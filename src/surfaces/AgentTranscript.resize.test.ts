@@ -268,6 +268,10 @@ describe("transcript reading position across resizes", () => {
     expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe(
       "400px",
     );
+    // The turn holds its own copy: the property isn't inherited (index.css).
+    expect(
+      (live as HTMLElement).style.getPropertyValue("--transcript-viewport"),
+    ).toBe("400px");
     expect(live.getBoundingClientRect().top).toBe(0);
 
     await layout({ width: 500 });
@@ -276,6 +280,9 @@ describe("transcript reading position across resizes", () => {
     expect(scroller.style.getPropertyValue("--transcript-viewport")).toBe(
       "300px",
     );
+    expect(
+      (live as HTMLElement).style.getPropertyValue("--transcript-viewport"),
+    ).toBe("300px");
     expect(live.getBoundingClientRect().top).toBe(0);
   });
 

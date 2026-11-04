@@ -164,6 +164,15 @@ describe("query containers around a lot of content", () => {
   });
 });
 
+describe("properties that change with a chat's size", () => {
+  // An inherited property restyles everything beneath it: 44 ms in a long chat.
+  it("keeps the transcript's height from being inherited by every turn", () => {
+    expect(readFileSync("src/index.css", "utf8")).toMatch(
+      /@property --transcript-viewport \{[^}]*inherits: false;/,
+    );
+  });
+});
+
 describe("hover and focus rules WebKit can find by class", () => {
   it("tells a keyed rule from an unkeyed one", () => {
     for (const unkeyed of [
