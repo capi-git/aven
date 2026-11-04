@@ -26,6 +26,8 @@ export type AutomationReview = {
   summary: string;
   /** Where the draft or preview is: an http(s) link. */
   url?: string;
+  /** On a needs-you card: the service the run couldn't reach. */
+  service?: string;
   status: AutomationReviewStatus;
   postedAt: number;
   resolvedAt?: number;
@@ -50,6 +52,7 @@ export function reviewAction(review: Pick<AutomationReview, "kind">) {
 const TITLE_LIMIT = 120;
 const SUMMARY_LIMIT = 600;
 const URL_LIMIT = 2048;
+const SERVICE_LIMIT = 80;
 
 function clip(value: unknown, limit: number): string {
   if (typeof value !== "string") return "";
@@ -223,10 +226,17 @@ function kindFrom(fields: Record<string, unknown>): AutomationReviewKind {
     : "review";
 }
 
+/** The service a needs-you card names; other cards have none. */
+function reviewService(fields: Record<string, unknown>, kind: string) {
+  const service =
+    kind === "needs-you" ? clip(fields.service, SERVICE_LIMIT) : "";
+  return service ? { service } : {};
+}
+
 /**
  * The card the agent described at the very end of its final reply, or null
  * when it left none (or the block is not a JSON object with a title). Only
- * its kind, title, summary and link are read.
+ * its kind, title, summary, link and service are read.
  */
 export function parseAutomationReview(
   text: string,
@@ -246,11 +256,13 @@ export function parseAutomationReview(
   const title = clip(fields.title, TITLE_LIMIT);
   if (!title) return null;
   const url = reviewUrl(fields.url);
+  const kind = kindFrom(fields);
   return {
-    kind: kindFrom(fields),
+    kind,
     title,
     summary: clip(fields.summary, SUMMARY_LIMIT),
     ...(url ? { url } : {}),
+    ...reviewService(fields, kind),
     status: "open",
     postedAt,
   };
@@ -280,14 +292,16 @@ export function normalizeAutomationReview(
       ? review.status
       : "open";
   const url = reviewUrl(review.url);
+  const kind =
+    review.kind === "publish" || review.kind === "needs-you"
+      ? review.kind
+      : "review";
   return {
-    kind:
-      review.kind === "publish" || review.kind === "needs-you"
-        ? review.kind
-        : "review",
+    kind,
     title,
     summary: clip(review.summary, SUMMARY_LIMIT),
     ...(url ? { url } : {}),
+    ...reviewService(review, kind),
     status,
     postedAt: review.postedAt,
     ...(typeof review.resolvedAt === "number" &&
@@ -318,5 +332,9 @@ Aven runs this automation on a schedule while nobody watches the chat. If you fi
 {"kind": "publish", "title": "Short title", "summary": "One or two sentences on what to check.", "url": "https://link-to-the-draft-or-preview"}
 \`\`\`
 
-Use "kind": "publish" for something ready to go out, "needs-you" when you could not finish without the user, and "review" for anything else; "summary" and "url" are optional. The card's button sends you "${publish.message}" for a publish card, "${needsYou.message}" for a needs-you card, or "${review.message}" for a review card, in this conversation. Leave the block out when there is nothing to review; a plain report needs no card.`;
+Use "kind": "publish" for something ready to go out, "needs-you" when you could not finish without the user, and "review" for anything else; "summary" and "url" are optional. The card's button sends you "${publish.message}" for a publish card, "${needsYou.message}" for a needs-you card, or "${review.message}" for a review card, in this conversation.
+
+If you could not reach a service this automation needed (a connector or server that is signed out, failing or missing, or a site that refused you) and no other way worked, do not report success or present the work as done, even in part. Say what you could not reach and end your reply with a "needs-you" block whose title names the service, with the service's name in "service": {"kind": "needs-you", "title": "Couldn't reach Notion", "summary": "What you need the user to do.", "service": "Notion"}.
+
+Leave the block out when there is nothing to review and nothing you could not reach; a plain report needs no card.`;
 }

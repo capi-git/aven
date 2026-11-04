@@ -15,6 +15,7 @@ import {
   listScheduledAgents,
   listScheduledRuns,
   nextRunAt,
+  normalizeConnectionNames,
   normalizeScheduledAgent,
   normalizeScheduleRule,
   runDueScheduledAgents,
@@ -305,6 +306,32 @@ describe("stored schedules", () => {
     expect(
       normalizeScheduleRule({ kind: "weekly", days: "1", time: "09:00" }),
     ).toEqual({ kind: "weekly", days: [], time: "09:00" });
+  });
+
+  it("keeps the connections an automation needs, tidied", () => {
+    // Saved before there were any, or with something odd: it still loads.
+    expect(normalizeScheduledAgent(agent())).not.toHaveProperty("connections");
+    expect(
+      normalizeScheduledAgent({ ...agent(), connections: "Slack" }),
+    ).not.toHaveProperty("connections");
+    expect(
+      normalizeScheduledAgent({ ...agent(), connections: [] }),
+    ).not.toHaveProperty("connections");
+    expect(
+      normalizeScheduledAgent({
+        ...agent(),
+        connections: [" Slack ", "slack", 3, "", null, "Google  Calendar"],
+      })?.connections,
+    ).toEqual(["Slack", "Google Calendar"]);
+    expect(normalizeConnectionNames(["x".repeat(200), "Notion"])).toEqual([
+      "Notion",
+    ]);
+    expect(
+      normalizeConnectionNames(
+        Array.from({ length: 50 }, (_, index) => `server-${index}`),
+      ),
+    ).toHaveLength(20);
+    expect(normalizeConnectionNames(undefined)).toEqual([]);
   });
 
   it("gives a schedule without days no next run", () => {
