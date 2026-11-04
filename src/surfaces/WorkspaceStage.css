@@ -453,11 +453,11 @@ html.has-chat-background:not(.chat-background-empty-only)
   pointer-events: none;
 }
 
-/* No lines between panes at rest: a seam shows only while you point at it or
-   drag it. */
+/* Between panes at rest, a very faint line says they are split; it strengthens
+   as you point at it or drag it. */
 .workspace-stage-sash:not(:hover, :active, :focus-visible)::after {
-  background: transparent;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
 .aven-pane-seam:not(:hover, :active) {
-  background: transparent;
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
