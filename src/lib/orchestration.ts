@@ -97,6 +97,9 @@ export type OrchestrationRun = {
    */
   stalledAt?: number;
 };
+/** How long a run's save may take before it counts as failed. */
+const SAVE_TIMEOUT_MS = 20_000;
+
 export type ControlOutcome = {
   status: "completed" | "failed" | "cancelled";
   text: string;
@@ -619,10 +622,21 @@ export class Orchestrator {
     ];
     this.emit();
     this.announce(previous, run);
+    let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const saved = this.saves
       .catch(() => undefined)
       .then(async () => {
-        await this.store.save(run);
+        // A save that never settles would hold every later save and wake-up,
+        // so it counts as failed: the run pauses where you can see it.
+        await Promise.race([
+          this.store.save(run),
+          new Promise<never>((_, reject) => {
+            saveTimer = setTimeout(
+              () => reject(new Error("Saving the run timed out")),
+              SAVE_TIMEOUT_MS,
+            );
+          }),
+        ]).finally(() => clearTimeout(saveTimer));
         this.persisted.set(run.leadId, run);
       });
     this.saves = saved;

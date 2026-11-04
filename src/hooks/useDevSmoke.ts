@@ -308,7 +308,12 @@ async function failedRunReport(
     const ids = new Set([leadId, ...run.tasks.map((task) => task.sessionId)]);
     const busy = () =>
       get().sessions.some((session) => ids.has(session.id) && session.busy);
-    released = await orchestration.stopRun(leadId).then(
+    // Bounded, so a stop that hangs can't take this report with it.
+    released = await withTimeout(
+      orchestration.stopRun(leadId),
+      15_000,
+      "stopping the run",
+    ).then(
       () =>
         waitFor(() => !busy(), 10_000, "the stopped run's chats to end").then(
           () => "; the run was stopped for the next steps",

@@ -549,6 +549,22 @@ describe("local orchestration", () => {
     expect(f.manager.run("lead")!.status).toBe("paused");
     expect(f.host.submit).not.toHaveBeenCalled();
   });
+  it("pauses a run whose save never settles, rather than waiting on it", async () => {
+    const f = setup();
+    await f.start();
+    vi.useFakeTimers();
+    try {
+      f.store.save.mockImplementationOnce(() => new Promise(() => undefined));
+      const delegated = f.delegate(["a"]);
+      const failure = expect(delegated).rejects.toThrow("timed out");
+      await vi.advanceTimersByTimeAsync(20_000);
+      await failure;
+      expect(f.manager.run("lead")!.status).toBe("paused");
+      expect(f.host.submit).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("persists a delegation and its retry receipt in the same snapshot", async () => {
     const f = setup();
     await f.start();
