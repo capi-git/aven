@@ -1008,10 +1008,9 @@ html.is-mac.has-native-glass:not(.theme-light)
      them, and it doesn't drop out on repaint as a CSS blur does. */
   --personal-navigation-overlay:
     var(--aven-tone),
-    linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05)),
     color-mix(
       in srgb,
-      #050505 calc(56% + var(--sidebar-opacity, 1) * 44%),
+      #000 calc(20% + var(--sidebar-opacity, 1) * 70%),
       transparent
     );
 }

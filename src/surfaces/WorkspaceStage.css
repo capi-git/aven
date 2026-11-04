@@ -460,13 +460,29 @@ html.has-chat-background:not(.chat-background-empty-only)
   pointer-events: none;
 }
 
-/* Between panes at rest, a very faint line says they are split; it strengthens
-   as you point at it or drag it. */
+/* Between panes at rest, a very faint whole-pixel line says they are split; it
+   strengthens as you point at it or drag it. */
 .workspace-stage-sash:not(:hover, :active, :focus-visible)::after {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+}
+.workspace-stage-sash[data-direction="right"]:not(
+    :hover,
+    :active,
+    :focus-visible
+  )::after {
+  left: calc(50% - 0.5px);
+  width: 1px;
+}
+.workspace-stage-sash[data-direction="down"]:not(
+    :hover,
+    :active,
+    :focus-visible
+  )::after {
+  top: calc(50% - 0.5px);
+  height: 1px;
 }
 .aven-pane-seam:not(:hover, :active) {
-  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
 }
 
 /* Folding or opening a pane during a drag: panes glide to their new places. */
