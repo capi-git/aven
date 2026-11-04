@@ -132,7 +132,7 @@
      animation's: animate glass by scale alone. */
   --aven-glass-overlay-opacity: min(
     100%,
-    calc(62% + var(--sidebar-opacity, 1) * 38%)
+    calc(30% + var(--sidebar-opacity, 1) * 70%)
   );
   --aven-glass-overlay: color-mix(
     in srgb,
