@@ -225,12 +225,18 @@ export function sashOffset(sash: FitSash): number {
 }
 
 /**
- * How far below its minimum a pane must be dragged before it collapses:
- * past half its minimum, so a drag that only meant to make it small stops
- * at the minimum, and a drag toward the edge folds it.
+ * How far out a rail must be dragged before it opens: past half its minimum.
  */
 export function collapseThreshold(min: number): number {
   return Math.max(PANE_RAIL_PX + 12, min / 2);
+}
+
+/**
+ * How small a pane being dragged smaller gets before it folds: a short hold
+ * past its minimum, so a pull toward the edge doesn't stall on the way.
+ */
+function foldThreshold(min: number): number {
+  return Math.max(collapseThreshold(min), min - 48);
 }
 
 export type SashResize = {
@@ -283,10 +289,16 @@ export function resizeSash(
   let before = wanted;
   let railBefore = false;
   let railAfter = false;
-  if (before < collapseThreshold(minBefore)) {
+  if (
+    before <
+    (sash.railed[i] ? collapseThreshold(minBefore) : foldThreshold(minBefore))
+  ) {
     railBefore = true;
     before = PANE_RAIL_PX;
-  } else if (pair - before < collapseThreshold(minAfter)) {
+  } else if (
+    pair - before <
+    (sash.railed[i + 1] ? collapseThreshold(minAfter) : foldThreshold(minAfter))
+  ) {
     railAfter = true;
     before = pair - PANE_RAIL_PX;
   } else {
@@ -311,14 +323,14 @@ export function resizeSash(
     for (let at = i + 2; at < lengths.length; at++) {
       const later = lengths.slice(at + 1).reduce((sum, n) => sum + n, 0);
       const room = total - offset - (at - i - 1) * PANE_RAIL_PX - later;
-      if (!sash.railed[at] && room >= collapseThreshold(sash.opens[at])) break;
+      if (!sash.railed[at] && room >= foldThreshold(sash.opens[at])) break;
       push(at, i);
     }
   if (railBefore)
     for (let at = i - 1; at >= 0; at--) {
       const earlier = lengths.slice(0, at).reduce((sum, n) => sum + n, 0);
       const room = offset - (i - at) * PANE_RAIL_PX - earlier;
-      if (!sash.railed[at] && room >= collapseThreshold(sash.opens[at])) break;
+      if (!sash.railed[at] && room >= foldThreshold(sash.opens[at])) break;
       push(at, i + 1);
     }
   const kept = { before: false, after: false };
@@ -439,6 +451,10 @@ export function stepSash(
     offset = start + pair - sash.opens[i + 1];
   else if (delta < 0 && before <= sash.opens[i] + 0.5) offset = start;
   else if (delta > 0 && after <= sash.opens[i + 1] + 0.5) offset = start + pair;
+  // A key stops at the minimum; only pressing on against it folds.
+  else if (delta > 0)
+    offset = Math.min(offset, start + pair - sash.opens[i + 1]);
+  else if (delta < 0) offset = Math.max(offset, start + sash.opens[i]);
   return resizeSash(layout, sash, offset);
 }
 

@@ -145,11 +145,11 @@ html.is-mac:not(.theme-light)
   .personal-inspector-slot[data-floating="true"]
   > .personal-inspector-dock
   .workspace-inspector {
-  --personal-inspector-overlay: color-mix(
-    in srgb,
-    var(--aven-popup) 94%,
-    transparent
-  );
+  /* The frame's colour, as the hover sidebar's is (PersonalNavigation.css). */
+  --personal-inspector-overlay:
+    var(--aven-tone),
+    linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05)),
+    color-mix(in srgb, #0d0d0d 96%, transparent);
   --personal-inspector-blur: none;
 }
 

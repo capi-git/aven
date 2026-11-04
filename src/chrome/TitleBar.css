@@ -894,16 +894,6 @@ html.theme-light .personal-shell {
   min-width: max(120px, calc(var(--aven-split-panes, 2) * 72px));
   max-width: none;
 }
-/* The strip takes the row, and a spring keeps the tools at its end there
-   however few tabs it holds. On a track the tabs fill the row themselves. */
-.personal-titlebar:not([data-variant="title"]) .personal-tab-strip {
-  flex: 1 1 auto;
-}
-.personal-title-strip-spring {
-  flex: 1 1 0;
-  align-self: stretch;
-  min-width: 0;
-}
 /* A pane with its own row of tabs is named there; here, its mark alone. */
 .aven-split-segment[data-named-below] .aven-split-label {
   display: none;

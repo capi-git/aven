@@ -1609,10 +1609,10 @@ describe("browser tab integration", () => {
 
   it("opens the browser from the action immediately after task tabs", async () => {
     await render();
-    const strip = container.querySelector('[role="tablist"]')!;
-    expect(strip.lastElementChild?.getAttribute("aria-label")).toBe(
-      "Open browser",
-    );
+    // The tools sit beside the tabs, so they stay put when the tabs scroll.
+    expect(
+      container.querySelector('[role="tablist"] [aria-label="Open browser"]'),
+    ).toBeNull();
     expect(
       container.querySelector('[aria-label="Toggle browser preview"]'),
     ).toBeNull();

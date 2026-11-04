@@ -166,14 +166,16 @@ describe("dragging a divider", () => {
     expect(railed).toEqual({ before: false, after: false });
   });
 
-  it("stops at a pane's minimum until dragged past half of it", () => {
-    const stopped = resizeSash(two(), sash(two()), 130);
+  it("holds at a pane's minimum for a short pull, then folds", () => {
+    const stopped = resizeSash(two(), sash(two()), 200);
     expect((stopped.layout as Split).sizes).toEqual([0.24, 0.76]);
+    expect(resizeSash(two(), sash(two()), 192).railed.before).toBe(false);
+    expect(resizeSash(two(), sash(two()), 191).railed.before).toBe(true);
+    // A rail still opens from half its minimum.
     expect(collapseThreshold(240)).toBe(120);
-    expect(resizeSash(two(), sash(two()), 121).railed.before).toBe(false);
   });
 
-  it("folds a pane dragged past half its minimum to a rail that keeps its share", () => {
+  it("folds a pane dragged past its hold to a rail that keeps its share", () => {
     const { layout, railed } = resizeSash(two(), sash(two()), 119);
     expect(railed).toEqual({ before: true, after: false });
     const split = layout as Split;

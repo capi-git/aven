@@ -7,6 +7,10 @@
   background: var(--aven-raised);
   font-size: var(--text-ui-label);
 }
+html:not(.theme-light) .crew-fence {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-content) 4.5%, transparent);
+}
 
 .crew-fence-head {
   display: flex;

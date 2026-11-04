@@ -399,6 +399,8 @@
 }
 
 .team-post-text {
+  /* A line stays readable however wide the page is, as in a chat. */
+  max-width: 760px;
   margin: 1px 0 0;
   color: color-mix(in srgb, var(--color-content) 86%, transparent);
   font-size: 13.5px;

@@ -4328,82 +4328,79 @@ function TitleBarComponent({
                   +{paneHidden.length}
                 </button>
               ) : null}
-              {!titleRow && !track ? (
-                <span
-                  className="personal-title-strip-spring"
-                  data-tauri-drag-region
-                  aria-hidden
-                />
-              ) : null}
-              {paneLocal && !titleRow ? (
-                <button
-                  type="button"
-                  aria-label="New chat"
-                  title="New chat"
-                  data-tauri-drag-region="false"
-                  className="personal-title-session-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                  onClick={onNew}
-                >
-                  <Plus className="size-3.5" strokeWidth={1.75} />
-                </button>
-              ) : null}
-              {!titleRow &&
-              (onNewBrowser ||
-                (browserEntries.length === 0 && onSelectBrowser)) ? (
-                <button
-                  type="button"
-                  aria-label={
-                    paneLocal
-                      ? "New browser"
-                      : unified
-                        ? "New browser tab"
-                        : "Open browser"
-                  }
-                  title={
-                    paneLocal
-                      ? "New browser"
-                      : unified
-                        ? "New browser tab"
-                        : "Open browser"
-                  }
-                  data-tauri-drag-region="false"
-                  data-tour="browser-button"
-                  className="personal-title-browser-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                  onClick={() =>
-                    onNewBrowser ? onNewBrowser() : onSelectBrowser?.()
-                  }
-                >
-                  <Globe className="size-3.5" strokeWidth={1.75} />
-                </button>
-              ) : null}
-              {onOpenBoard && !titleRow ? (
-                <button
-                  type="button"
-                  aria-label="Open board"
-                  title="Open this project's board"
-                  data-tauri-drag-region="false"
-                  data-tour="board"
-                  className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                  onClick={onOpenBoard}
-                >
-                  <Kanban className="size-3.5" strokeWidth={1.75} />
-                </button>
-              ) : null}
-              {onOpenIphone && !titleRow ? (
-                <button
-                  type="button"
-                  aria-label="Open iPhone simulator"
-                  title="Run this project's app on an iPhone simulator"
-                  data-tauri-drag-region="false"
-                  data-strip-tool
-                  className="personal-title-board-open personal-title-iphone-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
-                  onClick={onOpenIphone}
-                >
-                  <Smartphone className="size-3.5" strokeWidth={1.75} />
-                </button>
-              ) : null}
             </div>
           </div>
+        )}
+        {hostsHeader ? null : (
+          <>
+            {paneLocal && !titleRow ? (
+              <button
+                type="button"
+                aria-label="New chat"
+                title="New chat"
+                data-tauri-drag-region="false"
+                className="personal-title-session-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                onClick={onNew}
+              >
+                <Plus className="size-3.5" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {!titleRow &&
+            (onNewBrowser ||
+              (browserEntries.length === 0 && onSelectBrowser)) ? (
+              <button
+                type="button"
+                aria-label={
+                  paneLocal
+                    ? "New browser"
+                    : unified
+                      ? "New browser tab"
+                      : "Open browser"
+                }
+                title={
+                  paneLocal
+                    ? "New browser"
+                    : unified
+                      ? "New browser tab"
+                      : "Open browser"
+                }
+                data-tauri-drag-region="false"
+                data-tour="browser-button"
+                className="personal-title-browser-new relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                onClick={() =>
+                  onNewBrowser ? onNewBrowser() : onSelectBrowser?.()
+                }
+              >
+                <Globe className="size-3.5" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {onOpenBoard && !titleRow ? (
+              <button
+                type="button"
+                aria-label="Open board"
+                title="Open this project's board"
+                data-tauri-drag-region="false"
+                data-tour="board"
+                className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                onClick={onOpenBoard}
+              >
+                <Kanban className="size-3.5" strokeWidth={1.75} />
+              </button>
+            ) : null}
+            {onOpenIphone && !titleRow ? (
+              <button
+                type="button"
+                aria-label="Open iPhone simulator"
+                title="Run this project's app on an iPhone simulator"
+                data-tauri-drag-region="false"
+                data-strip-tool
+                className="personal-title-board-open personal-title-iphone-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
+                onClick={onOpenIphone}
+              >
+                <Smartphone className="size-3.5" strokeWidth={1.75} />
+              </button>
+            ) : null}
+          </>
         )}
 
         {previewEnabled &&

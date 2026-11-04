@@ -33,11 +33,8 @@ describe("floating panels on macOS", () => {
     (file, target, prefix) => {
       const rule = macRule(file, target);
       expect(rule).toContain(`${prefix}-blur: none;`);
-      expect(rule).toMatch(
-        new RegExp(
-          `${prefix}-overlay: color-mix\\(\\s*in srgb,\\s*var\\(--aven-popup\\) 94%`,
-        ),
-      );
+      expect(rule).toMatch(new RegExp(`${prefix}-overlay:`));
+      expect(rule).toMatch(/#0d0d0d 96%|--aven-popup\) 94%/);
     },
   );
 });

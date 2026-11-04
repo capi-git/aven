@@ -76,6 +76,9 @@
   background: var(--aven-fill-secondary);
   box-shadow: none;
 }
+html:not(.theme-light) .personal-shell .personal-user-bubble {
+  background: color-mix(in srgb, var(--color-content) 7%, transparent);
+}
 .personal-shell
   .personal-user-message[data-message-layout="chat"]
   .personal-user-bubble {
