@@ -415,6 +415,8 @@ const FOCUS_WAIT_MS = 1500;
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
 const DRAG_FRAME_DEADLINE_MS = 16;
+/** How long panes glide after one folds or opens (WorkspaceStage.css). */
+const FOLD_GLIDE_MS = 240;
 
 function applyGeometry(element: HTMLElement, values: CSSProperties) {
   for (const [name, value] of Object.entries(values)) {
@@ -1686,6 +1688,7 @@ export function WorkspaceStage({
     let moved = false;
     let frame: number | null = null;
     let fallback: number | null = null;
+    let foldTimer: number | null = null;
     const cancelPaint = () => {
       if (frame !== null) cancelAnimationFrame(frame);
       if (fallback !== null) window.clearTimeout(fallback);
@@ -1703,6 +1706,16 @@ export function WorkspaceStage({
       const rails = railedLeafIds(next);
       if (rails.join("\0") !== drawnRails) {
         drawnRails = rails.join("\0");
+        // The panes glide to their new places. Native pages can't follow a
+        // CSS transition, so a stage showing one still moves at once.
+        if (!container.querySelector(".browser-native-host")) {
+          container.dataset.folding = "true";
+          if (foldTimer !== null) window.clearTimeout(foldTimer);
+          foldTimer = window.setTimeout(() => {
+            foldTimer = null;
+            delete container.dataset.folding;
+          }, FOLD_GLIDE_MS);
+        }
         flushSync(() => setDraftRails(new Set(rails)));
         return;
       }

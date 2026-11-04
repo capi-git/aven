@@ -463,3 +463,16 @@ html.has-chat-background:not(.chat-background-empty-only)
 .aven-pane-seam:not(:hover, :active) {
   background: color-mix(in srgb, var(--color-content) 5%, transparent);
 }
+
+/* Folding or opening a pane during a drag: panes glide to their new places. */
+.workspace-stage[data-folding="true"]
+  :is(
+    .workspace-stage-surface,
+    .workspace-stage-header,
+    .workspace-stage-sash,
+    .workspace-pane-rail
+  ) {
+  transition-property: left, top, width, height;
+  transition-duration: calc(var(--aven-motion-base) * 1.4);
+  transition-timing-function: var(--aven-ease-spring);
+}

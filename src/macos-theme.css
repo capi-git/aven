@@ -126,16 +126,17 @@
     transparent
   );
   --aven-glass-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
-  --aven-glass-overlay-opacity: calc(
-    max(0, (var(--sidebar-opacity, 1) - 0.52) / 0.48) * 100%
+  /* WebKit drops a CSS backdrop blur for a frame whenever a popup repaints
+     (hovering a row), showing the text behind. So popups are opaque enough to
+     hide it at the Glass slider's default, and slide from there. */
+  --aven-glass-overlay-opacity: min(
+    100%,
+    calc(82% + var(--sidebar-opacity, 1) * 24%)
   );
-  /* The window's colour over the blurred scene, opaque enough that text behind
-     can't bleed through. The Glass slider, past its default, fills it in up to
-     solid. */
   --aven-glass-overlay: color-mix(
     in srgb,
     var(--color-background-base) var(--aven-glass-overlay-opacity),
-    color-mix(in srgb, var(--color-background-base) 55%, transparent)
+    transparent
   );
   --aven-glass-blur: blur(40px) saturate(125%);
   /* Cards resting on the workspace: a faint lift of the content color over

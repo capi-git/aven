@@ -326,11 +326,65 @@ export function resizeSash(
     const othersOpen = split.children.some(
       (child, at) => at !== i && at !== i + 1 && child.rail === undefined,
     );
+    // A rail pulled open brings the rails folded beyond it along, each at its
+    // old share, leaving the divider room for them if the window has it.
+    const opened = new Set<number>();
+    const openRun = (run: number[], kept: number, keptMin: number) => {
+      const room = kept + run.reduce((sum, at) => sum + lengths[at], 0);
+      const mins = run.map((at) => sash.opens[at]);
+      const needed = mins.reduce((sum, min) => sum + min, 0);
+      if (room - needed < keptMin) return null;
+      return {
+        room,
+        needed,
+        share: (rest: number) => {
+          const shares = run.map((at) => split.children[at].rail ?? 1);
+          const spread = distributeLengths(
+            rest,
+            shares,
+            mins,
+            run.map(() => false),
+          ).lengths;
+          run.forEach((at, index) => {
+            lengths[at] = spread[index];
+            opened.add(at);
+          });
+        },
+      };
+    };
+    if (!railBefore && !railAfter && sash.railed[i + 1]) {
+      const run = [i + 1];
+      while (sash.railed[run[run.length - 1] + 1]) run.push(run.length + i + 1);
+      const fit = run.length > 1 && openRun(run, lengths[i], minBefore);
+      if (fit) {
+        lengths[i] = Math.min(
+          fit.room - fit.needed,
+          Math.max(minBefore, wanted),
+        );
+        fit.share(fit.room - lengths[i]);
+      }
+    } else if (!railBefore && !railAfter && sash.railed[i]) {
+      const run = [i];
+      while (sash.railed[run[0] - 1]) run.unshift(run[0] - 1);
+      const fit = run.length > 1 && openRun(run, lengths[i + 1], minAfter);
+      if (fit) {
+        const end = start + pair;
+        lengths[i + 1] = Math.min(
+          fit.room - fit.needed,
+          Math.max(minAfter, end - offset),
+        );
+        fit.share(fit.room - lengths[i + 1]);
+      }
+    }
     const children = split.children.map((child, at): LayoutNode => {
       const collapse =
         pushed.has(at) ||
         (at === i && railBefore) ||
         (at === i + 1 && railAfter);
+      if (opened.has(at)) {
+        const { rail: _rail, ...open } = child;
+        return open;
+      }
       if (at !== i && at !== i + 1 && !collapse) return child;
       if (!collapse) {
         if (child.rail === undefined) return child;

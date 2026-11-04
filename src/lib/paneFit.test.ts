@@ -241,6 +241,24 @@ describe("dragging a divider", () => {
     expect(back.children.some((child) => child.rail !== undefined)).toBe(false);
   });
 
+  it("opens every rail beyond the one pulled open, at their old shares", () => {
+    const layout = columns(
+      [0.944, 0.028, 0.028],
+      [leaf("p0"), { ...leaf("p1"), rail: 0.2 }, { ...leaf("p2"), rail: 0.4 }],
+    );
+    const next = resizeSash(layout, sash(layout), 400).layout as Split;
+    expect(next.children.some((child) => child.rail !== undefined)).toBe(false);
+    expect(widths(next)[0]).toBe(400);
+    expect(widths(next)[1]).toBe(200);
+    expect(widths(next)[2]).toBe(400);
+    // A short pull still opens them all: the divider leaves them room.
+    const short = resizeSash(layout, sash(layout), 800).layout as Split;
+    expect(short.children.some((child) => child.rail !== undefined)).toBe(
+      false,
+    );
+    expect(widths(short)[0]).toBe(600);
+  });
+
   it("folds panes the other way too, keeping one open", () => {
     const layout = columns([0.33, 0.33, 0.34]);
     const both = resizeSash(layout, sash(layout, 1000, 600, 1), 20)
