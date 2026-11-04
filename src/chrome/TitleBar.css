@@ -881,9 +881,27 @@ html.theme-light .personal-shell {
    faint fill sets it apart from the single tabs beside it; in front it takes
    the front tab's fill (the highlight lands on it) and the focused pane's
    segment sits on the raised thumb, as in a segmented control. */
+.aven-tab-strip .aven-split-entry {
+  /* A pane's segment is about a tab's width, shrinking before the strip scrolls. */
+  flex: 0 1 calc(var(--aven-split-panes, 2) * 200px);
+  width: calc(var(--aven-split-panes, 2) * 200px);
+  min-width: max(120px, calc(var(--aven-split-panes, 2) * 72px));
+  max-width: calc(var(--aven-split-panes, 2) * 224px);
+}
 .aven-tab-strip[data-tab-track] .aven-split-entry {
-  /* Room for each pane's icon before the strip scrolls. */
-  min-width: max(120px, calc(var(--aven-split-panes, 2) * 40px + 4px));
+  flex: var(--aven-split-panes, 2) 1 0;
+  width: auto;
+  min-width: max(120px, calc(var(--aven-split-panes, 2) * 72px));
+  max-width: none;
+}
+/* The strip takes the row, so the tools after it stay at the row's end however
+   many tabs it holds. */
+.personal-titlebar:not([data-variant="title"]) .personal-tab-strip {
+  flex: 1 1 auto;
+}
+/* A pane with its own row of tabs is named there; here, its mark alone. */
+.aven-split-segment[data-named-below] .aven-split-label {
+  display: none;
 }
 .aven-split {
   position: relative;

@@ -12088,10 +12088,12 @@ export default function App({
         segments: spacePanes(entry.view).map(({ id }) => {
           const tab = titleTabs.find((candidate) => candidate.id === id);
           const page = stripPages.get(id);
+          const tabbed = (entry.view.groups[id]?.length ?? 0) > 1;
           return tab
-            ? { id, tab }
+            ? { id, tab, tabbed }
             : {
                 id,
+                tabbed,
                 page: { title: page?.title ?? "", favicon: page?.favicon },
               };
         }),

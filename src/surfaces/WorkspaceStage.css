@@ -139,7 +139,12 @@ html.has-chat-background:not(.chat-background-empty-only)
   opacity: 0;
   transition: opacity var(--aven-motion-fast) ease;
 }
-.workspace-stage-header:is(:hover, :focus-within, [data-focused="true"])
+.workspace-stage-header:is(
+    :hover,
+    :focus-within,
+    [data-focused="true"],
+    [data-pointed="true"]
+  )
   .workspace-pane-minimize-controls {
   opacity: 1;
 }
@@ -475,4 +480,10 @@ html.has-chat-background:not(.chat-background-empty-only)
   transition-property: left, top, width, height;
   transition-duration: calc(var(--aven-motion-base) * 1.4);
   transition-timing-function: var(--aven-ease-spring);
+}
+
+/* Several empty panes: only the one you're in says what to do. */
+.workspace-stage-surface[data-focused="false"] .personal-empty-session-heading,
+.workspace-stage-surface[data-focused="false"] .empty-session .composer-helm {
+  visibility: hidden;
 }

@@ -74,6 +74,7 @@ import {
   titleRowCapacity,
   titleRowTabs,
   trackSeparators,
+  numberRepeats,
 } from "../lib/tabTrack";
 import { focusPaneContent, workspacePane } from "../lib/paneFocus";
 import { overStrip, stripSlotAt } from "../lib/windowStripSlot";
@@ -591,6 +592,7 @@ export function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
 
 function TitleTabItem({
   tab,
+  shownName,
   projectless,
   index,
   active,
@@ -610,6 +612,8 @@ function TitleTabItem({
   combineNear = false,
   combine = null,
 }: {
+  /** Its name on the strip, where another tab shares its own. */
+  shownName?: string;
   tab: Tab;
   projectless: boolean;
   index: number;
@@ -638,7 +642,8 @@ function TitleTabItem({
   /** While a tab is dragged that could combine with this one: what joins. */
   combine?: CombineJoin | null;
 }) {
-  const { headline, tooltip } = tabCopy(tab, projectless);
+  const { headline: ownName, tooltip } = tabCopy(tab, projectless);
+  const headline = shownName ?? ownName;
   const tabRef = useRef<HTMLDivElement | null>(null);
   useTurnEndFlash(tabRef, tab.sessionIds);
   const identity = pinned ? (
@@ -912,6 +917,8 @@ export type StripSplitSegment = {
   tab?: Tab;
   /** Or a page. */
   page?: { title: string; favicon?: string };
+  /** Its pane holds several tabs, in a row of their own. */
+  tabbed?: boolean;
 };
 
 /**
@@ -986,6 +993,7 @@ function SplitSegment({
       title={front ? tooltip : undefined}
       className="aven-split-segment"
       data-split-segment={segment.id}
+      data-named-below={(front && segment.tabbed) || undefined}
       {...{ [SORTABLE_DROP_PART_ATTRIBUTE]: segment.id }}
       data-morph={`tab:${segment.id}`}
       data-sortable-chip={chip || undefined}
@@ -1068,6 +1076,9 @@ function SplitEntryItem({
       "[data-split-segment]",
     ) ?? null;
   const lit = active ? split.focusedId : null;
+  const segmentLabels = numberRepeats(
+    split.segments.map((segment) => splitSegmentLabel(segment, projectless)),
+  );
   const stop =
     split.segments.find((segment) => segment.id === lit)?.id ??
     split.segments[0]?.id;
@@ -1180,7 +1191,7 @@ function SplitEntryItem({
               ) : null}
               <SplitSegment
                 segment={segment}
-                label={splitSegmentLabel(segment, projectless)}
+                label={segmentLabels[at]!}
                 lit={segment.id === lit}
                 front={active}
                 tabStop={tabStop && segment.id === stop}
@@ -3770,6 +3781,17 @@ function TitleBarComponent({
   // "deep" drags from anywhere in the subtree. The bare attribute only drags
   // on a direct hit, which left every label and spacer dead. Tauri still
   // exempts buttons, links and inputs on its own.
+  // Tabs of the same name are told apart by a number.
+  const stripTabs = displayIds.flatMap((id) => {
+    const tab = tabs.find((candidate) => candidate.id === id);
+    return tab ? [tab] : [];
+  });
+  const stripNames = numberRepeats(
+    stripTabs.map((tab) => tabCopy(tab, projectlessWorkspace).headline),
+  );
+  const shownNames = new Map(
+    stripTabs.map((tab, index) => [tab.id, stripNames[index]!]),
+  );
   const stripItem = (id: string, index: number) => {
     const labelGroup = chipGroupId(id);
     const labelSegment = labelGroup
@@ -3860,6 +3882,7 @@ function TitleBarComponent({
         >
           <TitleTabItem
             tab={tab}
+            shownName={shownNames.get(id)}
             projectless={projectlessWorkspace}
             index={index}
             active={id === focusedId}

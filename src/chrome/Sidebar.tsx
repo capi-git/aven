@@ -1187,7 +1187,7 @@ function SidebarComponent({
             aria-label={runningLabel}
           />
         ) : (
-          <span className="personal-task-indent" />
+          <HarnessIcon harness={session.harness} className="size-3.5" />
         )}
       </span>
     );

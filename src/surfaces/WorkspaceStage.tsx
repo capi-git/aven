@@ -1685,6 +1685,7 @@ export function WorkspaceStage({
     container.dataset.resizing = "true";
     let offset = startOffset;
     let drawnRails = railedLeafIds(tree).join("\0");
+    let drawnTree = tree;
     let moved = false;
     let frame: number | null = null;
     let fallback: number | null = null;
@@ -1705,18 +1706,47 @@ export function WorkspaceStage({
       // follows the draw. Each frame paints, and tells native pages, once.
       const rails = railedLeafIds(next);
       if (rails.join("\0") !== drawnRails) {
+        const before = drawnRails.split("\0").filter(Boolean);
         drawnRails = rails.join("\0");
         // The panes glide to their new places. Native pages can't follow a
         // CSS transition, so a stage showing one still moves at once.
-        if (!container.querySelector(".browser-native-host")) {
+        const glide =
+          !motionReduced() && !container.querySelector(".browser-native-host");
+        if (glide) {
           container.dataset.folding = "true";
           if (foldTimer !== null) window.clearTimeout(foldTimer);
           foldTimer = window.setTimeout(() => {
             foldTimer = null;
             delete container.dataset.folding;
           }, FOLD_GLIDE_MS);
+          // A pane opening grows out of its rail, fading in as it comes.
+          const places = stagePlaces(drawnTree, fitNow(drawnTree, measured));
+          for (const id of before) {
+            if (rails.includes(id)) continue;
+            const place = places.get(id);
+            const surface = surfaceNodes.current.get(id);
+            if (!place || !surface) continue;
+            paintSurface(id, place);
+            void surface.offsetWidth;
+            surface.animate([{ opacity: 0 }, { opacity: 1 }], {
+              duration: FOLD_GLIDE_MS,
+              easing: "ease-out",
+            });
+          }
         }
+        drawnTree = next;
         flushSync(() => setDraftRails(new Set(rails)));
+        // A pane folding leaves its rail fading in where it ends.
+        if (glide)
+          for (const id of rails) {
+            if (before.includes(id)) continue;
+            railNodes.current
+              .get(id)
+              ?.animate([{ opacity: 0 }, { opacity: 1 }], {
+                duration: FOLD_GLIDE_MS,
+                easing: "ease-out",
+              });
+          }
         return;
       }
       paint(next, measured);
@@ -1881,6 +1911,14 @@ export function WorkspaceStage({
                   }
                 : undefined
             }
+            onPointerEnter={() => {
+              const header = headerNodes.current.get(id);
+              if (header) header.dataset.pointed = "true";
+            }}
+            onPointerLeave={() => {
+              const header = headerNodes.current.get(id);
+              if (header) delete header.dataset.pointed;
+            }}
             onPointerDownCapture={() => {
               if (shown && focusedId !== id) current.current.onFocus(id);
             }}

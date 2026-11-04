@@ -8,6 +8,7 @@ import {
   TITLE_ROW_PADDING,
   TITLE_ROW_TAB_MIN_WIDTH,
   highlightKeyframes,
+  numberRepeats,
   planHighlight,
   sameTrackBox,
   titleRowCapacity,
@@ -220,5 +221,13 @@ describe("a title row's tabs", () => {
       shown: ["a", "c", "d"],
       hidden: ["b"],
     });
+  });
+});
+
+describe("numberRepeats", () => {
+  it("numbers only the later tabs of a shared name", () => {
+    expect(
+      numberRepeats(["New chat", "Fix tips", "New chat", "New chat"]),
+    ).toEqual(["New chat", "Fix tips", "New chat 2", "New chat 3"]);
   });
 });
