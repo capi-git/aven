@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.1.167] - 2026-11-04
+
+### Added
+
+- **Drag the line on a team's page** between the chat and the panel. The Board and the other tabs each remember their width.
+
+### Changed
+
+- **The hover sidebar matches the pinned one.** It shows the window's own glass, wallpaper included, as a rounded card over your work.
+- **Interface scale starts at 90%.** Your saved scale stays as it is.
+- **Sharper at 80% and 90%,** on 1x displays especially: icons in the window's frame and marks land on whole screen pixels, and text is heavier on 1x displays.
+- **One workspace button.** The name and dropdown open the same menu. Choosing the workspace you're in opens its Home.
+- **A smaller highlight on a tab's X.**
+- **A faint line between split panes** that you can actually see.
+
+### Fixed
+
+- Words behind the hover sidebar can no longer show through it, except over a live browser page, where it blurs the page.
+
+### Known issue
+
+- Not every popup shares the same glass yet, despite the 0.1.166 notes. Regular menus are solid, and right-click menus, Usage, Activity and sheets are see-through. On those see-through popups, text behind can show if the blur drops.
+
 ## [0.1.166] - 2026-11-03
 
 ### Added
