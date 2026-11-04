@@ -1,15 +1,19 @@
 //! Add, remove, and sign in to MCP servers through each provider's own CLI.
 //!
-//! Claude Code and Codex own their configuration files, so Aven never edits
+//! Claude Code, Codex and Pi own their configuration files, so Aven never edits
 //! them directly. The webview sends a structured request; this module checks
 //! every field and builds the exact argument list, so no user text is ever
 //! interpreted as a CLI option.
+//!
+//! It also reads, and never writes, the personal servers Claude Code and Codex
+//! have, so a chat on a provider that takes servers at session start can have
+//! them too (see `shared_servers`). Only what is safe to pass on leaves here.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 
@@ -20,6 +24,7 @@ use crate::harness;
 pub enum McpProvider {
     Claude,
     Codex,
+    Pi,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -68,11 +73,18 @@ pub enum McpRequest {
         provider: McpProvider,
         name: String,
     },
+    /// Pi only: what `pi mcp list` says. Claude and Codex answer over their own
+    /// protocols (see providerConnections.ts).
+    List {
+        provider: McpProvider,
+    },
 }
 
 const EDIT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Sign-in waits for the user to finish in their browser.
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
+/// `pi mcp list` connects to every server before it answers.
+const LIST_TIMEOUT: Duration = Duration::from_secs(45);
 
 impl McpRequest {
     fn provider(&self) -> McpProvider {
@@ -80,13 +92,16 @@ impl McpRequest {
             Self::Add { provider, .. }
             | Self::Remove { provider, .. }
             | Self::Login { provider, .. }
-            | Self::Logout { provider, .. } => *provider,
+            | Self::Logout { provider, .. }
+            | Self::List { provider } => *provider,
         }
     }
 
     fn timeout(&self) -> Duration {
         if matches!(self, Self::Login { .. }) || self.may_sign_in_while_adding() {
             LOGIN_TIMEOUT
+        } else if matches!(self, Self::List { .. }) {
+            LIST_TIMEOUT
         } else {
             EDIT_TIMEOUT
         }
@@ -119,6 +134,7 @@ impl McpRequest {
         match self {
             Self::Login { .. } => "signing in to an MCP server",
             Self::Logout { .. } => "signing out of an MCP server",
+            Self::List { .. } => "checking your MCP servers",
             _ => "changing your MCP servers",
         }
     }
@@ -193,6 +209,9 @@ fn check_url(url: &str) -> Result<(), String> {
 }
 
 fn check_spec(provider: McpProvider, server: &McpServerSpec) -> Result<(), String> {
+    if provider == McpProvider::Pi && has_secret_fields(server) {
+        return Err("Pi only takes servers with no keys from Aven.".into());
+    }
     match server {
         McpServerSpec::Stdio { command, args, env } => {
             if command.trim().is_empty() || command.starts_with('-') || !plain_value(command) {
@@ -224,6 +243,8 @@ fn check_spec(provider: McpProvider, server: &McpServerSpec) -> Result<(), Strin
                         }
                     }
                 }
+                // Refused above: Pi never gets a header or a token variable here.
+                McpProvider::Pi => {}
                 McpProvider::Codex => {
                     if !headers.is_empty() {
                         return Err(
@@ -243,6 +264,21 @@ fn check_spec(provider: McpProvider, server: &McpServerSpec) -> Result<(), Strin
         }
     }
     Ok(())
+}
+
+/// Fields that hold a key, or name where one is. They stay with the providers
+/// they were typed for: every further CLI would see them in its arguments.
+fn has_secret_fields(server: &McpServerSpec) -> bool {
+    match server {
+        McpServerSpec::Stdio { env, args, .. } => {
+            !env.is_empty() || args.iter().any(|arg| secret_like_argument(arg))
+        }
+        McpServerSpec::Http {
+            url,
+            headers,
+            bearer_token_env_var,
+        } => !headers.is_empty() || bearer_token_env_var.is_some() || secret_like_url(url),
+    }
 }
 
 fn claude_json(server: &McpServerSpec) -> String {
@@ -354,6 +390,113 @@ fn claude_already_has(
     ))
 }
 
+/// Codex's config file for this person: read here, only ever written by Codex.
+fn codex_config_path() -> PathBuf {
+    std::env::var_os("CODEX_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| crate::fs::expand_home("~/.codex"))
+        .join("config.toml")
+}
+
+fn read_toml(path: &Path) -> Option<toml::Table> {
+    std::fs::read_to_string(path).ok()?.parse().ok()
+}
+
+/// The settings `codex mcp add` can set, from what the request asks for.
+fn wanted_codex_server(server: &McpServerSpec) -> Value {
+    match server {
+        McpServerSpec::Stdio { command, args, env } => serde_json::json!({
+            "command": command,
+            "args": args,
+            "env": env,
+            "url": Value::Null,
+            "bearer_token_env_var": Value::Null,
+        }),
+        McpServerSpec::Http {
+            url,
+            bearer_token_env_var,
+            ..
+        } => serde_json::json!({
+            "command": Value::Null,
+            "args": [],
+            "env": {},
+            "url": url,
+            "bearer_token_env_var": bearer_token_env_var,
+        }),
+    }
+}
+
+/// The same settings from a saved entry, whose absent fields read as defaults.
+fn saved_codex_server(entry: &toml::Value) -> Value {
+    let saved = serde_json::to_value(entry).unwrap_or(Value::Null);
+    let field = |name: &str, default: Value| saved.get(name).cloned().unwrap_or(default);
+    serde_json::json!({
+        "command": field("command", Value::Null),
+        "args": field("args", serde_json::json!([])),
+        "env": field("env", serde_json::json!({})),
+        "url": field("url", Value::Null),
+        "bearer_token_env_var": field("bearer_token_env_var", Value::Null),
+    })
+}
+
+/// `codex mcp add` replaces a same-named entry without a word, along with
+/// anything else that entry had set (`run_add` in Codex's `mcp_cmd.rs`). So the
+/// check Codex doesn't make happens here. The same settings give `Ok(true)` and
+/// skip the CLI, so a retry leaves the entry alone. Different settings are never
+/// replaced. A file that can't be read gives `Ok(false)`; Codex can't load it
+/// either, so it refuses by itself rather than overwrite anything.
+fn codex_already_has(path: &Path, name: &str, server: &McpServerSpec) -> Result<bool, String> {
+    let Some(config) = read_toml(path) else {
+        return Ok(false);
+    };
+    let Some(saved) = config.get("mcp_servers").and_then(|all| all.get(name)) else {
+        return Ok(false);
+    };
+    if saved_codex_server(saved) == wanted_codex_server(server) {
+        return Ok(true);
+    }
+    Err(format!(
+        "Codex already has a server called {name} with different settings. Remove it or use another name."
+    ))
+}
+
+/// Pi's folder for this person: read here, only ever written by Pi.
+fn pi_agent_dir() -> PathBuf {
+    std::env::var_os("PI_CODING_AGENT_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| crate::fs::expand_home("~/.pi/agent"))
+}
+
+/// `pi mcp add` is documented to "add or replace", so this stands in the way of
+/// it as `codex_already_has` does for Codex.
+fn pi_already_has(path: &Path, name: &str, server: &McpServerSpec) -> Result<bool, String> {
+    let Some(saved) = read_json(path)
+        .as_ref()
+        .and_then(|config| config.get("mcpServers")?.get(name).cloned())
+    else {
+        return Ok(false);
+    };
+    let field = |name: &str, default: Value| saved.get(name).cloned().unwrap_or(default);
+    let same = field("headers", serde_json::json!({})) == serde_json::json!({})
+        && field("env", serde_json::json!({})) == serde_json::json!({})
+        && field("oauth", Value::Null).is_null()
+        && match server {
+            McpServerSpec::Stdio { command, args, .. } => {
+                field("command", Value::Null) == command.as_str()
+                    && field("args", serde_json::json!([])) == serde_json::json!(args)
+            }
+            McpServerSpec::Http { url, .. } => field("url", Value::Null) == url.as_str(),
+        };
+    if same {
+        return Ok(true);
+    }
+    Err(format!(
+        "Pi already has a server called {name} with different settings. Remove it or use another name."
+    ))
+}
+
 /// The exact arguments for the provider CLI, after validating every field.
 pub fn mcp_args(request: &McpRequest) -> Result<Vec<String>, String> {
     let s = |v: &str| v.to_string();
@@ -410,6 +553,30 @@ pub fn mcp_args(request: &McpRequest) -> Result<Vec<String>, String> {
                     }
                     Ok(args)
                 }
+                McpProvider::Pi => {
+                    if name.contains('.') {
+                        return Err("Pi’s server names can’t have dots.".into());
+                    }
+                    if scope.as_deref().is_some_and(|scope| scope != "user") {
+                        return Err("Aven only adds personal servers to Pi.".into());
+                    }
+                    let mut args = vec![s("mcp"), s("add"), name.clone()];
+                    match server {
+                        McpServerSpec::Stdio {
+                            command,
+                            args: rest,
+                            ..
+                        } => {
+                            args.push(s("--"));
+                            args.push(command.clone());
+                            args.extend(rest.iter().cloned());
+                        }
+                        McpServerSpec::Http { url, .. } => {
+                            args.extend([s("--url"), url.clone()]);
+                        }
+                    }
+                    Ok(args)
+                }
             }
         }
         McpRequest::Remove {
@@ -427,10 +594,16 @@ pub fn mcp_args(request: &McpRequest) -> Result<Vec<String>, String> {
                         args.extend([s("--scope"), s(scope)]);
                     }
                 }
-                McpProvider::Codex => {}
+                McpProvider::Codex | McpProvider::Pi => {}
             }
             args.extend([s("--"), name.clone()]);
             Ok(args)
+        }
+        McpRequest::List { provider } => {
+            if *provider != McpProvider::Pi {
+                return Err("Only Pi is listed this way.".into());
+            }
+            Ok(vec![s("mcp"), s("list"), s("--json")])
         }
         McpRequest::Login { name, .. } | McpRequest::Logout { name, .. } => {
             if !valid_existing_name(name) {
@@ -446,7 +619,7 @@ pub fn mcp_args(request: &McpRequest) -> Result<Vec<String>, String> {
     }
 }
 
-/// Runs one MCP management command for Claude Code or Codex.
+/// Runs one MCP management command for Claude Code, Codex or Pi.
 #[tauri::command]
 pub async fn provider_mcp(
     app: AppHandle,
@@ -469,19 +642,23 @@ pub async fn provider_mcp(
     tauri::async_runtime::spawn_blocking(move || {
         let _work = work;
         if let McpRequest::Add {
-            provider: McpProvider::Claude,
+            provider,
             name,
             scope,
             server,
         } = &request
         {
-            let already = claude_already_has(
-                &claude_settings_path(),
-                project_folder.as_deref(),
-                scope.as_deref(),
-                name,
-                server,
-            )?;
+            let already = match provider {
+                McpProvider::Claude => claude_already_has(
+                    &claude_settings_path(),
+                    project_folder.as_deref(),
+                    scope.as_deref(),
+                    name,
+                    server,
+                ),
+                McpProvider::Codex => codex_already_has(&codex_config_path(), name, server),
+                McpProvider::Pi => pi_already_has(&pi_agent_dir().join("mcp.json"), name, server),
+            }?;
             if already {
                 return Ok(String::new());
             }
@@ -489,16 +666,347 @@ pub async fn provider_mcp(
         let binary = match provider {
             McpProvider::Claude => harness::resolved_claude_binary(),
             McpProvider::Codex => harness::resolved_codex_binary(),
+            McpProvider::Pi => harness::resolved_setup_binary("pi"),
         }
         .ok_or_else(|| match provider {
             McpProvider::Claude => "Claude Code is not installed.".to_string(),
             McpProvider::Codex => "Codex is not installed.".to_string(),
+            McpProvider::Pi => "Pi is not installed.".to_string(),
         })?;
+        // `pi mcp list` exits 1 when a server isn't connected, with the answer
+        // still on stdout.
+        if matches!(request, McpRequest::List { .. }) {
+            return harness::run_provider_cli_stdout(&binary, &args, cwd.as_deref(), timeout);
+        }
         harness::run_provider_cli(&binary, &args, cwd.as_deref(), timeout)
             .map_err(|message| request.explain_failure(message))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// One personal server, as Aven may pass it to a chat on another provider. A
+/// `withheld` one carries only its name: nothing else about it leaves here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedServer {
+    name: String,
+    from: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    args: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    /// "secret": it holds a key, which stays with the provider it was given to.
+    /// "kind": a connection other providers don't take.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    withheld: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedServers {
+    servers: Vec<SharedServer>,
+    /// Names each provider has set up for itself, which Aven must not shadow.
+    own: BTreeMap<&'static str, Vec<String>>,
+}
+
+impl SharedServer {
+    fn withheld(name: &str, from: &'static str, why: &'static str) -> Self {
+        Self {
+            name: name.to_string(),
+            from,
+            kind: None,
+            command: None,
+            args: Vec::new(),
+            url: None,
+            withheld: Some(why),
+        }
+    }
+}
+
+/// An argument that may carry a key: named like one, or long and random-looking.
+/// `--token abc` is caught by the flag, so its value never goes on its own.
+fn secret_like_argument(arg: &str) -> bool {
+    let lower = arg.to_ascii_lowercase();
+    if [
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "api-key",
+        "api_key",
+        "apikey",
+        "credential",
+        "bearer",
+        "authorization",
+    ]
+    .iter()
+    .any(|word| lower.contains(word))
+    {
+        return true;
+    }
+    looks_random(arg)
+}
+
+/// 32 or more letters and digits in a row, mixed: a key rather than a word.
+fn looks_random(text: &str) -> bool {
+    text.split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+        .any(|run| {
+            run.len() >= 32
+                && run.chars().any(|c| c.is_ascii_digit())
+                && run.chars().any(|c| c.is_ascii_alphabetic())
+        })
+}
+
+/// A URL that may carry a key: a query, a password, or a random-looking path.
+fn secret_like_url(url: &str) -> bool {
+    let Ok(parsed) = tauri::Url::parse(url) else {
+        return true;
+    };
+    parsed.query().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || looks_random(parsed.path())
+}
+
+fn shared_stdio(name: &str, from: &'static str, command: &str, args: Vec<String>) -> SharedServer {
+    if secret_like_argument(command) || args.iter().any(|arg| secret_like_argument(arg)) {
+        return SharedServer::withheld(name, from, "secret");
+    }
+    SharedServer {
+        name: name.to_string(),
+        from,
+        kind: Some("stdio"),
+        command: Some(command.to_string()),
+        args,
+        url: None,
+        withheld: None,
+    }
+}
+
+fn shared_http(name: &str, from: &'static str, url: &str) -> SharedServer {
+    if secret_like_url(url) {
+        return SharedServer::withheld(name, from, "secret");
+    }
+    SharedServer {
+        name: name.to_string(),
+        from,
+        kind: Some("http"),
+        command: None,
+        args: Vec::new(),
+        url: Some(url.to_string()),
+        withheld: None,
+    }
+}
+
+fn string_list(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A field is empty when it is absent, or an empty list, table or string.
+fn filled(entry: &Value, field: &str) -> bool {
+    match entry.get(field) {
+        None | Some(Value::Null) => false,
+        Some(Value::Object(items)) => !items.is_empty(),
+        Some(Value::Array(items)) => !items.is_empty(),
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(_) => true,
+    }
+}
+
+/// One entry from either provider. Any field that holds or names a key
+/// withholds the whole server; nothing of it is read further.
+fn shared_entry(
+    name: &str,
+    from: &'static str,
+    entry: &Value,
+    secret_fields: &[&str],
+) -> SharedServer {
+    if secret_fields.iter().any(|field| filled(entry, field)) {
+        return SharedServer::withheld(name, from, "secret");
+    }
+    let kind = entry.get("type").and_then(Value::as_str);
+    if let Some(command) = entry.get("command").and_then(Value::as_str) {
+        if matches!(kind, None | Some("stdio")) {
+            return shared_stdio(name, from, command, string_list(entry.get("args")));
+        }
+    }
+    if let Some(url) = entry.get("url").and_then(Value::as_str) {
+        if matches!(
+            kind,
+            None | Some("http" | "streamable_http" | "streamable-http")
+        ) {
+            return shared_http(name, from, url);
+        }
+    }
+    SharedServer::withheld(name, from, "kind")
+}
+
+const CLAUDE_SECRET_FIELDS: &[&str] = &["env", "headers", "headersHelper", "oauth"];
+const CODEX_SECRET_FIELDS: &[&str] = &[
+    "env",
+    "env_vars",
+    "http_headers",
+    "env_http_headers",
+    "bearer_token",
+    "bearer_token_env_var",
+    "oauth",
+    "oauth_resource",
+];
+
+/// Claude's personal servers, without any it has turned off for this project.
+fn claude_personal_servers(settings_path: &Path, folder: Option<&Path>) -> Vec<SharedServer> {
+    let Some(settings) = read_json(settings_path) else {
+        return Vec::new();
+    };
+    let turned_off: Vec<String> = folder
+        .map(claude_project_keys)
+        .unwrap_or_default()
+        .iter()
+        .flat_map(|key| {
+            string_list(
+                settings
+                    .get("projects")
+                    .and_then(|projects| projects.get(key))
+                    .and_then(|project| project.get("disabledMcpServers")),
+            )
+        })
+        .collect();
+    settings
+        .get("mcpServers")
+        .and_then(Value::as_object)
+        .map(|servers| {
+            servers
+                .iter()
+                .filter(|(name, _)| !turned_off.contains(name))
+                .map(|(name, entry)| shared_entry(name, "claude", entry, CLAUDE_SECRET_FIELDS))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Codex's personal servers, without any turned off in its config file.
+fn codex_personal_servers(config_path: &Path) -> Vec<SharedServer> {
+    let Some(config) = read_toml(config_path) else {
+        return Vec::new();
+    };
+    config
+        .get("mcp_servers")
+        .and_then(toml::Value::as_table)
+        .map(|servers| {
+            servers
+                .iter()
+                .filter_map(|(name, entry)| {
+                    let entry = serde_json::to_value(entry).ok()?;
+                    (entry.get("enabled") != Some(&Value::Bool(false)))
+                        .then(|| shared_entry(name, "codex", &entry, CODEX_SECRET_FIELDS))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The names under one key of a JSON config. Comments or a bad file read as
+/// none: this only stops Aven shadowing a server, and each provider reads its
+/// own file again anyway.
+fn json_names(path: &Path, keys: &[&str]) -> Vec<String> {
+    let Some(mut value) = read_json(path) else {
+        return Vec::new();
+    };
+    for key in keys {
+        let Some(next) = value.get(*key).cloned() else {
+            return Vec::new();
+        };
+        value = next;
+    }
+    value
+        .as_object()
+        .map(|items| items.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn toml_names(path: &Path) -> Vec<String> {
+    read_toml(path)
+        .and_then(|config| {
+            config
+                .get("mcp_servers")?
+                .as_table()
+                .map(|servers| servers.keys().cloned().collect())
+        })
+        .unwrap_or_default()
+}
+
+/// What each session-start provider has set up for itself, by name. A server
+/// Aven passes can win over one of these, so a same-named one isn't passed.
+fn own_server_names(home: &Path, folder: Option<&Path>) -> BTreeMap<&'static str, Vec<String>> {
+    let cursor_files = |dir: &Path| json_names(&dir.join(".cursor/mcp.json"), &["mcpServers"]);
+    let mut cursor = cursor_files(home);
+    let mut grok = toml_names(&home.join(".grok/config.toml"));
+    grok.extend(cursor.iter().cloned());
+    let mut fx = Vec::new();
+    let opencode_home = home.join(".config/opencode");
+    let mut opencode = Vec::new();
+    let opencode_files = |dir: &Path| {
+        ["opencode.json", ".opencode/opencode.json"]
+            .iter()
+            .flat_map(|file| {
+                let path = dir.join(file);
+                let mut names = json_names(&path, &["mcp"]);
+                names.extend(json_names(&path, &["mcp", "servers"]));
+                names
+            })
+            .collect::<Vec<_>>()
+    };
+    opencode.extend(opencode_files(&opencode_home));
+    if let Some(folder) = folder {
+        cursor.extend(cursor_files(folder));
+        let project = json_names(&folder.join(".mcp.json"), &["mcpServers"]);
+        grok.extend(toml_names(&folder.join(".grok/config.toml")));
+        grok.extend(cursor_files(folder));
+        grok.extend(project.iter().cloned());
+        fx.extend(project);
+        opencode.extend(opencode_files(folder));
+    }
+    BTreeMap::from([
+        ("cursor", cursor),
+        ("grok", grok),
+        ("fx", fx),
+        ("opencode", opencode),
+    ])
+}
+
+/// What a chat on a provider that takes servers at session start may be given:
+/// the personal servers Claude Code and Codex already have, without their keys.
+#[tauri::command]
+pub async fn mcp_shared_servers(cwd: Option<String>) -> Result<SharedServers, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = cwd
+            .as_deref()
+            .filter(|dir| !dir.is_empty())
+            .map(crate::fs::expand_home)
+            .filter(|dir| dir.is_dir());
+        let mut servers = claude_personal_servers(&claude_settings_path(), folder.as_deref());
+        servers.extend(codex_personal_servers(&codex_config_path()));
+        SharedServers {
+            servers,
+            own: own_server_names(&crate::fs::expand_home("~"), folder.as_deref()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -850,6 +1358,282 @@ mod tests {
             name: "-x".into(),
         })
         .is_err());
+    }
+
+    #[test]
+    fn codex_is_never_allowed_to_replace_different_settings() {
+        let fixture = Fixture::new("codex-same");
+        let path = fixture.0.join("config.toml");
+        std::fs::write(
+            &path,
+            "[mcp_servers.acme]\nurl = \"https://mcp.example.com/mcp\"\nstartup_timeout_sec = 30\n\n[mcp_servers.local]\ncommand = \"npx\"\n",
+        )
+        .unwrap();
+        let url = |url: &str| McpServerSpec::Http {
+            url: url.into(),
+            headers: BTreeMap::new(),
+            bearer_token_env_var: None,
+        };
+        let check = |name: &str, spec: &McpServerSpec| codex_already_has(&path, name, spec);
+        assert_eq!(check("acme", &url("https://mcp.example.com/mcp")), Ok(true));
+        assert_eq!(
+            check("other", &url("https://mcp.example.com/mcp")),
+            Ok(false)
+        );
+        assert!(check("acme", &url("https://elsewhere.example.com/mcp"))
+            .unwrap_err()
+            .contains("different settings"));
+        // A token variable changes how it signs in, so it's different too.
+        let with_token = McpServerSpec::Http {
+            url: "https://mcp.example.com/mcp".into(),
+            headers: BTreeMap::new(),
+            bearer_token_env_var: Some("ACME_TOKEN".into()),
+        };
+        assert!(check("acme", &with_token).is_err());
+        let local = McpServerSpec::Stdio {
+            command: "npx".into(),
+            args: vec![],
+            env: BTreeMap::new(),
+        };
+        assert_eq!(check("local", &local), Ok(true));
+        // A secret in the differing setting isn't quoted back.
+        let with_secret = McpServerSpec::Stdio {
+            command: "npx".into(),
+            args: vec![],
+            env: BTreeMap::from([("KEY".into(), "fixture-secret".into())]),
+        };
+        assert!(!check("local", &with_secret)
+            .unwrap_err()
+            .contains("fixture-secret"));
+    }
+
+    #[test]
+    fn an_unreadable_codex_config_leaves_the_decision_to_codex() {
+        let fixture = Fixture::new("codex-unreadable");
+        let path = fixture.0.join("config.toml");
+        let server = remote("https://mcp.example.com/mcp", "fixture");
+        assert_eq!(codex_already_has(&path, "acme", &server), Ok(false));
+        std::fs::write(&path, "not [ toml").unwrap();
+        assert_eq!(codex_already_has(&path, "acme", &server), Ok(false));
+    }
+
+    #[test]
+    fn pi_is_never_allowed_to_replace_different_settings() {
+        let fixture = Fixture::new("pi-same");
+        let path = fixture.0.join("mcp.json");
+        std::fs::write(
+            &path,
+            r#"{"mcpServers":{"acme":{"url":"https://mcp.example.com/mcp"},"keyed":{"url":"https://k.example.com/mcp","headers":{"X":"y"}}}}"#,
+        )
+        .unwrap();
+        let url = |url: &str| McpServerSpec::Http {
+            url: url.into(),
+            headers: BTreeMap::new(),
+            bearer_token_env_var: None,
+        };
+        assert_eq!(
+            pi_already_has(&path, "acme", &url("https://mcp.example.com/mcp")),
+            Ok(true)
+        );
+        assert_eq!(
+            pi_already_has(&path, "new", &url("https://mcp.example.com/mcp")),
+            Ok(false)
+        );
+        assert!(pi_already_has(&path, "acme", &url("https://other.example.com/mcp")).is_err());
+        assert!(pi_already_has(&path, "keyed", &url("https://k.example.com/mcp")).is_err());
+    }
+
+    #[test]
+    fn pi_commands_never_carry_a_key() {
+        let add = |server| {
+            mcp_args(&McpRequest::Add {
+                provider: McpProvider::Pi,
+                name: "acme".into(),
+                scope: None,
+                server,
+            })
+        };
+        assert_eq!(
+            add(McpServerSpec::Http {
+                url: "https://mcp.example.com/mcp".into(),
+                headers: BTreeMap::new(),
+                bearer_token_env_var: None,
+            })
+            .unwrap(),
+            ["mcp", "add", "acme", "--url", "https://mcp.example.com/mcp"]
+        );
+        assert_eq!(
+            add(McpServerSpec::Stdio {
+                command: "npx".into(),
+                args: vec!["-y".into(), "@acme/mcp".into()],
+                env: BTreeMap::new(),
+            })
+            .unwrap(),
+            ["mcp", "add", "acme", "--", "npx", "-y", "@acme/mcp"]
+        );
+        assert!(add(stdio()).is_err());
+        assert!(add(remote("https://mcp.example.com/mcp", "fixture")).is_err());
+        assert_eq!(
+            mcp_args(&McpRequest::List {
+                provider: McpProvider::Pi
+            })
+            .unwrap(),
+            ["mcp", "list", "--json"]
+        );
+        assert!(mcp_args(&McpRequest::List {
+            provider: McpProvider::Codex
+        })
+        .is_err());
+    }
+
+    fn shared_names(servers: &[SharedServer]) -> Vec<(&str, Option<&str>)> {
+        servers
+            .iter()
+            .map(|server| (server.name.as_str(), server.withheld))
+            .collect()
+    }
+
+    #[test]
+    fn only_servers_with_no_keys_are_shared_from_claude() {
+        let fixture = Fixture::new("share-claude");
+        let repo = fixture.repo();
+        std::fs::write(
+            fixture.settings(),
+            serde_json::json!({
+                "mcpServers": {
+                    "plain": { "type": "http", "url": "https://mcp.example.com/mcp" },
+                    "local": { "command": "npx", "args": ["-y", "@acme/mcp"] },
+                    "headers": { "type": "http", "url": "https://h.example.com", "headers": { "X-Key": "fixture-secret" } },
+                    "env": { "command": "npx", "env": { "KEY": "fixture-secret" } },
+                    "query": { "type": "http", "url": "https://q.example.com/mcp?key=fixture-secret" },
+                    "flag": { "command": "acme", "args": ["--api-key", "fixture-secret"] },
+                    "long": { "command": "acme", "args": ["abcdef0123456789abcdef0123456789"] },
+                    "sse": { "type": "sse", "url": "https://s.example.com/sse" },
+                    "off": { "command": "npx" },
+                },
+                "projects": { repo.to_string_lossy(): {
+                    "disabledMcpServers": ["off"],
+                    "mcpServers": { "private": { "command": "npx" } },
+                } },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let servers = claude_personal_servers(&fixture.settings(), Some(&repo));
+        assert_eq!(
+            shared_names(&servers),
+            [
+                ("env", Some("secret")),
+                ("flag", Some("secret")),
+                ("headers", Some("secret")),
+                ("local", None),
+                ("long", Some("secret")),
+                ("plain", None),
+                ("query", Some("secret")),
+                ("sse", Some("kind")),
+            ]
+        );
+        // A withheld entry carries nothing but its name.
+        let text = serde_json::to_string(&servers).unwrap();
+        assert!(!text.contains("fixture-secret"));
+        assert!(!text.contains("X-Key"));
+        assert!(!text.contains("KEY"));
+        assert!(!text.contains("q.example.com"));
+        let plain = servers.iter().find(|s| s.name == "plain").unwrap();
+        assert_eq!(plain.url.as_deref(), Some("https://mcp.example.com/mcp"));
+        let local = servers.iter().find(|s| s.name == "local").unwrap();
+        assert_eq!(local.command.as_deref(), Some("npx"));
+        assert_eq!(local.args, ["-y", "@acme/mcp"]);
+    }
+
+    #[test]
+    fn only_servers_with_no_keys_are_shared_from_codex() {
+        let fixture = Fixture::new("share-codex");
+        let path = fixture.0.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[mcp_servers.plain]
+url = "https://mcp.example.com/mcp"
+[mcp_servers.local]
+command = "npx"
+args = ["-y", "@acme/mcp"]
+[mcp_servers.token]
+url = "https://t.example.com/mcp"
+bearer_token_env_var = "FIXTURE_VAR"
+[mcp_servers.env]
+command = "npx"
+[mcp_servers.env.env]
+KEY = "fixture-secret"
+[mcp_servers.off]
+command = "npx"
+enabled = false
+"#,
+        )
+        .unwrap();
+        let servers = codex_personal_servers(&path);
+        assert_eq!(
+            shared_names(&servers),
+            [
+                ("env", Some("secret")),
+                ("local", None),
+                ("plain", None),
+                ("token", Some("secret")),
+            ]
+        );
+        let text = serde_json::to_string(&servers).unwrap();
+        assert!(!text.contains("fixture-secret"));
+        assert!(!text.contains("FIXTURE_VAR"));
+    }
+
+    #[test]
+    fn unreadable_configs_share_nothing() {
+        let fixture = Fixture::new("share-none");
+        assert!(claude_personal_servers(&fixture.settings(), None).is_empty());
+        assert!(codex_personal_servers(&fixture.0.join("config.toml")).is_empty());
+        std::fs::write(fixture.settings(), "not json").unwrap();
+        assert!(claude_personal_servers(&fixture.settings(), None).is_empty());
+    }
+
+    #[test]
+    fn each_providers_own_names_are_read_from_its_own_files() {
+        let fixture = Fixture::new("own");
+        let home = fixture.0.join("home");
+        let repo = fixture.repo();
+        for dir in [".cursor", ".grok", ".config/opencode"] {
+            std::fs::create_dir_all(home.join(dir)).unwrap();
+        }
+        std::fs::create_dir_all(repo.join(".cursor")).unwrap();
+        std::fs::write(
+            home.join(".cursor/mcp.json"),
+            r#"{"mcpServers":{"cursor-home":{}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            repo.join(".cursor/mcp.json"),
+            r#"{"mcpServers":{"cursor-repo":{}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            home.join(".grok/config.toml"),
+            "[mcp_servers.grok-home]\ncommand = \"x\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            home.join(".config/opencode/opencode.json"),
+            r#"{"mcp":{"oc-home":{"type":"remote"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(repo.join(".mcp.json"), r#"{"mcpServers":{"shared":{}}}"#).unwrap();
+        let own = own_server_names(&home, Some(&repo));
+        assert_eq!(own["cursor"], ["cursor-home", "cursor-repo"]);
+        // Grok reads Cursor's files and project .mcp.json too.
+        assert_eq!(
+            own["grok"],
+            ["grok-home", "cursor-home", "cursor-repo", "shared"]
+        );
+        assert_eq!(own["fx"], ["shared"]);
+        assert!(own["opencode"].contains(&"oc-home".to_string()));
     }
 
     #[test]

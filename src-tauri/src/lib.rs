@@ -608,6 +608,7 @@ pub fn run() {
             provider_setup::provider_setup_plan,
             provider_setup::provider_setup_verify,
             mcp_manage::provider_mcp,
+            mcp_manage::mcp_shared_servers,
             rate_limits::fetch_claude_usage,
             pty::pty_spawn,
             pty::pty_write,

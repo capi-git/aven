@@ -1133,6 +1133,39 @@ pub(crate) fn run_provider_cli(
     cwd: Option<&str>,
     timeout: Duration,
 ) -> Result<String, String> {
+    let name = command_basename(&binary.to_string_lossy()).to_string();
+    let output = provider_cli_output(binary, args, cwd, timeout)?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if output.status.success() {
+        return Ok(stdout);
+    }
+    let message = if stderr.is_empty() { stdout } else { stderr };
+    Err(if message.is_empty() {
+        format!("{name} could not finish that change.")
+    } else {
+        message
+    })
+}
+
+/// For a CLI whose exit status reports on what it found rather than on the
+/// command itself: what it printed, whichever way it exited.
+pub(crate) fn run_provider_cli_stdout(
+    binary: &Path,
+    args: &[String],
+    cwd: Option<&str>,
+    timeout: Duration,
+) -> Result<String, String> {
+    let output = provider_cli_output(binary, args, cwd, timeout)?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn provider_cli_output(
+    binary: &Path,
+    args: &[String],
+    cwd: Option<&str>,
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
     let command = binary.to_string_lossy().into_owned();
     let mut cmd = Command::new(binary);
     cmd.args(args)
@@ -1154,19 +1187,7 @@ pub(crate) fn run_provider_cli(
         let _ = tx.send(child.wait_with_output());
     });
     match rx.recv_timeout(timeout) {
-        Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            if output.status.success() {
-                return Ok(stdout);
-            }
-            let message = if stderr.is_empty() { stdout } else { stderr };
-            Err(if message.is_empty() {
-                format!("{name} could not finish that change.")
-            } else {
-                message
-            })
-        }
+        Ok(Ok(output)) => Ok(output),
         Ok(Err(e)) => Err(format!("Failed to run {name}: {e}")),
         Err(_) => {
             terminate(pid);
