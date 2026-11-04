@@ -150,3 +150,12 @@ it("follows a word as it changes", async () => {
   expect(pill("fix")?.textContent).toBe("Needs you");
   expect(pill("ask")).toBeNull();
 });
+
+it("gives a chat no mark of its own, and tags its time for the hover", async () => {
+  await act(async () => root.render(createElement(Sidebar, props)));
+  const card = container.querySelector("[data-session-card='fix']")!;
+  expect(card.querySelector(".personal-task-lead")?.children).toHaveLength(0);
+  expect(
+    card.querySelector(".personal-task-status")?.hasAttribute("data-row-time"),
+  ).toBe(true);
+});

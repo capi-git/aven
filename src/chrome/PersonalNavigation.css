@@ -240,7 +240,7 @@
   opacity: 1;
 }
 .personal-shell .personal-navigation .personal-project-group {
-  margin: 0 0 4px;
+  margin: 0 0 6px;
 }
 .personal-shell .personal-navigation .personal-project-row {
   display: flex;
@@ -385,10 +385,7 @@
     :focus-within,
     :has(.personal-project-more[aria-expanded="true"])
   )
-  .personal-project-row-action,
-.personal-shell
-  .personal-navigation
-  .personal-project-disclosure[aria-expanded="true"] {
+  .personal-project-row-action {
   width: 24px;
   opacity: 1;
   pointer-events: auto;
@@ -496,9 +493,46 @@
   border-radius: 50%;
   background: var(--color-content);
 }
-.personal-shell .personal-navigation .personal-task-indent {
-  width: 5px;
-  flex-shrink: 0;
+/* Only projects get a mark and a heavier name. A chat is a quieter title, and
+   brightens when it's in front, working or needs you. Its time waits for the
+   pointer or the keyboard. */
+.personal-shell .personal-project-tasks .personal-task-title {
+  color: var(--personal-muted);
+}
+.personal-shell
+  .personal-project-tasks
+  .personal-task-card:is(
+    :hover,
+    :focus-visible,
+    [data-session-selected="true"],
+    :has(.personal-task-working-dot),
+    :has(.personal-task-status:not([data-row-time]))
+  )
+  .personal-task-title {
+  color: var(--color-content);
+}
+.personal-shell .personal-navigation .personal-task-status[data-row-time] {
+  display: none;
+}
+.personal-shell
+  .personal-navigation
+  .personal-other-task:is(:hover, :focus-visible)
+  > .personal-task-status[data-row-time] {
+  display: inline;
+}
+.personal-shell
+  .personal-navigation
+  .personal-task-row:is(:hover, :has(:focus-visible))
+  .personal-task-status[data-row-time] {
+  display: flex;
+  opacity: 1;
+}
+/* The archive button sits where the time would end. */
+.personal-shell
+  .personal-navigation
+  .personal-task-row[data-has-archive="true"]:is(:hover, :has(:focus-visible))
+  .personal-task-status[data-row-time] {
+  padding-right: 24px;
 }
 .personal-shell .personal-navigation .personal-task-archive {
   right: 5px;

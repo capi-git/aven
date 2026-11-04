@@ -116,10 +116,28 @@ describe("project rows at rest and on hover", () => {
     expect(reveal!.body.get("width")).toBe("24px");
     expect(reveal!.body.get("opacity")).toBe("1");
     expect(reveal!.body.get("pointer-events")).toBe("auto");
-    // An open project keeps its fold chevron at rest: it says it is open.
-    expect(reveal!.selectors).toContain(
-      `${ROW} .personal-project-disclosure[aria-expanded="true"]`,
+    // An open project's chats say it's open, so its chevron waits too.
+    expect(reveal!.selectors.join()).not.toContain(
+      '.personal-project-disclosure[aria-expanded="true"]',
     );
+  });
+
+  it("hides a chat's time until the row is hovered or reached by keyboard", () => {
+    const body = (selector: string) =>
+      nav.find((rule) => rule.selectors.includes(selector))?.body;
+    expect(
+      body(`${ROW} .personal-task-status[data-row-time]`)?.get("display"),
+    ).toBe("none");
+    expect(
+      body(
+        `${ROW} .personal-other-task:is(:hover, :focus-visible) > .personal-task-status[data-row-time]`,
+      )?.get("display"),
+    ).toBe("inline");
+    expect(
+      body(
+        `${ROW} .personal-task-row:is(:hover, :has(:focus-visible)) .personal-task-status[data-row-time]`,
+      )?.get("display"),
+    ).toBe("flex");
   });
 
   it("keeps the waiting dot and the unread count at rest, small and grey or amber", () => {

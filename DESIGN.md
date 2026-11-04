@@ -48,6 +48,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A page** has a title, one short line under it, then sections. A section is a small muted heading above one card of rows.
 
+**A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
+
 **A settings row** has its label and one line on the left and its control on the right. Pick the simplest control: a switch for on and off, segments for two or three short choices, a menu for more.
 
 **A sidebar for a mode** belongs to that mode. While Settings is open, the sidebar shows Back to app, search and the sections, and nothing else.
@@ -66,7 +68,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 The top row and sidebar are one see-through surface, with the work in one rounded card on it. No lines between them.
 
-Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`). The hover sidebar is a rounded card floating over the work, which stays whole beneath it. Never put blur inside something that scrolls: it costs a lot of power and speed.
+Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`). The hover sidebar is a rounded card floating over the work, showing the window's own glass. Never put blur inside something that scrolls: it costs a lot of power and speed.
 
 ## Motion
 
