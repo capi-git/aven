@@ -41,6 +41,10 @@ Extract the final ZIP and exercise that app before sharing it. At minimum, verif
 
 Check the download on a second Mac or clean macOS account when possible. In release notes, distinguish checks that ran from anything still unverified. Do not claim broad platform or website compatibility from one local launch.
 
+## When a check got no machine
+
+GitHub sometimes has no Mac free for **Code checks**. The job waits 15 minutes and is cancelled with no steps run, and the run shows as failed. **Retry checks that got no machine** (`.github/workflows/retry-no-runner.yml`) runs that job again, up to twice, and leaves real failures alone. GitHub's failure email for the first attempt still goes out. **Release Aven** is started by hand and isn't retried: rerun it with `ghp run rerun <id> --failed` after reading why it stopped.
+
 ## Release from GitHub Actions
 
 Releases go through one manually started workflow, **Release Aven** (`.github/workflows/release.yml`). Start it from the repository's Actions tab or from the **Release** card in Aven's Changes panel. It builds whatever is on GitHub's `main`, so merge and push first.

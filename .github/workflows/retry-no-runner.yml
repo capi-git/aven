@@ -1,0 +1,38 @@
+name: Retry checks that got no machine
+
+# GitHub sometimes has no Mac free. The job waits 15 minutes and is cancelled
+# having run nothing, which marks the whole run failed though nothing is wrong
+# with the code. Run that job again, up to twice. A run with a real failure, or
+# one cancelled by a newer push, is left alone. Releases are started by hand, so
+# they stay out of this.
+on:
+  workflow_run:
+    workflows: ["Code checks"]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  retry:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+    steps:
+      - name: Run again if a job never got a machine
+        run: |
+          verdict=$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs" \
+            --jq '[.jobs[]] | if any(.conclusion == "failure") then "failed"
+              elif any(.conclusion == "cancelled" and (.steps | length) == 0) then "no-machine"
+              else "other" end')
+          echo "Attempt $ATTEMPT of run $RUN_ID: $verdict"
+          if [ "$verdict" = "no-machine" ]; then
+            gh run rerun "$RUN_ID" --failed
+          fi
