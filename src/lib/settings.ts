@@ -74,7 +74,7 @@ export const SETTINGS_SECTIONS: {
     group: "Agents",
     label: "MCP",
     description:
-      "Extra tools Claude and Codex can use. When a server asks something, the chat shows it.",
+      "Extra tools your agents can use. When a server asks something, the chat shows it.",
   },
   {
     id: "skills",

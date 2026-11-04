@@ -41,6 +41,7 @@ import {
   type McpAction,
   type McpEntry,
   type McpInventory,
+  normalizeServerName,
   type McpRow,
 } from "../lib/mcpOverview";
 import {
@@ -636,13 +637,14 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
     installed,
   };
   const missingShown = overview.missing.filter((agent) => agent !== "pi");
+  const allRows = [
+    ...overview.needsYou,
+    ...overview.signIn,
+    ...overview.working,
+    ...overview.off,
+  ];
   const existingNames = new Set(
-    [
-      ...overview.needsYou,
-      ...overview.signIn,
-      ...overview.working,
-      ...overview.off,
-    ].flatMap((row) => row.entries.map((entry) => entry.connection.key)),
+    allRows.flatMap((row) => row.entries.map((entry) => entry.connection.key)),
   );
 
   return (
@@ -712,6 +714,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
               missing={overview.missing}
               piInstalled={inventories.pi?.status === "loaded"}
               existing={existingNames}
+              rows={allRows}
               busy={busy !== null}
               onCancel={() => setAdding(false)}
               onAdd={async (draft, providers, scope, label) => {
@@ -1323,6 +1326,7 @@ function AddServerForm({
   missing,
   piInstalled,
   existing,
+  rows,
   busy,
   onCancel,
   onAdd,
@@ -1333,6 +1337,8 @@ function AddServerForm({
   piInstalled: boolean;
   /** Names already in a provider's list. */
   existing: ReadonlySet<string>;
+  /** Every row, to see who already has a service through their account. */
+  rows: readonly McpRow[];
   busy: boolean;
   onCancel: () => void;
   onAdd: (
@@ -1374,8 +1380,28 @@ function AddServerForm({
   const offered = PROVIDERS.filter(
     (provider) => provider.id !== "pi" || piInstalled,
   );
+  // Who already has a service under its own name, such as Notion through a
+  // Claude account. Adding it again would give that provider two copies. A
+  // named account is a different sign-in, so it's added everywhere.
+  const presetTargets = (preset: McpPreset) => {
+    const has = account.trim()
+      ? []
+      : rows
+          .filter((row) => normalizeServerName(row.name) === preset.id)
+          .flatMap((row) => row.entries.map((entry) => entry.provider));
+    return ADD_ORDER.filter(
+      (id) =>
+        targets[id] &&
+        !missing.includes(id) &&
+        (id !== "pi" || piInstalled) &&
+        !has.includes(id),
+    );
+  };
   const presets = MCP_PRESETS.filter(
-    (preset) => !existing.has(serverNameFor(preset.id, account)),
+    (preset) =>
+      !existing.has(serverNameFor(preset.id, account)) &&
+      (presetTargets(preset).length > 0 ||
+        ADD_ORDER.every((id) => !targets[id])),
   );
 
   const addPreset = (preset: McpPreset) => {
@@ -1393,10 +1419,7 @@ function AddServerForm({
       setCustom(true);
       return;
     }
-    const to = ADD_ORDER.filter(
-      (id) =>
-        targets[id] && !missing.includes(id) && (id !== "pi" || piInstalled),
-    );
+    const to = presetTargets(preset);
     if (!to.length) {
       setError("Choose Claude, Codex, or both.");
       return;

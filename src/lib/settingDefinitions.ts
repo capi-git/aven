@@ -52,7 +52,7 @@ export const SETTINGS = {
     section: "connections",
     label: "MCP servers",
     description:
-      "Extra tools Claude and Codex can use: add, sign in to, turn off, or remove MCP servers.",
+      "Extra tools your agents can use: add, sign in to, turn off, or remove MCP servers.",
     keywords:
       "agent connections connectors apps sign in login add remove turn off disable hide claude.ai chatgpt integration status",
   }),

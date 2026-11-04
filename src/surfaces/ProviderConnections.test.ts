@@ -809,6 +809,26 @@ describe("MCP servers page", () => {
       });
     });
 
+    it("adds a service only to providers that don't already have it", async () => {
+      claude.mockResolvedValue([
+        {
+          name: "Notion",
+          key: "claude.ai Notion",
+          state: "ready",
+          source: "claude.ai",
+          account: true,
+          toolCount: 74,
+        },
+      ]);
+      codex.mockResolvedValue([]);
+      await mount();
+      await click(button("Add server"));
+      await click(button("Notion"));
+      expect(
+        invoke.mock.calls.map(([, args]) => args.request.provider),
+      ).toEqual(["codex"]);
+    });
+
     it("opens the form for a service that needs a token", async () => {
       await mount();
       await click(button("Add server"));
