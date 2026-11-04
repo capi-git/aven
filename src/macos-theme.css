@@ -126,13 +126,16 @@
     transparent
   );
   --aven-glass-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
-  --aven-glass-overlay-opacity: 2%;
-  /* As in MonoCode's popovers: the window's own glass and the blurred scene
-     behind, not a dark fill of their own. */
+  --aven-glass-overlay-opacity: calc(
+    max(0, (var(--sidebar-opacity, 1) - 0.52) / 0.48) * 100%
+  );
+  /* The window's colour over the blurred scene, opaque enough that text behind
+     can't bleed through. The Glass slider, past its default, fills it in up to
+     solid. */
   --aven-glass-overlay: color-mix(
     in srgb,
-    var(--color-content) var(--aven-glass-overlay-opacity),
-    transparent
+    var(--color-background-base) var(--aven-glass-overlay-opacity),
+    color-mix(in srgb, var(--color-background-base) 55%, transparent)
   );
   --aven-glass-blur: blur(40px) saturate(125%);
   /* Cards resting on the workspace: a faint lift of the content color over
@@ -922,14 +925,41 @@ html:not(.theme-light)
 
 /* Menus, panels and sheets are the window's own glass, as MonoCode's are, with
    soft cards inside. Reduced transparency and more contrast make the token solid
-   and turn the blur off. */
+   and turn the blur off.
+
+   The blur sits on its own layer beside the content, as MonoCode's GlassBackdrop
+   does. On the element itself, WebKit drops it whenever the content repaints
+   (hovering a row, scrolling) and whatever is behind bleeds through the text. */
+html:not(.theme-light) :is(.popover-backdrop, .aven-popover-panel-backdrop) {
+  background: var(--aven-tone), var(--aven-glass-overlay);
+  border-color: var(--aven-glass-overlay-edge);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+:where(
+  html:not(.theme-light)
+    :is(
+      .aven-glass-overlay,
+      .aven-sheet,
+      .modal-panel[role="dialog"],
+      .workspace-action-dialog,
+      .settings-search-results,
+      .workspace-theme-popover,
+      .helm-dialog-frame,
+      .helm-say,
+      .aven-split-tip,
+      .aven-tour-popover,
+      .browser-actions-menu,
+      .discussion-float,
+      .cm-tooltip
+    )
+) {
+  position: relative;
+}
 html:not(.theme-light)
   :is(
     .aven-glass-overlay,
     .aven-sheet,
-    .popover-backdrop,
-    .aven-popover-frame .popover-backdrop,
-    .aven-popover-panel-backdrop,
     .modal-panel[role="dialog"],
     .workspace-action-dialog,
     .settings-search-results,
@@ -942,8 +972,35 @@ html:not(.theme-light)
     .discussion-float,
     .cm-tooltip
   ) {
-  background: var(--aven-glass-overlay);
+  isolation: isolate;
+  background: transparent;
   border-color: var(--aven-glass-overlay-edge);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.theme-light)
+  :is(
+    .aven-glass-overlay,
+    .aven-sheet,
+    .modal-panel[role="dialog"],
+    .workspace-action-dialog,
+    .settings-search-results,
+    .workspace-theme-popover,
+    .helm-dialog-frame,
+    .helm-say,
+    .aven-split-tip,
+    .aven-tour-popover,
+    .browser-actions-menu,
+    .discussion-float,
+    .cm-tooltip
+  )::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--aven-tone), var(--aven-glass-overlay);
   -webkit-backdrop-filter: var(--aven-glass-blur);
   backdrop-filter: var(--aven-glass-blur);
 }

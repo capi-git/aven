@@ -353,6 +353,14 @@ export const SETTINGS = {
       "Light mode always uses a solid window. Glass applies in dark mode.",
     nativeGlass: true,
   }),
+  brightness: defineSetting({
+    section: "appearance",
+    label: "Brightness",
+    description: "Make dark mode lighter or darker.",
+    keywords: "dark mode light lighter darker shade tone contrast",
+    rowDescription: "Make dark mode lighter or darker.",
+    disabledDescription: "Light mode has one brightness.",
+  }),
   reduceMotion: defineSetting({
     ...defineStoredSetting<boolean>({
       key: "aven.reduceMotion",

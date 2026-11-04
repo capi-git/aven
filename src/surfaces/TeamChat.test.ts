@@ -386,14 +386,14 @@ describe("the team chat", () => {
       ...container.querySelectorAll<HTMLButtonElement>("[data-team-tab]"),
     ];
     expect(tabs.map((item) => item.textContent)).toEqual([
+      "Board",
       "Overview",
       "Teammates",
-      "Board",
       "Notes",
       "Schedule",
       "Changes",
     ]);
-    await act(async () => tabs[2]!.click());
+    await act(async () => tabs[0]!.click());
     expect(chat()).not.toBeNull();
     expect(container.querySelector("[data-team-board]")).not.toBeNull();
     expect(teamView(PROJECT)).toBe("board");

@@ -1003,9 +1003,12 @@ html.is-mac.has-native-glass:not(.theme-light)
   .personal-shell
   .personal-sidebar-slot[data-floating="true"]
   > .personal-sidebar.sidebar-glass.personal-navigation {
-  /* MonoCode's hover sidebar (MIT): a faint wash over the native frost that
-     blurs the work behind it (floating_sidebar.mm). */
-  --personal-navigation-overlay: hsl(0 0% 92% / 0.05);
+  /* The same frame as the pinned sidebar (personal-shell.css), nearly opaque so
+     nothing behind bleeds through, over the native frost (floating_sidebar.mm). */
+  --personal-navigation-overlay:
+    var(--aven-tone),
+    linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05)),
+    color-mix(in srgb, #0d0d0d 96%, transparent);
 }
 /* As in the mock: the name alone. */
 .personal-shell

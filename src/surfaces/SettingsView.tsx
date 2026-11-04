@@ -1078,6 +1078,11 @@ function useAppearanceSettings() {
     [profileId],
   );
 
+  const onBrightness = useCallback(
+    (brightness: number) => saveWorkspaceTheme(profileId, { brightness }),
+    [profileId],
+  );
+
   const onAccentPreset = useCallback(
     (preset: AccentPreset) => saveWorkspaceAccentPreset(profileId, preset),
     [profileId],
@@ -1166,6 +1171,7 @@ function useAppearanceSettings() {
     accent,
     accentPreset,
     glassLevel,
+    brightness: theme.brightness ?? 0,
     chatBackgroundPath,
     chatBackgroundOpacity,
     chatBackgroundBusy,
@@ -1173,6 +1179,7 @@ function useAppearanceSettings() {
     uiScale,
     onThemePreference,
     onGlass,
+    onBrightness,
     onAccentPreset,
     onCustomAccent,
     onPreviewAccent,
@@ -1261,6 +1268,28 @@ function AppearancePage({
             />
           </Row>
         )}
+        <Row
+          {...SETTINGS.brightness.row}
+          description={
+            glassDisabled
+              ? SETTINGS.brightness.disabledDescription
+              : SETTINGS.brightness.row.description
+          }
+        >
+          <Slider
+            label={SETTINGS.brightness.label}
+            value={appearance.brightness}
+            display={
+              appearance.brightness === 0
+                ? "Default"
+                : `${appearance.brightness > 0 ? "+" : ""}${appearance.brightness}`
+            }
+            min={-100}
+            max={100}
+            onChange={appearance.onBrightness}
+            disabled={glassDisabled}
+          />
+        </Row>
         <ReduceMotionRow />
       </SettingsGroup>
       <SettingsGroup

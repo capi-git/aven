@@ -4344,10 +4344,6 @@ function TitleBarComponent({
                   }
                 >
                   <Globe className="size-3.5" strokeWidth={1.75} />
-                  <Plus
-                    className="personal-title-browser-plus absolute size-2"
-                    strokeWidth={1.75}
-                  />
                 </button>
               ) : null}
               {onOpenBoard && !titleRow ? (

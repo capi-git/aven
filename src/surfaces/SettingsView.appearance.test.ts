@@ -42,6 +42,7 @@ const APPEARANCE_CONTROLS = [
   "Accent colour",
   "Interface scale",
   "Glass",
+  "Brightness",
   "Reduce motion",
   "Chat background",
   "Use for all workspaces",
@@ -166,7 +167,7 @@ describe("workspace appearance settings", () => {
       )
       ?.getAttribute("aria-label");
 
-  it("shows exactly its seven controls without scope chips, the header pill or the dark/light note", async () => {
+  it("shows exactly its eight controls without scope chips, the header pill or the dark/light note", async () => {
     await mount();
     const controls = Array.from(
       container.querySelectorAll<HTMLElement>(

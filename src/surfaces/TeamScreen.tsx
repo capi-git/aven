@@ -43,9 +43,9 @@ import "./TeamScreen.css";
  * in the team's copy until you press Apply.
  */
 const TABS: readonly { id: TeamView; label: string }[] = [
+  { id: "board", label: "Board" },
   { id: "overview", label: "Overview" },
   { id: "teammates", label: "Teammates" },
-  { id: "board", label: "Board" },
   { id: "notes", label: "Notes" },
   { id: "schedule", label: "Schedule" },
   { id: "changes", label: "Changes" },

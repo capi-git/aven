@@ -407,12 +407,37 @@ html.theme-light .personal-shell {
   right: 22px;
 }
 .personal-shell .personal-title-browser-new {
-  width: 32px;
-  margin-left: 2px;
+  width: 28px;
 }
-.personal-shell .personal-title-browser-plus {
-  left: 20px;
-  top: calc(50% - 9px);
+/* The strip's tools: whole-pixel 16pt marks with a thin line and steady
+   contrast. Smaller and fainter, they read as a smudge. */
+.personal-shell
+  :is(
+    .personal-title-session-new,
+    .personal-title-browser-new,
+    .personal-title-board-open
+  ) {
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
+}
+.personal-shell
+  :is(
+    .personal-title-session-new,
+    .personal-title-browser-new,
+    .personal-title-board-open
+  ):hover {
+  color: var(--color-content);
+}
+.personal-shell
+  :is(
+    .personal-title-session-new,
+    .personal-title-browser-new,
+    .personal-title-board-open
+  )
+  > svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+  shape-rendering: geometricPrecision;
 }
 .personal-shell .personal-title-board-open {
   width: 28px;
@@ -439,11 +464,6 @@ html.theme-light .personal-shell {
   width: 28px;
   min-width: 28px;
   margin-left: 0;
-}
-.personal-shell
-  .personal-titlebar[data-pane-local="true"]
-  .personal-title-browser-plus {
-  left: 18px;
 }
 
 .aven-surface-tabs {

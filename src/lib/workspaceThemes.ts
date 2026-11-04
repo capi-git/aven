@@ -64,6 +64,8 @@ export type WorkspaceTheme = {
   sidebarTint?: ColorChoice;
   /** How strong the sidebar wash is, in percent. */
   sidebarTintStrength?: number;
+  /** Dark mode, from darkest (-100) to lightest (100); absent is 0. */
+  brightness?: number;
 };
 
 export const SIDEBAR_TINT_STRENGTH_MIN = 5;
@@ -444,6 +446,10 @@ export function normalizeWorkspaceTheme(
       typeof candidate.bodyGlass === "boolean"
         ? candidate.bodyGlass
         : fallback.bodyGlass,
+    ...(typeof candidate.brightness === "number" &&
+    Number.isFinite(candidate.brightness)
+      ? { brightness: Math.max(-100, Math.min(100, candidate.brightness)) }
+      : {}),
     matchPanels:
       typeof candidate.matchPanels === "boolean"
         ? candidate.matchPanels
@@ -717,6 +723,12 @@ export function useActivateWorkspaceTheme(profileId: string) {
     applyThemeColors(theme.colors);
     applySidebarOpacity(theme.opacity);
     applyBodyGlass(theme.bodyGlass);
+    if (theme.brightness)
+      document.documentElement.style.setProperty(
+        "--aven-brightness",
+        String(theme.brightness / 100),
+      );
+    else document.documentElement.style.removeProperty("--aven-brightness");
     // Sidebars always share the workspace surface; a saved `matchPanels`
     // from before that became the only look is kept but no longer read.
     document.documentElement.classList.add("match-workspace-panels");
@@ -737,6 +749,7 @@ export function useActivateWorkspaceTheme(profileId: string) {
     theme.opacity,
     theme.blur,
     theme.bodyGlass,
+    theme.brightness,
     theme.sidebarTint,
     theme.sidebarTintStrength,
     theme.colors?.dark?.background,
