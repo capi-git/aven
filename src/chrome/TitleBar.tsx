@@ -4328,6 +4328,13 @@ function TitleBarComponent({
                   +{paneHidden.length}
                 </button>
               ) : null}
+              {!titleRow && !track ? (
+                <span
+                  className="personal-title-strip-spring"
+                  data-tauri-drag-region
+                  aria-hidden
+                />
+              ) : null}
               {paneLocal && !titleRow ? (
                 <button
                   type="button"
