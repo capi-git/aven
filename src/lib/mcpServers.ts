@@ -4,6 +4,8 @@
  * side validates every field and builds the exact command.
  */
 import { invoke } from "@tauri-apps/api/core";
+import { errorText } from "./errors";
+import { scrubSecrets } from "./scrubSecrets";
 
 export type McpProvider = "claude" | "codex";
 
@@ -41,11 +43,37 @@ export type McpRequest =
   | { action: "login"; provider: McpProvider; name: string }
   | { action: "logout"; provider: McpProvider; name: string };
 
-export function manageMcpServer(
+/** The values in a request that must never come back in an error. */
+export function mcpRequestSecrets(request: McpRequest): string[] {
+  if (request.action !== "add") return [];
+  const { server } = request;
+  if (server.type === "stdio") return Object.values(server.env);
+  const headers = Object.values(server.headers).flatMap((value) => [
+    value,
+    // The token alone, from "Bearer abc".
+    value.split(/\s+/).at(-1) ?? "",
+  ]);
+  try {
+    const url = new URL(server.url);
+    return [
+      ...headers,
+      ...url.searchParams.values(),
+      ...(url.password ? [url.password] : []),
+    ];
+  } catch {
+    return headers;
+  }
+}
+
+export async function manageMcpServer(
   request: McpRequest,
   cwd: string,
 ): Promise<string> {
-  return invoke<string>("provider_mcp", { request, cwd: cwd || null });
+  try {
+    return await invoke<string>("provider_mcp", { request, cwd: cwd || null });
+  } catch (error) {
+    throw new Error(scrubSecrets(errorText(error), mcpRequestSecrets(request)));
+  }
 }
 
 export const MCP_NAME_RE = /^[A-Za-z0-9_.-]{1,64}$/;
@@ -88,16 +116,19 @@ export function splitArguments(line: string): string[] {
   return args;
 }
 
-/** One `KEY=value` per line; blank lines are ignored. */
+/**
+ * One `KEY=value` per line; blank lines are ignored. Errors give the line's
+ * number, not its text: it may hold a secret in a field that hides it.
+ */
 export function parseEnvLines(text: string): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
+  for (const [index, raw] of text.split("\n").entries()) {
     const line = raw.trim();
     if (!line) continue;
     const at = line.indexOf("=");
     const key = at > 0 ? line.slice(0, at).trim() : "";
     if (!ENV_KEY_RE.test(key))
-      throw new Error(`“${line}” should look like NAME=value.`);
+      throw new Error(`Line ${index + 1} should look like NAME=value.`);
     env[key] = line.slice(at + 1);
   }
   return env;
@@ -106,13 +137,13 @@ export function parseEnvLines(text: string): Record<string, string> {
 /** One `Name: value` per line; blank lines are ignored. */
 export function parseHeaderLines(text: string): Record<string, string> {
   const headers: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
+  for (const [index, raw] of text.split("\n").entries()) {
     const line = raw.trim();
     if (!line) continue;
     const at = line.indexOf(":");
     const name = at > 0 ? line.slice(0, at).trim() : "";
     if (!HEADER_NAME_RE.test(name))
-      throw new Error(`“${line}” should look like Header-Name: value.`);
+      throw new Error(`Line ${index + 1} should look like Header-Name: value.`);
     headers[name] = line.slice(at + 1).trim();
   }
   return headers;

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Popover } from "../chrome/Popover";
 import { ChevronRight, MoreHorizontal, Plus, RefreshCw } from "../chrome/icons";
+import { errorText } from "../lib/errors";
 import { homeDir } from "../lib/fs";
 import { harnessDescriptor } from "../lib/harness/descriptors";
 import * as connectionLists from "../lib/harness/providerConnections";
@@ -34,6 +35,7 @@ import {
   type McpInventory,
   type McpRow,
 } from "../lib/mcpOverview";
+import { scrubSecrets } from "../lib/scrubSecrets";
 import { SETTINGS } from "../lib/settings";
 import { useSetting } from "../hooks/useSetting";
 import { Segmented, Select } from "./SettingsControls";
@@ -89,9 +91,6 @@ function cached(key: string): Inventory | undefined {
 }
 
 type Notice = { tone: "ok" | "error"; text: string } | null;
-
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 function joinAnd(items: string[]): string {
   if (items.length <= 1) return items.join("");
@@ -275,7 +274,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       refresh(providers);
       return true;
     } catch (error) {
-      setNotice({ tone: "error", text: errorText(error) });
+      setNotice({ tone: "error", text: scrubSecrets(errorText(error)) });
       refresh(providers);
       return false;
     } finally {
@@ -974,7 +973,7 @@ function AddServerForm({
     try {
       for (const provider of providers) draftToSpec(draft, provider);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
       return;
     }
     void onAdd(draft, providers, scope);
@@ -1008,6 +1007,57 @@ function AddServerForm({
         <Segmented
           label="Server type"
           value={draft.kind}
+/**
+ * A box of `NAME=value` or `Header: value` lines that can hold secrets. It is
+ * hidden once there is text to hide, as a password field would be, and can be
+ * shown to check a line.
+ */
+function SecretLines({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="provider-field">
+      <span>
+        {label}
+        {value ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="mcp-link"
+              aria-label={`${shown ? "Hide" : "Show"} ${label}`}
+              onClick={() => setShown((prev) => !prev)}
+            >
+              {shown ? "Hide" : "Show"}
+            </button>
+          </>
+        ) : null}
+      </span>
+      <textarea
+        aria-label={label}
+        value={value}
+        data-masked={(value && !shown) || undefined}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        rows={2}
+        autoComplete="off"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+    </div>
+  );
+}
+
           options={[
             { value: "stdio", label: "Command on this Mac" },
             { value: "http", label: "Remote URL" },
@@ -1037,16 +1087,12 @@ function AddServerForm({
               spellCheck={false}
             />
           </label>
-          <label className="provider-field">
-            <span>Environment</span>
-            <textarea
-              value={draft.env}
-              onChange={(event) => set({ env: event.target.value })}
-              placeholder={"GITHUB_TOKEN=…\nOne NAME=value per line"}
-              rows={2}
-              spellCheck={false}
-            />
-          </label>
+          <SecretLines
+            label="Environment"
+            value={draft.env}
+            onChange={(env) => set({ env })}
+            placeholder={"GITHUB_TOKEN=…\nOne NAME=value per line"}
+          />
         </>
       ) : (
         <>
@@ -1062,16 +1108,12 @@ function AddServerForm({
             />
           </label>
           {chosen.claude ? (
-            <label className="provider-field">
-              <span>Claude headers</span>
-              <textarea
-                value={draft.headers}
-                onChange={(event) => set({ headers: event.target.value })}
-                placeholder={"Optional. Authorization: Bearer …\nOne per line"}
-                rows={2}
-                spellCheck={false}
-              />
-            </label>
+            <SecretLines
+              label="Claude headers"
+              value={draft.headers}
+              onChange={(headers) => set({ headers })}
+              placeholder={"Optional. Authorization: Bearer …\nOne per line"}
+            />
           ) : null}
           {chosen.codex ? (
             <label className="provider-field">
@@ -1159,3 +1201,9 @@ function AddServerForm({
     </form>
   );
 }
+          {chosen.codex && draft.bearerTokenEnvVar.trim() ? (
+            <p className="skills-note" data-mcp-token-note>
+              Aven opened from the Dock can’t pass on shell variables, so this
+              token probably won’t reach Codex. Leave it empty to sign in.
+            </p>
+          ) : null}

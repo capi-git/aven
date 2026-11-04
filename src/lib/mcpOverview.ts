@@ -9,6 +9,7 @@ import type {
   ProviderConnection,
 } from "./harness/providerConnections";
 import { defineStoredSetting } from "./settingsRegistry";
+import { scrubSecrets } from "./scrubSecrets";
 import type { McpProvider } from "./mcpServers";
 
 export type McpInventory =
@@ -509,11 +510,10 @@ function rowFor(
       : undefined;
   const details = failing
     .filter((entry) => entry.connection.detail)
-    .map((entry) =>
-      several
-        ? `${MCP_AGENT_LABEL[entry.provider]}: ${entry.connection.detail}`
-        : entry.connection.detail!,
-    );
+    .map((entry) => {
+      const detail = scrubSecrets(entry.connection.detail!);
+      return several ? `${MCP_AGENT_LABEL[entry.provider]}: ${detail}` : detail;
+    });
   // Which one the copy's own agent uses.
   const used = copies.length
     ? on.find(
@@ -598,7 +598,7 @@ export function buildMcpOverview(
           kind: "unknown",
           text: `Aven couldn’t start ${MCP_AGENT_LABEL[provider]} to check its servers.`,
         },
-        details: inventory.message ? [inventory.message] : [],
+        details: inventory.message ? [scrubSecrets(inventory.message)] : [],
         primary: { kind: "check", label: "Check again", targets: [] },
         more: [],
         agent: provider,

@@ -413,6 +413,10 @@
 .provider-field textarea:focus-visible {
   border-color: color-mix(in srgb, var(--color-content) 30%, transparent);
 }
+/* WebKit and Chromium: a text area has no password type. */
+.provider-field textarea[data-masked] {
+  -webkit-text-security: disc;
+}
 .provider-field .settings-segmented {
   justify-self: start;
 }
