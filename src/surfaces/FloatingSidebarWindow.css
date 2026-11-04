@@ -25,3 +25,25 @@ html.aven-floating-sidebar-overlay
   > .personal-sidebar {
   box-shadow: none;
 }
+
+/* Native code cuts the work away behind the card, leaving the window's raw
+   glass in the card's column. Paint that column as the frame beside it is
+   painted (personal-shell.css), so the gap and the card match the rest of the
+   window. It ends at the card's right edge, the distance native code slides
+   the overlay by, so nothing shows while the card is closed. */
+html.aven-floating-sidebar-overlay .personal-shell-body::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 224px;
+  background:
+    linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05)),
+    color-mix(in srgb, #0d0d0d 62%, transparent);
+  pointer-events: none;
+}
+html.aven-floating-sidebar-overlay.is-mac.has-native-glass.has-native-glass-tint:not(
+    .theme-light
+  )
+  .personal-shell-body::before {
+  background: linear-gradient(hsl(0 0% 92% / 0.05), hsl(0 0% 92% / 0.05));
+}
