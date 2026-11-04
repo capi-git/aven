@@ -1202,7 +1202,11 @@ export async function checkTeamTalk(
           !launch.includes("sandbox=on") ||
           !launch.includes("mcp=strict") ||
           !launch.includes("hooks=off") ||
-          (copy && !launch.includes(`cwd=${copy}`))
+          // macOS spells the temp folder both with and without /private.
+          (copy &&
+            !launch
+              .replace("cwd=/private/", "cwd=/")
+              .includes(`cwd=${copy.replace(/^\/private\//, "/")}`))
         )
           throw new Error(`The ${who} ran without its rules: ${launch}`);
         if (who !== "checker" && turn.web !== false)
