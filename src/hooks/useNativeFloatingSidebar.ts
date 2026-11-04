@@ -41,7 +41,7 @@ import { requestDockHandoff } from "./usePanelDockHandoff";
 
 // The same intent delays as the DOM peek: rest on the edge briefly before
 // revealing, and a short grace on leave.
-const ENTER_DELAY = 150;
+const ENTER_DELAY = 100;
 const LEAVE_DELAY = 90;
 // Pinning from the card: the docked sidebar holds at the card's place while
 // native code removes the card above it, then glides into the dock.
@@ -309,8 +309,6 @@ export function useNativeFloatingSidebar({
     void nativeFloatingSidebar
       .workspace({
         viewport: currentViewport(),
-        coverTop: column?.top ?? 0,
-        coverBottom: column?.bottom ?? window.innerHeight,
         edgeTop: edge?.top ?? column?.top ?? 0,
         edgeBottom: edge?.bottom ?? column?.bottom ?? window.innerHeight,
         // A pin keeps the card until the docked sidebar has taken its place.

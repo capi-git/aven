@@ -1,3 +1,4 @@
+import { setTeamView } from "./teamView";
 import {
   addCrewPreset,
   addResearchIdeas,
@@ -7,6 +8,7 @@ import {
   setCrewPaused,
   setCrewQuietHours,
   turnOffCrew,
+  tellTeam,
 } from "./crewActions";
 import {
   crewAccess,
@@ -16,6 +18,7 @@ import {
   MOCKUP_DIR,
   type Crew,
   type CrewCard,
+  crewLead,
 } from "./crews";
 import { waitFor } from "./devSmoke";
 import { crewDiagnostics, type SmokeCrew } from "./devSmokeCrew";
@@ -40,6 +43,7 @@ import type { Session } from "./session";
 
 /** On a research card: the stand-in Researcher answers with findings. */
 export const SMOKE_RESEARCH_WORD = "AVEN_SMOKE_RESEARCH";
+export const SMOKE_TALK_WORD = "AVEN_SMOKE_TALK";
 /** With it, the stand-in's reply also rewrites the member's notes. */
 export const SMOKE_NOTES_WORD = "AVEN_SMOKE_NOTES";
 /** In the notes the stand-in writes. */
@@ -228,6 +232,8 @@ function workspace() {
 
 /** The project's Board on screen, if it is. */
 function boardOnScreen(project: string): HTMLElement | null {
+  // The checks read the team's cards off its Board tab, wherever it opened.
+  setTeamView(project, "board");
   return (
     [...document.querySelectorAll<HTMLElement>("[data-work-board]")].find(
       (board) =>
@@ -238,6 +244,8 @@ function boardOnScreen(project: string): HTMLElement | null {
 }
 
 async function openBoard(project: string): Promise<HTMLElement> {
+  // The checks read the team's cards off its Board tab.
+  setTeamView(project, "board");
   workspace().openCrew(project);
   return waitFor(() => boardOnScreen(project), 15_000, "the team's Board");
 }
@@ -650,7 +658,7 @@ export async function checkTeamSetup(
       .map((member) => member.role)
       .sort()
       .join();
-    if (members !== "builder,designer,researcher")
+    if (members !== "builder,designer,lead,researcher")
       throw new Error(`The team's members are ${members}`);
     // The user's idea is an ordinary idea; a suggestion waits for a tick;
     // the question and the screen are the Researcher's and the Designer's.
@@ -1136,6 +1144,86 @@ export async function checkDesigner(
 // ---------------------------------------------------------------------------
 // Access
 
+/**
+ * A message to everyone, through the app: it reaches the Lead, the Lead asks
+ * the Checker and starts a helper, each runs sandboxed in the team's copy with
+ * no web, the answers come back, and the team chat shows the Lead's line.
+ */
+export async function checkTeamTalk(
+  config: { projectPath: string; binDir: string },
+  team: SmokeTeam,
+): Promise<string> {
+  const project = await newTeamProject(config.projectPath, "team-talk");
+  try {
+    const crew = await startTeam(team, project, []);
+    if (!crewLead(crew)) throw new Error("A new team started without a Lead");
+    await openBoard(project);
+    const problem = await tellTeam(
+      project,
+      `Is it fine? ${SMOKE_TALK_WORD}`,
+      "lead",
+    );
+    if (problem) throw new Error(problem);
+    await waitFor(
+      () => {
+        failOnHold(project);
+        const current = getCrew(project);
+        return !current?.talks?.length &&
+          !current?.helpers?.length &&
+          current?.feed.filter((entry) => entry.text === "Lead got it.")
+            .length === 2
+          ? current
+          : null;
+      },
+      150_000,
+      `the Lead to hear from the Checker and its helper (${JSON.stringify(
+        getCrew(project)
+          ?.feed.map((entry) => entry.text)
+          .slice(-6),
+      )})`,
+    );
+    await waitFor(
+      () =>
+        [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].some(
+          (chat) =>
+            onScreen(chat) && chat.textContent?.includes("Lead got it."),
+        ) || null,
+      10_000,
+      "the Lead's line in the team chat",
+    );
+    const turns = (await standInTurns(team, config.binDir)) ?? [];
+    // macOS spells the temp folder both with and without /private.
+    const plain = (path: string) => path.replace(/^\/private\//, "/");
+    const copy = plain(getCrew(project)?.copy?.path ?? "");
+    for (const who of ["lead", "checker", "helper"]) {
+      // Only this team's: the log holds every team this check has run.
+      const mine = turns.filter(
+        (turn) =>
+          turn.crew === who &&
+          plain(String(turn.launch ?? "").split("cwd=")[1] ?? "") === copy,
+      );
+      if (!mine.length) throw new Error(`The stand-in logged no ${who} turn`);
+      for (const turn of mine) {
+        const launch = String(turn.launch ?? "");
+        if (
+          !launch.includes("sandbox=on") ||
+          !launch.includes("mcp=strict") ||
+          !launch.includes("hooks=off")
+        )
+          throw new Error(`The ${who} ran without its rules: ${launch}`);
+        if (who !== "checker" && turn.web !== false)
+          throw new Error(`The ${who} had the web`);
+      }
+    }
+    const left = getCrew(project);
+    return `the Lead asked the Checker and a helper, ${
+      left?.helperRuns?.count ?? 0
+    } helper run, every turn sandboxed in the team's copy`;
+  } finally {
+    await tidy(project);
+  }
+}
+
 export async function checkTeamAccess(
   get: Get,
   config: { projectPath: string },
@@ -1153,42 +1241,38 @@ export async function checkTeamAccess(
       what,
     );
   };
-  const controls = (section: HTMLElement) => {
-    const deletes = section.querySelector<HTMLButtonElement>(
-      'button[role="switch"][aria-label="Delete files in its copy"]',
+  const level = (section: HTMLElement, name: string) => {
+    const found = section.querySelector<HTMLButtonElement>(
+      `[data-crew-access-level="${name}"]`,
     );
-    const radio = (group: string, label: string) =>
-      [
-        ...(section
-          .querySelector(`[role="radiogroup"][aria-label="${group}"]`)
-          ?.querySelectorAll<HTMLButtonElement>('button[role="radio"]') ?? []),
-      ].find((button) => button.textContent?.trim() === label);
-    const noOne = radio("Who uses the web", "No one");
-    const askMe = radio("When a teammate wants anything else", "Ask me");
-    if (!deletes || !noOne || !askMe)
-      throw new Error(
-        `Access is missing ${[
-          deletes ? "" : "Delete files in its copy",
-          noOne ? "" : "No one",
-          askMe ? "" : "Ask me",
-        ]
-          .filter(Boolean)
-          .join(", ")}`,
-      );
-    return { deletes, noOne, askMe };
+    if (!found) throw new Error(`Access is missing ${name}`);
+    return found;
   };
   const checked = (button: HTMLButtonElement) =>
     button.getAttribute("aria-checked") === "true";
+  /** Web and deleting, one level deeper. */
+  const custom = async (section: HTMLElement) => {
+    const sheet = section.parentElement!;
+    [...sheet.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.includes("Customise web"))
+      ?.click();
+    const shown = await waitFor(
+      () => sheet.querySelector<HTMLElement>("[data-crew-access-custom]"),
+      5_000,
+      "web and deleting",
+    );
+    const noOne = [
+      ...shown.querySelectorAll<HTMLButtonElement>('button[role="radio"]'),
+    ].find((button) => button.textContent?.trim() === "No one");
+    if (!noOne) throw new Error("Access is missing No one");
+    return noOne;
+  };
   try {
     const section = await open("the Team sheet's Access");
-    const first = controls(section);
-    if (!checked(first.deletes) || checked(first.noOne) || checked(first.askMe))
-      throw new Error(
-        `Access starts with deletes ${checked(first.deletes)}, No one ${checked(first.noOne)}, Ask me ${checked(first.askMe)}`,
-      );
-    first.deletes.click();
-    first.noOne.click();
-    first.askMe.click();
+    if (!checked(level(section, "auto")))
+      throw new Error("Access doesn't start on Auto");
+    level(section, "ask").click();
+    (await custom(section)).click();
     await waitFor(
       () => {
         const access = crewAccess(getCrew(project) ?? { access: {} });
@@ -1199,21 +1283,17 @@ export async function checkTeamAccess(
       5_000,
       "the choices to be saved",
     );
-    const now = controls(section);
-    if (checked(now.deletes) || !checked(now.noOne) || !checked(now.askMe))
-      throw new Error(
-        `After pressing them, deletes shows ${checked(now.deletes)}, No one ${checked(now.noOne)}, Ask me ${checked(now.askMe)}`,
-      );
+    if (!checked(level(section, "ask")))
+      throw new Error("After pressing it, Ask first isn't chosen");
     await closeSheet(section, "the Team sheet");
     const reopened = await open("the Team sheet's Access again");
-    const kept = controls(reopened);
-    if (checked(kept.deletes) || !checked(kept.noOne) || !checked(kept.askMe))
-      throw new Error(
-        `Reopened, deletes shows ${checked(kept.deletes)}, No one ${checked(kept.noOne)}, Ask me ${checked(kept.askMe)}`,
-      );
+    if (!checked(level(reopened, "ask")))
+      throw new Error("Reopened, Ask first isn't chosen");
+    const noOne = await custom(reopened);
+    if (noOne.getAttribute("aria-checked") !== "true")
+      throw new Error("Reopened, the web isn't No one");
     await closeSheet(reopened, "the Team sheet");
-    const access = crewAccess(getCrew(project) ?? { access: {} });
-    return `Delete files in its copy off, web No one and Ask me stayed so after the sheet was closed and opened again (stored as ${JSON.stringify(access)})`;
+    return "Ask first and web No one stayed so after the sheet closed and reopened";
   } catch (error) {
     withDiagnostics(get, project, undefined, error);
   }

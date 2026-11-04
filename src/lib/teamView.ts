@@ -2,11 +2,19 @@ import { projectKey } from "./paths";
 import { normalizeProjectPath } from "./recents";
 
 /**
- * How each project's team screen opens: its Board or its Chat. The Board
- * unless you chose the Chat for that project; remembered in every window.
- * (The v1 key held Chat or Cards, from before the Board came back.)
+ * The tab each project's team panel shows beside its chat; remembered in
+ * every window. Overview unless you chose another. (A saved "chat" is from
+ * when the Chat was a choice of its own: it is always on screen now.)
  */
-export type TeamView = "board" | "chat";
+export const TEAM_VIEWS = [
+  "overview",
+  "teammates",
+  "board",
+  "notes",
+  "schedule",
+  "changes",
+] as const;
+export type TeamView = (typeof TEAM_VIEWS)[number];
 
 export const TEAM_VIEW_KEY = "aven.teamView.v2";
 /** Projects remembered: the most recently switched. */
@@ -36,9 +44,10 @@ function read(): Readonly<Record<string, TeamView>> {
     const saved = JSON.parse(raw ?? "{}") as unknown;
     if (saved && typeof saved === "object" && !Array.isArray(saved))
       for (const [key, value] of Object.entries(saved))
-        if (value === "board" || value === "chat") next[key] = value;
+        if (TEAM_VIEWS.includes(value as TeamView))
+          next[key] = value as TeamView;
   } catch {
-    // An unreadable entry opens every team on its Board.
+    // An unreadable entry opens every team on its Overview.
   }
   cache = next;
   return cache;
@@ -47,13 +56,13 @@ function read(): Readonly<Record<string, TeamView>> {
 const keyFor = (path: string) => projectKey(normalizeProjectPath(path));
 
 export function teamView(path: string): TeamView {
-  return read()[keyFor(path)] ?? "board";
+  return read()[keyFor(path)] ?? "overview";
 }
 
 export function setTeamView(path: string, view: TeamView) {
   const key = keyFor(path);
   const current = read();
-  if ((current[key] ?? "board") === view) return;
+  if ((current[key] ?? "overview") === view) return;
   const rest = Object.entries(current).filter(([item]) => item !== key);
   const next = Object.fromEntries([...rest, [key, view]].slice(-KEPT));
   cache = next;

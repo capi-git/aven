@@ -20,7 +20,10 @@ import {
   crewMemberName,
   crewMembers,
   defaultBuilder,
+  CREW_ACCESS_LEVELS,
   crewAccess,
+  crewAccessLevel,
+  type CrewAccessLevel,
   memberCritter,
   memberLabel,
   setCrewsAllRunsPerDay,
@@ -54,7 +57,7 @@ import {
   NumberPick,
   memberAppLine,
 } from "./crewSettingsParts";
-import { ChevronLeft, ChevronRight, ChevronUp, Plus, X } from "./icons";
+import { Check, ChevronLeft, ChevronRight, ChevronUp, Plus, X } from "./icons";
 import { Modal } from "./Modal";
 import { ProjectMark } from "./ProjectMark";
 import { TeamBuilder } from "./TeamBuilder";
@@ -542,76 +545,118 @@ function CrewBody({
  * team's own copy, in a sandbox, so this never reaches your files: only
  * Apply does.
  */
+/** Access, in the message box's words: one choice for the whole team. */
+const ACCESS_CHOICES: readonly {
+  level: CrewAccessLevel;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    level: "ask",
+    label: "Ask first",
+    hint: "Stops and waits for you on anything risky.",
+  },
+  {
+    level: "auto",
+    label: "Auto",
+    hint: "Keeps working. Risky requests get a no and it carries on.",
+  },
+  {
+    level: "full",
+    label: "Full access",
+    hint: "Never asks. Commands, deleting and the web are all open.",
+  },
+];
+
 function AccessSection({ crew }: { crew: Crew }) {
   const path = crew.path;
   const access = crewAccess(crew);
+  const level = crewAccessLevel(access);
+  const [customising, setCustomising] = useState(false);
   return (
     <Section title="Access">
-      <div data-crew-access>
-        <LimitRow
-          title="Delete files in its copy"
-          detail="Builders, in the team's copy and temp folders, without asking"
-        >
-          <Toggle
-            label="Delete files in its copy"
-            tone="neutral"
-            on={access.deletes}
-            onChange={(deletes) => setCrewAccess(path, { deletes })}
-          />
-        </LimitRow>
-        <LimitRow
-          title="Use the web"
-          detail={
-            access.web === "everyone"
-              ? "Everyone searches and reads pages, and uses Aven's browser. The Scout's ideas then wait for you, as the Researcher's always do"
-              : access.web === "builders"
-                ? "Builders and the Researcher search and read pages. All but the Scout use Aven's browser, to try the work"
-                : "No teammate searches, reads pages or uses Aven's browser"
-          }
-        >
-          <Segmented
-            label="Who uses the web"
-            className="crew-settings-access-choice"
-            value={access.web}
-            options={[
-              { value: "none", label: "No one" },
-              { value: "builders", label: "Builders" },
-              { value: "everyone", label: "Everyone" },
-            ]}
-            onChange={(web) => setCrewAccess(path, { web })}
-          />
-        </LimitRow>
-        <LimitRow
-          title="If it wants anything else"
-          detail={
-            access.others === "refuse"
-              ? "Committing, merging, sending or your own files: it's told no and keeps going"
-              : "Committing, merging, sending or your own files: it stops and waits for you"
-          }
-        >
-          <Segmented
-            label="When a teammate wants anything else"
-            className="crew-settings-access-choice"
-            value={access.others}
-            options={[
-              { value: "refuse", label: "Say no" },
-              { value: "ask", label: "Ask me" },
-            ]}
-            onChange={(others) => setCrewAccess(path, { others })}
-          />
-        </LimitRow>
+      <div data-crew-access role="radiogroup" aria-label="Access">
+        {ACCESS_CHOICES.map((choice) => (
+          <button
+            key={choice.level}
+            type="button"
+            role="radio"
+            aria-checked={level === choice.level}
+            className="crew-access-choice"
+            data-crew-access-level={choice.level}
+            onClick={() => {
+              if (level === choice.level) return;
+              // Web you customised stays, unless Full access comes or goes.
+              const next = CREW_ACCESS_LEVELS[choice.level];
+              setCrewAccess(
+                path,
+                level === "full" || choice.level === "full"
+                  ? next
+                  : { ...next, web: access.web },
+              );
+            }}
+          >
+            <span>
+              <b>{choice.label}</b>
+              <small>{choice.hint}</small>
+            </span>
+            {level === choice.level ? <Check size={14} aria-hidden /> : null}
+          </button>
+        ))}
       </div>
       <p className="bot-sheet-note" data-crew-never>
         {TEAM_ALWAYS_LINE}
       </p>
-      <p className="bot-sheet-note" data-crew-access-scope>
-        {TEAM_ACCESS_SCOPE_LINE}
-      </p>
-      <ul className="bot-sheet-notes" data-crew-access-roles>
-        {TEAM_ACCESS_ROLE_LINES.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
+      <Disclosure
+        label="Customise web and deleting"
+        open={customising}
+        onToggle={() => setCustomising(!customising)}
+      />
+      {customising ? (
+        <div data-crew-access-custom>
+          <LimitRow
+            title="Delete files in its copy"
+            detail="Builders, in the team's copy and temp folders, without asking"
+          >
+            <Toggle
+              label="Delete files in its copy"
+              tone="neutral"
+              on={access.deletes}
+              onChange={(deletes) => setCrewAccess(path, { deletes })}
+            />
+          </LimitRow>
+          <LimitRow
+            title="Use the web"
+            detail={
+              access.web === "everyone"
+                ? "Everyone searches and reads pages, and uses Aven's browser. The Scout's ideas then wait for you, as the Researcher's always do"
+                : access.web === "builders"
+                  ? "Builders and the Researcher search and read pages. All but the Scout use Aven's browser, to try the work"
+                  : "No teammate searches, reads pages or uses Aven's browser"
+            }
+          >
+            <Segmented
+              label="Who uses the web"
+              className="crew-settings-access-choice"
+              value={access.web}
+              options={[
+                { value: "none", label: "No one" },
+                { value: "builders", label: "Builders" },
+                { value: "everyone", label: "Everyone" },
+              ]}
+              onChange={(web) => setCrewAccess(path, { web })}
+            />
+          </LimitRow>
+          <p className="bot-sheet-note" data-crew-access-scope>
+            {TEAM_ACCESS_SCOPE_LINE}
+          </p>
+          <ul className="bot-sheet-notes" data-crew-access-roles>
+            {TEAM_ACCESS_ROLE_LINES.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </Section>
   );
 }

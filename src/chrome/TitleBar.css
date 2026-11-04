@@ -407,12 +407,35 @@ html.theme-light .personal-shell {
   right: 22px;
 }
 .personal-shell .personal-title-browser-new {
-  width: 32px;
-  margin-left: 2px;
+  width: 28px;
 }
-.personal-shell .personal-title-browser-plus {
-  left: 20px;
-  top: calc(50% - 9px);
+/* Icons in the window's frame: 16pt with a thin line and steady contrast.
+   Smaller and fainter, they read as a smudge. Hover, disabled and tiny marks
+   keep their own colours and sizes. */
+.personal-shell
+  :is(
+    .workspace-status-bar,
+    .personal-titlebar,
+    .workspace-footer,
+    .personal-sidebar-footer
+  )
+  button
+  > svg.lucide:not(.size-2, .size-2\.5, .size-3) {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+  shape-rendering: geometricPrecision;
+}
+.personal-shell
+  :is(
+    .workspace-status-bar,
+    .personal-titlebar,
+    .workspace-footer,
+    .personal-sidebar-footer
+  )
+  button:not(:hover, :disabled)
+  > svg.lucide {
+  color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
 .personal-shell .personal-title-board-open {
   width: 28px;
@@ -439,11 +462,6 @@ html.theme-light .personal-shell {
   width: 28px;
   min-width: 28px;
   margin-left: 0;
-}
-.personal-shell
-  .personal-titlebar[data-pane-local="true"]
-  .personal-title-browser-plus {
-  left: 18px;
 }
 
 .aven-surface-tabs {
@@ -863,9 +881,22 @@ html.theme-light .personal-shell {
    faint fill sets it apart from the single tabs beside it; in front it takes
    the front tab's fill (the highlight lands on it) and the focused pane's
    segment sits on the raised thumb, as in a segmented control. */
+.aven-tab-strip .aven-split-entry {
+  /* A pane's segment is about a tab's width, shrinking before the strip scrolls. */
+  flex: 0 1 calc(var(--aven-split-panes, 2) * 200px);
+  width: calc(var(--aven-split-panes, 2) * 200px);
+  min-width: max(120px, calc(var(--aven-split-panes, 2) * 72px));
+  max-width: calc(var(--aven-split-panes, 2) * 224px);
+}
 .aven-tab-strip[data-tab-track] .aven-split-entry {
-  /* Room for each pane's icon before the strip scrolls. */
-  min-width: max(120px, calc(var(--aven-split-panes, 2) * 40px + 4px));
+  flex: var(--aven-split-panes, 2) 1 0;
+  width: auto;
+  min-width: max(120px, calc(var(--aven-split-panes, 2) * 72px));
+  max-width: none;
+}
+/* A pane with its own row of tabs is named there; here, its mark alone. */
+.aven-split-segment[data-named-below] .aven-split-label {
+  display: none;
 }
 .aven-split {
   position: relative;
@@ -1227,4 +1258,35 @@ html.theme-light .personal-shell {
   width: auto;
   min-width: 0;
   max-width: none;
+}
+
+/* A split's panes are named once, on the top row. A pane's own name is plain
+   words with no pill, shown only while you point at its top edge; you can still
+   drag the pane by it. */
+.personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
+  .personal-tab-strip,
+[data-pane-strip] > .aven-tab-strip {
+  opacity: 0;
+  transition: opacity var(--aven-motion-fast) ease;
+}
+.personal-titlebar[data-title-layout="lone"][data-pane-local="true"]:hover
+  .personal-tab-strip,
+[data-pane-strip]:hover > .aven-tab-strip {
+  opacity: 1;
+}
+.personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
+  .personal-tab-strip
+  .aven-tab
+  > .aven-tab-motion,
+.personal-titlebar[data-title-layout="lone"][data-pane-local="true"][data-pane-focused="true"]
+  .personal-tab-strip
+  .aven-tab[data-active="true"]
+  > .aven-tab-motion,
+[data-pane-strip] .aven-tab > .aven-tab-motion {
+  background: transparent;
+  box-shadow: none;
+}
+/* No grab lines: the whole strip still drags the pane. */
+[data-pane-strip] > .aven-tab-strip > span[aria-hidden] {
+  display: none;
 }

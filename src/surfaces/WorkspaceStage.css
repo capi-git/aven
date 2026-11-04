@@ -139,7 +139,12 @@ html.has-chat-background:not(.chat-background-empty-only)
   opacity: 0;
   transition: opacity var(--aven-motion-fast) ease;
 }
-.workspace-stage-header:is(:hover, :focus-within, [data-focused="true"])
+.workspace-stage-header:is(
+    :hover,
+    :focus-within,
+    [data-focused="true"],
+    [data-pointed="true"]
+  )
   .workspace-pane-minimize-controls {
   opacity: 1;
 }
@@ -285,6 +290,8 @@ html.has-chat-background:not(.chat-background-empty-only)
 }
 .workspace-pane-rail[data-axis="x"] .aven-pane-rail-label {
   writing-mode: vertical-rl;
+  /* Sideways type renders softer: a heavier weight keeps it crisp. */
+  font-weight: 500;
 }
 .aven-pane-rail-critter {
   display: grid;
@@ -425,6 +432,13 @@ html.has-chat-background:not(.chat-background-empty-only)
 .workspace-stage-drop-hint {
   visibility: hidden;
 }
+.workspace-stage-hint-layer {
+  position: absolute;
+  inset: 0;
+  contain: strict;
+  pointer-events: none;
+  visibility: hidden;
+}
 /* One preview for the whole stage, so it glides between zones and panes. */
 .workspace-stage-drop-preview {
   left: 0;
@@ -444,4 +458,32 @@ html.has-chat-background:not(.chat-background-empty-only)
   background: var(--aven-drop-line);
   border-radius: 2px;
   pointer-events: none;
+}
+
+/* Between panes at rest, a very faint line says they are split; it strengthens
+   as you point at it or drag it. */
+.workspace-stage-sash:not(:hover, :active, :focus-visible)::after {
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+.aven-pane-seam:not(:hover, :active) {
+  background: color-mix(in srgb, var(--color-content) 5%, transparent);
+}
+
+/* Folding or opening a pane during a drag: panes glide to their new places. */
+.workspace-stage[data-folding="true"]
+  :is(
+    .workspace-stage-surface,
+    .workspace-stage-header,
+    .workspace-stage-sash,
+    .workspace-pane-rail
+  ) {
+  transition-property: left, top, width, height;
+  transition-duration: calc(var(--aven-motion-base) * 1.4);
+  transition-timing-function: var(--aven-ease-spring);
+}
+
+/* Several empty panes: only the one you're in says what to do. */
+.workspace-stage-surface[data-focused="false"] .personal-empty-session-heading,
+.workspace-stage-surface[data-focused="false"] .empty-session .composer-helm {
+  visibility: hidden;
 }

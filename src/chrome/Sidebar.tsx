@@ -1187,7 +1187,7 @@ function SidebarComponent({
             aria-label={runningLabel}
           />
         ) : (
-          <span className="personal-task-indent" />
+          <HarnessIcon harness={session.harness} className="size-3.5" />
         )}
       </span>
     );
@@ -1202,7 +1202,7 @@ function SidebarComponent({
   /** A plain row's one-word status, if it has one. */
   const plainStatus = (sessionId: string) => {
     const word = chatStatus[sessionId];
-    return word ? (
+    return word === "needs-you" ? (
       <span className="personal-task-status">
         <ChatStatusPill word={word} holdUp={chatStatusHints[sessionId]} />
       </span>
@@ -1994,8 +1994,6 @@ function SidebarComponent({
       ) : null}
       {settingsOpen && onSelectSettingsSection && onCloseSettings ? (
         <div className="personal-settings-navigation flex min-h-0 flex-1 flex-col">
-          {profileHeader}
-          <p className="personal-sidebar-section-label">Settings</p>
           <SettingsNav
             section={settingsSection}
             onSelect={onSelectSettingsSection}
@@ -2467,7 +2465,7 @@ function SidebarComponent({
         onDismissUpdate={onDismissUpdate}
       />
       <div className="personal-sidebar-footer">
-        {open ? (
+        {open && !settingsOpen ? (
           <PersonalWorkspaceSwitcher
             profiles={profiles}
             activeProfileId={activeProfileId}
@@ -2587,6 +2585,16 @@ function SidebarComponent({
       />
     </aside>
   );
+
+  // The top row's tabs start where the work does, past a pinned sidebar.
+  const dockedWidth = floating ? null : resize.width;
+  useLayoutEffect(() => {
+    if (dockedWidth == null) return;
+    document.documentElement.style.setProperty(
+      "--aven-sidebar-width",
+      `${dockedWidth}px`,
+    );
+  }, [dockedWidth]);
 
   return (
     <div
@@ -2923,7 +2931,6 @@ function SessionCard({
   isActive,
   isSelected,
   busy,
-  done,
   needsApproval,
   dropTarget,
   dropEdge,
@@ -2994,48 +3001,41 @@ function SessionCard({
     ? "text-[color:var(--aven-needs-you)]"
     : busy
       ? "text-accent"
-      : done
-        ? "text-emerald-400"
-        : "text-content/45";
+      : "text-content/45";
+  // A row names only what needs you; anything else keeps the list quiet.
   const word = useContext(ChatStatuses)[session.id];
   const holdUp = useContext(ChatStatusHints)[session.id];
-  const status = word ? (
-    <span className="personal-task-status flex shrink-0 items-center">
-      <ChatStatusPill word={word} holdUp={holdUp} />
-    </span>
-  ) : (
-    <span
-      className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
-      title={
-        needsApproval ? approvalHint : busy ? "Working" : done ? "Done" : time
-      }
-    >
-      {needsApproval ? (
-        <>
-          <CircleAlert className="size-3" strokeWidth={1.75} />
-          <span
-            className={
-              compact && !session.orchestration ? "sr-only" : undefined
-            }
-          >
-            {approvalLabel}
-          </span>
-        </>
-      ) : busy ? (
-        <>
-          <span className="personal-task-working-dot" aria-hidden />
-          <span className={compact ? "sr-only" : undefined}>Working</span>
-        </>
-      ) : done ? (
-        <>
-          <Check className="size-3" strokeWidth={2.25} />
-          <span className={compact ? "sr-only" : undefined}>Done</span>
-        </>
-      ) : (
-        <span>{time}</span>
-      )}
-    </span>
-  );
+  const status =
+    word === "needs-you" ? (
+      <span className="personal-task-status flex shrink-0 items-center">
+        <ChatStatusPill word={word} holdUp={holdUp} />
+      </span>
+    ) : (
+      <span
+        className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
+        title={needsApproval ? approvalHint : busy ? "Working" : time}
+      >
+        {needsApproval ? (
+          <>
+            <CircleAlert className="size-3" strokeWidth={1.75} />
+            <span
+              className={
+                compact && !session.orchestration ? "sr-only" : undefined
+              }
+            >
+              {approvalLabel}
+            </span>
+          </>
+        ) : busy ? (
+          <>
+            <span className="personal-task-working-dot" aria-hidden />
+            <span className="sr-only">Working</span>
+          </>
+        ) : (
+          <span>{time}</span>
+        )}
+      </span>
+    );
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (e.key === "F2" && onRename) {

@@ -97,6 +97,9 @@ export type OrchestrationRun = {
    */
   stalledAt?: number;
 };
+/** How long a run's save may take before it counts as failed. */
+const SAVE_TIMEOUT_MS = 20_000;
+
 export type ControlOutcome = {
   status: "completed" | "failed" | "cancelled";
   text: string;
@@ -619,10 +622,21 @@ export class Orchestrator {
     ];
     this.emit();
     this.announce(previous, run);
+    let saveTimer: ReturnType<typeof setTimeout> | undefined;
     const saved = this.saves
       .catch(() => undefined)
       .then(async () => {
-        await this.store.save(run);
+        // A save that never settles would hold every later save and wake-up,
+        // so it counts as failed: the run pauses where you can see it.
+        await Promise.race([
+          this.store.save(run),
+          new Promise<never>((_, reject) => {
+            saveTimer = setTimeout(
+              () => reject(new Error("Saving the run timed out")),
+              SAVE_TIMEOUT_MS,
+            );
+          }),
+        ]).finally(() => clearTimeout(saveTimer));
         this.persisted.set(run.leadId, run);
       });
     this.saves = saved;
@@ -1764,6 +1778,24 @@ export class Orchestrator {
       });
     this.actions = result.catch(() => undefined);
     return result;
+  }
+  /**
+   * What is kept for a lead beside its run, for the real-app check's report
+   * on a lead that was never woken: whether a wake-up is in flight, which
+   * blocked requests the lead was told about, and which agents are blocked
+   * now. Read only; it changes nothing.
+   */
+  inspect(leadId: string): {
+    waking: boolean;
+    announced: string[];
+    blocked: string[];
+  } {
+    const run = this.run(leadId);
+    return {
+      waking: this.waking.has(leadId),
+      announced: [...(this.announced.get(leadId) ?? [])],
+      blocked: run ? this.blockedKeys(run) : [],
+    };
   }
   /** `${taskId}:${requestId}` for every worker currently blocked on the lead. */
   private blockedKeys(run: OrchestrationRun): string[] {

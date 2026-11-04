@@ -225,12 +225,18 @@ export function sashOffset(sash: FitSash): number {
 }
 
 /**
- * How far below its minimum a pane must be dragged before it collapses:
- * past half its minimum, so a drag that only meant to make it small stops
- * at the minimum, and a drag toward the edge folds it.
+ * How far out a rail must be dragged before it opens: past half its minimum.
  */
 export function collapseThreshold(min: number): number {
   return Math.max(PANE_RAIL_PX + 12, min / 2);
+}
+
+/**
+ * How small a pane being dragged smaller gets before it folds: a short hold
+ * past its minimum, so a pull toward the edge doesn't stall on the way.
+ */
+function foldThreshold(min: number): number {
+  return Math.max(collapseThreshold(min), min - 48);
 }
 
 export type SashResize = {
@@ -262,7 +268,8 @@ function replaceSplit(
  * and a pane that collapses keeps its share from before for when it opens.
  * A rail across the divider from a pane that folds stays a rail unless the
  * divider was taken past its threshold too, so nudging the divider between
- * two rails opens neither; the split always keeps a pane open.
+ * two rails opens neither; the split always keeps a pane open. Pulled on past
+ * a folded pane, it folds the panes beyond as well.
  */
 export function resizeSash(
   layout: LayoutNode,
@@ -282,10 +289,16 @@ export function resizeSash(
   let before = wanted;
   let railBefore = false;
   let railAfter = false;
-  if (before < collapseThreshold(minBefore)) {
+  if (
+    before <
+    (sash.railed[i] ? collapseThreshold(minBefore) : foldThreshold(minBefore))
+  ) {
     railBefore = true;
     before = PANE_RAIL_PX;
-  } else if (pair - before < collapseThreshold(minAfter)) {
+  } else if (
+    pair - before <
+    (sash.railed[i + 1] ? collapseThreshold(minAfter) : foldThreshold(minAfter))
+  ) {
     railAfter = true;
     before = pair - PANE_RAIL_PX;
   } else {
@@ -298,14 +311,93 @@ export function resizeSash(
   }
   lengths[i] = before;
   lengths[i + 1] = pair - before;
+  // Pulled on past the pane it folded, the divider folds the next ones too,
+  // and the pane on its other side takes their room. Moving back opens them.
+  const pushed = new Set<number>();
+  const push = (at: number, receiver: number) => {
+    pushed.add(at);
+    lengths[receiver] += lengths[at] - PANE_RAIL_PX;
+    lengths[at] = PANE_RAIL_PX;
+  };
+  if (railAfter)
+    for (let at = i + 2; at < lengths.length; at++) {
+      const later = lengths.slice(at + 1).reduce((sum, n) => sum + n, 0);
+      const room = total - offset - (at - i - 1) * PANE_RAIL_PX - later;
+      if (!sash.railed[at] && room >= foldThreshold(sash.opens[at])) break;
+      push(at, i);
+    }
+  if (railBefore)
+    for (let at = i - 1; at >= 0; at--) {
+      const earlier = lengths.slice(0, at).reduce((sum, n) => sum + n, 0);
+      const room = offset - (i - at) * PANE_RAIL_PX - earlier;
+      if (!sash.railed[at] && room >= foldThreshold(sash.opens[at])) break;
+      push(at, i + 1);
+    }
   const kept = { before: false, after: false };
   const next = replaceSplit(layout, sash.splitId, (split) => {
     const othersOpen = split.children.some(
       (child, at) => at !== i && at !== i + 1 && child.rail === undefined,
     );
+    // A rail pulled open brings the rails folded beyond it along, each at its
+    // old share, leaving the divider room for them if the window has it.
+    const opened = new Set<number>();
+    const openRun = (run: number[], kept: number, keptMin: number) => {
+      const room = kept + run.reduce((sum, at) => sum + lengths[at], 0);
+      const mins = run.map((at) => sash.opens[at]);
+      const needed = mins.reduce((sum, min) => sum + min, 0);
+      if (room - needed < keptMin) return null;
+      return {
+        room,
+        needed,
+        share: (rest: number) => {
+          const shares = run.map((at) => split.children[at].rail ?? 1);
+          const spread = distributeLengths(
+            rest,
+            shares,
+            mins,
+            run.map(() => false),
+          ).lengths;
+          run.forEach((at, index) => {
+            lengths[at] = spread[index];
+            opened.add(at);
+          });
+        },
+      };
+    };
+    if (!railBefore && !railAfter && sash.railed[i + 1]) {
+      const run = [i + 1];
+      while (sash.railed[run[run.length - 1] + 1]) run.push(run.length + i + 1);
+      const fit = run.length > 1 && openRun(run, lengths[i], minBefore);
+      if (fit) {
+        lengths[i] = Math.min(
+          fit.room - fit.needed,
+          Math.max(minBefore, wanted),
+        );
+        fit.share(fit.room - lengths[i]);
+      }
+    } else if (!railBefore && !railAfter && sash.railed[i]) {
+      const run = [i];
+      while (sash.railed[run[0] - 1]) run.unshift(run[0] - 1);
+      const fit = run.length > 1 && openRun(run, lengths[i + 1], minAfter);
+      if (fit) {
+        const end = start + pair;
+        lengths[i + 1] = Math.min(
+          fit.room - fit.needed,
+          Math.max(minAfter, end - offset),
+        );
+        fit.share(fit.room - lengths[i + 1]);
+      }
+    }
     const children = split.children.map((child, at): LayoutNode => {
-      if (at !== i && at !== i + 1) return child;
-      const collapse = at === i ? railBefore : railAfter;
+      const collapse =
+        pushed.has(at) ||
+        (at === i && railBefore) ||
+        (at === i + 1 && railAfter);
+      if (opened.has(at)) {
+        const { rail: _rail, ...open } = child;
+        return open;
+      }
+      if (at !== i && at !== i + 1 && !collapse) return child;
       if (!collapse) {
         if (child.rail === undefined) return child;
         const length = at === i ? wanted : pair - wanted;
@@ -359,6 +451,10 @@ export function stepSash(
     offset = start + pair - sash.opens[i + 1];
   else if (delta < 0 && before <= sash.opens[i] + 0.5) offset = start;
   else if (delta > 0 && after <= sash.opens[i + 1] + 0.5) offset = start + pair;
+  // A key stops at the minimum; only pressing on against it folds.
+  else if (delta > 0)
+    offset = Math.min(offset, start + pair - sash.opens[i + 1]);
+  else if (delta < 0) offset = Math.max(offset, start + sash.opens[i]);
   return resizeSash(layout, sash, offset);
 }
 

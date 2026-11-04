@@ -71,15 +71,6 @@ bool low_memory=false;
 // encryption key out of the login keychain and posts no system notifications;
 // see OnBeforeCommandLineProcessing.
 bool throwaway_profile=false;
-// Window content view -> how far the workspace's floating sidebar covers live
-// pages from the workspace's left edge, in points (floating_sidebar.mm).
-std::map<void*, double> sidebar_edges;
-// Set while an instant sidebar change lays pages out: crops apply at once.
-bool sidebar_instant=false;
-double SidebarEdge(NSView *parent) {
-  auto it=sidebar_edges.find((__bridge void*)parent);
-  return it==sidebar_edges.end() ? 0 : it->second;
-}
 bool layout_trace=false;
 bool initialized = false, stopping = false, library_loaded = false;
 int live_browser_count = 0;
@@ -1021,9 +1012,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     supermono::EnsureBrowserHost(parent_,clip_view_,view,WorkspaceWebView(parent_));
     // Clip only the obscured edges. The page retains its full viewport size,
     // scroll position and live rendering while a workspace sidebar hovers.
-    // The native floating sidebar covers the page's leading edge from above.
-    const double covered=std::clamp(SidebarEdge(parent_)-x_,0.0,std::max(0.0,w_));
-    const double left=auto_resize_ ? 0 : std::max(clip_left_,covered);
+    const double left=auto_resize_ ? 0 : clip_left_;
     const double right=auto_resize_ ? 0 : clip_right_;
     const double exposed=std::max(0.0,w_-left-right);
     // A hover sidebar sliding over an unmoved page uncovers or covers its
@@ -1034,7 +1023,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         w_==applied_w_ && h_==applied_h_ && right==applied_right_ && holes_.empty();
     // A sidebar measured mid-slide reports its resting edge with sub-pixel
     // jitter. Those repeats keep the slide; the final layout applies exactly.
-    const bool holding=!sidebar_instant && clip_host.slidingLeadingEdge && same_place &&
+    const bool holding=clip_host.slidingLeadingEdge && same_place &&
         (left==0)==(slide_crop_==0) && std::abs(left-slide_crop_)<=2;
     // Lifting a slide's mask and applying the new crop must reach the screen
     // together; a separate commit would show the uncropped page for a frame.
@@ -1045,7 +1034,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     // A reversal continues from where the edge is on screen, as the card does.
     const double shown_edge=clip_host.slidingLeadingEdge && !holding ? clip_host.visibleLeadingEdge : NAN;
     if (clip_host.slidingLeadingEdge && !holding) [clip_host cancelLeadingEdgeSlide];
-    const bool sliding=holding || (!sidebar_instant && clip_host && same_place && (left==0)!=(applied_left_==0) &&
+    const bool sliding=holding || (clip_host && same_place && (left==0)!=(applied_left_==0) &&
         !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion);
     // The sidebar travels from the workspace's leading edge, webview x 0. Track
     // that edge rather than the page's own, or the page runs ahead of it.
@@ -2504,17 +2493,6 @@ CefRefPtr<Page> FindPage(const char *id) {
   auto it=pages.find(id); if (it==pages.end()) { Fail("Browser does not exist"); return nullptr; } return it->second;
 }
 } // namespace
-
-void SMSetFloatingSidebarEdge(NSView *parent,double edge,bool animated) {
-  if (!parent || !std::isfinite(edge) || !MainThread()) return;
-  void *key=(__bridge void*)parent;
-  const double previous=SidebarEdge(parent);
-  if (edge<=0) sidebar_edges.erase(key); else sidebar_edges[key]=edge;
-  if (previous==std::max(0.0,edge)) return;
-  sidebar_instant=!animated;
-  for (auto& entry:pages) if (entry.second->parent_==parent) entry.second->Layout();
-  sidebar_instant=false;
-}
 
 @implementation SMChromiumPump
 - (void)scheduleWork:(NSNumber*)delay { HandlePumpSchedule(delay.longLongValue); }

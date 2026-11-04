@@ -322,12 +322,10 @@ describe("popover stylesheet", () => {
     expect(from).not.toContain("opacity");
   });
 
-  it("gives a dark panel popover a solid frame, never a see-through one", () => {
+  it("gives a dark panel popover the window's glass", () => {
     const frame = rule(mac, ".aven-popover-panel-backdrop");
-    expect(frame).toContain(
-      "background: var(--aven-popover-panel-bg, var(--aven-popup));",
-    );
-    expect(frame).not.toContain("backdrop-filter");
+    expect(frame).toContain("background: var(--aven-glass-overlay);");
+    expect(frame).toContain("backdrop-filter: var(--aven-glass-blur);");
     const inner = rule(
       mac,
       '.aven-popover-panel-content\n  > .toolbar-panel:not([data-theme="light"])',

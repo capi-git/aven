@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { elementBeneathGrab } from "./drag";
 import { paneEdgeFromPoint, type PaneEdge } from "./layout";
 
 export type PaneDrop = {
@@ -70,7 +71,7 @@ export function paneDropFromPoint(
   y: number,
 ): { id: string; edge: PaneEdge } | null {
   if (bridge) return bridge.resolve(x, y);
-  const el = document.elementFromPoint(x, y);
+  const el = elementBeneathGrab(x, y);
   const pane = el?.closest("[data-pane-id]") as HTMLElement | null;
   const id = pane?.dataset.paneId;
   if (!id || !pane) return null;

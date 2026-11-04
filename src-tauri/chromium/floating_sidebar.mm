@@ -9,10 +9,9 @@
 
 #include "floating_sidebar.h"
 
-// The sidebar used to slide in beneath native browser pages while each page
-// slid its own edge out of the way. Those two motions ran in different
-// processes and drifted apart. Here the card, the workspace cut-out and every
-// page edge start in one Core Animation commit on the same springs.
+// The card floats over the workspace and live pages, which stay whole beneath
+// it. A frosted view under the transparent overlay blurs whatever passes
+// behind the card; both slide together on the springs below.
 
 namespace {
 
@@ -36,6 +35,26 @@ CASpringAnimation *SpringAnimation(NSString *key, const Spring &spring, double f
   return animation;
 }
 
+// .personal-navigation's corners and shadow in PersonalNavigation.css.
+constexpr double kCardRadius = 12;
+constexpr double kShadowReach = 44;
+
+NSImage *RoundedMask(double radius) {
+  const double side = radius * 2 + 1;
+  NSImage *mask = [NSImage imageWithSize:NSMakeSize(side, side)
+                                 flipped:NO
+                          drawingHandler:^BOOL(NSRect rect) {
+                            [NSColor.blackColor set];
+                            [[NSBezierPath bezierPathWithRoundedRect:rect
+                                                             xRadius:radius
+                                                             yRadius:radius] fill];
+                            return YES;
+                          }];
+  mask.capInsets = NSEdgeInsetsMake(radius, radius, radius, radius);
+  mask.resizingMode = NSImageResizingModeStretch;
+  return mask;
+}
+
 bool Finite(std::initializer_list<double> values) {
   return std::all_of(values.begin(), values.end(),
                      [](double value) { return std::isfinite(value) && std::abs(value) <= 262144; });
@@ -47,7 +66,7 @@ bool Finite(std::initializer_list<double> values) {
                      callback:(sm_sidebar_event_cb)callback
                       context:(void *)context;
 - (BOOL)attachWorkspace:(NSView *)workspace overlay:(NSView *)overlay;
-- (void)setCoverTop:(double)top bottom:(double)bottom edge:(NSRect)edge enabled:(BOOL)enabled;
+- (void)setEdge:(NSRect)edge enabled:(BOOL)enabled;
 - (void)setCard:(NSRect)card regions:(std::vector<NSRect>)regions;
 - (void)setOpen:(BOOL)open animated:(BOOL)animated;
 - (void)focusWorkspace;
@@ -61,14 +80,11 @@ bool Finite(std::initializer_list<double> values) {
   __weak NSView *_workspace;
   __weak NSView *_overlay;
   NSView *_slider;
-  // The workspace webview's mask while the card is out. Its edge band moves
-  // with the card so the window's own glass shows through, as before.
-  CALayer *_cover;
-  CALayer *_coverEdge;
+  // Frosts what lies behind the card: the work and pages stay whole beneath it.
+  NSVisualEffectView *_frost;
   id _monitor;
   NSTrackingArea *_tracking;
   // Host points, top-left origin.
-  double _coverTop, _coverBottom;
   NSRect _edge;
   NSRect _card;
   std::vector<NSRect> _regions;
@@ -95,6 +111,14 @@ bool Finite(std::initializer_list<double> values) {
   _slider.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   _slider.hidden = YES;
   [self addSubview:_slider];
+  _frost = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
+  _frost.material = NSVisualEffectMaterialHUDWindow;
+  _frost.blendingMode = NSVisualEffectBlendingModeWithinWindow;
+  _frost.state = NSVisualEffectStateActive;
+  _frost.maskImage = RoundedMask(kCardRadius);
+  // The slider isn't flipped: keep the card's distance from the window's top.
+  _frost.autoresizingMask = NSViewMinYMargin;
+  [_slider addSubview:_frost];
   return self;
 }
 
@@ -112,7 +136,7 @@ bool Finite(std::initializer_list<double> values) {
   if (overlay.superview != _slider) {
     NSView *__strong retained = overlay;
     [retained removeFromSuperview];
-    [_slider addSubview:retained];
+    [_slider addSubview:retained positioned:NSWindowAbove relativeTo:_frost];
   }
   overlay.frame = _slider.bounds;
   overlay.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -135,7 +159,6 @@ bool Finite(std::initializer_list<double> values) {
 - (void)detach {
   if (_monitor) [NSEvent removeMonitor:_monitor];
   _monitor = nil;
-  [self removeCover];
   [self removeFromSuperview];
 }
 
@@ -214,35 +237,29 @@ bool Finite(std::initializer_list<double> values) {
   if (_callback) _callback(_owner.c_str(), event, json.UTF8String, _context);
 }
 
-- (void)setCoverTop:(double)top bottom:(double)bottom edge:(NSRect)edge enabled:(BOOL)enabled {
-  _coverTop = top;
-  _coverBottom = std::max(top, bottom);
+- (void)setEdge:(NSRect)edge enabled:(BOOL)enabled {
   _edge = edge;
   if (!enabled && _open) [self setOpen:NO animated:NO];
   _enabled = enabled;
   self.hidden = !enabled;
   if (!enabled) [self pointerInside:NO edge:NO];
   else [self refreshPointer];
-  if (_cover) [self layoutCoverAt:[self coverEdge]];
 }
 
-// Where the workspace cut-out rests: the card's edge while out, else none.
-- (double)coverEdge {
-  return _open ? NSMaxX(_card) : 0;
+// How far the closed card waits past the window's edge, shadow included.
+- (double)closedDistance {
+  return NSMaxX(_card) + kShadowReach;
 }
 
 - (void)setCard:(NSRect)card regions:(std::vector<NSRect>)regions {
-  const BOOL moved = NSMaxX(card) != NSMaxX(_card);
   _card = card;
   _regions = std::move(regions);
-  [self refreshPointer];
-  if (!_open || !moved) return;
-  // A resize while out moves the cut-outs at once, like the old crop did.
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
-  [self layoutCoverAt:[self coverEdge]];
-  SMSetFloatingSidebarEdge(self.superview, NSMaxX(_card), false);
+  _frost.frame = NSMakeRect(NSMinX(card), NSHeight(_slider.bounds) - NSMaxY(card), NSWidth(card),
+                            NSHeight(card));
   [CATransaction commit];
+  [self refreshPointer];
 }
 
 // Resting on the edge reveals the card shortly. Show the overlay past the
@@ -255,7 +272,7 @@ bool Finite(std::initializer_list<double> values) {
   [CATransaction setDisableActions:YES];
   if (warm) {
     [self raiseAboveSiblings];
-    _slider.layer.sublayerTransform = CATransform3DMakeTranslation(-NSMaxX(_card), 0, 0);
+    _slider.layer.sublayerTransform = CATransform3DMakeTranslation(-[self closedDistance], 0, 0);
   }
   _slider.hidden = !warm;
   _shown = warm;
@@ -273,7 +290,7 @@ bool Finite(std::initializer_list<double> values) {
   if (open == _open) return;
   _open = open;
   const NSUInteger token = ++_token;
-  const double distance = NSMaxX(_card);
+  const double distance = [self closedDistance];
   const BOOL motion = animated && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
   const Spring &spring = open ? kOpening : kClosing;
   if (open) [self raiseAboveSiblings];
@@ -298,8 +315,6 @@ bool Finite(std::initializer_list<double> values) {
   if (motion)
     [slide addAnimation:SpringAnimation(@"sublayerTransform.translation.x", spring, from, to)
                  forKey:@"slide"];
-  [self coverFrom:from + distance to:to + distance spring:motion ? &spring : nullptr];
-  SMSetFloatingSidebarEdge(self.superview, open ? distance : 0, motion);
   [CATransaction commit];
   if (!open) [self returnFocus];
   [self refreshPointer];
@@ -312,62 +327,8 @@ bool Finite(std::initializer_list<double> values) {
   // Still on the edge: stay warm for the next reveal.
   _slider.hidden = !_pointerEdge;
   _shown = _pointerEdge;
-  [self removeCover];
   [CATransaction commit];
   [self emit:"closed" json:@"{}"];
-}
-
-// The workspace webview keeps everything outside the band the card covers;
-// inside it, only what lies right of the card's moving edge.
-- (void)coverFrom:(double)from to:(double)to spring:(const Spring *)spring {
-  NSView *workspace = _workspace;
-  if (!workspace) return;
-  workspace.wantsLayer = YES;
-  CALayer *layer = workspace.layer;
-  if (!_cover) {
-    _cover = [CALayer layer];
-    _coverEdge = [CALayer layer];
-    _coverEdge.anchorPoint = CGPointZero;
-    for (CALayer *band in @[ [CALayer layer], [CALayer layer], _coverEdge ]) {
-      band.backgroundColor = NSColor.blackColor.CGColor;
-      [_cover addSublayer:band];
-    }
-  }
-  if (_shown && layer.mask == _cover) {
-    CALayer *shown = _coverEdge.presentationLayer ?: _coverEdge;
-    from = shown.position.x;
-  }
-  [_coverEdge removeAnimationForKey:@"slide"];
-  layer.mask = _cover;
-  [self layoutCoverAt:to];
-  if (spring)
-    [_coverEdge addAnimation:SpringAnimation(@"position.x", *spring, from, to) forKey:@"slide"];
-}
-
-- (void)layoutCoverAt:(double)edge {
-  NSView *workspace = _workspace;
-  if (!workspace || !_cover) return;
-  const NSRect bounds = workspace.bounds;
-  const double width = bounds.size.width, height = bounds.size.height;
-  const double top = std::clamp(_coverTop, 0.0, height);
-  const double bottom = std::clamp(_coverBottom, top, height);
-  // Mask geometry follows the masked view's orientation.
-  const auto rect = [&](double y, double h) {
-    return workspace.flipped ? NSMakeRect(0, y, width, h) : NSMakeRect(0, height - y - h, width, h);
-  };
-  NSArray<CALayer *> *bands = _cover.sublayers;
-  _cover.frame = bounds;
-  bands[0].frame = rect(0, top);
-  bands[1].frame = rect(bottom, height - bottom);
-  const NSRect band = rect(top, bottom - top);
-  _coverEdge.bounds = CGRectMake(0, 0, width, band.size.height);
-  _coverEdge.position = CGPointMake(edge, band.origin.y);
-}
-
-- (void)removeCover {
-  NSView *workspace = _workspace;
-  [_coverEdge removeAnimationForKey:@"slide"];
-  if (workspace && workspace.layer.mask == _cover) workspace.layer.mask = nil;
 }
 
 // A closed sidebar must not keep the keyboard.
@@ -432,18 +393,16 @@ extern "C" int sm_sidebar_attach(const char *owner, void *workspace_webview, voi
 }
 
 extern "C" int sm_sidebar_workspace(const char *owner, double dpr, double viewport_width,
-                                    double viewport_height, double cover_top, double cover_bottom,
-                                    double edge_top, double edge_bottom, int enabled) {
+                                    double viewport_height, double edge_top, double edge_bottom, int enabled) {
   @autoreleasepool {
     AvenFloatingSidebarHost *host = Host(owner);
     Mapping map;
     if (!host || !MapViewport(host, dpr, viewport_width, viewport_height, map) ||
-        !Finite({cover_top, cover_bottom, edge_top, edge_bottom}))
+        !Finite({edge_top, edge_bottom}))
       return 0;
-    const NSRect cover = map.Rect(0, cover_top, 0, std::max(0.0, cover_bottom - cover_top));
     // The reveal strip matches the 10px .personal-panel-edge-left target.
     const NSRect edge = map.Rect(0, edge_top, 10, std::max(0.0, edge_bottom - edge_top));
-    [host setCoverTop:NSMinY(cover) bottom:NSMaxY(cover) edge:edge enabled:enabled != 0];
+    [host setEdge:edge enabled:enabled != 0];
     return 1;
   }
 }

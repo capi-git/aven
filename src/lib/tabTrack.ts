@@ -158,3 +158,16 @@ export function highlightKeyframes(from: TrackBox, to: TrackBox): Keyframe[] {
     { transform: `translateX(${to.x}px) scaleX(1)` },
   ];
 }
+
+/**
+ * Names that tell tabs apart: the second "New chat" reads "New chat 2". The
+ * first keeps its name, and a tab's own title is never changed.
+ */
+export function numberRepeats(names: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return names.map((name) => {
+    const count = (seen.get(name) ?? 0) + 1;
+    seen.set(name, count);
+    return count > 1 ? `${name} ${count}` : name;
+  });
+}

@@ -41,7 +41,7 @@ Both versions download signed updates in the background and install them when yo
 
 ## Get started
 
-1. Open Aven and choose the providers you want to connect in the first-launch setup, or later in **Settings → Provider setup**. Nothing is preselected or installed automatically.
+1. Open Aven and choose the providers you want to connect in the first-launch setup, or later in **Settings → Providers**. Nothing is preselected or installed automatically.
 2. For [Claude Code](https://claude.com/product/claude-code) or [Codex](https://developers.openai.com/codex/cli), review and run the install or sign-in step. Other providers link to their official guides.
 3. Choose a project folder, a provider and model, and an access mode, then start a task. See [Connect your providers](docs/PROVIDER-SETUP.md) for details.
 

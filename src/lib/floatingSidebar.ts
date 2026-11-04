@@ -8,8 +8,8 @@ import type { UpdaterSnapshot } from "./updater";
  * The hover sidebar as a native layer above live browser pages (macOS with
  * Chromium). The workspace document keeps the sidebar's state and callbacks;
  * a transparent overlay webview renders the same `Sidebar` from a snapshot
- * and calls those callbacks back by name. Native code slides the overlay and
- * cuts the workspace and the pages beneath it in one animation.
+ * and calls those callbacks back by name. Native code slides the overlay over
+ * the workspace and pages, frosting what lies behind the card.
  */
 export const FLOATING_SIDEBAR_PREFIX = "floating-sidebar-";
 
@@ -248,8 +248,6 @@ export const nativeFloatingSidebar = {
   attach: () => invoke<string>("floating_sidebar_attach"),
   workspace: (geometry: {
     viewport: FloatingSidebarViewport;
-    coverTop: number;
-    coverBottom: number;
     edgeTop: number;
     edgeBottom: number;
     enabled: boolean;

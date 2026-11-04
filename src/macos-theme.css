@@ -126,10 +126,17 @@
     transparent
   );
   --aven-glass-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
-  --aven-glass-overlay-opacity: 76%;
+  /* Opaque enough that text behind stays hidden if a blur is ever lost, and the
+     Glass slider slides it. A popup keeps its blur only while it and its
+     ancestors have no opacity, filter, mask or clip-path, even a finished
+     animation's: animate glass by scale alone. */
+  --aven-glass-overlay-opacity: min(
+    100%,
+    calc(30% + var(--sidebar-opacity, 1) * 70%)
+  );
   --aven-glass-overlay: color-mix(
     in srgb,
-    var(--aven-popup) var(--aven-glass-overlay-opacity),
+    var(--color-background-base) var(--aven-glass-overlay-opacity),
     transparent
   );
   --aven-glass-blur: blur(40px) saturate(125%);
@@ -688,12 +695,6 @@ html:not(.theme-light)
   background: transparent;
 }
 
-html:not(.theme-light)
-  :is(.personal-shell, .detached-workspace)
-  :is(.cm-tooltip, .cm-panel.cm-find) {
-  background: var(--aven-popup);
-}
-
 /* A floating sidebar/inspector sits above the workspace. Pinned panels keep
    using the window's native glass and the user's opacity preference. */
 html:not(.theme-light)
@@ -745,7 +746,10 @@ html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
     .workspace-menu-panel-window
   )
   .aven-popover-panel-backdrop {
-  background: var(--aven-popover-panel-bg, var(--aven-popup));
+  /* The window's glass: see the rule for menus and sheets below. */
+  background: var(--aven-glass-overlay);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
 }
 
 html:not(.theme-light):not(.access-panel-window):not(.usage-panel-window):not(
@@ -913,4 +917,103 @@ html:not(.theme-light)
       var(--aven-grouped-solid)
     );
   }
+}
+
+/* Menus, panels and sheets are the window's own glass, as MonoCode's are, with
+   soft cards inside. Reduced transparency and more contrast make the token solid
+   and turn the blur off.
+
+   The blur sits on its own layer beside the content, as MonoCode's GlassBackdrop
+   does. */
+html:not(.theme-light) :is(.popover-backdrop, .aven-popover-panel-backdrop) {
+  background: var(--aven-glass-overlay);
+  border-color: var(--aven-glass-overlay-edge);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
+}
+:where(
+  html:not(.theme-light)
+    :is(
+      .aven-glass-overlay,
+      .aven-sheet,
+      .modal-panel[role="dialog"],
+      .workspace-action-dialog,
+      .settings-search-results,
+      .workspace-theme-popover,
+      .helm-dialog-frame,
+      .helm-say,
+      .aven-split-tip,
+      .aven-tour-popover,
+      .browser-actions-menu,
+      .discussion-float,
+      .discussion-pill,
+      .team-mention,
+      .team-thread-new,
+      .browser-markup-toolbar,
+      .browser-markup-palette,
+      .cm-panel.cm-find,
+      .cm-tooltip
+    )
+) {
+  position: relative;
+}
+html:not(.theme-light)
+  :is(
+    .aven-glass-overlay,
+    .aven-sheet,
+    .modal-panel[role="dialog"],
+    .workspace-action-dialog,
+    .settings-search-results,
+    .workspace-theme-popover,
+    .helm-dialog-frame,
+    .helm-say,
+    .aven-split-tip,
+    .aven-tour-popover,
+    .browser-actions-menu,
+    .discussion-float,
+    .discussion-pill,
+    .team-mention,
+    .team-thread-new,
+    .browser-markup-toolbar,
+    .browser-markup-palette,
+    .cm-panel.cm-find,
+    .cm-tooltip
+  ) {
+  isolation: isolate;
+  background: transparent;
+  border-color: var(--aven-glass-overlay-edge);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.theme-light)
+  :is(
+    .aven-glass-overlay,
+    .aven-sheet,
+    .modal-panel[role="dialog"],
+    .workspace-action-dialog,
+    .settings-search-results,
+    .workspace-theme-popover,
+    .helm-dialog-frame,
+    .helm-say,
+    .aven-split-tip,
+    .aven-tour-popover,
+    .browser-actions-menu,
+    .discussion-float,
+    .discussion-pill,
+    .team-mention,
+    .team-thread-new,
+    .browser-markup-toolbar,
+    .browser-markup-palette,
+    .cm-panel.cm-find,
+    .cm-tooltip
+  )::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--aven-glass-overlay);
+  -webkit-backdrop-filter: var(--aven-glass-blur);
+  backdrop-filter: var(--aven-glass-blur);
 }

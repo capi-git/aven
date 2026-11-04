@@ -197,3 +197,64 @@ html.usage-panel-window .usage-panel {
 .usage-panel .provider-mark:not([data-provider="claude"]) {
   background: color-mix(in srgb, var(--toolbar-panel-bg) 94%, transparent);
 }
+
+/* As MonoCode's: the panel is the window's glass, each provider a heading with
+   its mark, and each limit a soft card. No rules between them. */
+.usage-panel-window {
+  padding: 11px 12px 10px;
+  border: 1px solid
+    color-mix(in srgb, var(--toolbar-panel-text) 7%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--toolbar-panel-text) 5%, transparent);
+}
+.usage-panel-window + .usage-panel-window {
+  margin-top: 8px;
+}
+.usage-panel-section {
+  padding-top: 0;
+  border-top: 0;
+}
+.usage-panel-context + .usage-panel-section {
+  margin-top: 14px;
+}
+.usage-panel-section:first-child {
+  margin-top: 2px;
+}
+.usage-panel-provider-heading .provider-marks,
+.usage-panel-provider-heading .provider-mark {
+  width: 28px;
+  height: 28px;
+}
+.usage-panel-provider-heading .provider-mark {
+  border-radius: 8px;
+}
+.usage-panel-row {
+  align-items: center;
+}
+.usage-panel-label {
+  color: var(--toolbar-panel-muted);
+  font-weight: 500;
+}
+.usage-panel-track {
+  height: 5px;
+}
+.usage-panel-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+.usage-panel-detail-row .usage-panel-detail {
+  margin-top: 0;
+  text-align: right;
+}
+.usage-panel-left {
+  flex: none;
+  color: var(--toolbar-panel-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.usage-panel-footer {
+  border-top: 0;
+}

@@ -14,7 +14,6 @@ import {
 } from "./drag";
 import {
   closeCheckPage,
-  dismissLayoutNotice,
   dragPath,
   pressPoint,
   smokeMouse,
@@ -306,15 +305,6 @@ export function dragSceneLines(
 
 /** What a surface drawn over a page is, for a failure to list. */
 export function describeOverlay(element: Element): string {
-  const words = (text: string | null | undefined) =>
-    (text ?? "").replace(/\s+/g, " ").trim();
-  if (element.matches("[data-layout-notice]")) {
-    const text = words(
-      element.querySelector(".aven-layout-notice-text")?.textContent ??
-        element.textContent,
-    );
-    return `the notice after a move${text ? ` "${text}"` : ""}`;
-  }
   const role = element.getAttribute("role");
   const name =
     typeof element.className === "string"
@@ -507,9 +497,6 @@ async function dragOverPage(
   const panes = () => JSON.stringify(get().loneTab?.panes() ?? []);
   /** The last carry, for a failure to list. */
   const last: { scene: DragScene | null } = { scene: null };
-  // A notice from before (the last zoom's page closed out of its split)
-  // would be cut out of this page: start with none up.
-  await dismissLayoutNotice();
   try {
     // A chat, then a page opened from it: both on the window's strip, the
     // page alone in front.

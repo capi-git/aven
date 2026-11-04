@@ -31,6 +31,7 @@ import {
   stopReactProfile,
   type ReactProfile,
 } from "../lib/devPerfReact";
+import { pressPoint, smokeMouse } from "../lib/devSmokeLoneTab";
 import { readLaunchReveal } from "../lib/devSmokeReveal";
 import { errorText } from "../lib/errors";
 import { resolveClaudeBinary } from "../lib/harness/child";
@@ -99,6 +100,8 @@ export type ScenarioResult = {
 };
 
 type Measure = {
+  /** The part of the scenario that starts now, for long frames to be told apart. */
+  mark: (label: string) => void;
   /** Time `action` until `until` holds and the next frame is drawn. */
   time: (
     action: () => unknown,
@@ -248,6 +251,7 @@ export async function runDevPerf(
     let error: string | undefined;
     try {
       await body({
+        mark: (label) => frames?.mark(label),
         time: async (action, until, timeoutMs = 5_000) => {
           const begin = performance.now();
           await action();
@@ -447,6 +451,102 @@ export async function runDevPerf(
       }
     });
 
+    // A hand drags at the display's rate; each event is a real mouse event in
+    // the web view, so this pays what a tab drag really pays.
+    const dragTab = async (
+      measure: Measure,
+      slot: HTMLElement,
+      to: (share: number) => { x: number; y: number },
+      steps: number,
+    ) => {
+      const from = pressPoint(slot);
+      measure.mark("lift");
+      await smokeMouse("down", from, { settle: false });
+      await smokeMouse(
+        "drag",
+        { x: from.x + 8, y: from.y + 2 },
+        { settle: false },
+      );
+      await nextPaint();
+      measure.mark("motion");
+      for (let step = 1; step <= steps; step += 1) {
+        await smokeMouse("drag", to(step / steps), { settle: false });
+        await pause(refreshMs);
+      }
+    };
+    const stripSlots = () =>
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          ".aven-tab-strip [data-motion-slot]",
+        ),
+      ].filter((slot) => slot.getBoundingClientRect().width > 0);
+
+    await scenario("dragging a tab along the strip", async (measure) => {
+      for (let round_ = 0; round_ < 4; round_ += 1) {
+        const slots = stripSlots();
+        const first = slots[0];
+        const last = slots[slots.length - 1];
+        if (!first || !last) throw new Error("No tabs to drag");
+        const start = pressPoint(first);
+        const end = pressPoint(last);
+        await dragTab(
+          measure,
+          first,
+          (share) => ({
+            x: start.x + (end.x - start.x) * share,
+            y: start.y,
+          }),
+          90,
+        );
+        // Letting go: the strip takes its new order and settles.
+        measure.mark("drop");
+        await measure.time(() => smokeMouse("up", end, { settle: false }));
+        await pause(400);
+      }
+    });
+
+    await scenario("dragging a tab over the panes", async (measure) => {
+      const stage = document.querySelector<HTMLElement>(
+        "[data-workspace-stage]",
+      );
+      if (!stage) throw new Error("No workspace stage");
+      for (let round_ = 0; round_ < 3; round_ += 1) {
+        const slots = stripSlots();
+        const slot = slots[slots.length - 1];
+        if (!slot) throw new Error("No tabs to drag");
+        const box = stage.getBoundingClientRect();
+        const start = pressPoint(slot);
+        // Through the middle and each edge of the stage, so the drop preview
+        // changes as it does by hand; back to the strip, so nothing splits.
+        const stops = [
+          start,
+          { x: box.left + box.width * 0.5, y: box.top + box.height * 0.5 },
+          { x: box.left + 24, y: box.top + box.height * 0.5 },
+          { x: box.left + box.width * 0.5, y: box.bottom - 24 },
+          { x: box.right - 24, y: box.top + box.height * 0.5 },
+          { x: box.left + box.width * 0.5, y: box.top + 24 },
+          start,
+        ];
+        await dragTab(
+          measure,
+          slot,
+          (share) => {
+            const along = share * (stops.length - 1);
+            const leg = Math.min(Math.floor(along), stops.length - 2);
+            const part = along - leg;
+            return {
+              x: stops[leg].x + (stops[leg + 1].x - stops[leg].x) * part,
+              y: stops[leg].y + (stops[leg + 1].y - stops[leg].y) * part,
+            };
+          },
+          150,
+        );
+        measure.mark("drop");
+        await measure.time(() => smokeMouse("up", start, { settle: false }));
+        await pause(400);
+      }
+    });
+
     await scenario("sidebar show and hide", async (measure) => {
       for (let index = 0; index < 16; index += 1) {
         const before = get().sidebarOpen;
@@ -491,6 +591,20 @@ export async function runDevPerf(
       await report("show sidebar", () => pressShortcut("b"));
       await report("switch chat tab", () => pressShortcut("2"));
       await report("switch chat tab back", () => pressShortcut("1"));
+      const slots = stripSlots();
+      if (slots.length > 1) {
+        const from = pressPoint(slots[0]);
+        const to = pressPoint(slots[slots.length - 1]);
+        await dragTab(
+          { mark: () => undefined, time: async () => 0 },
+          slots[0],
+          (share) => ({ x: from.x + (to.x - from.x) * share, y: from.y }),
+          40,
+        );
+        await report("drop a tab", () =>
+          smokeMouse("up", to, { settle: false }),
+        );
+      }
     }
 
     const { openWebLink } = get();
@@ -544,6 +658,56 @@ export async function runDevPerf(
         replies(id) + 1,
       );
     });
+
+    // After everything else, because they change the layout for good.
+    const stageBox = () =>
+      document
+        .querySelector<HTMLElement>("[data-workspace-stage]")
+        ?.getBoundingClientRect();
+    const dropOnRightEdge = async (measure: Measure, slot: HTMLElement) => {
+      const box = stageBox();
+      if (!box) throw new Error("No workspace stage");
+      const start = pressPoint(slot);
+      const end = {
+        x: box.right - 24,
+        y: box.top + box.height * 0.5,
+      };
+      await dragTab(
+        measure,
+        slot,
+        (share) => ({
+          x: start.x + (end.x - start.x) * share,
+          y: start.y + (end.y - start.y) * share,
+        }),
+        60,
+      );
+      measure.mark("drop");
+      await measure.time(() => smokeMouse("up", end, { settle: false }));
+      await pause(600);
+    };
+    await scenario("dropping a tab to make a split", async (measure) => {
+      for (let round_ = 0; round_ < 2; round_ += 1) {
+        pressShortcut(String(round_ + 1));
+        await pause(300);
+        const slots = stripSlots();
+        const slot = slots[slots.length - 1];
+        if (!slot) throw new Error("No tabs to drag");
+        await dropOnRightEdge(measure, slot);
+      }
+    });
+    if (settings.pageUrl && openWebLink) {
+      await scenario("dropping a tab beside a web page", async (measure) => {
+        pressShortcut("9");
+        await pause(1_000);
+        if (!document.querySelector("[data-browser-pane]"))
+          throw new Error("No web page in front");
+        const slots = stripSlots();
+        const slot = slots[0];
+        if (!slot) throw new Error("No tabs to drag");
+        await dropOnRightEdge(measure, slot);
+        await pause(1_000);
+      });
+    }
   } catch (error) {
     steps.push({
       name: "speed test setup",

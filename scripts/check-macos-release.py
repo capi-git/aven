@@ -87,6 +87,9 @@ def check_release(config, app=None):
                        "Passed." if accepted else "Gatekeeper did not report a notarized Developer ID app; downloads would show the unverified-developer warning.")
             except OSError:
                 record("Gatekeeper accepts notarized app", False, "The macOS Gatekeeper assessment tool is unavailable.")
+            record("Mac app icon draws one tile", info.get("CFBundleIconName") == "AppIcon"
+                   and (app / "Contents/Resources/Assets.car").is_file(),
+                   "macOS 26 and later put an icon without Assets.car inside a tile of their own, so it shows a tile within a tile.")
             record("Bundled Chromium runtime", (app / "Contents/Frameworks/Chromium Embedded Framework.framework").exists(),
                    "A plain Tauri bundle does not include Aven's browser runtime.")
     else:

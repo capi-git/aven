@@ -12,7 +12,7 @@ import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
 import { SEARCH_KEYS } from "./ProfileSidebarHeader";
 import { IS_MAC } from "../lib/platform";
-import type { SettingsSectionId } from "../lib/settings";
+import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
@@ -398,13 +398,11 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   onToggleSidebar,
   sidebarOpen,
   navigationInSidebar = false,
-  onSearch,
   onNewBrowser,
   onGoBack,
   onGoForward,
   canGoBack,
   canGoForward,
-  onHome,
   homeOpen,
   onToggleInspector,
   inspectorOpen,
@@ -445,42 +443,40 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         <WorkspaceNavigation
           onToggleSidebar={onToggleSidebar}
           sidebarOpen={sidebarOpen}
-          // The pinned sidebar has Search and Home as rows (Home is the
-          // workspace's own row), so the toolbar keeps them only while the
-          // sidebar is hidden. Home has its own Open browser.
-          onSearch={sidebarOpen ? undefined : onSearch}
+          // Search and Home are the sidebar's, one hover away.
           onNewBrowser={homeOpen ? undefined : onNewBrowser}
           onGoBack={onGoBack}
           onGoForward={onGoForward}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
-          onHome={sidebarOpen ? undefined : onHome}
           homeOpen={homeOpen}
         />
       ) : null}
-      {/* Activity sits with navigation on the left in every layout. */}
-      <button
-        ref={queueAnchor}
-        type="button"
-        className="workspace-status-queue workspace-status-task"
-        data-tauri-drag-region="false"
-        data-tour="activity"
-        aria-label={`Activity: ${summary.label}${unreadActivity ? ` · ${unreadActivity} unread` : ""}`}
-        title={`Activity · ${summary.label}`}
-        aria-haspopup="dialog"
-        aria-expanded={menu === "queue"}
-        onClick={() => setMenu(menu === "queue" ? null : "queue")}
-      >
-        {/* Only Activity's state: the chat in front shows its agent in its
+      {/* Activity sits with navigation on the left, only while it has something. */}
+      {summary.rows.length || unreadActivity || menu || showingSettings ? (
+        <button
+          ref={queueAnchor}
+          type="button"
+          className="workspace-status-queue workspace-status-task"
+          data-tauri-drag-region="false"
+          data-tour="activity"
+          aria-label={`Activity: ${summary.label}${unreadActivity ? ` · ${unreadActivity} unread` : ""}`}
+          title={`Activity · ${summary.label}`}
+          aria-haspopup="dialog"
+          aria-expanded={menu === "queue"}
+          onClick={() => setMenu(menu === "queue" ? null : "queue")}
+        >
+          {/* Only Activity's state: the chat in front shows its agent in its
             tab and the message box's agent pill, not again here. */}
-        <QueueIcon size={14} aria-hidden />
-        <span className="sr-only">{summary.label}</span>
-        {unreadActivity > 0 ? (
-          <span className="workspace-status-unread">
-            {unreadActivity > 99 ? "99+" : unreadActivity}
-          </span>
-        ) : null}
-      </button>
+          <QueueIcon size={14} aria-hidden />
+          <span className="sr-only">{summary.label}</span>
+          {unreadActivity > 0 ? (
+            <span className="workspace-status-unread">
+              {unreadActivity > 99 ? "99+" : unreadActivity}
+            </span>
+          ) : null}
+        </button>
+      ) : null}
       {!navigationInSidebar && import.meta.env.DEV ? (
         <div className="workspace-status-development">
           <DevModeSlot />
@@ -488,20 +484,10 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
       ) : null}
       {settingsView ? (
         <div className="workspace-status-settings">
-          <button
-            type="button"
-            className="workspace-status-pill workspace-status-settings-back"
-            aria-label="Back to workspace"
-            title="Back to workspace"
-            data-tauri-drag-region="false"
-            onClick={settingsView.onClose}
-          >
-            <ChevronLeft size={14} aria-hidden />
-          </button>
-          {/* The page below names its section (and the sidebar marks it),
-              so the window names only Settings. */}
           <div className="workspace-status-settings-path">
-            <strong>Settings</strong>
+            <span>Settings</span>
+            <span aria-hidden>/</span>
+            <strong>{settingsSectionLabel(settingsView.section)}</strong>
           </div>
         </div>
       ) : null}
@@ -519,7 +505,8 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         data-tauri-drag-region="false"
       >
         <div className="workspace-status-layout">
-          {settingsView ? (
+          {/* The sidebar's Back to app leaves Settings; hidden, this does. */}
+          {settingsView && !sidebarOpen ? (
             <button
               type="button"
               aria-label="Close settings"
@@ -530,7 +517,7 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
               <X size={14} aria-hidden />
             </button>
           ) : null}
-          {onToggleInspector ? (
+          {onToggleInspector && !settingsView ? (
             <button
               type="button"
               aria-label="Toggle side panel"

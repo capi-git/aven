@@ -166,7 +166,7 @@ export function absolutePathRule(folder: string): string {
 
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
-  "Teammates work in their own copy. Pushing, publishing and deploying are refused, and nothing reaches your files until you press Apply.";
+  "Everything stays in the team's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access.";
 
 /** Who Access reaches, in one line; the roles it doesn't follow. */
 export const TEAM_ACCESS_SCOPE_LINE =
@@ -255,18 +255,28 @@ export const PUBLISH_CREDENTIALS = [
 
 /**
  * Your keys and sign-ins for other services: SSH, cloud accounts, GitHub's
- * CLI, Docker, Kubernetes, GPG. No bot or teammate reads them, by rule and
- * by sandbox: nothing it does needs them, and a page or a file it read
- * could ask for them.
+ * CLI, Docker, Kubernetes, GPG, deploy tools and the agents' own sign-ins. No
+ * bot or teammate reads them, by rule and by sandbox: nothing it does needs
+ * them (an agent's own app signs in outside its sandbox), and a page or a
+ * file it read could ask for them.
  */
 export const SECRET_FOLDERS = [
   "~/.ssh",
   "~/.aws",
+  "~/.azure",
+  "~/.config/gcloud",
   "~/.config/gh",
+  "~/.config/supabase",
+  "~/.config/vercel",
   "~/.kube",
   "~/.gnupg",
 ];
-export const SECRET_FILES = ["~/.docker/config.json"];
+export const SECRET_FILES = [
+  "~/.docker/config.json",
+  "~/.codex/auth.json",
+  "~/.codex/mcp-auth.json",
+  "~/.claude/.credentials.json",
+];
 
 /** Everything a bot's commands may not read: the sandbox's list. */
 export const NEVER_READ_PATHS = [
@@ -344,6 +354,21 @@ export const PROTECTED_FIX_PATHS = [
   ".npmrc",
   "bunfig.toml",
   ".envrc",
+  // What every later agent reads as your instructions.
+  "agents.md",
+  "agents.override.md",
+  "claude.md",
+  "claude.local.md",
+  "gemini.md",
+  ".cursorrules",
+  ".windsurfrules",
+  ".clinerules",
+  // Package managers read these as a package's manifest, or build from them.
+  "package.yaml",
+  "package.json5",
+  "binding.gyp",
+  // Decides how git shows and treats every other file.
+  ".gitattributes",
 ] as const;
 
 /** Two-part names refused at any depth: a folder and the file or folder in it. */
@@ -351,6 +376,7 @@ export const PROTECTED_FIX_PAIRS = [
   ".cargo/config.toml",
   ".cargo/config",
   ".github/workflows",
+  ".github/copilot-instructions.md",
 ] as const;
 
 /**
@@ -513,8 +539,19 @@ export function crewPermissionRules(
       // A teammate that only reads never edits: refused below.
       (edits || !rule.startsWith("Edit(")),
   );
-  // Told no, it carries on: nothing waits for you while you're away.
-  const refusing = access.others === "refuse";
+  // Full access: a teammate that builds never asks. What the sandbox and
+  // `rules.deny` refuse stays refused (pushing, publishing, your keys), and so
+  // do your own files, which keep its work in the copy until you press Apply.
+  const allowing = access.others === "allow" && edits;
+  // Told no, it carries on: nothing waits for you while you're away. One that
+  // only reads stays that way under Full access, so a check can't fix what it
+  // is checking.
+  const refusing =
+    access.others === "refuse" ||
+    (access.others === "allow" && !edits) ||
+    // Nothing a Lead or a helper does is worth stopping for: it answers.
+    role === "lead" ||
+    role === "helper";
   const web = !offline && crewRoleUsesWeb(crew, role);
   return {
     deny: [
@@ -537,10 +574,17 @@ export function crewPermissionRules(
       ...(refusing
         ? asks.filter((rule) => !(copyInside && rule === yourFiles))
         : []),
+      ...(allowing && !copyInside
+        ? asks.filter((rule) => rule === yourFiles)
+        : []),
+      // Sending could publish what it finds, and Delete off still means off.
+      ...(allowing ? SENDING : []),
+      ...(allowing && !access.deletes && edits ? DELETING : []),
     ],
-    ask: refusing
-      ? asks.filter((rule) => copyInside && rule === yourFiles)
-      : asks,
+    ask:
+      refusing || allowing
+        ? asks.filter((rule) => copyInside && rule === yourFiles)
+        : asks,
   };
 }
 
@@ -628,13 +672,19 @@ export function crewSandbox(
         : (crew.copy.sources ?? []).map((path) =>
             slash(path).replace(/\/+$/, ""),
           );
+  // A Lead or a helper answers: no package registries, and nothing in the copy.
+  const answers = role === "lead" || role === "helper";
   return {
     ...sandbox,
+    ...(offline || answers
+      ? { network: { ...sandbox.network, allowedDomains: [] } }
+      : {}),
     filesystem: {
       ...sandbox.filesystem,
       denyWrite: [
         ...(sandbox.filesystem?.denyWrite ?? []),
         ...keepOut,
+        ...(answers ? [slash(crew.copy.path).replace(/\/+$/, "")] : []),
         // Mock-ups: the copy's folder is the Designer's alone, and Aven's
         // store of them is no one's to write.
         ...(role === "designer" || !folder ? [] : [folder]),

@@ -241,8 +241,8 @@ describe("workspace status data and actions", () => {
   });
 
   it("opens Activity from its icon without dragging", async () => {
-    await render({ sessions: [task()] });
-    const trigger = button("Activity: Queue is clear");
+    await render({ sessions: [task({ busy: true })] });
+    const trigger = button("Activity: 1 running");
     const icon = trigger.querySelector("svg")!;
     await act(async () => {
       icon.dispatchEvent(
@@ -253,7 +253,7 @@ describe("workspace status data and actions", () => {
     expect(
       container.querySelector('[role="dialog"][aria-label="Activity"]'),
     ).not.toBeNull();
-    await click("Activity: Queue is clear");
+    await click("Activity: 1 running");
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
@@ -298,7 +298,7 @@ describe("workspace status data and actions", () => {
     ).toBeGreaterThan(children().indexOf(trigger));
   });
 
-  it("names Settings once, leaving the section to the page, and keeps exit controls out of window dragging", async () => {
+  it("names where you are in Settings, and keeps exit controls out of window dragging", async () => {
     const closeSettings = vi.fn();
     await render({
       sessions: [task({ model: "current-task-model" })],
@@ -306,8 +306,7 @@ describe("workspace status data and actions", () => {
     });
     const settingsTitle = () =>
       container.querySelector(".workspace-status-settings")!;
-    // The page's own heading names the section right below the bar.
-    expect(settingsTitle().textContent).toBe("Settings");
+    expect(settingsTitle().textContent).toBe("Settings/Appearance");
     expect(container.textContent).not.toContain("current-task-model");
     expect(
       container.querySelectorAll('button[aria-label="Close settings"]'),
@@ -316,8 +315,8 @@ describe("workspace status data and actions", () => {
     await render({
       settingsView: { section: "providers", onClose: closeSettings },
     });
-    expect(settingsTitle().textContent).toBe("Settings");
-    for (const label of ["Back to workspace", "Close settings"]) {
+    expect(settingsTitle().textContent).toBe("Settings/Models");
+    for (const label of ["Close settings"]) {
       const control = button(label);
       for (const target of [control, control.querySelector("svg")!]) {
         await act(async () =>
@@ -328,7 +327,7 @@ describe("workspace status data and actions", () => {
       }
       await click(label);
     }
-    expect(closeSettings).toHaveBeenCalledTimes(2);
+    expect(closeSettings).toHaveBeenCalledTimes(1);
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
     expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
   });
@@ -336,23 +335,23 @@ describe("workspace status data and actions", () => {
   it("keeps Activity available in settings and dismisses it when entering or leaving settings", async () => {
     const activity = () =>
       container.querySelector('[role="dialog"][aria-label="Activity"]');
-    await render({ sessions: [task()] });
-    await click("Activity: Queue is clear");
+    await render({ sessions: [task({ busy: true })] });
+    await click("Activity: 1 running");
     expect(activity()).not.toBeNull();
 
     await render({
       settingsView: { section: "appearance", onClose: vi.fn() },
     });
     expect(activity()).toBeNull();
-    expect(
-      button("Activity: Queue is clear").getAttribute("aria-expanded"),
-    ).toBe("false");
-    await click("Activity: Queue is clear");
+    expect(button("Activity: 1 running").getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    await click("Activity: 1 running");
     expect(activity()).not.toBeNull();
 
     await render({ settingsView: undefined });
     expect(activity()).toBeNull();
-    await click("Activity: Queue is clear");
+    await click("Activity: 1 running");
     expect(activity()).not.toBeNull();
   });
 
@@ -380,15 +379,13 @@ describe("workspace status data and actions", () => {
   });
 
   it("keeps queue and navigation controls clickable without starting a window gesture", async () => {
-    const search = vi.fn();
     await render({
-      onSearch: search,
+      sessions: [task({ busy: true })],
     });
-    const queue = button("Activity: Queue is clear");
+    const queue = button("Activity: 1 running");
     const targets = [
       queue,
       queue.querySelector("span")!,
-      button("Search workspace").querySelector("svg")!,
       container.querySelector(".workspace-status-controls")!,
     ];
     for (const target of targets) {
@@ -401,12 +398,10 @@ describe("workspace status data and actions", () => {
       await act(async () => target.dispatchEvent(event));
       expect(event.defaultPrevented).toBe(false);
     }
-    await click("Activity: Queue is clear");
+    await click("Activity: 1 running");
     expect(
       container.querySelector('[role="dialog"][aria-label="Activity"]'),
     ).not.toBeNull();
-    await click("Search workspace");
-    expect(search).toHaveBeenCalledOnce();
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
     expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
   });
@@ -480,8 +475,8 @@ describe("workspace status data and actions", () => {
           finish = resolve;
         }),
     );
-    await render({ onSelectSession: select });
-    await click("Activity: Queue is clear · 1 unread");
+    await render({ onSelectSession: select, sessions: [task({ busy: true })] });
+    await click("Activity: 1 running · 1 unread");
     await click("Open “Closed task”: Finished");
     expect(select).toHaveBeenCalledExactlyOnceWith("closed-task");
     expect(getActivitySnapshot()[0].readAt).toBeNull();
@@ -499,34 +494,27 @@ describe("workspace status data and actions", () => {
     expect(
       container.querySelector('[role="dialog"][aria-label="Activity"]'),
     ).toBeNull();
-    expect(
-      button("Activity: Queue is clear").getAttribute("aria-expanded"),
-    ).toBe("false");
+    expect(button("Activity: 1 running").getAttribute("aria-expanded")).toBe(
+      "false",
+    );
   });
 
-  it("exposes Home and disables Back/Forward until their destinations exist", async () => {
-    const home = vi.fn();
+  it("disables Back and Forward until their destinations exist", async () => {
     const back = vi.fn();
     const forward = vi.fn();
     await render({
-      onHome: home,
-      homeOpen: true,
       onGoBack: back,
       onGoForward: forward,
       canGoBack: false,
       canGoForward: false,
     });
-    expect(button("Workspace Home").getAttribute("aria-pressed")).toBe("true");
     expect(button("Back").disabled).toBe(true);
     expect(button("Forward").disabled).toBe(true);
     await click("Back");
     await click("Forward");
     expect(back).not.toHaveBeenCalled();
     expect(forward).not.toHaveBeenCalled();
-    await click("Workspace Home");
-    expect(home).toHaveBeenCalledOnce();
-    await render({ homeOpen: false, canGoBack: true, canGoForward: true });
-    expect(button("Workspace Home").getAttribute("aria-pressed")).toBe("false");
+    await render({ canGoBack: true, canGoForward: true });
     await click("Back");
     await click("Forward");
     expect(back).toHaveBeenCalledOnce();
@@ -534,14 +522,12 @@ describe("workspace status data and actions", () => {
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
-  it("leaves Search and Home to the pinned sidebar's rows and brings them back while it is hidden", async () => {
-    const search = vi.fn();
-    const home = vi.fn();
+  it("leaves Search and Home to the sidebar, pinned or a hover away", async () => {
     await render({
       onToggleSidebar: vi.fn(),
       sidebarOpen: true,
-      onSearch: search,
-      onHome: home,
+      onSearch: vi.fn(),
+      onHome: vi.fn(),
       onGoBack: vi.fn(),
       onGoForward: vi.fn(),
       canGoBack: true,
@@ -552,21 +538,9 @@ describe("workspace status data and actions", () => {
           '[aria-label="Workspace navigation"] button',
         ),
       ].map((node) => node.getAttribute("aria-label"));
-    // At rest: the sidebar toggle and history. Search is the sidebar's
-    // Search row, Home its workspace row.
     expect(labels()).toEqual(["Toggle workspace sidebar", "Back", "Forward"]);
     await render({ sidebarOpen: false });
-    expect(labels()).toEqual([
-      "Toggle workspace sidebar",
-      "Search workspace",
-      "Workspace Home",
-      "Back",
-      "Forward",
-    ]);
-    await click("Search workspace");
-    await click("Workspace Home");
-    expect(search).toHaveBeenCalledOnce();
-    expect(home).toHaveBeenCalledOnce();
+    expect(labels()).toEqual(["Toggle workspace sidebar", "Back", "Forward"]);
   });
 
   it("leaves a new browser to Home's own Open browser button", async () => {
@@ -582,7 +556,11 @@ describe("workspace status data and actions", () => {
 
   it("leaves navigation to the visible sidebar and brings it back when hidden", async () => {
     const toggle = vi.fn();
-    await render({ onToggleSidebar: toggle, navigationInSidebar: true });
+    await render({
+      onToggleSidebar: toggle,
+      navigationInSidebar: true,
+      sessions: [task({ busy: true })],
+    });
     expect(
       container.querySelector('[aria-label="Workspace navigation"]'),
     ).toBeNull();

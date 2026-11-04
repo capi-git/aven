@@ -42,6 +42,7 @@ const APPEARANCE_CONTROLS = [
   "Accent colour",
   "Interface scale",
   "Glass",
+  "Frame",
   "Reduce motion",
   "Chat background",
   "Use for all workspaces",
@@ -166,7 +167,7 @@ describe("workspace appearance settings", () => {
       )
       ?.getAttribute("aria-label");
 
-  it("shows exactly its seven controls without scope chips, the header pill or the dark/light note", async () => {
+  it("shows exactly its eight controls without scope chips, the header pill or the dark/light note", async () => {
     await mount();
     const controls = Array.from(
       container.querySelectorAll<HTMLElement>(
@@ -201,9 +202,6 @@ describe("workspace appearance settings", () => {
       "device display preferences",
     ])
       expect(text).not.toContain(removed.toLowerCase());
-    expect(container.textContent).toContain(
-      "Set the mood for your Work workspace.",
-    );
   });
 
   it("opens with Glass read from the saved opacity, rewriting nothing", async () => {
@@ -223,6 +221,9 @@ describe("workspace appearance settings", () => {
   it("moves opacity, blur, the desktop behind sessions and the status bar together", async () => {
     await mount();
     await input("Glass", "0");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    });
     expect(glass().getAttribute("aria-valuetext")).toBe("Solid");
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 1,
@@ -235,6 +236,9 @@ describe("workspace appearance settings", () => {
     ).toBe("1");
 
     await input("Glass", "48");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    });
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 0.52,
       blur: 16,
@@ -243,6 +247,9 @@ describe("workspace appearance settings", () => {
     expect(loadStatusBarOpacity()).toBe(STATUS_BAR_OPACITY_DEFAULT);
 
     await input("Glass", "95");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    });
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 0.05,
       blur: 32,

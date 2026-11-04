@@ -67,7 +67,7 @@ import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
 import { useBrowserMarkup } from "../hooks/useBrowserMarkup";
 import { useDevServerStart } from "../hooks/useDevServerStart";
 import { beginBrowserHandoff, endBrowserHandoff } from "../lib/browserHandoff";
-import { registerMotionPage } from "../lib/browserMotion";
+import { forgetMotionImage, registerMotionPage } from "../lib/browserMotion";
 import {
   createBrowserPresentation,
   type BrowserSnapshot,
@@ -568,14 +568,21 @@ function BrowserPaneSession({
             return null;
           return nativeBrowser.snapshot(pageId);
         },
-        hold: async (src) => {
+        hold: async (src, wanted) => {
           const controller = presentationController.current;
           if (!controller || markingUp.current) return false;
           // Decoded and painted before the live page is hidden, so the pane
           // never shows the window behind it.
           await decodeMotionImage(src);
+          if (!wanted()) return false;
           flushSync(() => setMotionImage(src));
           await nextPaint();
+          // The motion went ahead without this page: it stays live, and no
+          // picture blinks over it after the move has landed.
+          if (!wanted()) {
+            setMotionImage(null);
+            return false;
+          }
           await controller.holdForMotion();
           return true;
         },
@@ -586,6 +593,8 @@ function BrowserPaneSession({
       }),
     [id],
   );
+  // A picture of the last address is not this page when it comes back.
+  useEffect(() => () => forgetMotionImage(id), [id, url]);
   const hasUrl = !!url;
   const focusNewAddress = useRef(!hasUrl);
   const sleepProtection =

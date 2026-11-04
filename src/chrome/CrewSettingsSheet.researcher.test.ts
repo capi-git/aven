@@ -87,7 +87,14 @@ describe("the Researcher in the Team sheet", () => {
 
   it("says in Access that the Researcher reads the web too", async () => {
     await open();
-    const access = sheet().querySelector<HTMLElement>("[data-crew-access]")!;
+    await act(async () =>
+      [...sheet().querySelectorAll<HTMLButtonElement>("button")]
+        .find((item) => item.textContent?.includes("Customise web"))!
+        .click(),
+    );
+    const access = sheet().querySelector<HTMLElement>(
+      "[data-crew-access-custom]",
+    )!;
     // Its why is the row's tooltip.
     expect(
       [...access.querySelectorAll<HTMLElement>("span[title]")].map(

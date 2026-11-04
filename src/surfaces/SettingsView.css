@@ -566,7 +566,7 @@
     width: auto;
   }
   .settings-navigation .settings-nav__subtitle,
-  .settings-navigation .settings-nav__footer,
+  .settings-navigation .settings-nav__back,
   .settings-navigation-title,
   .settings-navigation-note {
     display: none;

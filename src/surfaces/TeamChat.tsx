@@ -1,3 +1,4 @@
+import { TeamModelButton } from "./TeamPanel";
 import {
   useEffect,
   useId,
@@ -33,6 +34,7 @@ import {
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
+  crewLead,
   crewMemberById,
   crewMemberName,
   getCrew,
@@ -115,6 +117,7 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   card: "a card",
   rule: "a rule for every card",
   goal: "the goal",
+  lead: "a question for the Lead",
 };
 
 type Mode = CrewMessageKind;
@@ -123,6 +126,7 @@ type Mode = CrewMessageKind;
 type Addressee = { id: string; name: string };
 
 const MODES: readonly { id: Mode; label: string; word: string }[] = [
+  { id: "lead", label: "Ask the Lead", word: "Lead" },
   { id: "card", label: "Build it", word: "Card" },
   { id: "rule", label: "Remember for every card", word: "Rule" },
   { id: "goal", label: "Make it a goal", word: "Goal" },
@@ -143,6 +147,7 @@ export function TeamChat({
   onCrewAction,
   onReview,
   onCards,
+  onSelected,
   control,
 }: {
   project: string;
@@ -160,10 +165,16 @@ export function TeamChat({
   onReview: () => void;
   /** Show the Cards (a card that waits on you is answered there). */
   onCards: () => void;
-  /** ⋯ → Set a goal…: the box turns to the goal. */
-  control: { current: { goal: () => void } | null };
+  /** The teammate the thread shows, for the panel to mark. */
+  onSelected: (id: string | null) => void;
+  /** ⋯ → Set a goal…: the box turns to the goal; a teammate filters it. */
+  control: {
+    current: {
+      goal: () => void;
+      select: (id: string | null) => void;
+    } | null;
+  };
 }) {
-  const workspace = useCrewWorkspace();
   const members = useMemo(
     () =>
       crewMemberViews(crew, {
@@ -180,17 +191,19 @@ export function TeamChat({
     [crew, name, fixer],
   );
   const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
-  const latest = useMemo(() => latestPosts(posts), [posts]);
   const [selected, setSelected] = useState<string | null>(null);
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
-  const [mode, setMode] = useState<Mode>("card");
-  // Why a teammate's chat didn't open, under its name.
-  const [openProblem, setOpenProblem] = useState<{
-    id: string;
-    text: string;
-  } | null>(null);
+  // Your choice for this message; otherwise the Lead, on a team that has one.
+  const [chosenMode, setMode] = useState<Mode | null>(null);
+  const hasLead = !!crewLead(crew);
+  const mode: Mode =
+    chosenMode && (chosenMode !== "lead" || hasLead)
+      ? chosenMode
+      : hasLead
+        ? "lead"
+        : "card";
   const input = useRef<HTMLTextAreaElement>(null);
   const filter =
     selected && members.some((member) => member.id === selected)
@@ -200,6 +213,7 @@ export function TeamChat({
     setSelected(id);
     setTo(id ? { id, name: name(id) } : null);
   };
+  useEffect(() => onSelected(filter), [filter, onSelected]);
   useEffect(() => {
     // Tell the team… from the sidebar: the cursor goes in the box. A
     // follow-up for the Researcher (from its Findings) writes to it.
@@ -227,6 +241,7 @@ export function TeamChat({
         setMode("goal");
         requestAnimationFrame(() => input.current?.focus());
       },
+      select,
     };
     return () => {
       control.current = null;
@@ -241,25 +256,15 @@ export function TeamChat({
   const ready = view.ready.filter((row) => !row.boardActions);
   return (
     <div className="team-chat" data-team-chat={project}>
-      <Roster
-        project={project}
-        crew={crew}
-        members={members}
-        latest={latest}
-        now={now}
-        selected={filter}
-        onSelect={select}
-        openProblem={openProblem}
-        onOpenChat={(id) => {
-          setOpenProblem(null);
-          void Promise.resolve(workspace?.openChat(project, id)).then((why) =>
-            setOpenProblem(why ? { id, text: why } : null),
-          );
-        }}
-        onSettings={(id) => workspace?.openSettings(project, id)}
-        onAdd={() => workspace?.openSettings(project, "add")}
-      />
       <div className="team-thread">
+        {filter ? (
+          <div className="team-thread-showing" data-team-showing={filter}>
+            <span>Showing {name(filter)}</span>
+            <button type="button" onClick={() => select(null)}>
+              Show everyone
+            </button>
+          </div>
+        ) : null}
         {view.batch || ready.length ? (
           <div className="team-ready-list">
             {view.batch ? (
@@ -302,6 +307,7 @@ export function TeamChat({
           members={members}
           to={to}
           mode={mode}
+          hasLead={hasLead}
           input={input}
           onTo={setTo}
           onMode={setMode}
@@ -313,6 +319,69 @@ export function TeamChat({
 
 // ---------------------------------------------------------------------------
 // The roster
+
+/** The team's teammates, in the panel: Everyone, then each one. */
+export function TeamRoster({
+  project,
+  crew,
+  now,
+  name,
+  fixer,
+  onSelect,
+  selected,
+}: {
+  project: string;
+  crew: Crew;
+  now: number;
+  name: (who: string) => string;
+  fixer?: { status: BotStatus; sessionId?: string };
+  onSelect: (id: string | null) => void;
+  selected: string | null;
+}) {
+  const workspace = useCrewWorkspace();
+  const members = useMemo(
+    () =>
+      crewMemberViews(crew, {
+        name,
+        ...(fixer
+          ? {
+              fixer: {
+                status: fixer.status,
+                ...(fixer.sessionId ? { sessionId: fixer.sessionId } : {}),
+              },
+            }
+          : {}),
+      }),
+    [crew, name, fixer],
+  );
+  const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
+  const latest = useMemo(() => latestPosts(posts), [posts]);
+  // Why a teammate's chat didn't open, under its name.
+  const [openProblem, setOpenProblem] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
+  return (
+    <Roster
+      project={project}
+      crew={crew}
+      members={members}
+      latest={latest}
+      now={now}
+      selected={selected}
+      onSelect={onSelect}
+      openProblem={openProblem}
+      onOpenChat={(id) => {
+        setOpenProblem(null);
+        void Promise.resolve(workspace?.openChat(project, id)).then((why) =>
+          setOpenProblem(why ? { id, text: why } : null),
+        );
+      }}
+      onSettings={(id) => workspace?.openSettings(project, id)}
+      onAdd={() => workspace?.openSettings(project, "add")}
+    />
+  );
+}
 
 function Roster({
   project,
@@ -357,7 +426,8 @@ function Roster({
           </button>
         </li>
         {members.map((member) => {
-          const paused = !!crewMemberById(crew, member.id)?.paused;
+          const known = crewMemberById(crew, member.id);
+          const paused = !!known?.paused;
           const needs = member.status === "needs-you";
           const line =
             member.line ??
@@ -418,6 +488,11 @@ function Roster({
                   </span>
                 ) : null}
               </button>
+              {known && member.role !== "fixer" ? (
+                <span className="team-roster-model">
+                  <TeamModelButton path={crew.path} member={known} />
+                </span>
+              ) : null}
               {isSelected ? (
                 <span className="team-roster-tools">
                   <button
@@ -928,6 +1003,7 @@ function Composer({
   members,
   to,
   mode,
+  hasLead,
   input,
   onTo,
   onMode,
@@ -937,9 +1013,11 @@ function Composer({
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
   mode: Mode;
+  hasLead: boolean;
   input: RefObject<HTMLTextAreaElement | null>;
   onTo: (to: Addressee | null) => void;
-  onMode: (mode: Mode) => void;
+  /** Null goes back to the usual: the Lead, or a card without one. */
+  onMode: (mode: Mode | null) => void;
 }) {
   const listId = useId();
   const [text, setText] = useState("");
@@ -1057,7 +1135,7 @@ function Composer({
       }
       return;
     }
-    onMode("card");
+    onMode(null);
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(event.nativeEvent)) return;
@@ -1112,7 +1190,9 @@ function Composer({
       ? "A rule for every card, like “Use pnpm”…"
       : mode === "goal"
         ? "A goal the team keeps going towards…"
-        : "Write to the team, or @ one teammate…";
+        : mode === "lead"
+          ? "Ask the team, or @ one teammate…"
+          : "Write to the team, or @ one teammate…";
   const current = MODES.find((item) => item.id === mode)!;
   return (
     <div className="team-compose-wrap">
@@ -1266,12 +1346,14 @@ function Composer({
           align="end"
           gap={4}
           ariaLabel="How the team takes this"
-          items={MODES.map((item) => ({
-            kind: "item" as const,
-            id: item.id,
-            label: item.label,
-            ...(item.id === mode ? { checked: true } : {}),
-          }))}
+          items={MODES.filter((item) => item.id !== "lead" || hasLead).map(
+            (item) => ({
+              kind: "item" as const,
+              id: item.id,
+              label: item.label,
+              ...(item.id === mode ? { checked: true } : {}),
+            }),
+          )}
           onClose={() => setMenu(null)}
           onPick={(id) => {
             setMenu(null);

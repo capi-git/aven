@@ -89,6 +89,8 @@ function RateWindow({
 }) {
   const used = window ? usedPercent(window.usedPercent) : null;
   const loading = status === "fetching";
+  // A limit this provider doesn't have isn't worth a card.
+  if (used == null && status === "ok") return null;
   const reset = window?.resetsAt;
   const hasReset = reset != null && Number.isFinite(reset);
   const outlook = window ? usageOutlook(pace, now) : null;
@@ -113,7 +115,7 @@ function RateWindow({
   return (
     <div className="usage-panel-window">
       <div className="usage-panel-row">
-        <span className="usage-panel-label">{label}</span>
+        <span className="usage-panel-label">{label} limit</span>
         <span className="usage-panel-remaining">
           {used == null ? (
             "—"
@@ -125,14 +127,19 @@ function RateWindow({
         </span>
       </div>
       <UsedBar label={`${provider} ${label}`} used={used} loading={loading} />
-      <div
-        className="usage-panel-detail"
-        data-warning={forecast?.state === "warning" || undefined}
-        title={
-          hasReset ? `Resets ${new Date(reset).toLocaleString()}` : undefined
-        }
-      >
-        {detail}
+      <div className="usage-panel-detail-row">
+        {used != null && !forecast ? (
+          <span className="usage-panel-left">{100 - used}% remaining</span>
+        ) : null}
+        <span
+          className="usage-panel-detail"
+          data-warning={forecast?.state === "warning" || undefined}
+          title={
+            hasReset ? `Resets ${new Date(reset).toLocaleString()}` : undefined
+          }
+        >
+          {detail}
+        </span>
       </div>
     </div>
   );
@@ -281,35 +288,31 @@ export function UsagePanelContent({
         }
       />
       <div className="usage-panel-body">
-        <section
-          className="usage-panel-context"
-          aria-label="This chat's context"
-        >
-          <div className="usage-panel-row">
-            <h3>Context</h3>
-            <span className="usage-panel-remaining">
-              {used == null ? (
-                "—"
-              ) : (
-                <>
-                  <strong>{used}%</strong> used
-                </>
-              )}
-            </span>
-          </div>
-          <UsedBar label="This chat's context" used={used} />
-          <div className="usage-panel-detail">
-            {hasUsed ? (
-              <>
-                {formatTokens(context.used)}
-                {hasCapacity && ` of ${formatTokens(context.window!)}`} tokens
-                {!hasCapacity && " used · capacity unavailable"}
-              </>
-            ) : (
-              "Shows after the agent's next reply"
-            )}
-          </div>
-        </section>
+        {hasUsed ? (
+          <section
+            className="usage-panel-context usage-panel-window"
+            aria-label="This chat's context"
+          >
+            <div className="usage-panel-row">
+              <h3>Context</h3>
+              <span className="usage-panel-remaining">
+                {used == null ? (
+                  "—"
+                ) : (
+                  <>
+                    <strong>{used}%</strong> used
+                  </>
+                )}
+              </span>
+            </div>
+            <UsedBar label="This chat's context" used={used} />
+            <div className="usage-panel-detail">
+              {formatTokens(context.used)}
+              {hasCapacity && ` of ${formatTokens(context.window!)}`} tokens
+              {!hasCapacity && " used · capacity unavailable"}
+            </div>
+          </section>
+        ) : null}
         {snapshot.providers.map((provider) => (
           <ProviderUsage
             key={provider.provider}
@@ -324,14 +327,13 @@ export function UsagePanelContent({
           </p>
         )}
       </div>
-      <footer className="usage-panel-footer">
-        <span>Provider limits apply across all your chats.</span>
-        {cost != null && (
+      {cost != null && (
+        <footer className="usage-panel-footer">
           <span title="What the provider reports this chat has cost">
             Chat cost <strong>${cost.toFixed(2)}</strong>
           </span>
-        )}
-      </footer>
+        </footer>
+      )}
     </ToolbarPanel>
   );
 }

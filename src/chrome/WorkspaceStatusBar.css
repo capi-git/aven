@@ -14,8 +14,6 @@
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--color-content) 7%, transparent);
   background: var(--aven-toolbar-surface, transparent);
 }
 .workspace-status-queue {
@@ -133,7 +131,6 @@
 .workspace-status-provider {
   margin-top: 10px;
   padding-top: 9px;
-  border-top: 1px solid color-mix(in srgb, var(--color-content) 9%, transparent);
 }
 .workspace-status-provider strong {
   font-size: var(--text-ui-caption);
@@ -203,17 +200,12 @@
   flex: 1 1 auto;
   pointer-events: none;
 }
-.workspace-status-settings .workspace-status-settings-back {
-  width: 26px;
-  flex: 0 0 26px;
-  padding: 0;
-  pointer-events: auto;
-}
 .workspace-status-settings-path {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
+  color: var(--aven-muted);
   font-size: var(--text-ui-label);
 }
 .workspace-status-settings-path > strong {
@@ -499,4 +491,27 @@ html:has(.aven-tour)
     :is(.personal-title-browser-new, .personal-title-board-open) {
     transition: none;
   }
+}
+
+/* As MonoCode lays it out: past a pinned sidebar the tabs start where the work
+   does, with back and forward just before them; anything else sits at the end. */
+.personal-shell[data-sidebar-pinned="true"] .workspace-navigation {
+  flex: 0 0
+    calc(var(--aven-sidebar-width, 216px) / var(--aven-toolbar-zoom, 1) - 89px);
+  min-width: 0;
+}
+.personal-shell[data-sidebar-pinned="true"]
+  .workspace-navigation
+  .workspace-status-history {
+  margin-left: auto;
+}
+.personal-shell .workspace-status-bar .workspace-status-strip {
+  order: 2;
+}
+.personal-shell .workspace-status-bar .workspace-status-task,
+.personal-shell .workspace-status-bar .workspace-status-development {
+  order: 3;
+}
+.personal-shell .workspace-status-bar .workspace-status-controls {
+  order: 4;
 }

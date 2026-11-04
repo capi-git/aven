@@ -37,6 +37,8 @@ export const ROLE_SIGILS = [
   sigil("builder", "Builder", ["11000", "11000", "00000", "00011", "00011"]),
   // A ring.
   sigil("checker", "Checker", ["01110", "10001", "10001", "10001", "01110"]),
+  // A star of a few dots: the one everyone writes to.
+  sigil("lead", "Lead", ["00100", "00100", "11111", "01110", "01010"]),
   // A shield.
   sigil("security", "Security", ["11111", "10001", "10001", "01010", "00100"]),
   // A diamond, looking out on every side.

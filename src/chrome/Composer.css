@@ -195,3 +195,24 @@ html.theme-light .personal-shell .personal-composer {
     padding-inline: 14px;
   }
 }
+
+/* Flat in dark mode: a faint fill says where to type, with no edge or shadow.
+   Increase Contrast keeps the edge and focus ring above. */
+@media not (prefers-contrast: more) {
+  html:not(.theme-light)
+    .personal-shell
+    .personal-composer
+    [data-composer-box] {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--color-content) 4.5%, transparent);
+    box-shadow: none;
+  }
+  html:not(.theme-light)
+    .personal-shell
+    .personal-composer
+    [data-composer-box]:focus-within {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--color-content) 6.5%, transparent);
+    box-shadow: none;
+  }
+}

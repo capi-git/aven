@@ -527,7 +527,7 @@ describe("workspace stage", () => {
     );
     // The other way, the page keeps its 200px.
     act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
-    act(() => window.dispatchEvent(pointer("pointerup", 950)));
+    act(() => window.dispatchEvent(pointer("pointerup", 940)));
     expect(props.onLayoutChange).toHaveBeenLastCalledWith(columns([0.8, 0.2]));
   });
 
@@ -594,8 +594,8 @@ describe("workspace stage", () => {
     act(() => window.dispatchEvent(pointer("pointermove", 120)));
     flushFrame();
     expect(container.querySelector("[data-pane-rail]")).not.toBeNull();
-    // Back past half the minimum: open again, held at the minimum.
-    act(() => window.dispatchEvent(pointer("pointermove", 230)));
+    // Back past where it folded: open again, held at the minimum.
+    act(() => window.dispatchEvent(pointer("pointermove", 270)));
     flushFrame();
     expect(container.querySelector("[data-pane-rail]")).toBeNull();
     expect(surface("chat").hidden).toBe(false);
@@ -610,10 +610,10 @@ describe("workspace stage", () => {
     await render({ layout: columns() });
     stage().style.zoom = "2";
     bindStageBounds();
-    // 1000 viewport pixels are 500 of the stage's; 200 of travel is 100,
-    // leaving the left pane 150px, under its 200: it stops at 200.
+    // 1000 viewport pixels are 500 of the stage's; 180 of travel is 90,
+    // leaving the left pane 160px, under its 200: it stops at 200.
     act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
-    act(() => window.dispatchEvent(pointer("pointerup", 400)));
+    act(() => window.dispatchEvent(pointer("pointerup", 420)));
     expect(props.onLayoutChange).toHaveBeenCalledExactlyOnceWith(
       columns([0.4, 0.6]),
     );
@@ -1258,7 +1258,7 @@ describe("workspace stage", () => {
     const hint = container.querySelector<HTMLElement>(
       ".workspace-stage-drop-hint",
     )!;
-    expect(hint.parentElement).toBe(body("browser"));
+    expect(hint.parentElement?.parentElement).toBe(body("browser"));
     // That half of the body, inset 4px (Cydonia's preview).
     expect(hint.style.left).toBe("calc(0% + 4px)");
     expect(hint.style.top).toBe("calc(50% + 4px)");

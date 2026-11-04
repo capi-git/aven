@@ -295,6 +295,7 @@ export function ideaWaits(
   if (scout?.by === "security") return "security";
   if (scout?.by === "researcher") return "researcher";
   if (scout?.by === "setup") return "setup";
+  if (scout?.by === "lead") return "not-now";
   if (idea.sourceUrl || scout?.sourceUrl || scout?.outside) return "outside";
   if (scout?.size === "large") return "large";
   if (scout && !ideaMayAutoStart(scout)) return "not-now";
@@ -330,6 +331,31 @@ export function ideasToBuild<T extends BoardIdea>(
   );
 }
 
+/** Projects whose new Board cards are not yet marked as whose they are. */
+const ideaStartHolds = new Map<string, number>();
+
+/**
+ * Hold a project's ideas from starting by themselves while cards are added
+ * to the Board and then marked (a Researcher's or a Scout's). The Board
+ * writes first, and a card with no mark yet reads as your own idea, so an idle
+ * team would start one that should wait for you. Returns the release.
+ */
+export function holdIdeaStarts(path: string): () => void {
+  ideaStartHolds.set(path, (ideaStartHolds.get(path) ?? 0) + 1);
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    const left = (ideaStartHolds.get(path) ?? 1) - 1;
+    if (left > 0) ideaStartHolds.set(path, left);
+    else ideaStartHolds.delete(path);
+  };
+}
+
+export function ideaStartsHeld(path: string): boolean {
+  return ideaStartHolds.has(path);
+}
+
 /**
  * The idea that builds next, by itself: only while the team is idle (no
  * card in its copy, none queued).
@@ -339,6 +365,7 @@ export function nextIdeaToBuild<T extends BoardIdea>(
   cards: readonly T[],
   now: number,
 ): T | null {
+  if (ideaStartsHeld(crew.path)) return null;
   if (cardInCopy(crew) || queuedCards(crew).length) return null;
   return ideasToBuild(crew, cards, now)[0] ?? null;
 }

@@ -37,7 +37,7 @@ export function useSidebarVisibility({
   const sidebarHover = useHoverRevealPanel({
     pinned,
     enabled: !nativeSidebar,
-    enterDelay: 150,
+    enterDelay: 100,
     leaveDelay: 90,
   });
   const [floatingSidebarRevealed, setFloatingSidebarRevealed] = useState(false);

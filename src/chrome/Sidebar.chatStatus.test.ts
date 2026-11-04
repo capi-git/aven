@@ -96,27 +96,26 @@ const pill = (id: string) =>
     `[data-session-card='${id}'] [data-chat-status]`,
   );
 
-it("shows each chat's word as a pill on its row", async () => {
+it("names only what needs you on a row", async () => {
   await act(async () =>
     root.render(createElement(Sidebar, { ...props, chatStatus: words })),
   );
   expect(
     Object.fromEntries(
-      Object.keys(words).map((id) => [id, pill(id)?.textContent]),
+      Object.keys(words).map((id) => [id, pill(id)?.textContent ?? null]),
     ),
   ).toEqual({
-    work: "Working",
+    work: null,
     ask: "Needs you",
-    fix: "Review",
-    done: "Shipped",
-    race: "Racing",
+    fix: null,
+    done: null,
+    race: null,
   });
-  expect(pill("race")?.dataset.stage).toBe("working");
   expect(pill("ask")?.dataset.stage).toBe("needs-you");
-  // A chat with nothing pending shows no word, only its time.
+  // Anything else shows no word, only its time.
   expect(pill("idle")).toBeNull();
   expect(
-    container.querySelector("[data-session-card='idle'] .personal-task-status")
+    container.querySelector("[data-session-card='fix'] .personal-task-status")
       ?.textContent,
   ).toBeTruthy();
 });
@@ -133,8 +132,7 @@ it("keeps the word across the floating sidebar's copy of its props", async () =>
       }),
     ),
   );
-  expect(pill("fix")?.textContent).toBe("Review");
-  expect(pill("done")?.textContent).toBe("Shipped");
+  expect(pill("ask")?.textContent).toBe("Needs you");
 });
 
 it("follows a word as it changes", async () => {
@@ -145,9 +143,10 @@ it("follows a word as it changes", async () => {
     root.render(
       createElement(Sidebar, {
         ...props,
-        chatStatus: { ...words, work: "review" },
+        chatStatus: { ...words, fix: "needs-you", ask: "review" },
       }),
     ),
   );
-  expect(pill("work")?.textContent).toBe("Review");
+  expect(pill("fix")?.textContent).toBe("Needs you");
+  expect(pill("ask")).toBeNull();
 });

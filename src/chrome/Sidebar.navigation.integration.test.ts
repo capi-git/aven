@@ -475,17 +475,13 @@ describe("sidebar workspace navigation", () => {
         }),
       ),
     );
-    // Settings is on screen, so Home is not current there.
-    expect(
-      button("Home, Personal workspace").hasAttribute("aria-current"),
-    ).toBe(false);
+    // Settings has the sidebar to itself; Back to app leaves it.
+    expect(button("Home, Personal workspace")).toBeNull();
     expect(container.querySelector('nav[aria-label="Library"]')).toBeNull();
-    expect(
-      container.querySelector("button.personal-search-field"),
-    ).not.toBeNull();
+    expect(container.querySelector("button.personal-search-field")).toBeNull();
     expect(button("New chat without a project")).toBeNull();
-    await click(button("Home, Personal workspace"));
-    expect(order).toEqual(["close settings", "home"]);
+    await click(button("Back to app"));
+    expect(order).toEqual(["close settings"]);
   });
 
   it("keeps appearance in Settings and clears the switcher when the sidebar hides", async () => {

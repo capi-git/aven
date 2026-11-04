@@ -314,7 +314,7 @@ function layout(element: HTMLElement) {
 const thread = () => chat().querySelector<HTMLElement>("[data-team-thread]")!;
 const pick = (id: string) =>
   act(async () =>
-    chat()
+    container
       .querySelector<HTMLButtonElement>(
         `[data-team-member="${id}"] .team-roster-row`,
       )!
@@ -337,9 +337,8 @@ beforeEach(() => {
   resetProjectBotsCache();
   resetCrewsCache();
   resetTeamViewCache();
-  // These tests are about the chat: the team opens on it (the Board is the
-  // first choice, tried below).
-  setTeamView(PROJECT, "chat");
+  // The chat is always beside the panel; the roster is its Teammates tab.
+  setTeamView(PROJECT, "teammates");
   setFeatureCardBackend(memoryFeatureCardBackend());
   resetWorkBoardFeed();
   installWorkBoardActions({
@@ -374,28 +373,38 @@ afterEach(async () => {
 });
 
 describe("the team chat", () => {
-  it("opens on the Board until you choose the Chat, and remembers it for this project", async () => {
+  it("opens on Overview beside the chat, and remembers the tab for this project", async () => {
     localStorage.removeItem(TEAM_VIEW_KEY);
     resetTeamViewCache();
     await setUp();
-    expect(container.querySelector("[data-team-board]")).not.toBeNull();
-    expect(container.querySelector("[data-team-chat]")).toBeNull();
+    expect(chat()).not.toBeNull();
+    expect(container.querySelector("[data-team-overview]")).not.toBeNull();
+    expect(container.querySelector("[data-team-board]")).toBeNull();
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
     expect(header.querySelector("h1")?.textContent).toBe("pom");
-    const options = [
-      ...header.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
+    const tabs = [
+      ...container.querySelectorAll<HTMLButtonElement>("[data-team-tab]"),
     ];
-    expect(options.map((item) => item.textContent)).toEqual(["Board", "Chat"]);
-    await act(async () => options[1]!.click());
+    expect(tabs.map((item) => item.textContent)).toEqual([
+      "Board",
+      "Overview",
+      "Teammates",
+      "Notes",
+      "Schedule",
+      "Changes",
+    ]);
+    await act(async () => tabs[0]!.click());
     expect(chat()).not.toBeNull();
-    expect(container.querySelector("[data-team-board]")).toBeNull();
-    expect(teamView(PROJECT)).toBe("chat");
-    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("chat");
+    expect(container.querySelector("[data-team-board]")).not.toBeNull();
+    expect(teamView(PROJECT)).toBe("board");
+    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("board");
   });
 
   it("lists Everyone, then each teammate with what it's doing, then Add teammate", async () => {
     await setUp();
-    const rows = [...chat().querySelectorAll<HTMLElement>(".team-roster-item")];
+    const rows = [
+      ...container.querySelectorAll<HTMLElement>(".team-roster-item"),
+    ];
     expect(
       rows.map(
         (row) => row.querySelector(".team-roster-name")?.textContent ?? "",
@@ -409,7 +418,7 @@ describe("the team chat", () => {
       "Scout",
       "Add teammate",
     ]);
-    const checker = chat().querySelector<HTMLElement>(
+    const checker = container.querySelector<HTMLElement>(
       '[data-team-member="checker"]',
     )!;
     expect(checker.querySelector(".team-roster-line")?.textContent).toBe(
@@ -421,11 +430,11 @@ describe("the team chat", () => {
       "working",
     );
     expect(
-      chat().querySelector('[data-team-member="security"] .team-roster-line')
+      container.querySelector('[data-team-member="security"] .team-roster-line')
         ?.textContent,
     ).toBe("Free");
     await act(async () =>
-      chat().querySelector<HTMLButtonElement>("[data-team-add]")!.click(),
+      container.querySelector<HTMLButtonElement>("[data-team-add]")!.click(),
     );
     expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "add");
   });
@@ -562,7 +571,7 @@ describe("the team chat", () => {
   it("shows one teammate's posts when you pick it, writes to it, and opens its chat", async () => {
     await setUp();
     await act(async () =>
-      chat()
+      container
         .querySelector<HTMLButtonElement>(
           '[data-team-member="checker"] .team-roster-row',
         )!
@@ -574,12 +583,14 @@ describe("the team chat", () => {
     expect(posts).toEqual(["checker"]);
     expect(box().placeholder).toBe("Write to Checker…");
     await act(async () =>
-      chat().querySelector<HTMLButtonElement>("[data-team-open-chat]")!.click(),
+      container
+        .querySelector<HTMLButtonElement>("[data-team-open-chat]")!
+        .click(),
     );
     expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
     // Everyone again.
     await act(async () =>
-      chat()
+      container
         .querySelector<HTMLButtonElement>(".team-roster-item .team-roster-row")!
         .click(),
     );
@@ -673,8 +684,8 @@ describe("the team chat", () => {
     expect(button(asks[0]!, "Answer on its card")).toBeUndefined();
     await act(async () => button(asks[1]!, "Answer on its card")!.click());
     expect(container.querySelector("[data-team-board]")).not.toBeNull();
-    // How the team opens stays your choice: Chat.
-    expect(teamView(PROJECT)).toBe("chat");
+    // Which tab the team opens on stays your choice.
+    expect(teamView(PROJECT)).toBe("teammates");
   });
 
   it("counts as new only the posts the view shows", async () => {
@@ -947,14 +958,14 @@ describe("the team chat", () => {
       return next;
     });
     await pick("checker");
-    const open = chat().querySelector<HTMLButtonElement>(
+    const open = container.querySelector<HTMLButtonElement>(
       "[data-team-open-chat]",
     )!;
     expect(open.disabled).toBe(true);
     expect(open.title).toBe(
       "Checker's chat starts with the team's first card.",
     );
-    expect(chat().querySelector("[data-team-open-note]")?.textContent).toBe(
+    expect(container.querySelector("[data-team-open-note]")?.textContent).toBe(
       "Checker's chat starts with the team's first card.",
     );
     // Once it can open, a chat that still doesn't says why, under its name.
@@ -964,12 +975,14 @@ describe("the team chat", () => {
         copy: { path: "/copies/pom", branch: "aven/crew/pom", root: PROJECT },
       })),
     );
-    expect(chat().querySelector("[data-team-open-note]")).toBeNull();
+    expect(container.querySelector("[data-team-open-note]")).toBeNull();
     workspace.openChat.mockResolvedValueOnce("Couldn't open Checker's chat.");
     await act(async () =>
-      chat().querySelector<HTMLButtonElement>("[data-team-open-chat]")!.click(),
+      container
+        .querySelector<HTMLButtonElement>("[data-team-open-chat]")!
+        .click(),
     );
-    expect(chat().querySelector("[data-team-open-note]")?.textContent).toBe(
+    expect(container.querySelector("[data-team-open-note]")?.textContent).toBe(
       "Couldn't open Checker's chat.",
     );
   });

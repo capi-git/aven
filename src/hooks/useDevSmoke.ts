@@ -55,10 +55,16 @@ import { checkPinnedTab } from "../lib/devSmokePinTab";
 import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
 import { checkCrew } from "../lib/devSmokeCrew";
 import {
+  describeOrchestrationRun,
+  runHoldsProject,
+  type OrchestrationWakeState,
+} from "../lib/devSmokeOrchestration";
+import {
   checkDesigner,
   checkResearcher,
   checkTeamAccess,
   checkTeamSetup,
+  checkTeamTalk,
   type SmokeTeam,
 } from "../lib/devSmokeTeam";
 import { checkDividerRail } from "../lib/devSmokeRail";
@@ -139,6 +145,10 @@ type Options = DevPerfOptions & {
   orchestration?: {
     run: (leadId: string) => OrchestrationRun | undefined;
     submissionError: (sessionId: string) => string | null;
+    /** The orchestrator's wake-up state for a lead, for a failure's report. */
+    inspect?: (leadId: string) => OrchestrationWakeState;
+    /** Stop a run and its agents, as the bar's Stop run does. */
+    stopRun?: (leadId: string) => Promise<void>;
   };
   /** Races a message from the message box; the check keeps a lane mid-run. */
   race?: SmokeRace;
@@ -269,6 +279,52 @@ async function stopTurn(get: () => Options, sessionId: string) {
   await waitFor(() => !busy(), 10_000, "the stopped turn to end").catch(
     () => {},
   );
+}
+
+/**
+ * The error of a step that gave up on a run, with where the run stood (the
+ * run, its lead, each agent and the orchestrator's wake-up state) and what
+ * was done about it: a run still holding the project (active, paused or
+ * with an agent running) is stopped, as the bar's Stop run does, and its
+ * chats waited for, so the steps after it are not refused as "busy with a
+ * run" for a hang that was this step's.
+ */
+async function failedRunReport(
+  get: () => Options,
+  leadId: string,
+  error: unknown,
+): Promise<string> {
+  const orchestration = get().orchestration;
+  const run = orchestration?.run(leadId);
+  // Before the run started, the error says what kept it from starting.
+  if (!run) return errorText(error);
+  const stood = describeOrchestrationRun(
+    run,
+    get().sessions,
+    orchestration?.inspect?.(leadId),
+  );
+  let released = "";
+  if (runHoldsProject(run) && orchestration?.stopRun) {
+    const ids = new Set([leadId, ...run.tasks.map((task) => task.sessionId)]);
+    const busy = () =>
+      get().sessions.some((session) => ids.has(session.id) && session.busy);
+    // Bounded, so a stop that hangs can't take this report with it.
+    released = await withTimeout(
+      orchestration.stopRun(leadId),
+      15_000,
+      "stopping the run",
+    ).then(
+      () =>
+        waitFor(() => !busy(), 10_000, "the stopped run's chats to end").then(
+          () => "; the run was stopped for the next steps",
+          (stopError: unknown) =>
+            `; the run was stopped for the next steps, but ${errorText(stopError)}`,
+        ),
+      (stopError: unknown) =>
+        `; stopping the run for the next steps failed: ${errorText(stopError)}`,
+    );
+  }
+  return `${errorText(error)}; ${stood}${released}`;
 }
 
 /**
@@ -490,7 +546,7 @@ function chatComposer(sessionId: string): HTMLElement | null {
  * Returns the modes page.
  */
 async function openComposerModes(sessionId: string): Promise<HTMLElement> {
-  const critter = await waitFor(
+  await waitFor(
     () =>
       chatComposer(sessionId)?.querySelector<HTMLButtonElement>(
         "[data-helm-critter]",
@@ -499,13 +555,21 @@ async function openComposerModes(sessionId: string): Promise<HTMLElement> {
     "the critter on the chat's message box",
   );
   if (!document.querySelector("[data-composer-plus]")) {
-    critter.click();
-    const next = await waitFor(
-      () =>
-        document.querySelector<HTMLElement>("[data-composer-plus]") ??
-        document.querySelector<HTMLElement>('[data-helm-row="modes"]'),
-      5_000,
-      "the critter's dialog",
+    const shown = () =>
+      document.querySelector<HTMLElement>("[data-composer-plus]") ??
+      document.querySelector<HTMLElement>('[data-helm-row="modes"]');
+    // A chat opened a moment ago can still be settling into its pane, which
+    // closes a dialog opened meanwhile: a second press, once it has settled.
+    const press = () => {
+      if (!shown())
+        chatComposer(sessionId)
+          ?.querySelector<HTMLButtonElement>("[data-helm-critter]")
+          ?.click();
+    };
+    press();
+    const again = setTimeout(press, 1_500);
+    const next = await waitFor(shown, 5_000, "the critter's dialog").finally(
+      () => clearTimeout(again),
     );
     if (next.matches('[data-helm-row="modes"]')) next.click();
   }
@@ -2102,8 +2166,6 @@ export function paneLayoutProblem(file: HTMLElement): {
       return fail(
         `the ${who}'s strip covers ${Math.round(overlap)}px of its content`,
       );
-    if (!hasHairlineBelow(strip))
-      return fail(`the ${who}'s strip has no hairline under it`);
     strips.push(strip);
   }
   const [chatStrip, fileStrip] = strips;
@@ -2166,7 +2228,7 @@ export function paneLayoutProblem(file: HTMLElement): {
     );
   return {
     problem: null,
-    summary: `one ${height(chatStrip)}px strip per pane above its content, each over a hairline, and no title row naming the tab again; square panes flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
+    summary: `one ${height(chatStrip)}px strip per pane above its content, with no line under it, and no title row naming the tab again; square panes flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
   };
 }
 
@@ -3757,164 +3819,178 @@ export async function runDevSmoke(
         get().motion?.showWorkspace?.();
         const lead = await openNewTask(get, config.projectPath);
         firstLeadId = lead.id;
-        await waitFor(
-          () => chatComposer(lead.id),
-          5_000,
-          "the new chat's message box",
-        );
-        await startOrchestrationFromComposer(
-          lead.id,
-          `Write two notes. ${SMOKE_ORCHESTRATE_WORD}`,
-        );
-        const since = Date.now();
-        const { scopes } = await confirmProposal(get, lead.id);
-        // While it runs, the bar's Stop run is the one way to stop it: the
-        // card, the run status and the message box offer no second one.
-        const stopProblem = () => {
-          const pane = chatPane(lead.id);
-          if (!pane) return "the lead's chat is not on screen";
-          const stops = stopsIn(pane);
-          if (stops.join() !== "run")
-            return `the lead's chat offers ${stops.join(", ") || "no"} Stop`;
-          if (chatComposer(lead.id)?.querySelector('[aria-label="Stop"]'))
-            return "the lead's message box has a Stop of its own";
-          if (buttonNamed(proposalCard(lead.id), "Stop run"))
-            return "the run's card has a Stop run of its own";
-          return null;
-        };
-        // What was wrong while the lead worked, for the error.
-        let seen: string | null = "the lead never started working";
         try {
           await waitFor(
-            () => {
-              if (
-                !get().sessions.find((session) => session.id === lead.id)?.busy
-              )
-                return false;
-              seen = stopProblem();
-              return !seen;
-            },
-            30_000,
-            "one Stop run, in the bar, while the lead works",
+            () => chatComposer(lead.id),
+            5_000,
+            "the new chat's message box",
           );
-        } catch (error) {
-          throw new Error(`${errorText(error)}: ${seen ?? ""}`);
-        }
-        const asking = await waitFor(
-          () =>
-            get().sessions.find(
-              (session) =>
-                session.orchestrationLeadId === lead.id &&
-                session.pendingQuestion,
-            ),
-          60_000,
-          "a worker to ask its lead",
-        );
-        const asked = needsYouProblem(
-          get,
-          lead.id,
-          asking.id,
-          since,
-          config.projectPath,
-        );
-        if (asked) throw new Error(asked);
-        const row = document.querySelector(
-          `[data-orchestration-agent="${asking.id}"]`,
-        );
-        if (row && !row.hasAttribute("data-lead-deciding"))
-          throw new Error(
-            `The sidebar shows the waiting worker as "${row.textContent}"`,
+          await startOrchestrationFromComposer(
+            lead.id,
+            `Write two notes. ${SMOKE_ORCHESTRATE_WORD}`,
           );
-        await waitFor(
-          () => orchestration.run(lead.id)?.status === "finished",
-          90_000,
-          "the lead to finish the run",
-        );
-        await waitFor(
-          () => !get().sessions.find((session) => session.id === lead.id)?.busy,
-          30_000,
-          "the lead's last turn to end",
-        );
-        // The lead must have seen its own finish call succeed.
-        const said =
-          [
-            ...(get().sessions.find((session) => session.id === lead.id)
-              ?.blocks ?? []),
-          ]
-            .reverse()
-            .find(
-              (block) =>
-                block.role === "assistant" && block.text.includes(SMOKE_REPLY),
-            )?.text ?? "";
-        if (!said.includes("Both notes are written"))
-          throw new Error(`The lead's finish call failed: ${said}`);
-        // Anything a hidden turn would post lands as that turn settles.
-        await new Promise((resolve) => setTimeout(resolve, 750));
-        const workers = new Set(
-          orchestration.run(lead.id)!.tasks.map((task) => task.sessionId),
-        );
-        const { finished, noisy } = runEntries(lead.id, workers, since);
-        if (finished.length !== 1)
-          throw new Error(
-            `Activity has ${finished.length} "Run finished" entries, not one`,
+          const since = Date.now();
+          const { scopes } = await confirmProposal(get, lead.id);
+          // While it runs, the bar's Stop run is the one way to stop it: the
+          // card, the run status and the message box offer no second one.
+          const stopProblem = () => {
+            const pane = chatPane(lead.id);
+            if (!pane) return "the lead's chat is not on screen";
+            const stops = stopsIn(pane);
+            if (stops.join() !== "run")
+              return `the lead's chat offers ${stops.join(", ") || "no"} Stop`;
+            if (chatComposer(lead.id)?.querySelector('[aria-label="Stop"]'))
+              return "the lead's message box has a Stop of its own";
+            if (buttonNamed(proposalCard(lead.id), "Stop run"))
+              return "the run's card has a Stop run of its own";
+            return null;
+          };
+          // What was wrong while the lead worked, for the error.
+          let seen: string | null = "the lead never started working";
+          try {
+            await waitFor(
+              () => {
+                if (
+                  !get().sessions.find((session) => session.id === lead.id)
+                    ?.busy
+                )
+                  return false;
+                seen = stopProblem();
+                return !seen;
+              },
+              30_000,
+              "one Stop run, in the bar, while the lead works",
+            );
+          } catch (error) {
+            throw new Error(`${errorText(error)}: ${seen ?? ""}`);
+          }
+          const asking = await waitFor(
+            () =>
+              get().sessions.find(
+                (session) =>
+                  session.orchestrationLeadId === lead.id &&
+                  session.pendingQuestion,
+              ),
+            60_000,
+            "a worker to ask its lead",
           );
-        if (noisy.length)
-          throw new Error(
-            `Activity also has ${noisy
-              .map(
-                (entry) =>
-                  `"${entry.summary}" for ${entry.sessionId === lead.id ? "the lead" : "a worker"}`,
-              )
-              .join(", ")}`,
+          const asked = needsYouProblem(
+            get,
+            lead.id,
+            asking.id,
+            since,
+            config.projectPath,
           );
-        await waitFor(
-          () =>
-            proposalCard(lead.id)?.querySelector("[data-orchestration-status]")
-              ?.textContent === "Finished",
-          5_000,
-          "the card to read Finished",
-        );
-        // The plan card became the result: the lead's verdict, then each
-        // agent accepted, with a line on what it did from the cheap model.
-        const resultProblem = () => {
-          const card = proposalCard(lead.id);
-          if (card?.dataset.orchestrationEnded !== "finished")
-            return "the card is not the run's result";
-          const verdict =
-            card.querySelector(".team-card-status")?.textContent ?? "";
-          if (!verdict.includes("Both notes are written"))
-            return `the result's verdict reads "${verdict}"`;
-          const rows = [
-            ...card.querySelectorAll<HTMLElement>("[data-orchestration-agent]"),
-          ];
-          if (rows.length !== workers.size)
-            return `the result lists ${rows.length} agents`;
-          const states = rows.map(
-            (row) => row.dataset.orchestrationTaskStatus ?? "",
+          if (asked) throw new Error(asked);
+          const row = document.querySelector(
+            `[data-orchestration-agent="${asking.id}"]`,
           );
-          if (states.some((state) => state !== "Accepted"))
-            return `the agents read ${states.join(", ")}`;
-          if (
-            !rows.every((row) => row.textContent?.includes(SMOKE_SUMMARY_WORD))
-          )
-            return "the agents have no line on what they did";
-          if (
-            !buttonNamed(card, "Review changes") ||
-            !buttonNamed(card, "Open agents")
-          )
-            return "the result has no Review changes or Open agents";
-          return null;
-        };
-        try {
+          if (row && !row.hasAttribute("data-lead-deciding"))
+            throw new Error(
+              `The sidebar shows the waiting worker as "${row.textContent}"`,
+            );
           await waitFor(
-            () => !resultProblem(),
-            30_000,
-            "the result card with what each agent did",
+            () => orchestration.run(lead.id)?.status === "finished",
+            90_000,
+            "the lead to finish the run",
           );
+          await waitFor(
+            () =>
+              !get().sessions.find((session) => session.id === lead.id)?.busy,
+            30_000,
+            "the lead's last turn to end",
+          );
+          // The lead must have seen its own finish call succeed.
+          const said =
+            [
+              ...(get().sessions.find((session) => session.id === lead.id)
+                ?.blocks ?? []),
+            ]
+              .reverse()
+              .find(
+                (block) =>
+                  block.role === "assistant" &&
+                  block.text.includes(SMOKE_REPLY),
+              )?.text ?? "";
+          if (!said.includes("Both notes are written"))
+            throw new Error(`The lead's finish call failed: ${said}`);
+          // Anything a hidden turn would post lands as that turn settles.
+          await new Promise((resolve) => setTimeout(resolve, 750));
+          const workers = new Set(
+            orchestration.run(lead.id)!.tasks.map((task) => task.sessionId),
+          );
+          const { finished, noisy } = runEntries(lead.id, workers, since);
+          if (finished.length !== 1)
+            throw new Error(
+              `Activity has ${finished.length} "Run finished" entries, not one`,
+            );
+          if (noisy.length)
+            throw new Error(
+              `Activity also has ${noisy
+                .map(
+                  (entry) =>
+                    `"${entry.summary}" for ${entry.sessionId === lead.id ? "the lead" : "a worker"}`,
+                )
+                .join(", ")}`,
+            );
+          await waitFor(
+            () =>
+              proposalCard(lead.id)?.querySelector(
+                "[data-orchestration-status]",
+              )?.textContent === "Finished",
+            5_000,
+            "the card to read Finished",
+          );
+          // The plan card became the result: the lead's verdict, then each
+          // agent accepted, with a line on what it did from the cheap model.
+          const resultProblem = () => {
+            const card = proposalCard(lead.id);
+            if (card?.dataset.orchestrationEnded !== "finished")
+              return "the card is not the run's result";
+            const verdict =
+              card.querySelector(".team-card-status")?.textContent ?? "";
+            if (!verdict.includes("Both notes are written"))
+              return `the result's verdict reads "${verdict}"`;
+            const rows = [
+              ...card.querySelectorAll<HTMLElement>(
+                "[data-orchestration-agent]",
+              ),
+            ];
+            if (rows.length !== workers.size)
+              return `the result lists ${rows.length} agents`;
+            const states = rows.map(
+              (row) => row.dataset.orchestrationTaskStatus ?? "",
+            );
+            if (states.some((state) => state !== "Accepted"))
+              return `the agents read ${states.join(", ")}`;
+            if (
+              !rows.every((row) =>
+                row.textContent?.includes(SMOKE_SUMMARY_WORD),
+              )
+            )
+              return "the agents have no line on what they did";
+            if (
+              !buttonNamed(card, "Review changes") ||
+              !buttonNamed(card, "Open agents")
+            )
+              return "the result has no Review changes or Open agents";
+            return null;
+          };
+          try {
+            await waitFor(
+              () => !resultProblem(),
+              30_000,
+              "the result card with what each agent did",
+            );
+          } catch (error) {
+            throw new Error(`${errorText(error)}: ${resultProblem() ?? ""}`);
+          }
+          return `${workers.size} agents, ${scopes} file chips; one Stop run, in the bar; a worker's question went to the lead and nowhere else; one "${finished[0].summary}" entry; the card became the result, with the lead's verdict and a line per agent`;
         } catch (error) {
-          throw new Error(`${errorText(error)}: ${resultProblem() ?? ""}`);
+          // Where the run stood, and the run stopped so the steps after this
+          // one are not refused for it.
+          throw new Error(await failedRunReport(get, lead.id, error));
         }
-        return `${workers.size} agents, ${scopes} file chips; one Stop run, in the bar; a worker's question went to the lead and nowhere else; one "${finished[0].summary}" entry; the card became the result, with the lead's verdict and a line per agent`;
       },
     );
 
@@ -3925,100 +4001,107 @@ export async function runDevSmoke(
     await step("a run the lead leaves open offers Finish run", async () => {
       get().motion?.showWorkspace?.();
       const lead = await openNewTask(get, config.projectPath);
-      await waitFor(
-        () => chatComposer(lead.id),
-        5_000,
-        "the new chat's message box",
-      );
-      await startOrchestrationFromComposer(
-        lead.id,
-        `Write two notes. ${SMOKE_ORCHESTRATE_WORD} ${SMOKE_STALL_WORD}`,
-      );
-      await confirmProposal(get, lead.id);
-      const other =
-        firstLeadId ??
-        get().sessions.find(
-          (session) =>
-            session.id !== lead.id &&
-            !session.orchestrationLeadId &&
-            sameProjectPath(session.cwd, config.projectPath),
-        )?.id;
-      const refused = other ? orchestration.submissionError(other) : null;
-      if (other && !refused?.includes("is busy with a run in “"))
-        throw new Error(
-          `Another chat in the project is told: ${refused ?? "nothing"}`,
+      try {
+        await waitFor(
+          () => chatComposer(lead.id),
+          5_000,
+          "the new chat's message box",
         );
-      const stalledBar = () => {
-        const found = chatPane(lead.id)?.querySelector<HTMLElement>(
-          `[data-orchestration-bar="${lead.id}"]`,
+        await startOrchestrationFromComposer(
+          lead.id,
+          `Write two notes. ${SMOKE_ORCHESTRATE_WORD} ${SMOKE_STALL_WORD}`,
         );
-        return found?.querySelector('[data-state="stalled"]') && found;
-      };
-      await waitFor(
-        stalledBar,
-        90_000,
-        "the bar to say the lead stopped without finishing",
-      );
-      // Watched from the bar, the team panel says so too, with the lead
-      // and each agent.
-      let watched = "";
-      if (teamWorkspace()?.watch) {
-        const teamId = `orchestrate:${lead.id}`;
-        const tasks = orchestration.run(lead.id)?.tasks.length ?? 0;
-        watched = await checkTeamPanel(
-          teamId,
-          () =>
-            stalledBar()?.querySelector<HTMLElement>(
-              `[data-team-watch="${teamId}"]`,
-            ),
-          (panel) => {
-            if (
-              !panel.querySelector(
-                `[data-team-member="${lead.id}"][data-role="lead"]`,
+        await confirmProposal(get, lead.id);
+        const other =
+          firstLeadId ??
+          get().sessions.find(
+            (session) =>
+              session.id !== lead.id &&
+              !session.orchestrationLeadId &&
+              sameProjectPath(session.cwd, config.projectPath),
+          )?.id;
+        const refused = other ? orchestration.submissionError(other) : null;
+        if (other && !refused?.includes("is busy with a run in “"))
+          throw new Error(
+            `Another chat in the project is told: ${refused ?? "nothing"}`,
+          );
+        const stalledBar = () => {
+          const found = chatPane(lead.id)?.querySelector<HTMLElement>(
+            `[data-orchestration-bar="${lead.id}"]`,
+          );
+          return found?.querySelector('[data-state="stalled"]') && found;
+        };
+        await waitFor(
+          stalledBar,
+          90_000,
+          "the bar to say the lead stopped without finishing",
+        );
+        // Watched from the bar, the team panel says so too, with the lead
+        // and each agent.
+        let watched = "";
+        if (teamWorkspace()?.watch) {
+          const teamId = `orchestrate:${lead.id}`;
+          const tasks = orchestration.run(lead.id)?.tasks.length ?? 0;
+          watched = await checkTeamPanel(
+            teamId,
+            () =>
+              stalledBar()?.querySelector<HTMLElement>(
+                `[data-team-watch="${teamId}"]`,
+              ),
+            (panel) => {
+              if (
+                !panel.querySelector(
+                  `[data-team-member="${lead.id}"][data-role="lead"]`,
+                )
               )
-            )
-              return "it has no row for the lead";
-            const rows = panel.querySelectorAll(
-              '[data-team-member][data-role="worker"]',
-            ).length;
-            if (rows !== tasks) return `it lists ${rows} agents, not ${tasks}`;
-            const notice = panel.querySelector('[data-team-notice="stalled"]');
-            if (!notice || !buttonNamed(notice as Element, "Finish run"))
-              return "it does not say the lead stopped, with Finish run";
-            if (!buttonNamed(panel, "Stop run")) return "it has no Stop run";
-            return null;
-          },
+                return "it has no row for the lead";
+              const rows = panel.querySelectorAll(
+                '[data-team-member][data-role="worker"]',
+              ).length;
+              if (rows !== tasks)
+                return `it lists ${rows} agents, not ${tasks}`;
+              const notice = panel.querySelector(
+                '[data-team-notice="stalled"]',
+              );
+              if (!notice || !buttonNamed(notice as Element, "Finish run"))
+                return "it does not say the lead stopped, with Finish run";
+              if (!buttonNamed(panel, "Stop run")) return "it has no Stop run";
+              return null;
+            },
+          );
+          closeTeamPanel(teamId);
+        }
+        const bar = await waitFor(
+          stalledBar,
+          5_000,
+          "the bar to still say the lead stopped",
         );
-        closeTeamPanel(teamId);
+        const said = bar.textContent ?? "";
+        if (!said.includes("The lead stopped without finishing"))
+          throw new Error(`The bar reads "${said}"`);
+        const finish = buttonNamed(bar, "Finish run");
+        if (!finish || !buttonNamed(bar, "Ask the lead to wrap up"))
+          throw new Error(
+            `The bar offers ${[...bar.querySelectorAll("button")].map((button) => `"${button.textContent?.trim()}"`).join(", ")}`,
+          );
+        finish.click();
+        await waitFor(
+          () => orchestration.run(lead.id)?.status === "finished",
+          10_000,
+          "Finish run to end the run",
+        );
+        await waitFor(
+          () =>
+            !chatPane(lead.id)?.querySelector("[data-orchestration-bar]") &&
+            proposalCard(lead.id)?.querySelector("[data-orchestration-status]")
+              ?.textContent === "Finished",
+          5_000,
+          "the bar to go and the card to read Finished",
+        );
+        return `"${refused ?? "no other chat"}"; the bar offered Finish run, which ended the run${watched ? `; ${watched}` : ""}`;
+      } catch (error) {
+        throw new Error(await failedRunReport(get, lead.id, error));
       }
-      const bar = await waitFor(
-        stalledBar,
-        5_000,
-        "the bar to still say the lead stopped",
-      );
-      const said = bar.textContent ?? "";
-      if (!said.includes("The lead stopped without finishing"))
-        throw new Error(`The bar reads "${said}"`);
-      const finish = buttonNamed(bar, "Finish run");
-      if (!finish || !buttonNamed(bar, "Ask the lead to wrap up"))
-        throw new Error(
-          `The bar offers ${[...bar.querySelectorAll("button")].map((button) => `"${button.textContent?.trim()}"`).join(", ")}`,
-        );
-      finish.click();
-      await waitFor(
-        () => orchestration.run(lead.id)?.status === "finished",
-        10_000,
-        "Finish run to end the run",
-      );
-      await waitFor(
-        () =>
-          !chatPane(lead.id)?.querySelector("[data-orchestration-bar]") &&
-          proposalCard(lead.id)?.querySelector("[data-orchestration-status]")
-            ?.textContent === "Finished",
-        5_000,
-        "the bar to go and the card to read Finished",
-      );
-      return `"${refused ?? "no other chat"}"; the bar offered Finish run, which ended the run${watched ? `; ${watched}` : ""}`;
     });
 
   // A two-lane race from the message box, with the stand-in Grok as the
@@ -4076,6 +4159,11 @@ export async function runDevSmoke(
     await step(
       "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
       () => checkDesigner(get, config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "a message to the Lead reaches a teammate and a helper and comes back",
+      () => checkTeamTalk(config, crew),
     );
   if (safe && crew)
     await step(

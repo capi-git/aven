@@ -10,9 +10,7 @@
   margin: 0 4px 6px;
   padding: 3px 4px 3px 10px;
   border-radius: var(--aven-radius-lg);
-  background: var(--aven-glass-surface, var(--aven-hover));
-  -webkit-backdrop-filter: var(--aven-glass-blur, none);
-  backdrop-filter: var(--aven-glass-blur, none);
+  background: color-mix(in srgb, var(--color-content) 4.5%, transparent);
   color: var(--color-content);
   font-family: var(--font-sans);
   font-size: var(--text-ui-label);

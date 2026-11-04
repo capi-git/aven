@@ -9,6 +9,7 @@ import {
   formatUsagePercent,
   idleRateLimits,
   type RateLimitProvider,
+  formatResetDuration,
 } from "../lib/rateLimits";
 import {
   USAGE_WINDOW_KINDS,
@@ -21,6 +22,7 @@ import {
   contextMeterTitle,
   usageMeterFill,
   usageMeterTitle,
+  usageReadings,
 } from "../lib/usageMeter";
 import type { ProviderUsageForecast } from "../lib/usageHistory";
 import { useUsagePanelTheme, type UsagePanelSnapshot } from "../lib/usagePanel";
@@ -209,7 +211,7 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
             <UsagePercent>{contextLabel}</UsagePercent>
           </span>
         ) : null}
-        {accounts.map((account, index) => {
+        {accounts.map((account) => {
           const closest = closestUsageReading(account);
           const warning = (outlooks.get(account.provider) ?? []).some(
             ({ outlook }) => outlook.state === "warning",
@@ -221,9 +223,6 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
               data-provider={account.provider}
               title={titles.get(account.provider)}
             >
-              {index > 0 || contextLabel ? (
-                <span className="footer-usage-divider" aria-hidden />
-              ) : null}
               <ProviderMarks harnesses={[account.provider]} />
               {closest ? (
                 <>
@@ -232,7 +231,16 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
                     warning={warning}
                   />
                   <UsagePercent>
-                    {formatUsagePercent(closest.window.usedPercent)}
+                    {usageReadings(account)
+                      .map(({ window }) =>
+                        [
+                          formatUsagePercent(window.usedPercent),
+                          ...(window.resetsAt
+                            ? [formatResetDuration(window.resetsAt - now)]
+                            : []),
+                        ].join(" "),
+                      )
+                      .join(" · ")}
                   </UsagePercent>
                 </>
               ) : (

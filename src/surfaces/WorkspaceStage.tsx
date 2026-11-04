@@ -1,3 +1,4 @@
+import { useWorkspaceSurfaceDrag } from "../lib/workspaceSurfaceDrag";
 import {
   memo,
   useCallback,
@@ -414,6 +415,8 @@ const FOCUS_WAIT_MS = 1500;
 // WK animation frames may be deferred while native Chromium covers its view.
 // Bound that wait only during a drag; the first callback cancels the other.
 const DRAG_FRAME_DEADLINE_MS = 16;
+/** How long panes glide after one folds or opens (WorkspaceStage.css). */
+const FOLD_GLIDE_MS = 240;
 
 function applyGeometry(element: HTMLElement, values: CSSProperties) {
   for (const [name, value] of Object.entries(values)) {
@@ -431,7 +434,11 @@ const GUTTER = PANE_GUTTER;
  * on that edge. */
 export const WORKSPACE_EDGE = 0;
 const EDGE = WORKSPACE_EDGE;
-function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
+function surfaceStyle(
+  rect: LayoutRect,
+  inset = 0,
+  frozenStage?: { width: number; height: number },
+): CSSProperties {
   const epsilon = 0.000001;
   const left = (rect.x > epsilon ? GUTTER : EDGE) + inset;
   const top = (rect.y > epsilon ? GUTTER : EDGE) + inset;
@@ -440,19 +447,25 @@ function surfaceStyle(rect: LayoutRect, inset = 0): CSSProperties {
   // Percentages to a millionth of a percent: enough for any screen, and no
   // float noise ("2.8000000000000003%") in the style.
   const percent = (fraction: number) => Math.round(fraction * 1e8) / 1e6;
-  const position = (fraction: number, inset: number) =>
+  // Of the stage as it was, in pixels: the same box, which no longer follows
+  // the stage (see `frozenStage`).
+  const length = (fraction: number, whole: number | undefined) =>
+    whole === undefined
+      ? `${percent(fraction)}%`
+      : `${(percent(fraction) * whole) / 100}px`;
+  const position = (fraction: number, inset: number, whole?: number) =>
     inset
-      ? `calc(${percent(fraction)}% + ${inset}px)`
-      : `${percent(fraction)}%`;
-  const size = (fraction: number, inset: number) =>
+      ? `calc(${length(fraction, whole)} + ${inset}px)`
+      : length(fraction, whole);
+  const size = (fraction: number, inset: number, whole?: number) =>
     inset
-      ? `calc(${percent(fraction)}% - ${inset}px)`
-      : `${percent(fraction)}%`;
+      ? `calc(${length(fraction, whole)} - ${inset}px)`
+      : length(fraction, whole);
   return {
-    left: position(rect.x, left),
-    top: position(rect.y, top),
-    width: size(rect.w, left + right),
-    height: size(rect.h, top + bottom),
+    left: position(rect.x, left, frozenStage?.width),
+    top: position(rect.y, top, frozenStage?.height),
+    width: size(rect.w, left + right, frozenStage?.width),
+    height: size(rect.h, top + bottom, frozenStage?.height),
   };
 }
 /** A shared wallpaper canvas, clipped by each pane's existing bounds. */
@@ -584,6 +597,19 @@ function stageSize(stage: HTMLElement): { width: number; height: number } {
   const local = clientRectScale(stage) / (effectiveCssZoom(stage) || 1);
   return { width: bounds.width * local, height: bounds.height * local };
 }
+/**
+ * Surfaces in the order each first appeared, whatever order the tabs are in.
+ * They sit where their boxes say, so reordering tabs needs no change here;
+ * moving their nodes would have WebKit rebuild and lay out whole chats.
+ */
+export function stableOrder<Surface extends { id: string }>(
+  seen: Map<string, number>,
+  surfaces: readonly Surface[],
+): Surface[] {
+  for (const { id } of surfaces) if (!seen.has(id)) seen.set(id, seen.size);
+  return [...surfaces].sort((a, b) => seen.get(a.id)! - seen.get(b.id)!);
+}
+
 const SurfaceContent = memo(function SurfaceContent({
   content,
 }: {
@@ -661,6 +687,10 @@ export function WorkspaceStage({
         return;
       const next = { width, height };
       sizeRef.current = next;
+      // Panes on screen are that size now; a hidden one keeps its own.
+      for (const [id, retained] of retainedGeometry.current)
+        if (surfaceNodes.current.get(id)?.hidden === false)
+          retained.stage = next;
       if (held(previous) || held(next)) setSizeDrawn(next);
     };
     measure(element.clientWidth, element.clientHeight);
@@ -705,6 +735,7 @@ export function WorkspaceStage({
     };
   }, []);
   const surfaceNodes = useRef(new Map<string, HTMLDivElement>());
+  const surfaceOrder = useRef(new Map<string, number>());
   const headerNodes = useRef(new Map<string, HTMLDivElement>());
   const sashNodes = useRef(new Map<string, HTMLDivElement>());
   const railNodes = useRef(new Map<string, HTMLButtonElement>());
@@ -873,7 +904,14 @@ export function WorkspaceStage({
   // measurement from a display:none subtree. Only committed visits are warm;
   // this cache never owns children, callbacks, or closed surfaces.
   const retainedGeometry = useRef(
-    new Map<string, { rect: LayoutRect; hasHeader: boolean }>(),
+    new Map<
+      string,
+      {
+        rect: LayoutRect;
+        hasHeader: boolean;
+        stage: { width: number; height: number };
+      }
+    >(),
   );
   useLayoutEffect(() => {
     const liveIds = new Set(surfaces.map(({ id }) => id));
@@ -886,6 +924,7 @@ export function WorkspaceStage({
         retainedGeometry.current.set(id, {
           rect,
           hasHeader: headerContents.has(id),
+          stage: sizeRef.current,
         });
     }
   });
@@ -1077,10 +1116,14 @@ export function WorkspaceStage({
     .map(({ id }) => id)
     .join("\0");
 
-  function paintSurface(id: string, rect: LayoutRect) {
+  function paintSurface(
+    id: string,
+    rect: LayoutRect,
+    frozenStage?: { width: number; height: number },
+  ) {
     const element = surfaceNodes.current.get(id);
     if (!element) return;
-    applyGeometry(element, surfaceStyle(rect));
+    applyGeometry(element, surfaceStyle(rect, 0, frozenStage));
     for (const [name, value] of Object.entries(surfaceBackgroundStyle(rect)))
       if (element.style.getPropertyValue(name) !== value)
         element.style.setProperty(name, value);
@@ -1139,8 +1182,9 @@ export function WorkspaceStage({
     stopResize.current?.(false);
     // A cancelled drag may have painted draft sizes directly on panes that
     // just left the current layout. Restore their committed measurements too.
-    for (const [id, { rect }] of retainedGeometry.current) {
-      if (!visible || !positions.has(id)) paintSurface(id, rect);
+    for (const [id, { rect, stage }] of retainedGeometry.current) {
+      if (!visible || !positions.has(id))
+        paintSurface(id, rect, stage.width ? stage : undefined);
     }
     if (visible && layout) paint(layout);
   }, [layout, visible, headerIds]);
@@ -1641,9 +1685,11 @@ export function WorkspaceStage({
     container.dataset.resizing = "true";
     let offset = startOffset;
     let drawnRails = railedLeafIds(tree).join("\0");
+    let drawnTree = tree;
     let moved = false;
     let frame: number | null = null;
     let fallback: number | null = null;
+    let foldTimer: number | null = null;
     const cancelPaint = () => {
       if (frame !== null) cancelAnimationFrame(frame);
       if (fallback !== null) window.clearTimeout(fallback);
@@ -1660,8 +1706,47 @@ export function WorkspaceStage({
       // follows the draw. Each frame paints, and tells native pages, once.
       const rails = railedLeafIds(next);
       if (rails.join("\0") !== drawnRails) {
+        const before = drawnRails.split("\0").filter(Boolean);
         drawnRails = rails.join("\0");
+        // The panes glide to their new places. Native pages can't follow a
+        // CSS transition, so a stage showing one still moves at once.
+        const glide =
+          !motionReduced() && !container.querySelector(".browser-native-host");
+        if (glide) {
+          container.dataset.folding = "true";
+          if (foldTimer !== null) window.clearTimeout(foldTimer);
+          foldTimer = window.setTimeout(() => {
+            foldTimer = null;
+            delete container.dataset.folding;
+          }, FOLD_GLIDE_MS);
+          // A pane opening grows out of its rail, fading in as it comes.
+          const places = stagePlaces(drawnTree, fitNow(drawnTree, measured));
+          for (const id of before) {
+            if (rails.includes(id)) continue;
+            const place = places.get(id);
+            const surface = surfaceNodes.current.get(id);
+            if (!place || !surface) continue;
+            paintSurface(id, place);
+            void surface.offsetWidth;
+            surface.animate([{ opacity: 0 }, { opacity: 1 }], {
+              duration: FOLD_GLIDE_MS,
+              easing: "ease-out",
+            });
+          }
+        }
+        drawnTree = next;
         flushSync(() => setDraftRails(new Set(rails)));
+        // A pane folding leaves its rail fading in where it ends.
+        if (glide)
+          for (const id of rails) {
+            if (before.includes(id)) continue;
+            railNodes.current
+              .get(id)
+              ?.animate([{ opacity: 0 }, { opacity: 1 }], {
+                duration: FOLD_GLIDE_MS,
+                easing: "ease-out",
+              });
+          }
         return;
       }
       paint(next, measured);
@@ -1701,6 +1786,8 @@ export function WorkspaceStage({
       delete container.dataset.resizing;
       dragDraft.current = null;
       setDraftRails(null);
+      // A mouse drag leaves no focus ring behind; Tab still reaches the divider.
+      handle.blur();
       if (commit && moved) {
         const next = resizeSash(tree, fitted, offset).layout;
         paint(next, measured);
@@ -1781,7 +1868,7 @@ export function WorkspaceStage({
       aria-hidden={!visible || undefined}
       inert={!visible || undefined}
     >
-      {surfaces.map(({ id, content }) => {
+      {stableOrder(surfaceOrder.current, surfaces).map(({ id, content }) => {
         const currentRect = positions.get(id);
         const shown = visible && !!currentRect;
         const retained = retainedGeometry.current.get(id);
@@ -1809,9 +1896,29 @@ export function WorkspaceStage({
             inert={!shown || undefined}
             style={
               rect
-                ? { ...surfaceStyle(rect), ...surfaceBackgroundStyle(rect) }
+                ? {
+                    ...surfaceStyle(
+                      rect,
+                      0,
+                      // A hidden pane keeps its size: resizing the window or
+                      // the sidebar lays out the panes on screen, not every
+                      // chat you have open. It catches up when it comes back.
+                      !shown && !handoff && retained?.stage.width
+                        ? retained.stage
+                        : undefined,
+                    ),
+                    ...surfaceBackgroundStyle(rect),
+                  }
                 : undefined
             }
+            onPointerEnter={() => {
+              const header = headerNodes.current.get(id);
+              if (header) header.dataset.pointed = "true";
+            }}
+            onPointerLeave={() => {
+              const header = headerNodes.current.get(id);
+              if (header) delete header.dataset.pointed;
+            }}
             onPointerDownCapture={() => {
               if (shown && focusedId !== id) current.current.onFocus(id);
             }}
@@ -1825,17 +1932,21 @@ export function WorkspaceStage({
               data-workspace-body={id}
             >
               <SurfaceContent content={content} />
-              {shown && dragging && hint && dragTarget?.id === id ? (
-                <div
-                  className="workspace-stage-drop-hint"
-                  data-workspace-drop-hint
-                  data-drop-edge={dragTarget.edge}
-                  data-drop-kind={dragKind}
-                  data-drop-title={dragLabel ?? ""}
-                  style={previewStyle(hint)}
-                  aria-hidden="true"
-                />
-              ) : null}
+              {/* Always here: adding the hint to the pane's own column would
+                  lay out the whole chat each time the target changes. */}
+              <div className="workspace-stage-hint-layer" aria-hidden="true">
+                {shown && dragging && hint && dragTarget?.id === id ? (
+                  <div
+                    className="workspace-stage-drop-hint"
+                    data-workspace-drop-hint
+                    data-drop-edge={dragTarget.edge}
+                    data-drop-kind={dragKind}
+                    data-drop-title={dragLabel ?? ""}
+                    style={previewStyle(hint)}
+                    aria-hidden="true"
+                  />
+                ) : null}
+              </div>
             </div>
           </div>
         );
@@ -2068,5 +2179,22 @@ export function WorkspaceStage({
         aria-hidden="true"
       />
     </div>
+  );
+}
+
+/**
+ * The main window's stage: it reads the tab dragged over it from its own
+ * store, so a drag renders the stage and not the whole workspace around it.
+ */
+export function MainWorkspaceStage(
+  props: Omit<WorkspaceStageProps, "dragging" | "dragTarget">,
+) {
+  const drag = useWorkspaceSurfaceDrag();
+  return (
+    <WorkspaceStage
+      {...props}
+      dragging={drag.dragging}
+      dragTarget={drag.target}
+    />
   );
 }

@@ -58,6 +58,7 @@ export function markToneColor(tone: MarkTone): string {
  * marks differ (a brush, a shield), and the nine tones are all taken.
  */
 const ROLE_TONES: Readonly<Record<string, MarkTone>> = {
+  lead: "grey",
   builder: "blue",
   checker: "purple",
   security: "pink",

@@ -58,6 +58,8 @@ export type CrewRole =
   | "scout"
   | "researcher"
   | "designer"
+  | "lead"
+  | "helper"
   | "fixer";
 
 /** The roles that take turns on cards in the crew's copy. */
@@ -79,6 +81,18 @@ export type CrewRoleInfo = {
 };
 
 export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
+  helper: {
+    role: "helper",
+    label: "Helper",
+    job: "Looks into one thing for a teammate, then goes",
+    edits: false,
+  },
+  lead: {
+    role: "lead",
+    label: "Lead",
+    job: "Answers messages to everyone and passes questions on",
+    edits: false,
+  },
   builder: {
     role: "builder",
     label: "Builder",
@@ -127,6 +141,7 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
 
 /** The order members are listed in: who builds, who checks, who finds. */
 export const CREW_ROLE_ORDER: readonly CrewRole[] = [
+  "lead",
   "builder",
   "checker",
   "security",
@@ -184,6 +199,15 @@ export type CrewMember = {
   fallback?: { harness: "claude"; model?: string; at: number };
   /** Off: it takes no turns (a Builder gets no cards, a Scout doesn't look). */
   paused?: boolean;
+  /** What you asked it to do on a rhythm of its own, and when it last did. */
+  routine?: CrewRoutine;
+  /** A helper: the teammate that started it, for one job (see `crew.helpers`). */
+  helperOf?: string;
+  /**
+   * The Lead has read another agent's words in this chat: anything it proposes
+   * from here on could come from them, so its cards wait for you.
+   */
+  heardOthers?: boolean;
   /** What it is doing, one line, for the crew strip and the sidebar. */
   doing?: { at: number; text: string };
   /**
@@ -201,6 +225,12 @@ export type CrewMember = {
 export const CREW_MEMORY_MAX = 4_000;
 
 export type CrewScoutSchedule = "off" | "daily" | "weekly";
+
+/** Something you asked a teammate to do by itself, every day or week. */
+export type CrewRoutine = { text: string; every: "day" | "week"; at: number };
+
+/** How many helpers may run: for one teammate, the team, and a day. */
+export const CREW_HELPERS = { perAgent: 2, team: 4, day: 10 } as const;
 
 /** The agents a crew member may run on: the apps that enforce its rules. */
 export const CREW_AGENTS = ["claude", "codex"] as const;
@@ -563,7 +593,7 @@ export type CrewIdea = {
   /** It started by itself. */
   autoStarted?: boolean;
   /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
-  by?: "security" | "researcher" | "setup";
+  by?: "security" | "researcher" | "setup" | "lead";
 };
 
 export type CrewFeedKind =
@@ -580,7 +610,9 @@ export type CrewFeedKind =
   /** The Researcher's findings are ready for you. */
   | "findings"
   /** The Designer's mock-up is ready for you. */
-  | "mockup";
+  | "mockup"
+  /** A teammate's line after a message: the Lead's to you, others' quiet. */
+  | "say";
 
 /** One line in the crew's feed: handoffs, verdicts, ideas, your notes. */
 export type CrewFeedEntry = {
@@ -699,6 +731,12 @@ export type Crew = {
    * chat shows these as your messages. Older builds drop them on reading.
    */
   messages?: CrewMessage[];
+  /** Messages between you and teammates still on their way (see `CrewTalk`). */
+  talks?: CrewTalk[];
+  /** Helpers at work: teammates in all but name, on no list of the team's. */
+  helpers?: CrewMember[];
+  /** Helpers started today. */
+  helperRuns?: { day: string; count: number };
   /**
    * What this project is and what you want, as you wrote it when the team
    * set itself up: your own words, read by every teammate at every turn.
@@ -737,7 +775,33 @@ export type CrewMessage = {
   echo?: string;
 };
 
-export type CrewMessageKind = "card" | "rule" | "goal";
+export type CrewMessageKind = "card" | "rule" | "goal" | "lead";
+
+/**
+ * A message on its way to a teammate: your words to the Lead, or one
+ * teammate's to another. Carried as words to read: it never approves
+ * anything or moves a card.
+ */
+export type CrewTalk = {
+  id: string;
+  at: number;
+  /** A member's id, or you. */
+  from: "you" | string;
+  to: string;
+  text: string;
+  /** Times the message of yours it started from has been passed on. */
+  hop: number;
+  /** It answers what `to` asked: nothing goes back for it. */
+  answer?: true;
+  /** A routine you set: your words, on the team's limits. */
+  routine?: true;
+  /** A helper's one job. */
+  helper?: true;
+  /** Who it's from in words: a helper is gone by the time its answer arrives. */
+  fromName?: string;
+  /** Set once it went: the window carrying it, and its turn. */
+  sent?: { at: number; owner: string; turnId: string; sessionId: string };
+};
 
 /**
  * What a team's teammates may do without stopping to ask you, all inside
@@ -751,10 +815,32 @@ export type CrewAccess = {
   web: "none" | "builders" | "everyone";
   /**
    * Anything else that would ask (committing, merging, sending, your own
-   * files): the teammate is told no and carries on, or it waits for you.
+   * files): the teammate is told no and carries on, or it waits for you, or
+   * (Full access) it goes ahead without asking. Your own files, pushing,
+   * publishing and your keys stay refused even then.
    */
-  others: "refuse" | "ask";
+  others: "refuse" | "ask" | "allow";
 };
+
+/** A team's one Access choice, in the message box's words. */
+export type CrewAccessLevel = "ask" | "auto" | "full";
+
+/** What each Access choice sets. */
+export const CREW_ACCESS_LEVELS: Readonly<Record<CrewAccessLevel, CrewAccess>> =
+  {
+    ask: { deletes: false, web: "builders", others: "ask" },
+    auto: { deletes: true, web: "builders", others: "refuse" },
+    full: { deletes: true, web: "everyone", others: "allow" },
+  };
+
+/**
+ * Which Access choice a team's access is: by how a teammate treats what it
+ * would otherwise ask about. Customised web or deleting keeps the choice.
+ */
+export function crewAccessLevel(access: CrewAccess): CrewAccessLevel {
+  if (access.others === "allow") return "full";
+  return access.others === "ask" ? "ask" : "auto";
+}
 
 /**
  * Whether a role may search and read the web (its search and fetch tools).
@@ -765,8 +851,9 @@ export function crewRoleUsesWeb(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
-  // The Designer draws from the project alone: never the web.
-  if (role === "designer") return false;
+  // The Designer draws from the project alone: never the web. Nor the Lead,
+  // whose messages reach everyone else.
+  if (role === "designer" || role === "lead" || role === "helper") return false;
   const { web } = crewAccess(crew);
   return (
     web === "everyone" ||
@@ -786,7 +873,7 @@ export function crewRoleUsesBrowser(
   const { web } = crewAccess(crew);
   if (role === "researcher") return crewRoleUsesWeb(crew, role);
   // Nor Aven's browser: a mock-up is a file, drawn without one.
-  if (role === "designer") return false;
+  if (role === "designer" || role === "lead" || role === "helper") return false;
   return web === "everyone" || (web === "builders" && role !== "scout");
 }
 
@@ -927,7 +1014,9 @@ function readAccess(value: unknown): Partial<CrewAccess> | undefined {
     ...(raw.web === "none" || raw.web === "builders" || raw.web === "everyone"
       ? { web: raw.web }
       : {}),
-    ...(raw.others === "refuse" || raw.others === "ask"
+    ...(raw.others === "refuse" ||
+    raw.others === "ask" ||
+    raw.others === "allow"
       ? { others: raw.others }
       : {}),
   };
@@ -970,7 +1059,7 @@ function dayCount(value: unknown): { day: string; count: number } | undefined {
     : undefined;
 }
 
-const ROLES = new Set<CrewRole>(CREW_ROLE_ORDER);
+const ROLES = new Set<CrewRole>([...CREW_ROLE_ORDER, "helper"]);
 const STAGES = new Set<CrewStage>([
   "queued",
   "building",
@@ -1006,6 +1095,7 @@ const FEED_KINDS = new Set<CrewFeedKind>([
   "stopped",
   "findings",
   "mockup",
+  "say",
 ]);
 const HOLDS = new Set<CrewHoldReason>([
   "paused",
@@ -1361,7 +1451,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
 
 export const CREW_INSTRUCTIONS_MAX = 2_000;
 const SCOPE_KEPT = 20;
-const RETIRED_KEPT = 40;
+const RETIRED_KEPT = 200;
 
 function readMember(value: unknown):
   | (Omit<CrewMember, "id"> & {
@@ -1405,6 +1495,20 @@ function readMember(value: unknown):
     ...(scope.length ? { scope } : {}),
     ...(schedule ? { schedule } : {}),
     ...(raw.sweep === "weekly" ? { sweep: "weekly" as const } : {}),
+    ...(raw.heardOthers === true ? { heardOthers: true } : {}),
+    ...(raw.routine &&
+    typeof raw.routine.text === "string" &&
+    raw.routine.text.trim() &&
+    (raw.routine.every === "day" || raw.routine.every === "week") &&
+    typeof raw.routine.at === "number"
+      ? {
+          routine: {
+            text: raw.routine.text.slice(0, CREW_INSTRUCTIONS_MAX),
+            every: raw.routine.every,
+            at: raw.routine.at,
+          },
+        }
+      : {}),
     ...(preset ? { preset } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(raw.harness === "claude" || raw.harness === "codex"
@@ -1460,7 +1564,8 @@ export function readCrew(value: unknown): Crew | null {
         read?.role === "fixer" ||
         read?.role === "security" ||
         read?.role === "researcher" ||
-        read?.role === "designer";
+        read?.role === "designer" ||
+        read?.role === "lead";
       if (
         read &&
         !(single && members.some((entry) => entry.role === read.role))
@@ -1530,7 +1635,8 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
         ...(idea.by === "security" ||
         idea.by === "researcher" ||
-        idea.by === "setup"
+        idea.by === "setup" ||
+        idea.by === "lead"
           ? { by: idea.by }
           : {}),
       };
@@ -1608,6 +1714,17 @@ export function readCrew(value: unknown): Crew | null {
   const access = readAccess(raw.access);
   const planning = text(raw.planning, 200);
   const messages = readMessages(raw.messages);
+  const talks = readTalks(raw.talks);
+  const helpers = Array.isArray(raw.helpers)
+    ? raw.helpers.flatMap((item: unknown) => {
+        const read = readMember(item);
+        const helperOf = text((item as CrewMember | null)?.helperOf, 60);
+        return read?.role === "helper" && read.id && helperOf
+          ? [{ ...read, id: read.id, helperOf }]
+          : [];
+      })
+    : [];
+  const helperRuns = dayCount(raw.helperRuns);
   const about = text(raw.about, CREW_ABOUT_MAX);
   return {
     ...base,
@@ -1677,6 +1794,9 @@ export function readCrew(value: unknown): Crew | null {
     ...(access ? { access } : {}),
     ...(planning ? { planning } : {}),
     ...(messages.length ? { messages } : {}),
+    ...(talks.length ? { talks } : {}),
+    ...(helpers.length ? { helpers } : {}),
+    ...(helperRuns ? { helperRuns } : {}),
     ...(about ? { about } : {}),
     cards,
     feed,
@@ -1700,9 +1820,60 @@ export function readCrew(value: unknown): Crew | null {
   };
 }
 
-const MESSAGE_KINDS = new Set<CrewMessageKind>(["card", "rule", "goal"]);
+const CREW_TALKS_KEPT = 30;
+
+const MESSAGE_KINDS = new Set<CrewMessageKind>([
+  "card",
+  "rule",
+  "goal",
+  "lead",
+]);
 
 /** Your messages as stored: each needs an id, a time and words; the newest kept. */
+function readTalks(value: unknown): CrewTalk[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): CrewTalk | null => {
+      const entry = item as Partial<CrewTalk> | null;
+      const body = text(entry?.text, CREW_MESSAGE_MAX);
+      const from = text(entry?.from, 60);
+      const to = text(entry?.to, 60);
+      if (
+        !entry ||
+        typeof entry.id !== "string" ||
+        !isTime(entry.at) ||
+        !body ||
+        !from ||
+        !to
+      )
+        return null;
+      const sent = entry.sent;
+      return {
+        id: entry.id.slice(0, 60),
+        at: entry.at,
+        from,
+        to,
+        text: body,
+        hop: finite(entry.hop, 0, 10, 10),
+        ...(entry.answer === true ? { answer: true as const } : {}),
+        ...(entry.routine === true ? { routine: true as const } : {}),
+        ...(entry.helper === true ? { helper: true as const } : {}),
+        ...(text(entry.fromName, 60)
+          ? { fromName: text(entry.fromName, 60) }
+          : {}),
+        ...(sent &&
+        isTime(sent.at) &&
+        typeof sent.owner === "string" &&
+        typeof sent.turnId === "string" &&
+        typeof sent.sessionId === "string"
+          ? { sent }
+          : {}),
+      };
+    })
+    .filter((entry): entry is CrewTalk => !!entry)
+    .slice(-CREW_TALKS_KEPT);
+}
+
 function readMessages(value: unknown): CrewMessage[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -2280,6 +2451,18 @@ export function withMemberId(
   id: string,
   update: (member: CrewMember) => CrewMember,
 ): Crew {
+  const helper = crew.helpers?.find((member) => member.id === id);
+  if (helper) {
+    const next = update(helper);
+    return next === helper
+      ? crew
+      : {
+          ...crew,
+          helpers: crew.helpers!.map((member) =>
+            member === helper ? next : member,
+          ),
+        };
+  }
   const known = crew.members.find((member) => member.id === id);
   if (!known) return crew;
   const next = update(known);
@@ -2302,10 +2485,14 @@ export function newMemberId(
 }
 
 export function crewMemberById(
-  crew: Pick<Crew, "members">,
+  crew: Pick<Crew, "members"> & Pick<Partial<Crew>, "helpers">,
   id: string | undefined,
 ): CrewMember | undefined {
-  return id ? crew.members.find((member) => member.id === id) : undefined;
+  if (!id) return undefined;
+  return (
+    crew.members.find((member) => member.id === id) ??
+    crew.helpers?.find((member) => member.id === id)
+  );
 }
 
 /** A member is on unless you switched it off. */
@@ -2562,7 +2749,7 @@ function chats(): Map<string, ChatEntry> {
     for (const entry of crew.retired ?? [])
       if (entry.role !== "fixer")
         chatIndex.set(entry.sessionId, { key, role: entry.role });
-    for (const member of crew.members)
+    for (const member of [...crew.members, ...(crew.helpers ?? [])])
       if (member.sessionId && member.role !== "fixer")
         chatIndex.set(member.sessionId, {
           key,
@@ -2707,6 +2894,79 @@ export function withNote(crew: Crew, body: string, now: number): Crew {
 }
 
 /** A message you wrote to the team, kept as you wrote it (the newest few). */
+/** A routine is due: it has a rhythm, its teammate is on, and its time came. */
+export function routineDue(member: CrewMember, now: number): boolean {
+  const routine = member.routine;
+  if (!routine?.text || !memberOn(member)) return false;
+  return now - routine.at >= (routine.every === "week" ? 7 : 1) * 86_400_000;
+}
+
+/** How many more helpers a teammate may start now, under all three limits. */
+export function helpersLeft(crew: Crew, parentId: string, now: number): number {
+  const running = crew.helpers ?? [];
+  const today =
+    crew.helperRuns?.day === localDay(now) ? crew.helperRuns.count : 0;
+  return Math.max(
+    0,
+    Math.min(
+      CREW_HELPERS.perAgent -
+        running.filter((helper) => helper.helperOf === parentId).length,
+      CREW_HELPERS.team - running.length,
+      CREW_HELPERS.day - today,
+    ),
+  );
+}
+
+/** A helper starting, counted for today. */
+export function withHelper(crew: Crew, helper: CrewMember, now: number): Crew {
+  const day = localDay(now);
+  return {
+    ...crew,
+    helpers: [...(crew.helpers ?? []), helper],
+    helperRuns: {
+      day,
+      count: (crew.helperRuns?.day === day ? crew.helperRuns.count : 0) + 1,
+    },
+  };
+}
+
+/** A helper done: its chat is the crew's still, and starts no more. */
+export function withoutHelper(crew: Crew, id: string): Crew {
+  const helper = crew.helpers?.find((member) => member.id === id);
+  if (!helper) return crew;
+  const helpers = crew.helpers!.filter((member) => member !== helper);
+  const retired = helper.sessionId
+    ? [
+        ...(crew.retired ?? []),
+        { sessionId: helper.sessionId, role: helper.role },
+      ].slice(-RETIRED_KEPT)
+    : crew.retired;
+  return {
+    ...crew,
+    helpers: helpers.length ? helpers : undefined,
+    ...(retired?.length ? { retired } : {}),
+  };
+}
+
+/** The team's Lead, while it is on. */
+export function crewLead(crew: Pick<Crew, "members">): CrewMember | undefined {
+  return crew.members.find(
+    (member) => member.role === "lead" && memberOn(member),
+  );
+}
+
+/** A message on its way to a teammate. */
+export function withTalk(
+  crew: Crew,
+  talk: Omit<CrewTalk, "id" | "sent"> & { id?: string },
+): Crew {
+  const next: CrewTalk = { ...talk, id: talk.id ?? crypto.randomUUID() };
+  return {
+    ...crew,
+    talks: [...(crew.talks ?? []), next].slice(-CREW_TALKS_KEPT),
+  };
+}
+
 export function withMessage(
   crew: Crew,
   message: Omit<CrewMessage, "id"> & { id?: string },

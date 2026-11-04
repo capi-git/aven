@@ -166,14 +166,16 @@ describe("dragging a divider", () => {
     expect(railed).toEqual({ before: false, after: false });
   });
 
-  it("stops at a pane's minimum until dragged past half of it", () => {
-    const stopped = resizeSash(two(), sash(two()), 130);
+  it("holds at a pane's minimum for a short pull, then folds", () => {
+    const stopped = resizeSash(two(), sash(two()), 200);
     expect((stopped.layout as Split).sizes).toEqual([0.24, 0.76]);
+    expect(resizeSash(two(), sash(two()), 192).railed.before).toBe(false);
+    expect(resizeSash(two(), sash(two()), 191).railed.before).toBe(true);
+    // A rail still opens from half its minimum.
     expect(collapseThreshold(240)).toBe(120);
-    expect(resizeSash(two(), sash(two()), 121).railed.before).toBe(false);
   });
 
-  it("folds a pane dragged past half its minimum to a rail that keeps its share", () => {
+  it("folds a pane dragged past its hold to a rail that keeps its share", () => {
     const { layout, railed } = resizeSash(two(), sash(two()), 119);
     expect(railed).toEqual({ before: true, after: false });
     const split = layout as Split;
@@ -215,6 +217,59 @@ describe("dragging a divider", () => {
     const next = resizeSash(layout, fitted, 0).layout as Split;
     expect(next.children[0].rail).toBeCloseTo(fitted.lengths[0] / 1000);
     expect(next.children[1].rail).toBeUndefined();
+  });
+
+  it("keeps folding panes as the divider is pulled past the one it folded", () => {
+    const layout = columns([0.34, 0.33, 0.33]);
+    const fitted = sash(layout);
+    // Past the middle pane: it folds, and the last keeps its width.
+    const one = resizeSash(layout, fitted, 620).layout as Split;
+    expect(one.children.map((child) => child.rail !== undefined)).toEqual([
+      false,
+      true,
+      false,
+    ]);
+    // Pulled on to the edge: the last folds too, and the first takes the room.
+    const both = resizeSash(layout, fitted, 960).layout as Split;
+    expect(both.children.map((child) => child.rail !== undefined)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    expect(widths(both)[0]).toBe(1000 - 2 * PANE_RAIL_PX);
+    expect(both.children[2].rail).toBeCloseTo(0.33);
+    // Back again from the same drag: both open.
+    const back = resizeSash(layout, fitted, 340).layout as Split;
+    expect(back.children.some((child) => child.rail !== undefined)).toBe(false);
+  });
+
+  it("opens every rail beyond the one pulled open, at their old shares", () => {
+    const layout = columns(
+      [0.944, 0.028, 0.028],
+      [leaf("p0"), { ...leaf("p1"), rail: 0.2 }, { ...leaf("p2"), rail: 0.4 }],
+    );
+    const next = resizeSash(layout, sash(layout), 400).layout as Split;
+    expect(next.children.some((child) => child.rail !== undefined)).toBe(false);
+    expect(widths(next)[0]).toBe(400);
+    expect(widths(next)[1]).toBe(200);
+    expect(widths(next)[2]).toBe(400);
+    // A short pull still opens them all: the divider leaves them room.
+    const short = resizeSash(layout, sash(layout), 800).layout as Split;
+    expect(short.children.some((child) => child.rail !== undefined)).toBe(
+      false,
+    );
+    expect(widths(short)[0]).toBe(600);
+  });
+
+  it("folds panes the other way too, keeping one open", () => {
+    const layout = columns([0.33, 0.33, 0.34]);
+    const both = resizeSash(layout, sash(layout, 1000, 600, 1), 20)
+      .layout as Split;
+    expect(both.children.map((child) => child.rail !== undefined)).toEqual([
+      true,
+      true,
+      false,
+    ]);
   });
 
   describe("between two rails, beside an open pane", () => {

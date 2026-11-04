@@ -94,6 +94,9 @@ export function SettingsNav({
 
   return (
     <div className={`settings-nav${embedded ? " settings-nav--embedded" : ""}`}>
+      <div className="settings-nav__back">
+        <NavRow label="Back to app" icon={ArrowLeft} onClick={onClose} />
+      </div>
       <label className="settings-nav__search">
         <Search className="size-3.5 shrink-0" aria-hidden />
         <input
@@ -196,9 +199,6 @@ export function SettingsNav({
           ])}
         </nav>
       )}
-      <div className="settings-nav__footer">
-        <NavRow label="Back" icon={ArrowLeft} onClick={onClose} />
-      </div>
     </div>
   );
 }

@@ -4,7 +4,7 @@ Aven uses your provider's CLI and account on macOS and Windows. There is no sepa
 
 ## Choose and connect
 
-A fresh installation offers setup on first launch. Existing projects and conversations keep their usual launch flow. Open **Settings → Provider setup** whenever you want to add a provider or troubleshoot one.
+A fresh installation offers setup on first launch. Existing projects and conversations keep their usual launch flow. Open **Settings → Providers** whenever you want to add a provider or troubleshoot one.
 
 1. Choose the providers you want to use. The initial selection is empty, even if some CLIs are already installed. Selecting a provider does not install software, sign in, or send a message.
 2. Select **Continue**. Aven checks only the providers you chose.

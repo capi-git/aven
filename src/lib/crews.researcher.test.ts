@@ -57,6 +57,7 @@ describe("the Researcher role", () => {
       edits: false,
     });
     expect(CREW_ROLE_ORDER).toEqual([
+      "lead",
       "builder",
       "checker",
       "security",
