@@ -191,6 +191,8 @@ def launch():
             launch_args.extend(['--env', 'AVEN_DEV_PRESENCE_PREVIEW=1'])
         if browser_layout_trace:
             launch_args.extend(['--env', 'AVEN_DEV_BROWSER_LAYOUT_TRACE=1'])
+        if PORT != 1420:
+            launch_args.extend(['--env', f'AVEN_DEV_PORT={PORT}'])
         launch_args.extend(['-a', str(APP)])
         launcher = subprocess.Popen(launch_args,
                                     cwd=ROOT, env=child_env, start_new_session=True)
