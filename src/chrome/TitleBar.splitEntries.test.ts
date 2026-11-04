@@ -406,7 +406,7 @@ describe("dragging with splits", () => {
   const frame = () => wait(40);
   /** Rest on an entry's middle until a drop onto it arms, and paint. */
   const arm = async () => {
-    await wait(260);
+    await wait(500);
     await frame();
   };
 
@@ -596,7 +596,7 @@ describe("dragging with splits", () => {
       expect(combineTarget()).toBeNull();
     });
 
-    it("makes a split of a tab let go on another's middle without resting", async () => {
+    it("only moves a tab let go on another's middle without resting", async () => {
       await render();
       layOut();
       await pointer(tabButton("hero"), "pointerdown", 50);
@@ -609,12 +609,25 @@ describe("dragging with splits", () => {
       expect(nearTarget()?.dataset.surfaceTabId).toBe("checkout");
       expect(container.querySelector(".personal-tab-insertion")).toBeNull();
       await pointer(window, "pointerup", 150);
-      expect(props.onCombineTabs).toHaveBeenCalledExactlyOnceWith(
-        "checkout",
-        "hero",
-      );
-      expect(props.onReorderSurfaces).not.toHaveBeenCalled();
+      expect(props.onCombineTabs).not.toHaveBeenCalled();
+      expect(props.onReorderSurfaces).toHaveBeenCalledOnce();
       expect(combineTarget()).toBeNull();
+    });
+
+    it("draws a line around the tab while a held tab rests on it", async () => {
+      await render();
+      layOut();
+      await pointer(tabButton("hero"), "pointerdown", 50);
+      await pointer(window, "pointermove", 120);
+      await frame();
+      await pointer(window, "pointermove", 150);
+      await frame();
+      expect(nearTarget()?.querySelector(".aven-join-ring")).not.toBeNull();
+      await arm();
+      // Armed: the preview takes over from the line.
+      expect(combineTarget()?.dataset.surfaceTabId).toBe("checkout");
+      expect(container.querySelector(".aven-join-ring")).toBeNull();
+      await pointer(window, "pointerup", 150);
     });
 
     it("only moves a tab that passes another's middle and goes on, never previewing", async () => {

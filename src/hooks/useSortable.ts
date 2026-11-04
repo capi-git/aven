@@ -162,6 +162,8 @@ export type SortableIncoming = {
    * that item. A light hint shows it until the full preview arms.
    */
   over: string | null;
+  /** When the rest on `over` began, under `dropOnRest`. */
+  rest?: number | null;
 };
 
 /** A sortable on a channel, as other sortables' drags see it. */
@@ -237,6 +239,11 @@ export type SortableOptions = {
    * (the default) arms at once.
    */
   dropOnDelay?: number;
+  /**
+   * Joining takes the whole rest (`dropOnDelay`): let go on the zone sooner,
+   * the item only moves, as it does anywhere else.
+   */
+  dropOnRest?: boolean;
   /** Take drops from other sortables' drags, and drop onto their items. */
   link?: SortableLink;
   onDropOnGroup?: (draggedId: string, groupId: string) => void;
@@ -274,6 +281,7 @@ type DragState = {
     target: SortableDropTarget | null;
     zone: LinkedZone | null;
     over: { id: string; zone: LinkedZone | null } | null;
+    rest: number | null;
   };
   part: SortablePart | null;
   torn: boolean;
@@ -433,6 +441,8 @@ export function useSortable(
   isDropTargetRef.current = options.isDropTarget;
   const dropOnDelayRef = useRef(options.dropOnDelay ?? 0);
   dropOnDelayRef.current = options.dropOnDelay ?? 0;
+  const dropOnRestRef = useRef(options.dropOnRest ?? false);
+  dropOnRestRef.current = options.dropOnRest ?? false;
   const linkRef = useRef(options.link);
   linkRef.current = options.link;
   const channel = options.link?.channel ?? null;
@@ -455,6 +465,7 @@ export function useSortable(
   const [incoming, setIncoming] = useState<SortableIncoming | null>(null);
   // The item of this sortable a release of its own drag would join.
   const [nearId, setNearId] = useState<string | null>(null);
+  const [restSince, setRestSince] = useState<number | null>(null);
   // How the other sortables' drags see this one.
   const selfZone = useRef<LinkedZone | null>(null);
   // The tab whose copy is flying to its place after a drop. Its tab and the
@@ -528,6 +539,7 @@ export function useSortable(
             previous.moving === next.moving &&
             previous.content === next.content &&
             previous.over === next.over &&
+            previous.rest === next.rest &&
             sameDropTarget(previous.target, next.target))
             ? previous
             : next,
@@ -788,7 +800,7 @@ export function useSortable(
         zone: null,
         into: null,
         over: null,
-        shown: { target: null, zone: null, over: null },
+        shown: { target: null, zone: null, over: null, rest: null },
         part: part ?? null,
         torn: false,
         arming: null,
@@ -885,10 +897,29 @@ export function useSortable(
             ? { id: current.over.id, previous: current.toIndex }
             : null,
         );
+        // Let go before the rest is over, a held drop only moves the item:
+        // what would join it takes the whole rest.
+        if (
+          releasedAt !== undefined &&
+          dropOnRestRef.current &&
+          delay > 0 &&
+          target?.kind === "tab" &&
+          (target.id !== armed || zone !== armedZone) &&
+          !(
+            current.arming?.id === target.id &&
+            current.arming.zone === zone &&
+            current.arming.since + delay <= releasedAt
+          )
+        ) {
+          target = null;
+          current.over = null;
+          current.toIndex = indexAt(id, at.x, at.y, readBounds, null);
+        }
         // A delayed zone's full preview arms once the pointer has rested on
         // it, so a quick pass never flashes it. Moving on within the zone
-        // starts the rest again, so a slow pass never arms. Letting go on
-        // the zone drops onto the item all the same.
+        // starts the rest again, so a slow pass never arms. Without
+        // `dropOnRest`, letting go on the zone drops onto the item all the
+        // same.
         if (target?.kind !== "tab" || delay <= 0 || releasedAt !== undefined)
           current.arming = null;
         else if (target.id !== armed || zone !== armedZone) {
@@ -967,15 +998,27 @@ export function useSortable(
        * its `incoming`. One it has left plays its preview out.
        */
       const showTarget = (current: DragState, readBounds?: ReadBounds) => {
-        const { target: was, zone: wasZone, over: wasOver } = current.shown;
+        const {
+          target: was,
+          zone: wasZone,
+          over: wasOver,
+          rest: wasRest,
+        } = current.shown;
         const next = current.dropTarget;
         const zone = current.zone;
         const over = current.over;
+        const rest =
+          dropOnRestRef.current &&
+          over &&
+          !next &&
+          current.arming?.id === over.id
+            ? current.arming.since
+            : null;
         const sameTarget = sameDropTarget(was, next) && wasZone === zone;
         const sameOver =
           wasOver?.id === over?.id && wasOver?.zone === over?.zone;
-        if (sameTarget && sameOver) return;
-        current.shown = { target: next, zone, over };
+        if (sameTarget && sameOver && wasRest === rest) return;
+        current.shown = { target: next, zone, over, rest };
         // Other bars it was over, or is: each draws its hint and preview.
         const zones = new Set<LinkedZone>();
         for (const candidate of [wasZone, zone, wasOver?.zone, over?.zone])
@@ -991,6 +1034,7 @@ export function useSortable(
               // One it has left keeps what it brings, to play out.
               target: candidate === zone ? next : null,
               over: over && candidate === over.zone ? over.id : null,
+              rest: over && candidate === over.zone ? rest : null,
             });
           }
         }
@@ -1007,6 +1051,7 @@ export function useSortable(
           setDropTarget(zone ? null : next);
         }
         if (!sameOver) setNearId(over && !over.zone ? over.id : null);
+        if (wasRest !== rest) setRestSince(over && !over.zone ? rest : null);
       };
       const updateTarget = (readBounds: ReadBounds) => {
         const current = drag.current;
@@ -1266,6 +1311,7 @@ export function useSortable(
         setToIndex(null);
         setDropTarget(null);
         setNearId(null);
+        setRestSince(null);
         try {
           handle.releasePointerCapture(state.pointerId);
         } catch {
@@ -1425,6 +1471,15 @@ export function useSortable(
       ? nearId
       : incoming?.over && ids.includes(incoming.over)
         ? incoming.over
+        : null,
+    /**
+     * Under `dropOnRest`, when the rest on `joinHint` began: a new value is a
+     * new rest. Null when the drop has armed or nothing is resting.
+     */
+    joinRest: draggingId
+      ? restSince
+      : incoming?.over && ids.includes(incoming.over)
+        ? (incoming.rest ?? null)
         : null,
     /**
      * A drag from another bar on the channel over (or lately over) one of

@@ -612,6 +612,7 @@ function TitleTabItem({
   combineInto = false,
   combineNear = false,
   combine = null,
+  combineRest = null,
 }: {
   /** Its name on the strip, where another tab shares its own. */
   shownName?: string;
@@ -642,6 +643,8 @@ function TitleTabItem({
   combineNear?: boolean;
   /** While a tab is dragged that could combine with this one: what joins. */
   combine?: CombineJoin | null;
+  /** When a held tab's rest on it began (`JoinRing`). */
+  combineRest?: number | null;
 }) {
   const { headline: ownName, tooltip } = tabCopy(tab, projectless);
   const headline = shownName ?? ownName;
@@ -782,6 +785,7 @@ function TitleTabItem({
               ) : null}
             </span>
           </span>
+          <JoinRing rest={combineRest} />
         </button>
         {/* A lone title's × is its pane's Close tool. */}
         {closable && !deck ? (
@@ -844,6 +848,24 @@ export type CombineJoin = {
   /** The dragged tab's own id: its segment grows from this preview. */
   id: string | null;
 };
+
+/**
+ * The line that fills around a tab while a held tab rests on it. Its key is
+ * the rest, so moving on within the middle starts the line again with it. The
+ * dash is the one thing here not moved by transform or opacity: nothing else
+ * draws a line going round, and it lasts only as long as the rest.
+ */
+function JoinRing({ rest }: { rest: number | null }) {
+  if (rest === null) return null;
+  return (
+    <svg key={rest} className="aven-join-ring" aria-hidden>
+      <rect
+        pathLength={1}
+        style={{ animationDuration: `${STRIP_COMBINE_DELAY_MS}ms` }}
+      />
+    </svg>
+  );
+}
 
 /**
  * A single tab previewing the split a held tab would make with it: the
@@ -1043,6 +1065,7 @@ function SplitEntryItem({
   onHover,
   dropInto = false,
   dropNear = false,
+  dropRest = null,
   dropAt = null,
   join = null,
   opening = false,
@@ -1062,6 +1085,8 @@ function SplitEntryItem({
   dropInto?: boolean;
   /** A tab is over its middle: let go, it joins. A light hint until armed. */
   dropNear?: boolean;
+  /** When a held tab's rest on it began (`JoinRing`). */
+  dropRest?: number | null;
   /** Beside which segment's pane, and on which side; at the right if absent. */
   dropAt?: SortableDropAt | null;
   /** What a held tab would bring, while one is dragged. */
@@ -1180,6 +1205,7 @@ function SplitEntryItem({
             data-morph={`fill:${split.id}`}
             aria-hidden
           />
+          <JoinRing rest={dropRest} />
           {split.segments.map((segment, at) => (
             <Fragment key={segment.id}>
               {at > 0 ? (
@@ -1262,11 +1288,10 @@ function SplitSegmentTip({
 const SPLIT_TIP_DELAY_MS = 450;
 /**
  * How long a dragged tab rests on an entry's middle before letting go there
- * joins them. A reorder drag crosses a tab's middle (60–110px of a typical
- * strip tab) in well under this at ordinary speed, so passing over never
- * combines; a deliberate pause arms it before it feels slow.
+ * joins them. A line fills around the entry for this long (`JoinRing`), and
+ * letting go sooner only moves the tab, so tabs never combine by accident.
  */
-const STRIP_COMBINE_DELAY_MS = 200;
+const STRIP_COMBINE_DELAY_MS = 450;
 /**
  * The window's strip and every pane's row of tabs take one another's tabs
  * (`SortableLink`): a tab let go on another bar's tab joins it there.
@@ -1303,6 +1328,7 @@ function BrowserTitleTabItem({
   combineInto = false,
   combineNear = false,
   combine = null,
+  combineRest = null,
 }: {
   id: string;
   title: string;
@@ -1345,6 +1371,8 @@ function BrowserTitleTabItem({
   combineNear?: boolean;
   /** While a tab is dragged that could combine with this one: what joins. */
   combine?: CombineJoin | null;
+  /** When a held tab's rest on it began (`JoinRing`). */
+  combineRest?: number | null;
 }) {
   const label = title.trim() || "Browser";
   const dropBefore =
@@ -1464,6 +1492,7 @@ function BrowserTitleTabItem({
           {visible && !active ? (
             <span className="personal-title-tab-visible" aria-hidden />
           ) : null}
+          <JoinRing rest={combineRest} />
         </button>
         {onClose && !deck ? (
           <button
@@ -2386,9 +2415,10 @@ function TitleBarComponent({
     },
     {
       animate: true,
-      // Dropping onto an entry waits for the pointer to rest on its middle,
-      // so moving a tab past it never joins them by accident.
+      // Dropping onto an entry takes a whole rest on its middle: passing it,
+      // or letting go too soon, only moves the tab.
       dropOnDelay: STRIP_COMBINE_DELAY_MS,
+      dropOnRest: true,
       // Let go on an entry's middle, a tab (or a segment pulled out of its
       // split) joins a split as a pane, or makes a split with a single tab;
       // a split takes a single tab as a pane. In a pane's row of tabs, two
@@ -3927,6 +3957,7 @@ function TitleBarComponent({
             combineInto={sortable.dropTarget?.id === id}
             combineNear={sortable.joinHint === id}
             combine={combineJoinFor(id)}
+            combineRest={sortable.joinHint === id ? sortable.joinRest : null}
           />
         </div>
       );
@@ -3963,6 +3994,7 @@ function TitleBarComponent({
           }
           dropInto={sortable.dropTarget?.id === id}
           dropNear={sortable.joinHint === id}
+          dropRest={sortable.joinHint === id ? sortable.joinRest : null}
           dropAt={
             sortable.dropTarget?.id === id ? sortable.dropTarget.at : null
           }
@@ -4047,6 +4079,7 @@ function TitleBarComponent({
         combineInto={sortable.dropTarget?.id === id}
         combineNear={sortable.joinHint === id}
         combine={combineJoinFor(id)}
+        combineRest={sortable.joinHint === id ? sortable.joinRest : null}
       />
     );
   };
