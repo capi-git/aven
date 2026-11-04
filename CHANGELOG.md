@@ -10,6 +10,7 @@
 
 ### Changed
 
+- **Projects and chats are easy to tell apart.** Only projects get a mark and a bold name. Chats are quieter and sit under their project's name, and a chat's time and a project's arrow show when you hover.
 - **The hover sidebar matches the pinned one.** It shows the window's own glass, wallpaper included, as a rounded card over your work.
 - **Interface scale starts at 90%.** Your saved scale stays as it is.
 - **Sharper at 80% and 90%,** on 1x displays especially: icons in the window's frame and marks land on whole screen pixels, and text is heavier on 1x displays.

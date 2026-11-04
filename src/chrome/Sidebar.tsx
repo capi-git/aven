@@ -1175,8 +1175,9 @@ function SidebarComponent({
   /** A plain row's leading mark: talking, working, or a spacer. */
   const plainLead = (session: SessionSummary, runningLabel: string) => {
     const talk = talks.get(session.id);
-    // One 16px slot before every title, so titles line up with the
-    // workspace rows and the project names above them.
+    // One 16px slot before every title, so titles line up with the project
+    // names above them. Only projects get a mark; a chat's stays empty unless
+    // it's talking or working.
     return (
       <span className="personal-task-lead">
         {talk ? (
@@ -1186,9 +1187,7 @@ function SidebarComponent({
             className="personal-task-working-dot"
             aria-label={runningLabel}
           />
-        ) : (
-          <HarnessIcon harness={session.harness} className="size-3.5" />
-        )}
+        ) : null}
       </span>
     );
   };
@@ -2376,7 +2375,10 @@ function SidebarComponent({
                                       <Pin className="size-2.5 shrink-0 opacity-55" />
                                     ) : null}
                                     {plainStatus(session.id) ?? (
-                                      <span className="personal-task-status">
+                                      <span
+                                        className="personal-task-status"
+                                        data-row-time
+                                      >
                                         {formatRelative(session.updatedAt, now)}
                                       </span>
                                     )}
@@ -3014,6 +3016,7 @@ function SessionCard({
       <span
         className={`personal-task-status flex shrink-0 items-center gap-1 text-ui-caption tabular-nums ${statusClass}`}
         title={needsApproval ? approvalHint : busy ? "Working" : time}
+        data-row-time={needsApproval || busy ? undefined : true}
       >
         {needsApproval ? (
           <>
@@ -3374,12 +3377,7 @@ function SessionCard({
               />
             </span>
           ) : compact ? (
-            <span className="personal-task-lead">
-              <HarnessIcon
-                harness={session.harness}
-                className="size-3 shrink-0 opacity-60"
-              />
-            </span>
+            <span className="personal-task-lead" />
           ) : null}
           <span className="personal-task-title min-w-0 flex-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
             {title}

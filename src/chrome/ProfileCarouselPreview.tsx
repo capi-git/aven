@@ -124,11 +124,9 @@ function PreviewTasks({
     <div className="personal-project-tasks">
       {tasks.map((task) => (
         <div key={task.id} className="personal-other-task personal-task-card">
-          <span
-            className={
-              task.busy ? "personal-task-working-dot" : "personal-task-indent"
-            }
-          />
+          <span className="personal-task-lead">
+            {task.busy ? <span className="personal-task-working-dot" /> : null}
+          </span>
           <span className="personal-task-title">{task.title}</span>
         </div>
       ))}
