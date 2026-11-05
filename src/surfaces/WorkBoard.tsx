@@ -618,7 +618,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       data-work-board={project}
       data-crew={crew ? "" : undefined}
       aria-busy={loading || undefined}
-      aria-label={`${projectDisplayName(project, labels)} ${crew ? "team" : "board"}`}
+      aria-label={`${projectDisplayName(project, labels)}${crew ? "'s Avos" : " board"}`}
     >
       {crew ? null : <WorkBoardHeading project={project} line={today} />}
       {error ? (
@@ -626,7 +626,9 @@ export const WorkBoardView = memo(function WorkBoardView({
           {error}
         </p>
       ) : null}
-      {outside.length && !loading ? (
+      {/* Chats at work outside the board belong to the plain Board. Avos
+          tracks its own work: your chats are in the sidebar, as ever. */}
+      {outside.length && !loading && !crew ? (
         <OutsideLine project={project} outside={outside} />
       ) : null}
       {crew ? (

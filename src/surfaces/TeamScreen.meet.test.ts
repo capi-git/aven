@@ -79,8 +79,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function open() {
-  publishWorkBoardFeed({ chats: [], statuses: {}, teams: [] });
+async function open(
+  feed: Parameters<typeof publishWorkBoardFeed>[0] = {
+    chats: [],
+    statuses: {},
+    teams: [],
+  },
+) {
+  publishWorkBoardFeed(feed);
   await act(async () =>
     root.render(createElement(WorkBoard, { project: PROJECT, visible: true })),
   );
@@ -142,4 +148,25 @@ it("is an ordinary Avos screen once it has been awake", async () => {
   expect(container.querySelector("[data-avos-meet]")).toBeNull();
   expect(container.querySelector("[data-crew-header]")).toBeTruthy();
   expect(container.querySelector("[data-avos-week]")).toBeTruthy();
+});
+
+it("leaves the Board's line about chats outside it to the Board", async () => {
+  ensureAvos(PROJECT, NOW);
+  await open({
+    chats: [
+      {
+        id: "c1",
+        cwd: PROJECT,
+        workCwd: PROJECT,
+        title: "Insights page copy",
+        harness: "claude",
+        at: NOW - 1_000,
+      },
+    ],
+    statuses: { c1: "working" },
+    teams: [],
+  });
+  expect(container.querySelector("[data-avos-meet]")).not.toBeNull();
+  expect(container.querySelector("[data-board-outside]")).toBeNull();
+  expect(container.textContent).not.toContain("outside the board");
 });
