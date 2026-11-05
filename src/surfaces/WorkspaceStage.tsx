@@ -25,10 +25,12 @@ import {
   suppressTextSelection,
   setDragCursor,
 } from "../lib/drag";
+import { holdPagesForDrag } from "../lib/browserMotion";
 import {
   defaultPaneMinimum,
   fitLayout,
   fitShares,
+  panesBesideSash,
   resizeSash,
   sashOffset,
   stepSash,
@@ -1683,6 +1685,7 @@ export function WorkspaceStage({
     const restoreSelection = suppressTextSelection();
     setDragCursor(horizontal ? "col-resize" : "row-resize");
     container.dataset.resizing = "true";
+    const pages = holdPagesForDrag(panesBesideSash(tree, fitted));
     let offset = startOffset;
     let drawnRails = railedLeafIds(tree).join("\0");
     let drawnTree = tree;
@@ -1761,6 +1764,7 @@ export function WorkspaceStage({
     const move = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;
       readPointer(event);
+      if (moved) pages.moved();
       if (frame === null && fallback === null) {
         frame = requestAnimationFrame(flush);
         fallback = window.setTimeout(flush, DRAG_FRAME_DEADLINE_MS);
@@ -1794,6 +1798,7 @@ export function WorkspaceStage({
         if (JSON.stringify(next) !== JSON.stringify(tree))
           current.current.onLayoutChange(next);
       } else if (current.current.layout) paint(current.current.layout);
+      pages.end();
     };
     const up = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;

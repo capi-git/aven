@@ -9,6 +9,7 @@ import {
   fitShares,
   innerSashBoundary,
   minAlong,
+  panesBesideSash,
   resizeSash,
   sashOffset,
   stepSash,
@@ -154,6 +155,40 @@ describe("rails", () => {
     );
     expect(shares.get("chat")).toEqual({ x: 0, y: 0, w: 0.028, h: 1 });
     expect(shares.get("page")).toEqual({ x: 0.028, y: 0, w: 0.972, h: 1 });
+  });
+});
+
+describe("the panes beside a divider", () => {
+  const three = columns([0.2, 0.4, 0.4], [leaf("a"), leaf("b"), leaf("c")]);
+  const split = (three as Split).id;
+
+  it("are the two it divides, not others in the split", () => {
+    expect(panesBesideSash(three, { splitId: split, index: 0 })).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(panesBesideSash(three, { splitId: split, index: 1 })).toEqual([
+      "b",
+      "c",
+    ]);
+  });
+
+  it("include every pane in a split beside it, and a divider inside a split leaves the rest alone", () => {
+    const rows: LayoutNode = {
+      type: "split",
+      id: "rows",
+      dir: "down",
+      children: [leaf("top"), leaf("bottom")],
+      sizes: [0.5, 0.5],
+    };
+    const nested = columns([0.5, 0.5], [leaf("left"), rows]);
+    expect(
+      panesBesideSash(nested, { splitId: (nested as Split).id, index: 0 }),
+    ).toEqual(["left", "top", "bottom"]);
+    expect(panesBesideSash(nested, { splitId: "rows", index: 0 })).toEqual([
+      "top",
+      "bottom",
+    ]);
   });
 });
 
