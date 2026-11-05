@@ -9,7 +9,6 @@ import {
 } from "../lib/activity";
 import { REACTION_CLAIMS_KEY } from "../lib/mascotReactions";
 import { projectKey } from "../lib/paths";
-import { CROSS_ROWS, TICK_ROWS, litPath, projectSigil } from "../lib/dotSigils";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import { ProjectMark } from "./ProjectMark";
 
@@ -47,10 +46,6 @@ function turn(id: string, patch: Partial<ActivityInput> = {}): ActivityInput {
     ...patch,
   };
 }
-
-const dots = () => container.querySelector<HTMLElement>(".dot-mark")!;
-const lit = () =>
-  container.querySelector(".dot-mark-lit")?.getAttribute("d") ?? null;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -108,15 +103,13 @@ describe("project marks", () => {
     expect(stack().hasAttribute("data-open")).toBe(false);
     await draw({ appearance: appearance(), open: true });
     expect(stack().hasAttribute("data-open")).toBe(true);
-    // Working and reactions are for agents' marks: a Stack ignores them.
-    await draw({ appearance: appearance(), active: true, reacts: true });
-    expect(
-      container.querySelector(".project-mark")?.hasAttribute("data-active"),
-    ).toBe(false);
+    // A turn's end moves nothing: reactions are Hopper's, the agent's.
+    await draw({ appearance: appearance() });
     await act(async () => void recordActivity(turn("t1")));
     expect(
       container.querySelector(".project-mark")?.hasAttribute("data-reaction"),
     ).toBe(false);
+    // Nothing watched, so nothing was claimed for another window to miss.
     expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
   });
 
@@ -143,120 +136,5 @@ describe("project marks", () => {
   it("renders nothing for a folder that isn't a project", async () => {
     await draw({ appearance: null });
     expect(container.innerHTML).toBe("");
-  });
-});
-
-describe("a project's agent mark", () => {
-  it("draws the project's sigil in dots, with no colour of its own", async () => {
-    await draw({ appearance: appearance(), asAgent: true });
-    expect(kind()).toBe("mark");
-    // The jellyfish it saved reads as its sigil.
-    expect(dots().dataset.sigil).toBe("pillars");
-    expect(dots().dataset.state).toBe("still");
-    expect(lit()).toBe(litPath(projectSigil("jelly").rows));
-    expect(dots().getAttribute("style")).toBeNull();
-    expect(container.querySelector(".stack-mark")).toBeNull();
-  });
-
-  it("draws its sigil in the project's colour", async () => {
-    await draw({ appearance: appearance({ colorIndex: 7 }), asAgent: true });
-    expect(dots().dataset.tone).toBe("teal");
-  });
-
-  it("sweeps a light across it while an agent works", async () => {
-    await draw({ appearance: appearance(), asAgent: true, active: true });
-    expect(
-      container.querySelector(".project-mark")?.hasAttribute("data-active"),
-    ).toBe(true);
-    expect(dots().dataset.state).toBe("working");
-    expect(
-      container.querySelectorAll(".dot-mark-lit-d").length,
-    ).toBeGreaterThan(1);
-    expect(container.querySelectorAll(".dot-mark-grid-d")).toHaveLength(9);
-  });
-});
-
-describe("agent mark reactions", () => {
-  it("turns into a tick with a green dot once when a turn completes, then rests", async () => {
-    await draw({
-      appearance: appearance(),
-      asAgent: true,
-      active: true,
-      reacts: true,
-    });
-    expect(dots().dataset.state).toBe("working");
-    await act(async () => void recordActivity(turn("t1")));
-    expect(dots().dataset.reaction).toBe("cheer");
-    expect(
-      container.querySelector(".project-mark")?.getAttribute("data-reaction"),
-    ).toBe("cheer");
-    // The finished turn stops the sweep; the tick takes its place.
-    expect(dots().dataset.state).toBe("done");
-    expect(lit()).toBe(litPath(TICK_ROWS));
-    expect(container.querySelector(".dot-mark-was")).not.toBeNull();
-    expect(container.querySelector(".dot-mark-status")).not.toBeNull();
-    expect(dots().style.getPropertyValue("--dot-mark-reaction-ms")).toBe(
-      "900ms",
-    );
-    await act(async () => void vi.advanceTimersByTime(1200));
-    expect(dots().dataset.reaction).toBeUndefined();
-    // Still drawn as working here: the caller never said the agent stopped.
-    expect(dots().dataset.state).toBe("working");
-    expect(container.querySelector(".dot-mark-status")).toBeNull();
-  });
-
-  it("turns into a cross on failure and dims once on stop", async () => {
-    await draw({ appearance: appearance(), asAgent: true, reacts: true });
-    await act(
-      async () => void recordActivity(turn("t1", { outcome: "failed" })),
-    );
-    expect(dots().dataset.reaction).toBe("slump");
-    expect(dots().dataset.state).toBe("error");
-    expect(lit()).toBe(litPath(CROSS_ROWS));
-    await act(
-      async () => void recordActivity(turn("t2", { outcome: "stopped" })),
-    );
-    expect(dots().dataset.reaction).toBe("shrug");
-    // A stop keeps the sigil; only the dots dim once.
-    expect(dots().dataset.state).toBe("still");
-    expect(lit()).toBe(litPath(projectSigil("jelly").rows));
-    expect(container.querySelector(".dot-mark-status")).toBeNull();
-  });
-
-  it("restarts the animation for a new turn end", async () => {
-    await draw({ appearance: appearance(), asAgent: true, reacts: true });
-    await act(async () => void recordActivity(turn("t1")));
-    const first = dots();
-    await act(async () => void recordActivity(turn("t2")));
-    expect(dots()).not.toBe(first);
-    expect(dots().dataset.reaction).toBe("cheer");
-  });
-
-  it("stays still where reactions are not asked for, and for logos", async () => {
-    await draw({ appearance: appearance(), asAgent: true });
-    await act(async () => void recordActivity(turn("t1")));
-    expect(dots().dataset.reaction).toBeUndefined();
-    // Nothing watched, so nothing was claimed for another window to miss.
-    expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
-
-    await draw({
-      appearance: appearance({ logoSrc: "asset://logo.png" }),
-      asAgent: true,
-      reacts: true,
-    });
-    await act(async () => void recordActivity(turn("t2")));
-    expect(container.querySelector("img")).not.toBeNull();
-    expect(
-      container.querySelector(".project-mark")?.getAttribute("data-reaction"),
-    ).toBeNull();
-    expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
-  });
-
-  it("reacts only for its own project", async () => {
-    await draw({ appearance: appearance(), asAgent: true, reacts: true });
-    await act(
-      async () => void recordActivity(turn("t1", { cwd: "/projects/other" })),
-    );
-    expect(dots().dataset.reaction).toBeUndefined();
   });
 });

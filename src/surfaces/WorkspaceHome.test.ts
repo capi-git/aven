@@ -23,7 +23,7 @@ import { dayKey } from "../lib/activityStreak";
 import type { GettingStartedCard } from "../lib/gettingStarted";
 import { HOME_VISIT_KEY } from "../lib/homeBriefing";
 import { projectKey } from "../lib/paths";
-import type { ProjectAppearance } from "../lib/projectAppearance";
+import { projectToneAt } from "../lib/projectAppearance";
 import type { Session } from "../lib/session";
 import type { SessionSummary } from "../lib/sessionStore";
 import { USAGE_STORAGE_KEY } from "../lib/rateLimits";
@@ -58,36 +58,45 @@ vi.mock("../lib/platform", async (original) => ({
   },
 }));
 
-// Each project mark reports its renders through a Profiler of its own. The
-// home's marks render only when the home itself does, so zero commits here
-// means a parent re-render skipped the home entirely.
+// Each agent's Hopper reports its renders through a Profiler of its own.
+// The home's marks render only when the home itself does, so zero commits
+// here means a parent re-render skipped the home entirely.
 const marks = vi.hoisted(() => ({ commits: 0 }));
-vi.mock("../chrome/ProjectMark", async () => {
+vi.mock("../chrome/HopperMark", async () => {
   const react = await import("react");
   const onRender: ProfilerOnRenderCallback = () => {
     marks.commits += 1;
   };
   return {
-    ProjectMark: ({
-      appearance,
-      active,
-      reacts,
+    HopperMark: ({
+      tone,
+      state,
+      reaction,
     }: {
-      appearance?: ProjectAppearance | null;
-      active?: boolean;
-      reacts?: boolean;
+      tone?: string | null;
+      state?: string;
+      reaction?: string | null;
     }) =>
       react.createElement(
         react.Profiler,
         { id: "mark", onRender },
         react.createElement("span", {
-          "data-mark": appearance?.key ?? "",
-          "data-active": active ? "true" : undefined,
-          "data-reacts": reacts ? "true" : undefined,
+          "data-mark": tone ?? "grey",
+          "data-hopper": state ?? "still",
+          "data-reaction": reaction ?? undefined,
         }),
       ),
   };
 });
+
+// The reaction playing for each project, by its key.
+const reactions = vi.hoisted(
+  () => new Map<string, { kind: string; id: string }>(),
+);
+vi.mock("../hooks/useMascotReaction", () => ({
+  useMascotReaction: (key: string | null | undefined) =>
+    (key && reactions.get(key)) ?? null,
+}));
 
 // Pull requests come from the GitHub CLI; the briefing tests say what it finds.
 const reviews = vi.hoisted(() => ({
@@ -618,9 +627,10 @@ describe("Your agents", () => {
     );
     const [app] = tiles();
     expect(app.getAttribute("data-state")).toBe("running");
-    expect(app.querySelector("[data-mark]")?.getAttribute("data-active")).toBe(
-      "true",
-    );
+    // Its Hopper hops up the steps, in the project's colour.
+    const mark = app.querySelector("[data-mark]")!;
+    expect(mark.getAttribute("data-hopper")).toBe("working");
+    expect(mark.getAttribute("data-mark")).toBe(projectToneAt(APP));
     const bubble = app.querySelector(".workspace-home-agent-bubble")!;
     expect(bubble.getAttribute("data-kind")).toBe("doing");
     expect(bubble.textContent).toBe("Edit App.tsx");
@@ -644,8 +654,9 @@ describe("Your agents", () => {
     expect(bubble.getAttribute("data-kind")).toBe("asking");
     expect(bubble.textContent).toBe("!");
     expect(app.textContent).toContain("Needs you: Run npm test");
-    expect(app.querySelector("[data-mark]")?.hasAttribute("data-active")).toBe(
-      false,
+    // Its Hopper bounces in amber on the top step.
+    expect(app.querySelector("[data-mark]")?.getAttribute("data-hopper")).toBe(
+      "needs",
     );
   });
 
@@ -686,21 +697,32 @@ describe("Your agents", () => {
   });
 
   it("lets each agent react to its turns ending, but not the list rows", async () => {
-    await render(
-      props({
-        projects,
-        recent: [recentRow({})],
-        finished: [finishedRow({})],
-      }),
-    );
-    for (const tile of tiles())
+    reactions.set(projectKey(APP), { kind: "cheer", id: "r1" });
+    try {
+      await render(
+        props({
+          projects,
+          recent: [recentRow({})],
+          finished: [finishedRow({})],
+        }),
+      );
+      const [app, site] = tiles();
       expect(
-        tile.querySelector("[data-mark]")?.getAttribute("data-reacts"),
-      ).toBe("true");
-    const rows = container.querySelectorAll(".workspace-home-row [data-mark]");
-    expect(rows.length).toBeGreaterThan(0);
-    for (const mark of rows)
-      expect(mark.hasAttribute("data-reacts")).toBe(false);
+        app.querySelector("[data-mark]")?.getAttribute("data-reaction"),
+      ).toBe("cheer");
+      // Only the project whose turn ended.
+      expect(
+        site.querySelector("[data-mark]")?.hasAttribute("data-reaction"),
+      ).toBe(false);
+      const rows = container.querySelectorAll(
+        ".workspace-home-row [data-mark]",
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      for (const mark of rows)
+        expect(mark.hasAttribute("data-reaction")).toBe(false);
+    } finally {
+      reactions.clear();
+    }
   });
 
   it("dims agents idle for three days or more, and says they rest", async () => {
@@ -814,9 +836,16 @@ describe("Needs you", () => {
     expect(rows[0].getAttribute("data-attention")).toBe("approval");
     expect(rows[1].textContent).toContain("Finished · Added a guide");
     expect(rows[1].textContent).toContain("site");
+    // Each row's agent wears its project's colour; amber while it needs you.
     expect(
       rows[0].querySelector("[data-mark]")?.getAttribute("data-mark"),
-    ).toBe(projectKey(APP));
+    ).toBe(projectToneAt(APP));
+    expect(
+      rows[0].querySelector("[data-mark]")?.getAttribute("data-hopper"),
+    ).toBe("needs");
+    expect(
+      rows[1].querySelector("[data-mark]")?.getAttribute("data-hopper"),
+    ).toBe("still");
     await act(async () => (rows[1] as HTMLButtonElement).click());
     expect(value.onSession).toHaveBeenCalledExactlyOnceWith("done");
   });
@@ -857,8 +886,8 @@ describe("Running now", () => {
     expect(rows[0].textContent).toContain("Running for 12m");
     expect(rows[1].textContent).toContain("Working");
     expect(
-      rows[0].querySelector("[data-mark]")?.getAttribute("data-active"),
-    ).toBe("true");
+      rows[0].querySelector("[data-mark]")?.getAttribute("data-hopper"),
+    ).toBe("working");
     await act(async () => (rows[0] as HTMLButtonElement).click());
     expect(value.onSession).toHaveBeenCalledExactlyOnceWith("run");
   });

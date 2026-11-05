@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "./icons";
 import { ProviderMarks } from "./ProviderMarks";
-import { ProjectMark } from "./ProjectMark";
+import { HopperMark } from "./HopperMark";
 import { ShipFlow } from "./ShipFlow";
 import {
   basename,
@@ -27,6 +27,7 @@ import {
   type GitWorktree,
 } from "../lib/fs";
 import { useActivity } from "../lib/activity";
+import { useProjectTone } from "../hooks/useProjectTone";
 import { errorText, logError } from "../lib/errors";
 import { loadShowStaging, shortTimeAgo } from "../lib/gitChangesView";
 import { LiveSessionsContext } from "../lib/liveSessions";
@@ -796,7 +797,7 @@ export function GitCopies({
 }: {
   cwd: string;
   enabled: boolean;
-  /** The project folder, whose mark stands for the agent in each copy. */
+  /** The project folder, whose colour the agent in each copy wears. */
   projectCwd?: string;
   /** The default branch every copy is measured against. */
   base?: string;
@@ -805,6 +806,8 @@ export function GitCopies({
   onWorktrees?: (worktrees: GitWorktree[]) => void;
 }) {
   const { worktrees, refresh: refreshCopies } = useWorktrees(cwd, enabled);
+  // Each copy's working agent is Hopper in its project's colour.
+  const agentTone = useProjectTone(projectCwd || cwd);
   const reportRef = useRef(onWorktrees);
   reportRef.current = onWorktrees;
   useEffect(() => {
@@ -1026,7 +1029,7 @@ export function GitCopies({
               {chat ? (
                 <p className="git-copy-chat" data-state={chat.state}>
                   {chat.state === "working" && mark ? (
-                    <ProjectMark path={mark} asAgent active />
+                    <HopperMark tone={agentTone} state="working" />
                   ) : copy.harness ? (
                     <ProviderMarks harnesses={[copy.harness]} />
                   ) : null}
@@ -1256,7 +1259,7 @@ export function GitCopies({
                     title={text}
                   >
                     {state?.kind === "working" && mark ? (
-                      <ProjectMark path={mark} asAgent active />
+                      <HopperMark tone={agentTone} state="working" />
                     ) : (
                       <ProviderMarks harnesses={[lane.harness]} />
                     )}
@@ -1476,15 +1479,14 @@ export function GitCopies({
               aria-label={`${working.length} ${working.length === 1 ? "agent" : "agents"} working`}
             >
               {working.slice(0, 3).map((row) => (
-                <ProjectMark
+                <HopperMark
                   key={
                     row.kind === "race"
                       ? raceKey(row.group.race)
                       : row.copy.worktree.path
                   }
-                  path={mark}
-                  asAgent
-                  active
+                  tone={agentTone}
+                  state="working"
                 />
               ))}
             </span>

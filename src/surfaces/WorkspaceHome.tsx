@@ -19,7 +19,6 @@ import {
   GitPullRequest,
   Globe,
   Kanban,
-  MessageSquare,
   MoreHorizontal,
   Plus,
   Search,
@@ -29,7 +28,7 @@ import {
 import { TeamMiniFaces } from "../chrome/TeamCard";
 import type { PopoverAnchor } from "../chrome/Popover";
 import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
-import { ProjectMark } from "../chrome/ProjectMark";
+import { HopperMark } from "../chrome/HopperMark";
 import { BotCritter } from "../chrome/BotCritter";
 import { botsAvailable } from "../lib/projectBots";
 import type { SidebarBot } from "../chrome/Sidebar";
@@ -37,12 +36,17 @@ import { equalChromeData, useChromeProps } from "../hooks/useChromeProps";
 import { useHomeBriefing } from "../hooks/useHomeBriefing";
 import { useMinuteClock } from "../hooks/useMinuteClock";
 import { useDiscussingSessionIds } from "../hooks/useDiscussions";
+import { useMascotReaction } from "../hooks/useMascotReaction";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import { useProjectTone } from "../hooks/useProjectTone";
 import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
 import { activityStreak } from "../lib/activityStreak";
+import { helmCritterSnapshot, subscribeHelmCritter } from "../lib/composerHelm";
+import { appearanceTone, markTone } from "../lib/markTones";
+import { hasProjectAppearance } from "../lib/projectAppearance";
 import type {
   GettingStartedCard as GettingStartedCardData,
   GettingStartedStepId,
@@ -1022,6 +1026,8 @@ const AgentTile = memo(
     onBotSettings,
   }: AgentTileProps) {
     const appearance = useProjectAppearance(project.path);
+    // The project's agent reacts once when one of its turns ends.
+    const reaction = useMascotReaction(appearance?.key);
     const now = useMinuteClock();
     const metaId = useId();
     const moreRef = useRef<HTMLButtonElement>(null);
@@ -1076,11 +1082,19 @@ const AgentTile = memo(
             </span>
           ) : null}
           <span className="workspace-home-agent-figure">
-            <ProjectMark
-              appearance={appearance}
-              asAgent
-              active={running > 0}
-              reacts
+            <HopperMark
+              tone={appearance ? appearanceTone(appearance) : null}
+              state={
+                waiting
+                  ? "needs"
+                  : running
+                    ? "working"
+                    : state === "resting"
+                      ? "resting"
+                      : "still"
+              }
+              reaction={reaction?.kind}
+              reactionId={reaction?.id}
               className="workspace-home-agent-mark"
             />
             {unread ? (
@@ -1247,7 +1261,13 @@ function SessionRow({
       onClick={onClick}
     >
       <span className="workspace-home-row-mark">
-        {mark ?? <HomeMark cwd={cwd} active={active} />}
+        {mark ?? (
+          <HomeMark
+            cwd={cwd}
+            active={active}
+            needs={!!attention && isWaitingAttention({ kind: attention })}
+          />
+        )}
         {outcome ? <OutcomeIcon kind={outcome} /> : null}
       </span>
       <span className="workspace-home-row-text">
@@ -1271,22 +1291,31 @@ function OutcomeIcon({ kind }: { kind: HomeFinished["kind"] }) {
 }
 
 /**
- * A session's project mark, in dots as its agent's, or a quiet chat glyph
- * for tasks without a project.
+ * A session's agent, Hopper: in its project's colour, or in your own
+ * outside a project (as on its message box). It hops while the agent
+ * works and turns amber while it needs you.
  */
-function HomeMark({ cwd, active = false }: { cwd: string; active?: boolean }) {
-  const appearance = useProjectAppearance(cwd);
-  return appearance ? (
-    <ProjectMark
-      appearance={appearance}
-      asAgent
-      active={active}
+function HomeMark({
+  cwd,
+  active = false,
+  needs = false,
+}: {
+  cwd: string;
+  active?: boolean;
+  needs?: boolean;
+}) {
+  const projectTone = useProjectTone(cwd);
+  const personal = useSyncExternalStore(
+    subscribeHelmCritter,
+    helmCritterSnapshot,
+    helmCritterSnapshot,
+  );
+  return (
+    <HopperMark
+      tone={hasProjectAppearance(cwd) ? projectTone : markTone(personal)}
+      state={needs ? "needs" : active ? "working" : "still"}
       className="workspace-home-mark"
     />
-  ) : (
-    <span className="workspace-home-mark workspace-home-mark-none" aria-hidden>
-      <MessageSquare size={13} />
-    </span>
   );
 }
 

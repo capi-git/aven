@@ -1,10 +1,11 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { agentFullName, agentNameIn } from "../lib/agentNames";
+import { useProjectTone } from "../hooks/useProjectTone";
 import { discussionStore } from "../lib/discussions";
 import type { DiscussionRelayMeta } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
 import { ExternalLink, MessageMultiple } from "./icons";
-import { ProjectMark } from "./ProjectMark";
+import { HopperMark } from "./HopperMark";
 
 /**
  * Opens a discussion in the team panel from a chat's transcript. Provided
@@ -33,6 +34,8 @@ export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
     () => false,
   );
   const opening = meta.turn === 0;
+  // The other chat's agent, Hopper in its project's colour.
+  const partnerTone = useProjectTone(meta.partner.cwd);
   const round = Math.min(meta.rounds, Math.floor(meta.turn / 2) + 1);
   const { partner } = meta;
   // "Codex", or "Claude Opus 4.6" when this chat is a Claude too.
@@ -44,7 +47,7 @@ export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
     <>
       <MessageMultiple className="size-3 shrink-0" />
       <span className="shrink-0">{opening ? "Discussion with" : "From"}</span>
-      <ProjectMark path={partner.cwd} asAgent />
+      <HopperMark tone={partnerTone} className="shrink-0" />
       <HarnessIcon harness={partner.harness} className="size-3 shrink-0" />
       <span
         className="min-w-0 truncate text-content/80"

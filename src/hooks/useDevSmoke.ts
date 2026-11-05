@@ -377,21 +377,19 @@ function homeAgentTile(path: string): HTMLElement | null {
 }
 
 /**
- * Why a project mark is not working as a working agent's should, or null:
- * in its working state, a light sweeping across its dots unless reduced
- * motion stops it.
+ * Why an agent's Hopper is not working as it should, or null: in its
+ * working state, its dot hopping up the five big steps (a mark of 24px or
+ * more) unless reduced motion keeps it still.
  */
-function workingMarkProblem(mark: Element | null): string | null {
+function workingHopperProblem(mark: HTMLElement | null): string | null {
   if (!mark) return "is missing";
-  if (mark.getAttribute("data-kind") !== "mark") return "is not a dot mark";
-  if (!mark.hasAttribute("data-active")) return "is not in its working state";
-  const sweep = mark.querySelector(
-    '.dot-mark[data-state="working"] .dot-mark-lit-d',
-  );
-  if (!sweep) return "has no sweeping dots";
+  if (mark.dataset.hopper !== "working")
+    return `is ${mark.dataset.hopper ?? "not Hopper"}, not working`;
+  const dot = mark.querySelector(".hopper-dot");
+  if (!dot) return "has no dot";
   return animationProblem(
-    getComputedStyle(sweep).animationName,
-    "dot-mark-sweep",
+    getComputedStyle(dot).animationName,
+    "hopper-hop",
     prefersReducedMotion(),
   );
 }
@@ -2995,7 +2993,7 @@ export async function runDevSmoke(
       },
     );
 
-  // Home: every project's agent with its mascot, the working one moving,
+  // Home: every project's agent as Hopper, the working one hopping,
   // Right now and today's recap; then the sidebar's New chat pressed over
   // Home leaves it for the new chat.
   if (safe && typedTask && motion)
@@ -3032,11 +3030,11 @@ export async function runDevSmoke(
       ];
       if (tiles.length === 0) throw new Error("Home shows no agents");
       const bare = tiles.filter(
-        (tile) => !tile.querySelector(".project-mark svg, .project-mark img"),
+        (tile) => !tile.querySelector(".hopper-mark .hopper-steps"),
       );
       if (bare.length)
         throw new Error(
-          `${bare.length} of ${tiles.length} agents have no mascot or logo`,
+          `${bare.length} of ${tiles.length} agents are not Hopper`,
         );
       const tile = await waitFor(
         () => {
@@ -3046,8 +3044,10 @@ export async function runDevSmoke(
         5_000,
         "the project's agent to show it is working",
       );
-      // Home's large tiles hop further than the sidebar's mark.
-      const working = workingMarkProblem(tile.querySelector(".project-mark"));
+      // Home's large tiles hop on all five steps.
+      const working = workingHopperProblem(
+        tile.querySelector<HTMLElement>(".hopper-mark"),
+      );
       if (working)
         throw new Error(`On Home, the working agent's mark ${working}`);
       const chip = await waitFor(

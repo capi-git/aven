@@ -23,7 +23,6 @@ vi.mock("../lib/harness/registry", async (importOriginal) => ({
 const { ComposerHelm } = await import("./ComposerHelm");
 const { HelmRunContext } = await import("./HelmRun");
 const { CLAUDE_OPUS_5_5_MODEL } = await import("../lib/models");
-const { PROJECT_SIGILS, SIGIL_CRITTERS } = await import("../lib/dotSigils");
 const { MARK_TONES } = await import("../lib/markTones");
 const { TAB_GROUP_COLORS, tabGroupColor } = await import("../lib/tabGroups");
 const { projectKey } = await import("../lib/paths");
@@ -895,23 +894,15 @@ describe("the dialog", () => {
   });
 });
 
-describe("choosing the mark", () => {
+describe("choosing the colour", () => {
   async function openPicker() {
     await commandPeriod();
     await key("End");
     await act(async () => row("critter")!.click());
   }
-  const cells = () => [
-    ...document.body.querySelectorAll<HTMLButtonElement>("[data-mark-choice]"),
-  ];
 
-  /** The symbol the project's mark shows: the helm picks it, Hopper doesn't wear it. */
-  const shownSigil = () => projectSigilAt(PROJECT).key;
-  const current = () =>
-    PROJECT_SIGILS.findIndex((sigil) => sigil.key === shownSigil());
-  const checkedMark = () =>
-    cells().find((cell) => cell.getAttribute("aria-checked") === "true")
-      ?.dataset.markChoice;
+  /** The symbol picked before Hopper: kept in storage, drawn nowhere. */
+  const savedSigil = () => projectSigilAt(PROJECT).key;
   const stage = () =>
     document.body.querySelector(".helm-critter-stage")!.textContent;
   const colourCells = () => [
@@ -922,66 +913,50 @@ describe("choosing the mark", () => {
       .filter((cell) => cell.getAttribute("aria-checked") === "true")
       .map((cell) => cell.getAttribute("aria-label"));
 
-  it("labels its row Mark, in plain words", async () => {
+  it("labels its row Colour, naming the colour the agent wears", async () => {
     await render();
     await commandPeriod();
-    expect(row("critter")!.textContent).toContain("Mark");
-    expect(row("critter")!.textContent).toContain(
-      PROJECT_SIGILS[current()].label,
+    const automatic = (TAB_GROUP_COLORS as readonly string[]).indexOf(
+      tabGroupColor("site"),
     );
+    expect(row("critter")!.textContent).toContain(MARK_TONES[automatic].label);
     // Its label is words in the system font, not drawn letters.
     expect(row("critter")!.querySelector(".helm-label svg")).toBeNull();
     expect(row("critter")!.querySelector(".helm-label")!.textContent).toBe(
-      "Mark",
+      "Colour",
     );
+    // The agent beside it is Hopper, not a project symbol.
+    expect(row("critter")!.querySelector(".hopper-mark")).not.toBeNull();
   });
 
-  it("shows every mark by name, opens on the current one, and moves with the arrow keys", async () => {
-    await render();
-    const at = current();
-    expect(at).toBeGreaterThanOrEqual(0);
-    await openPicker();
-    expect(cells().map((cell) => cell.getAttribute("aria-label"))).toEqual(
-      PROJECT_SIGILS.map((sigil) => sigil.label),
-    );
-    // The cursor and the preview start on the mark standing here.
-    expect(document.activeElement).toBe(cells()[at]);
-    expect(stage()).toContain(PROJECT_SIGILS[at].label);
-    await key("ArrowRight");
-    const next = (at + 1) % PROJECT_SIGILS.length;
-    expect(document.activeElement).toBe(cells()[next]);
-    // Into the top row, where Down stays among the marks.
-    await key("Home");
-    await key("ArrowRight");
-    await key("ArrowDown");
-    expect(document.activeElement).toBe(cells()[7]);
-    // The one under the cursor is previewed.
-    expect(stage()).toContain(PROJECT_SIGILS[7].label);
-  });
-
-  it("puts the colours in a row under the marks, reached with the arrow keys", async () => {
+  it("offers only the colours, no symbol, and moves along them with the arrow keys", async () => {
     await render();
     await openPicker();
+    expect(document.body.querySelector("[data-mark-choice]")).toBeNull();
+    expect(
+      document.body.querySelector('[role="radiogroup"][aria-label="Mark"]'),
+    ).toBeNull();
     expect(
       colourCells().map((cell) => cell.getAttribute("aria-label")),
     ).toEqual(MARK_TONES.map((item) => item.label));
-    // Down from the marks' last row: the colour under it, previewed.
-    await key("Home");
-    await key("ArrowDown");
-    await key("ArrowDown");
-    expect(document.activeElement).toBe(colourCells()[0]);
-    expect(stage()).toContain("Grey");
+    // The cursor and the preview start on the colour it wears now.
+    const at = colourCells().findIndex(
+      (cell) => cell.getAttribute("aria-checked") === "true",
+    );
+    expect(document.activeElement).toBe(colourCells()[at]);
+    expect(stage()).toBe(MARK_TONES[at].label);
     await key("ArrowRight");
-    expect(document.activeElement).toBe(colourCells()[1]);
-    expect(stage()).toContain("Blue");
-    // And back up to the marks.
-    await key("ArrowUp");
-    expect(
-      (document.activeElement as HTMLElement).dataset.markChoice,
-    ).toBeDefined();
+    const next = (at + 1) % MARK_TONES.length;
+    expect(document.activeElement).toBe(colourCells()[next]);
+    expect(stage()).toBe(MARK_TONES[next].label);
+    await key("Home");
+    expect(document.activeElement).toBe(colourCells()[0]);
+    expect(stage()).toBe("Grey");
+    await key("ArrowLeft");
+    expect(document.activeElement).toBe(colourCells().at(-1));
   });
 
-  it("draws the mark at the corner in the project's own colour until one is picked", async () => {
+  it("draws the agent at the corner in the project's own colour until one is picked", async () => {
     await render();
     const automatic = (TAB_GROUP_COLORS as readonly string[]).indexOf(
       tabGroupColor("site"),
@@ -992,9 +967,9 @@ describe("choosing the mark", () => {
     expect(checkedColour()).toEqual([MARK_TONES[automatic].label]);
   });
 
-  it("saves a project's colour where the project keeps it, keeping its mark", async () => {
+  it("saves a project's colour where the project keeps it, keeping its saved symbol", async () => {
     await render();
-    const sigil = shownSigil();
+    const sigil = savedSigil();
     await openPicker();
     await act(async () =>
       colourCells()
@@ -1005,8 +980,9 @@ describe("choosing the mark", () => {
       JSON.parse(storage.get("monocode:tab-group:colors") ?? "{}"),
     ).toEqual({ [projectKey(PROJECT)]: "8" });
     expect(mark().dataset.tone).toBe("orange");
-    expect(shownSigil()).toBe(sigil);
+    expect(savedSigil()).toBe(sigil);
     expect(checkedColour()).toEqual(["Orange"]);
+    expect(critter().querySelector(".helm-critter-hop")).not.toBeNull();
     // Grey: the plain mark.
     await act(async () =>
       colourCells()
@@ -1014,38 +990,25 @@ describe("choosing the mark", () => {
         .click(),
     );
     expect(mark().hasAttribute("data-tone")).toBe(false);
-    expect(shownSigil()).toBe(sigil);
+    expect(savedSigil()).toBe(sigil);
     expect(storage.get(HELM_CRITTER_KEY)).toBeUndefined();
   });
 
   it("forgets the preview on leaving the picker", async () => {
     await render();
-    const at = current();
     await openPicker();
+    const at = colourCells().findIndex(
+      (cell) => cell.getAttribute("aria-checked") === "true",
+    );
     await key("ArrowRight");
-    const next = (at + 1) % PROJECT_SIGILS.length;
-    expect(stage()).toContain(PROJECT_SIGILS[next].label);
+    expect(stage()).toBe(MARK_TONES[(at + 1) % MARK_TONES.length].label);
     await key("Escape");
     expect(cursorRow()).toBe("critter");
     await act(async () => row("critter")!.click());
-    expect(stage()).toContain(PROJECT_SIGILS[at].label);
+    expect(stage()).toBe(MARK_TONES[at].label);
   });
 
-  it("saves a project's pick under its critter name, where the project keeps it", async () => {
-    await render();
-    const next = PROJECT_SIGILS[(current() + 1) % PROJECT_SIGILS.length];
-    await openPicker();
-    await key("ArrowRight");
-    await act(async () =>
-      (document.activeElement as HTMLButtonElement).click(),
-    );
-    const saved = JSON.parse(storage.get("monocode:tab-group:mascots") ?? "{}");
-    expect(Object.values(saved)).toEqual([SIGIL_CRITTERS[next.key]]);
-    expect(shownSigil()).toBe(next.key);
-    expect(critter().querySelector(".helm-critter-hop")).not.toBeNull();
-  });
-
-  it("keeps your own mark and colour for chats outside a project, Yellow as saved before", async () => {
+  it("keeps your own colour for chats outside a project, Yellow as saved before", async () => {
     props.critterPath = "~";
     storage.set(
       HELM_CRITTER_KEY,
@@ -1056,28 +1019,17 @@ describe("choosing the mark", () => {
     await act(async () => {
       window.dispatchEvent(new Event(HELM_CRITTER_EVENT));
     });
-    // The owl picked before marks reads as the Eye, in the colour saved then.
     expect(mark().dataset.tone).toBe("yellow");
     await openPicker();
-    expect(checkedMark()).toBe("eye");
     expect(checkedColour()).toEqual(["Yellow"]);
-    await act(async () =>
-      cells()
-        .find((cell) => cell.dataset.markChoice === "flag")!
-        .click(),
-    );
-    expect(JSON.parse(storage.get(HELM_CRITTER_KEY)!)).toEqual({
-      mascot: "fox",
-      colorIndex: 3,
-    });
-    expect(checkedMark()).toBe("flag");
     await act(async () =>
       colourCells()
         .find((cell) => cell.dataset.markTone === "teal")!
         .click(),
     );
+    // The critter saved before stays saved.
     expect(JSON.parse(storage.get(HELM_CRITTER_KEY)!)).toEqual({
-      mascot: "fox",
+      mascot: "owl",
       colorIndex: 7,
     });
     expect(mark().dataset.tone).toBe("teal");
@@ -1206,24 +1158,20 @@ describe("the keyboard around the critter", () => {
     expect(document.activeElement).toBe(field);
   });
 
-  it("takes Tab from the mark picker back to the message", async () => {
+  it("takes Tab from the colour picker back to the message", async () => {
     await render();
     field.focus();
     await commandPeriod();
     await key("End");
     await act(async () => row("critter")!.click());
-    const cell = document.activeElement!;
-    expect(cell.hasAttribute("data-critter-choice")).toBe(true);
-    // Tab goes on to the colours (the browser moves it), one stop per row.
-    const colourStops = [
+    const cell = document.activeElement as HTMLElement;
+    expect(cell.hasAttribute("data-mark-tone")).toBe(true);
+    // The colours are one stop for Tab, and the picker's last.
+    const stops = [
       ...document.body.querySelectorAll<HTMLElement>("[data-mark-tone]"),
     ].filter((element) => element.tabIndex === 0);
-    expect(colourStops).toHaveLength(1);
+    expect(stops).toEqual([cell]);
     await key("Tab", cell);
-    expect(dialog()).not.toBeNull();
-    // The colours are the picker's last stop.
-    await act(async () => colourStops[0].focus());
-    await key("Tab", colourStops[0]);
     expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(field);
   });

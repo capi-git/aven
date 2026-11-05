@@ -148,14 +148,9 @@ function app(flaws: Flaws = {}) {
     ].join("");
     return `<span class="project-mark" data-kind="stack"${attributes}><span class="stack-mark"${expanded ? " data-open" : ""}><svg class="stack-mark-art">${page("back", -14)}${page("middle", -6)}<rect class="stack-mark-front"></rect></svg></span></span>`;
   };
-  // A project's agent (Home's tiles): dots sweeping while working, reacting once.
-  const mark = (working: boolean) => {
-    if (reaction)
-      return `<span class="project-mark" data-kind="mark" data-reaction="${reaction}"><span class="dot-mark" data-state="done" data-reaction="${reaction}"><svg class="dot-mark-art" style="animation-name: dot-mark-${reaction}"></svg></span></span>`;
-    if (working)
-      return `<span class="project-mark" data-kind="mark" data-active="true"><span class="dot-mark" data-state="working"><svg class="dot-mark-art"><path class="dot-mark-lit-d" style="animation-name: ${flaws.stillWhileWorking ? "none" : "dot-mark-sweep"}"></path></svg></span></span>`;
-    return `<span class="project-mark" data-kind="mark"><span class="dot-mark" data-state="still"><svg class="dot-mark-art"></svg></span></span>`;
-  };
+  // A project's agent (Home's tiles): Hopper, hopping while it works.
+  const mark = (working: boolean) =>
+    `<span class="dot-mark hopper-mark" data-hopper="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><svg class="hopper-steps"></svg><span class="hopper-walk"><i class="hopper-dot" style="animation-name: ${working && !flaws.stillWhileWorking ? "hopper-hop" : "none"}"></i></span></span>`;
   function draw() {
     const working = state.sessions.some((session) => session.busy);
     document.body.innerHTML = `
@@ -299,7 +294,7 @@ describe("the real-app check's motion steps", () => {
     const home = named(await check({ stillWhileWorking: true }), "Home shows");
     expect(home.passed).toBe(false);
     expect(home.detail).toBe(
-      "On Home, the working agent's mark its animation is none, expected dot-mark-sweep",
+      "On Home, the working agent's mark its animation is none, expected hopper-hop",
     );
   });
 

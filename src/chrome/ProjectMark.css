@@ -1,5 +1,4 @@
-/* A project's logo, or its Stack (its sigil in dots where it stands for
-   the project's agent). */
+/* A project's logo, or its Stack. */
 .project-mark {
   display: inline-grid;
   place-items: center;
@@ -13,7 +12,6 @@
   border-radius: 3px;
   object-fit: cover;
 }
-.project-mark > .dot-mark,
 .project-mark > .stack-mark {
   width: 100%;
   height: 100%;

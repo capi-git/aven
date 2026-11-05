@@ -27,8 +27,8 @@ import {
   HELM_HOVER_CLOSE_MS,
   HELM_HOVER_OPEN_MS,
   markHelmHintSeen,
+  moveGridCursor,
   moveHelmCursor,
-  moveMarkCursor,
   OPEN_USAGE_EVENT,
   roomBar,
   saveHelmCritter,
@@ -46,12 +46,6 @@ import {
 import { isHarnessAvailable } from "../lib/harness/availability";
 import { pickerModelsFor, preferredModelId } from "../lib/models";
 import {
-  PROJECT_SIGILS,
-  SIGIL_CRITTERS,
-  appearanceSigil,
-  projectSigil,
-} from "../lib/dotSigils";
-import {
   MARK_TONES,
   appearanceTone,
   markTone,
@@ -68,13 +62,11 @@ import {
   type RuntimeMode,
 } from "../lib/session";
 import type { Skill } from "../lib/skills";
-import { saveTabGroupMascot } from "../lib/tabGroups";
 import { usageAlternatives } from "../lib/usageAlternatives";
 import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen } from "../lib/usageHistory";
 import { AgentPanel, useAgentSummary, type AgentPanelFocus } from "./AgentPill";
 import { HarnessIcon } from "./HarnessIcon";
-import { DotMark } from "./DotMark";
 import { HopperMark, type HopperState } from "./HopperMark";
 import {
   HelmBubble,
@@ -161,7 +153,7 @@ const ROW_LABEL: Record<HelmRowId, string> = {
   files: "Files",
   modes: "Modes",
   skills: "Skills",
-  critter: "Mark",
+  critter: "Colour",
 };
 
 /** The dialog's width, and its distance above the mark (over its room line). */
@@ -169,9 +161,6 @@ const DIALOG_WIDTH = 340;
 const DIALOG_GAP = 14;
 /** Changes to the popover's placement to wait through for a refused focus. */
 const FOCUS_TRIES = 10;
-
-/** Six marks to a row in the picker grid. */
-const CRITTER_COLUMNS = 6;
 
 /**
  * What the agent at the helm (its Hopper) does for what the message box is
@@ -265,13 +254,13 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const [cursor, setCursor] = useState(0);
   const [panel, setPanel] = useState<AgentPanelFocus | null>(null);
   const [hop, setHop] = useState(0);
-  // The mark or colour under the picker's cursor (its place on the page:
-  // the sigils, then the colours), previewed above the grid.
+  // The colour under the picker's cursor (its place in `MARK_TONES`),
+  // previewed above the row.
   const [preview, setPreview] = useState<number | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // The mark: the project's, or your own outside a project. Both are kept
-  // under the critter name each mark stands for.
+  // The agent's colour: the project's, or your own outside a project. (The
+  // critter each is saved with is kept but no longer drawn.)
   const appearance = useProjectAppearance(critterPath);
   const personal = useSyncExternalStore(
     subscribeHelmCritter,
@@ -279,10 +268,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     helmCritterSnapshot,
   );
   const inProject = hasProjectAppearance(critterPath) && !!appearance;
-  const critterKey = inProject ? appearance.key : "aven-helm";
-  const mark = inProject
-    ? appearanceSigil(appearance)
-    : projectSigil(personal.mascot, critterKey);
   // Its colour: the project's (picked, or its own from its name), or the
   // one you picked outside projects, Grey until you do.
   const toneIndex = markToneIndex(inProject ? appearance : personal);
@@ -527,15 +512,8 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         // While a discussion runs, what you send goes to both chats.
         if (id === "modes" && modesNote) return;
         setPage(id);
-        // The picker opens on the mark that stands here now.
-        setCursor(
-          id === "critter"
-            ? Math.max(
-                0,
-                PROJECT_SIGILS.findIndex((item) => item.key === mark.key),
-              )
-            : 0,
-        );
+        // The picker opens on the colour the agent wears now.
+        setCursor(id === "critter" ? toneIndex : 0);
         setPreview(null);
         setOpened((current) => (current === "hover" ? "pinned" : current));
         return;
@@ -575,14 +553,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     setCursor(Math.max(0, rows.indexOf(from as HelmRowId)));
   };
 
-  // ---- the mark picker -------------------------------------------------
-  // Saved under the critter name it stands for, as picks were before marks.
-  const pickCritter = (key: string) => {
-    const name = SIGIL_CRITTERS[key] ?? key;
-    if (inProject) saveTabGroupMascot(appearance.key, name);
-    else saveHelmCritter({ ...personal, mascot: name });
-    setHop((value) => value + 1);
-  };
+  // ---- the colour picker -----------------------------------------------
   // The project's colour, or your own outside a project.
   const pickTone = (index: number) => {
     if (inProject) saveProjectTone(appearance, index);
@@ -595,7 +566,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       : page === "skills"
         ? recentSkills.length
         : page === "critter"
-          ? PROJECT_SIGILS.length + MARK_TONES.length
+          ? MARK_TONES.length
           : 0;
 
   const onDialogKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -649,13 +620,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     }
     const next =
       page === "critter"
-        ? moveMarkCursor(
-            event.key,
-            cursor,
-            PROJECT_SIGILS.length,
-            CRITTER_COLUMNS,
-            MARK_TONES.length,
-          )
+        ? moveGridCursor(event.key, cursor, itemCount, itemCount)
         : moveHelmCursor(event.key, cursor, itemCount);
     if (next !== null) {
       event.preventDefault();
@@ -809,8 +774,8 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       case "critter":
         value = (
           <>
-            <DotMark sigil={mark} tone={tone} className="helm-mini-critter" />
-            {mark.label}
+            <HopperMark tone={tone} className="helm-mini-critter" />
+            {MARK_TONES[toneIndex].label}
           </>
         );
         aside = <ChevronRight aria-hidden className="helm-icon" />;
@@ -902,128 +867,61 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         </div>
       );
     if (page === "critter") {
-      const sigilCount = PROJECT_SIGILS.length;
-      const shown =
-        preview !== null && preview < sigilCount
-          ? PROJECT_SIGILS[preview]
-          : mark;
-      const shownTone =
-        MARK_TONES[
-          preview !== null && preview >= sigilCount
-            ? preview - sigilCount
-            : toneIndex
-        ];
-      // Each row is one stop for Tab: the cell under the cursor, or the
-      // chosen one in the row the cursor is not in.
-      const sigilStop =
-        cursor < sigilCount
-          ? cursor
-          : Math.max(
-              0,
-              PROJECT_SIGILS.findIndex((item) => item.key === mark.key),
-            );
-      const colourStop = cursor >= sigilCount ? cursor : sigilCount + toneIndex;
+      const shown = MARK_TONES[preview ?? toneIndex];
       return (
         <div className="helm-critter-page">
-          <BackRow label="Mark" onBack={() => backToMain("critter")} />
+          <BackRow label="Colour" onBack={() => backToMain("critter")} />
           <div className="helm-critter-stage" aria-hidden>
-            <DotMark
-              sigil={shown}
-              tone={shownTone.tone}
-              state="idle"
+            <HopperMark
+              tone={shown.tone}
+              state="resting"
               className="helm-critter-preview"
             />
-            <span>
-              {shown.label}
-              <span className="helm-critter-stage-tone">{shownTone.label}</span>
-            </span>
-          </div>
-          <div
-            className="helm-critter-grid"
-            role="radiogroup"
-            aria-label="Mark"
-          >
-            {PROJECT_SIGILS.map((item, index) => {
-              const selected = item.key === mark.key;
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  aria-label={item.label}
-                  className="helm-critter-cell"
-                  data-helm-item-index={index}
-                  data-critter-choice={SIGIL_CRITTERS[item.key]}
-                  data-mark-choice={item.key}
-                  data-active={index === cursor || undefined}
-                  tabIndex={index === sigilStop ? 0 : -1}
-                  onMouseEnter={() => {
-                    setCursor(index);
-                    setPreview(index);
-                  }}
-                  onMouseLeave={() => setPreview(null)}
-                  onFocus={() => {
-                    setCursor(index);
-                    setPreview(index);
-                  }}
-                  onClick={() => pickCritter(item.key)}
-                >
-                  <DotMark
-                    sigil={item}
-                    tone={tone}
-                    className="helm-critter-cell-art"
-                  />
-                </button>
-              );
-            })}
+            <span>{shown.label}</span>
           </div>
           <div
             className="helm-colour-row"
             role="radiogroup"
             aria-label="Colour"
           >
-            {MARK_TONES.map((item, colour) => {
-              const index = sigilCount + colour;
-              return (
-                <button
-                  key={item.tone}
-                  type="button"
-                  role="radio"
-                  aria-checked={colour === toneIndex}
-                  aria-label={item.label}
-                  className="helm-colour-cell"
-                  data-helm-item-index={index}
-                  data-mark-tone={item.tone}
-                  data-active={index === cursor || undefined}
-                  tabIndex={index === colourStop ? 0 : -1}
-                  onMouseEnter={() => {
-                    setCursor(index);
-                    setPreview(index);
-                  }}
-                  onMouseLeave={() => setPreview(null)}
-                  onFocus={() => {
-                    setCursor(index);
-                    setPreview(index);
-                  }}
-                  onClick={() => pickTone(colour)}
-                >
-                  <span
-                    className="helm-colour-swatch"
-                    style={
-                      {
-                        "--helm-swatch": markToneColor(item.tone),
-                      } as CSSProperties
-                    }
-                  />
-                </button>
-              );
-            })}
+            {MARK_TONES.map((item, index) => (
+              <button
+                key={item.tone}
+                type="button"
+                role="radio"
+                aria-checked={index === toneIndex}
+                aria-label={item.label}
+                className="helm-colour-cell"
+                data-helm-item-index={index}
+                data-mark-tone={item.tone}
+                data-active={index === cursor || undefined}
+                tabIndex={index === cursor ? 0 : -1}
+                onMouseEnter={() => {
+                  setCursor(index);
+                  setPreview(index);
+                }}
+                onMouseLeave={() => setPreview(null)}
+                onFocus={() => {
+                  setCursor(index);
+                  setPreview(index);
+                }}
+                onClick={() => pickTone(index)}
+              >
+                <span
+                  className="helm-colour-swatch"
+                  style={
+                    {
+                      "--helm-swatch": markToneColor(item.tone),
+                    } as CSSProperties
+                  }
+                />
+              </button>
+            ))}
           </div>
           <p className="helm-quiet helm-critter-note">
             {inProject
-              ? `${appearance.label}'s mark, everywhere it shows`
-              : "Your mark outside projects"}
+              ? `${appearance.label}'s colour, everywhere it shows`
+              : "Your colour outside projects"}
           </p>
         </div>
       );
