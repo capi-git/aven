@@ -132,6 +132,8 @@ type Props = {
   recentSkills: readonly Skill[];
   onPickSkill: (skill: Skill) => void;
   hasValue: boolean;
+  /** The microphone, after Send; absent where Aven can't listen. */
+  mic?: ReactNode;
   sendLabel: string;
   onSend: () => void;
   /** The team bar's Stop stops what this one would (a lead's run). */
@@ -238,6 +240,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     recentSkills,
     onPickSkill,
     hasValue,
+    mic,
     sendLabel,
     onSend,
     stopInBar,
@@ -980,6 +983,9 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       >
         <MoveUp aria-hidden className="helm-plane-art" />
       </button>
+      {/* After Send, so Send appearing never moves it from under the
+          pointer that pressed it. */}
+      {mic}
       <div
         className="helm-perch"
         onPointerEnter={scheduleOpen}

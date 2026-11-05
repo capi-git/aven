@@ -1,0 +1,87 @@
+/* Speaking into the message box: the microphone beside Send, and the row
+   above the words for a refusal or "Tidy into a brief". Neutral greys; no
+   motion, so nothing changes under Reduce motion. */
+
+/* The microphone, after Send: Send's size and line, quiet until pressed.
+   While it listens it takes Send's filled look, and holds still. */
+.helm-mic {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--helm-muted);
+  cursor: pointer;
+}
+.helm-mic:hover {
+  background: var(--aven-hover);
+  color: var(--helm-ink);
+}
+.helm-mic[aria-pressed="true"] {
+  background: var(--color-content);
+  color: var(--color-background-base);
+}
+.helm-mic[aria-pressed="true"]:hover {
+  background: var(--aven-inverse-hover);
+}
+.helm-mic-art {
+  width: 15px;
+  height: 15px;
+}
+
+/* One line above the words; a button's label lines up with the text. */
+.composer-speech-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 8px 0;
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+}
+.composer-speech-text {
+  min-width: 0;
+  padding-inline: 8px;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+.composer-speech-action + .composer-speech-text {
+  padding-inline: 0;
+}
+.composer-speech-action,
+.composer-speech-close {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--aven-radius-sm);
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+  cursor: pointer;
+}
+.composer-speech-close {
+  width: 24px;
+  margin-left: auto;
+  padding: 0;
+  justify-content: center;
+}
+.composer-speech-action:hover,
+.composer-speech-close:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.composer-speech-icon {
+  width: 14px;
+  height: 14px;
+}

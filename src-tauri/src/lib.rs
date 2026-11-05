@@ -36,6 +36,8 @@ mod desktop_presence;
 mod dev_smoke;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod dev_smoke_pointer;
+#[cfg(target_os = "macos")]
+mod dictation;
 mod display_rate;
 mod feature_cards;
 mod floating_sidebar;
@@ -397,6 +399,14 @@ pub fn run() {
             team_watch::team_watch_show_owner,
             popup_glass::popup_glass_set,
             browser_agent::browser_agent_bind,
+            #[cfg(target_os = "macos")]
+            dictation::dictation_start,
+            #[cfg(target_os = "macos")]
+            dictation::dictation_stop,
+            #[cfg(target_os = "macos")]
+            dictation::dictation_cancel,
+            #[cfg(target_os = "macos")]
+            dictation::dictation_open_settings,
             #[cfg(target_os = "macos")]
             ios_sim::ios_sim_support,
             #[cfg(target_os = "macos")]

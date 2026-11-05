@@ -191,7 +191,7 @@ class PrivacyPackagingTests(unittest.TestCase):
         source = plistlib.loads((SOURCE_ROOT / 'src-tauri/Entitlements.plist').read_bytes())
         for key in packager.CAPTURE_ENTITLEMENTS:
             self.assertIs(source.get(key), True, key)
-        for key in ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription'):
+        for key in packager.CAPTURE_PURPOSES:
             self.assertTrue(self.host_info().get(key, '').strip(), key)
 
     def test_host_and_capture_helper_get_microphone_and_camera_entitlements(self):
@@ -215,7 +215,7 @@ class PrivacyPackagingTests(unittest.TestCase):
     def test_missing_capture_entitlement_or_purpose_fails_before_bundle_mutation(self):
         source = plistlib.loads((SOURCE_ROOT / 'src-tauri/Entitlements.plist').read_bytes())
         cases = [('entitlement', key) for key in packager.CAPTURE_ENTITLEMENTS]
-        cases += [('purpose', key) for key in ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription')]
+        cases += [('purpose', key) for key in packager.CAPTURE_PURPOSES]
         for kind, key in cases:
             with self.subTest(key=key):
                 values = dict(source)
