@@ -293,6 +293,33 @@
   margin: 0 calc(-1 * var(--aven-menu-inset));
   list-style: none;
 }
+.automation-run-item {
+  position: relative;
+}
+/* Shows on hover or focus, where the run's length and unread dot sit. */
+.automation-run-delete {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  opacity: 0;
+  translate: 0 -50%;
+}
+.automation-run-item:hover .automation-run-delete,
+.automation-run-delete:focus-visible {
+  opacity: 1;
+}
+.automation-run-item:is(:hover, :has(.automation-run-delete:focus-visible))
+  .automation-run-row:has(+ .automation-run-delete)
+  > :is(.aven-menu-detail, .automation-unread) {
+  visibility: hidden;
+}
+/* A run with no length has nothing holding the button's place. */
+.automation-run-item:is(:hover, :has(.automation-run-delete:focus-visible))
+  .automation-run-row:not(:has(.aven-menu-detail)):has(
+    + .automation-run-delete
+  ) {
+  padding-right: 40px;
+}
 .automation-run-row > .automation-dot {
   margin-top: 5px;
 }

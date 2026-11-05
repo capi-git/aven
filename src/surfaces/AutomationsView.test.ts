@@ -732,6 +732,128 @@ describe("Automations view", () => {
     expect(row("daily").getAttribute("aria-current")).toBe("true");
   });
 
+  describe("deleting runs", () => {
+    const older = (index: number): ScheduledRun => ({
+      ...finished,
+      id: `run-${index}`,
+      sessionId: `session-${index}`,
+      startedAt: finished.startedAt - index * 86_400_000,
+      finishedAt: finished.finishedAt! - index * 86_400_000,
+    });
+    const rightClick = async (id: string) =>
+      act(async () => {
+        container
+          .querySelector<HTMLElement>(`[data-automation-run="${id}"]`)!
+          .dispatchEvent(
+            new MouseEvent("contextmenu", {
+              bubbles: true,
+              cancelable: true,
+              clientX: 40,
+              clientY: 50,
+            }),
+          );
+      });
+    const menuItem = (label: string) =>
+      [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+        (item) => item.textContent?.trim() === label,
+      );
+    const deleteButton = (id: string) =>
+      container
+        .querySelector(`[data-automation-run="${id}"]`)!
+        .parentElement!.querySelector<HTMLButtonElement>(
+          ".automation-run-delete",
+        );
+
+    it("deletes one run at once, archiving its chat", async () => {
+      saveScheduledAgent(schedule);
+      saveScheduledRun(older(2));
+      saveScheduledRun(older(3));
+      const archive = vi.fn<(id: string) => Promise<boolean>>(async () => true);
+      await render({ onArchiveRunChat: archive });
+      await click(row("daily"));
+      await click(deleteButton("run-3")!);
+      expect(host.ask).not.toHaveBeenCalled();
+      expect(archive.mock.calls.map(([id]) => id)).toEqual(["session-3"]);
+      expect(listScheduledRuns().map((run) => run.id)).toEqual(["run-2"]);
+      expect(listScheduledAgents()).toHaveLength(1);
+      // The automation stays open, not a run's conversation.
+      expect(row("daily").getAttribute("aria-current")).toBe("true");
+    });
+
+    it("deletes a run and those older from its menu, after asking", async () => {
+      saveScheduledAgent(schedule);
+      for (const index of [2, 3, 4]) saveScheduledRun(older(index));
+      await render();
+      await click(row("daily"));
+      await rightClick("run-3");
+      host.ask.mockResolvedValueOnce(false);
+      await click(menuItem("Delete this and 1 older…")!);
+      expect(host.ask.mock.calls[0][0]).toBe(
+        "Delete 2 runs? Their chats move to Archive in Settings.",
+      );
+      expect(listScheduledRuns()).toHaveLength(3);
+
+      await rightClick("run-3");
+      host.ask.mockResolvedValueOnce(true);
+      await click(menuItem("Delete this and 1 older…")!);
+      expect(listScheduledRuns().map((run) => run.id)).toEqual(["run-2"]);
+    });
+
+    it("offers no older runs on the oldest one", async () => {
+      saveScheduledAgent(schedule);
+      for (const index of [2, 3]) saveScheduledRun(older(index));
+      await render();
+      await click(row("daily"));
+      await rightClick("run-3");
+      expect(menuItem("Delete run")).toBeTruthy();
+      expect(
+        [...document.querySelectorAll('[role="menuitem"]')].map((item) =>
+          item.textContent?.trim(),
+        ),
+      ).toEqual(["Delete run"]);
+    });
+
+    it("never deletes a run still running", async () => {
+      saveScheduledAgent(schedule);
+      saveScheduledRun({
+        ...older(2),
+        status: "running",
+        finishedAt: undefined,
+      });
+      saveScheduledRun(older(3));
+      await render();
+      await click(row("daily"));
+      expect(deleteButton("run-2")).toBeNull();
+      await rightClick("run-2");
+      expect(menuItem("Delete run")).toBeUndefined();
+      // Deleting from an older run leaves it too.
+      await rightClick("run-3");
+      await click(menuItem("Delete run")!);
+      expect(listScheduledRuns().map((run) => run.id)).toEqual(["run-2"]);
+    });
+
+    it("leaves a chat another run still holds", async () => {
+      saveScheduledAgent(schedule);
+      saveScheduledRun(older(2));
+      saveScheduledRun({ ...older(3), sessionId: "session-2" });
+      const archive = vi.fn<(id: string) => Promise<boolean>>(async () => true);
+      await render({ onArchiveRunChat: archive });
+      await click(row("daily"));
+      await click(deleteButton("run-3")!);
+      expect(archive).not.toHaveBeenCalled();
+      expect(listScheduledRuns().map((run) => run.id)).toEqual(["run-2"]);
+    });
+
+    it("clears a deleted automation with its last run", async () => {
+      saveScheduledRun(older(2));
+      await render();
+      await click(row("daily"));
+      await click(deleteButton("run-2")!);
+      expect(row("daily")).toBeNull();
+      expect(container.textContent).toContain("Start from an example");
+    });
+  });
+
   it("opens a blank automation from the command palette request", async () => {
     await render();
     expect(container.querySelector("[data-scheduled-editor]")).toBeNull();
