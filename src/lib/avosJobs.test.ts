@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { avosJobHeld, avosJobId, avosJobMode, ownedBy } from "./avosJobs";
+import {
+  avosJobHeld,
+  avosJobId,
+  avosJobMode,
+  ownedBy,
+  ownerAfterEdit,
+} from "./avosJobs";
 import type { ScheduledAgent } from "./scheduledAgents";
 
 const PATH = "/Users/me/site";
@@ -57,5 +63,12 @@ describe("a team's job", () => {
     expect(avosJobId(PATH, draft)).not.toBe(
       avosJobId("/Users/me/other", draft),
     );
+  });
+
+  it("stays the team's when edited, until it moves to another project", () => {
+    expect(ownerAfterEdit(agent(), PATH)).toEqual({ owner: { avos: PATH } });
+    expect(ownerAfterEdit(agent(), "/Users/me/other")).toEqual({});
+    expect(ownerAfterEdit(agent({ owner: undefined }), PATH)).toEqual({});
+    expect(ownerAfterEdit(undefined, PATH)).toEqual({});
   });
 });

@@ -37,6 +37,7 @@ import {
 import { availablePaletteAgents } from "../lib/paletteAgents";
 import { projectName } from "../lib/paths";
 import { isProjectlessCwd } from "../lib/projectlessWorkspace";
+import { ownerAfterEdit } from "../lib/avosJobs";
 import { sameProjectPath } from "../lib/recents";
 import {
   loadDefaultRuntimeMode,
@@ -465,6 +466,7 @@ export function ScheduleEditor({
         createdAt: initial?.createdAt ?? at,
         ...(initial?.lastRunAt != null ? { lastRunAt: initial.lastRunAt } : {}),
         nextRunAt: keepNext ? initial.nextRunAt : nextRunAt(rule, new Date(at)),
+        ...ownerAfterEdit(initial, draft.project),
       },
       { runNow: offerRunNow && runNow },
     );

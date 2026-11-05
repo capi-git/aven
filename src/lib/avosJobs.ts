@@ -84,6 +84,19 @@ export function addAvosJob(input: {
   return agent;
 }
 
+/**
+ * The team a job stays with once you edit it: its own while it still runs
+ * in the team's project, none once you move it elsewhere.
+ */
+export function ownerAfterEdit(
+  initial: Pick<ScheduledAgent, "owner"> | undefined,
+  project: string,
+): Pick<ScheduledAgent, "owner"> {
+  return initial?.owner && sameProjectPath(initial.owner.avos, project)
+    ? { owner: initial.owner }
+    : {};
+}
+
 /** Whether a job is its team's. */
 export function ownedBy(agent: ScheduledAgent, path: string): boolean {
   return !!agent.owner && sameProjectPath(agent.owner.avos, path);
