@@ -1026,7 +1026,7 @@ export function GitCopies({
               {chat ? (
                 <p className="git-copy-chat" data-state={chat.state}>
                   {chat.state === "working" && mark ? (
-                    <ProjectMark path={mark} active />
+                    <ProjectMark path={mark} asAgent active />
                   ) : copy.harness ? (
                     <ProviderMarks harnesses={[copy.harness]} />
                   ) : null}
@@ -1256,7 +1256,7 @@ export function GitCopies({
                     title={text}
                   >
                     {state?.kind === "working" && mark ? (
-                      <ProjectMark path={mark} active />
+                      <ProjectMark path={mark} asAgent active />
                     ) : (
                       <ProviderMarks harnesses={[lane.harness]} />
                     )}
@@ -1483,6 +1483,7 @@ export function GitCopies({
                       : row.copy.worktree.path
                   }
                   path={mark}
+                  asAgent
                   active
                 />
               ))}

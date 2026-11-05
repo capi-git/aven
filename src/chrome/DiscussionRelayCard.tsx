@@ -44,7 +44,7 @@ export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
     <>
       <MessageMultiple className="size-3 shrink-0" />
       <span className="shrink-0">{opening ? "Discussion with" : "From"}</span>
-      <ProjectMark path={partner.cwd} />
+      <ProjectMark path={partner.cwd} asAgent />
       <HarnessIcon harness={partner.harness} className="size-3 shrink-0" />
       <span
         className="min-w-0 truncate text-content/80"

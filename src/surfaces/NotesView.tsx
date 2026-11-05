@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useMarkdownMode } from "../chrome/MarkdownModeToggle";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
-import { DotMark } from "../chrome/DotMark";
+import { StackMark } from "../chrome/StackMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -45,7 +45,7 @@ import {
 import { projectKey, projectName } from "../lib/paths";
 import { IS_MAC } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
-import { projectSigilAt, projectToneAt } from "../lib/projectAppearance";
+import { projectToneAt } from "../lib/projectAppearance";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { AgentMarkdown, MarkdownSourceHighlight } from "./AgentMarkdown";
 
@@ -364,11 +364,7 @@ function NoteProjectMark({ cwd, logos }: { cwd: string } & ProjectMarks) {
           imageClassName="size-3.5"
         />
       ) : (
-        <DotMark
-          sigil={projectSigilAt(cwd)}
-          tone={projectToneAt(cwd)}
-          className="size-[15px] shrink-0"
-        />
+        <StackMark tone={projectToneAt(cwd)} className="size-[15px] shrink-0" />
       )}
       <span className="min-w-0 truncate">{project}</span>
     </span>

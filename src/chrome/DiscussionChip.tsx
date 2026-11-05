@@ -392,7 +392,7 @@ function DiscussionMenu({
               onClick={() => onPick(chatPick(candidate))}
               className={`${rowClass(selected, true)} disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent`}
             >
-              <ProjectMark path={candidate.cwd} />
+              <ProjectMark path={candidate.cwd} asAgent />
               <HarnessIcon
                 harness={candidate.harness}
                 className="size-3.5 shrink-0"

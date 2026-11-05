@@ -41,12 +41,26 @@ const REACTION_MS = 1_200;
 type Flaws = {
   /** The sidebar's New chat leaves Home on screen (the 0.1.141 QA bug). */
   homeStays?: boolean;
-  /** The mascot reacts a second time a moment after the first. */
-  reactsTwice?: boolean;
-  /** The working mark does not animate. */
+  /** The sidebar's Stack sweeps while its agent works. */
+  stackSweeps?: boolean;
+  /** The sidebar's Stack reacts as the turn ends. */
+  stackReacts?: boolean;
+  /** The sidebar's Stack stays closed when the project opens. */
+  fanStuck?: boolean;
+  /** The sidebar row never shows its running dot. */
+  noRunningDot?: boolean;
+  /** Home's working agent mark does not animate. */
   stillWhileWorking?: boolean;
   /** Parallel work opens unfolded. */
   parallelOpen?: boolean;
+};
+
+/** A page's turn as a browser reports it. */
+const turned = (degrees: number) => {
+  if (!degrees) return "none";
+  const radians = (degrees * Math.PI) / 180;
+  const [cos, sin] = [Math.cos(radians), Math.sin(radians)];
+  return `matrix(${cos}, ${sin}, ${-sin}, ${cos}, 0, 0)`;
 };
 
 /**
@@ -56,6 +70,7 @@ type Flaws = {
 function app(flaws: Flaws = {}) {
   let homeOpen = false;
   let changesOpen = false;
+  let expanded = false;
   let reaction: string | null = null;
   let done = 0;
   const state = {
@@ -88,7 +103,6 @@ function app(flaws: Flaws = {}) {
           });
           done += 1;
           react();
-          if (flaws.reactsTwice) setTimeout(react, REACTION_MS + 400);
         },
         hold ? Number(hold[1]) : 0,
       );
@@ -123,7 +137,18 @@ function app(flaws: Flaws = {}) {
       draw();
     }, REACTION_MS);
   }
-  // A project's mark: a dot mark sweeping while working, reacting once.
+  // The sidebar's project mark: a Stack, fanned while the project is open.
+  const stack = (working: boolean) => {
+    const fanned = expanded && !flaws.fanStuck;
+    const page = (part: string, degrees: number) =>
+      `<rect class="stack-mark-${part}" style="transform: ${turned(fanned ? degrees : 0)}; transition-duration: 0.16s"></rect>`;
+    const attributes = [
+      working && flaws.stackSweeps ? ' data-active="true"' : "",
+      reaction && flaws.stackReacts ? ` data-reaction="${reaction}"` : "",
+    ].join("");
+    return `<span class="project-mark" data-kind="stack"${attributes}><span class="stack-mark"${expanded ? " data-open" : ""}><svg class="stack-mark-art">${page("back", -14)}${page("middle", -6)}<rect class="stack-mark-front"></rect></svg></span></span>`;
+  };
+  // A project's agent (Home's tiles): dots sweeping while working, reacting once.
   const mark = (working: boolean) => {
     if (reaction)
       return `<span class="project-mark" data-kind="mark" data-reaction="${reaction}"><span class="dot-mark" data-state="done" data-reaction="${reaction}"><svg class="dot-mark-art" style="animation-name: dot-mark-${reaction}"></svg></span></span>`;
@@ -134,7 +159,10 @@ function app(flaws: Flaws = {}) {
   function draw() {
     const working = state.sessions.some((session) => session.busy);
     document.body.innerHTML = `
-      <div class="personal-project-row" data-project-path="${PROJECT}">${mark(working)}</div>
+      <div class="personal-project-row" data-project-path="${PROJECT}">
+        <button class="personal-project-open">${stack(working)}${working && !flaws.noRunningDot ? '<span class="personal-project-status"><span class="personal-project-running"></span></span>' : ""}</button>
+        <button class="personal-project-disclosure" aria-expanded="${expanded}"></button>
+      </div>
       <div class="personal-workspace-content"${homeOpen ? " hidden" : ""}>
         <div data-session-drop="${focused}"><div data-composer><textarea style="visibility: visible"></textarea></div></div>
       </div>
@@ -156,6 +184,13 @@ function app(flaws: Flaws = {}) {
           : ""
       }`;
   }
+  // The fold button opens and closes the project, as the sidebar's does.
+  document.body.onclick = (event) => {
+    if (!(event.target as Element).closest(".personal-project-disclosure"))
+      return;
+    expanded = !expanded;
+    draw();
+  };
   draw();
   return state;
 }
@@ -184,21 +219,24 @@ describe("the real-app check's motion steps", () => {
     document.body.innerHTML = "";
   });
 
-  it("pass when the mark moves, reacts once, Home gives way and Parallel work is folded", async () => {
+  it("pass when the Stack stays still and fans, Home gives way and Parallel work is folded", async () => {
     const steps = await check();
     expect(steps.map((step) => [step.name, step.passed])).toEqual([
       ["stand-in provider is the one Aven found", true],
       ["window stayed hidden until the workspace drew", true],
       ["agent turn through the normal send path", true],
-      ["the project's mark steps while its agent works and reacts once", true],
+      [
+        "the project's Stack stays still while its agent works, and fans while the project is open",
+        true,
+      ],
       [
         "Home shows each project's agent, and New chat leaves Home for the chat",
         true,
       ],
       ["Parallel work starts folded to one line", true],
     ]);
-    expect(named(steps, "the project's mark").detail).toBe(
-      "hopped while working, cheered once",
+    expect(named(steps, "the project's Stack").detail).toBe(
+      "still while working; fanned and folded",
     );
     expect(named(steps, "Home shows").detail).toBe(
       "2 agents; 1 agent working; Today: 3 tasks done",
@@ -206,6 +244,12 @@ describe("the real-app check's motion steps", () => {
     expect(named(steps, "Parallel work").detail).toBe(
       "Parallel work · 1 merged",
     );
+    // It leaves the project as it found it: closed.
+    expect(
+      document
+        .querySelector(".personal-project-disclosure")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("false");
   });
 
   it("fail when New chat in the sidebar leaves Home in front of the chat", async () => {
@@ -214,23 +258,48 @@ describe("the real-app check's motion steps", () => {
     expect(home.detail).toContain("Home to give way to the new chat");
   });
 
-  it("fail when the mascot reacts twice to one turn", async () => {
-    const mark = named(
-      await check({ reactsTwice: true }),
-      "the project's mark",
-    );
-    expect(mark.passed).toBe(false);
-    expect(mark.detail).toContain("came back");
-  });
-
-  it("fail when the working mark stands still", async () => {
-    const mark = named(
-      await check({ stillWhileWorking: true }),
-      "the project's mark",
-    );
+  it("fail when the Stack stays closed as the project opens", async () => {
+    const mark = named(await check({ fanStuck: true }), "the project's Stack");
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe(
-      "While the agent worked, its mark its animation is none, expected dot-mark-sweep",
+      "Once the project opened, the project's Stack has its back page at 0.0°, expected -14° while the project is open",
+    );
+  });
+
+  it("fail when the Stack sweeps while its agent works", async () => {
+    const mark = named(
+      await check({ stackSweeps: true }),
+      "the project's Stack",
+    );
+    expect(mark.passed).toBe(false);
+    expect(mark.detail).toBe("While the agent worked, the mark swept");
+  });
+
+  it("fail when the Stack reacts as the turn ends", async () => {
+    const mark = named(
+      await check({ stackReacts: true }),
+      "the project's Stack",
+    );
+    expect(mark.passed).toBe(false);
+    expect(mark.detail).toBe("The mark reacted (cheer) as the turn ended");
+  });
+
+  it("fail when the row never says its agent is running", async () => {
+    const mark = named(
+      await check({ noRunningDot: true }),
+      "the project's Stack",
+    );
+    expect(mark.passed).toBe(false);
+    expect(mark.detail).toContain(
+      "the project's row to show its agent running",
+    );
+  });
+
+  it("fail when Home's working agent mark stands still", async () => {
+    const home = named(await check({ stillWhileWorking: true }), "Home shows");
+    expect(home.passed).toBe(false);
+    expect(home.detail).toBe(
+      "On Home, the working agent's mark its animation is none, expected dot-mark-sweep",
     );
   });
 

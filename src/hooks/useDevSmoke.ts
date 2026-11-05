@@ -18,11 +18,9 @@ import {
   waitFor,
   type DevSmokeConfig,
 } from "../lib/devSmoke";
-import {
-  animationProblem,
-  prefersReducedMotion,
-  watchOneShot,
-} from "../lib/devSmokeMotion";
+import { animationProblem, prefersReducedMotion } from "../lib/devSmokeMotion";
+import { readStack, stackProblem } from "../lib/devSmokeStack";
+import { motionReduced } from "../lib/motion";
 import {
   launchRevealProblem,
   launchRevealSummary,
@@ -2885,13 +2883,15 @@ export async function runDevSmoke(
       },
     );
 
-  // What moves. The project's mark in the sidebar steps while its agent
-  // works and reacts once when the turn ends; the pinned sidebar is the one
-  // drawn in this window (the floating one draws in its own).
+  // What moves. The project's Stack in the sidebar stays still while its
+  // agent works (a small dot says it is running) and when the turn ends,
+  // and fans exactly while the project is open, folding back when it
+  // closes. The pinned sidebar is the one drawn in this window (the
+  // floating one draws in its own).
   const motion = get().motion;
   if (safe && typedTask && motion)
     await step(
-      "the project's mark steps while its agent works and reacts once",
+      "the project's Stack stays still while its agent works, and fans while the project is open",
       async () => {
         if (!get().sidebarOpen) {
           pressShortcut("b");
@@ -2901,66 +2901,96 @@ export async function runDevSmoke(
             "the sidebar to pin",
           );
         }
+        const row = () => sidebarProjectRow(config.projectPath);
         const mark = () =>
-          sidebarProjectRow(config.projectPath)?.querySelector<HTMLElement>(
-            ".project-mark",
-          ) ?? null;
+          row()?.querySelector<HTMLElement>(".project-mark") ?? null;
         await waitFor(mark, 10_000, "the project's mark in the sidebar");
-        // macOS stops drawing a covered window, and a hidden window leaves
-        // reactions to windows the user can see.
+        // macOS stops drawing a covered window, and a covered window's
+        // transitions may not run.
         await waitFor(
           () => document.visibilityState !== "hidden",
           15_000,
           "Aven Dev's window to be visible (keep it uncovered during the check)",
         );
+        // The fan's easing follows Aven's own Reduce motion too, not only
+        // the system's.
+        const reduced = motionReduced();
+        const fold = () =>
+          row()?.querySelector<HTMLButtonElement>(
+            ".personal-project-disclosure",
+          ) ?? null;
+        const isOpen = () => fold()?.getAttribute("aria-expanded") === "true";
+        const runningDot = () =>
+          (row()?.querySelector(".personal-project-running")?.getClientRects()
+            .length ?? 0) > 0;
+        const logo = mark()?.dataset.kind === "logo";
+        let seen: string | null = null;
+        const settle = async (open: boolean, when: string) => {
+          if (logo) return;
+          await waitFor(
+            () => {
+              seen = stackProblem(readStack(mark()), {
+                open,
+                reducedMotion: reduced,
+              });
+              return seen === null;
+            },
+            3_000,
+            `the Stack to settle ${when}`,
+          ).catch(() => {
+            throw new Error(`${when}, the project's Stack ${seen}`);
+          });
+        };
+        const opened = isOpen();
+        await settle(opened, opened ? "With the project open" : "At rest");
+        // Fold the project the other way and back: the pages follow.
+        for (const open of [!opened, opened]) {
+          fold()?.click();
+          await waitFor(
+            () => isOpen() === open,
+            5_000,
+            `the project to ${open ? "open" : "close"}`,
+          );
+          await settle(
+            open,
+            open ? "Once the project opened" : "Once the project closed",
+          );
+        }
         const reply = await startHeldTurn(
           get,
           typedTask.id,
           "Take a moment before replying.",
         );
+        try {
+          await waitFor(
+            runningDot,
+            5_000,
+            "the project's row to show its agent running",
+          );
+          await settle(opened, "While the agent worked");
+          if (mark()?.hasAttribute("data-active"))
+            throw new Error("While the agent worked, the mark swept");
+        } finally {
+          await reply();
+        }
+        // The turn's end moves nothing on the mark, and the dot goes.
+        const quietUntil = Date.now() + 2_000;
+        while (Date.now() < quietUntil) {
+          const reaction = mark()?.dataset.reaction;
+          if (reaction)
+            throw new Error(`The mark reacted (${reaction}) as the turn ended`);
+          await settle(opened, "As the turn ended");
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
         await waitFor(
-          () => mark()?.hasAttribute("data-active"),
+          () => !runningDot(),
           5_000,
-          "the project's mark to start working",
+          "the running dot to go once the turn ended",
         );
-        const working = workingMarkProblem(mark());
-        if (working)
-          throw new Error(`While the agent worked, its mark ${working}`);
-        await reply();
-        let reacting: string | null = null;
-        const kind = await watchOneShot(
-          () => {
-            const current = mark();
-            const value = current?.dataset.reaction;
-            if (value && reacting === null) {
-              const body = current?.querySelector(
-                ".dot-mark[data-reaction] .dot-mark-art",
-              );
-              reacting = body
-                ? (animationProblem(
-                    getComputedStyle(body).animationName,
-                    `dot-mark-${value}`,
-                    prefersReducedMotion(),
-                  ) ?? "")
-                : "has no reacting mark";
-            }
-            return value;
-          },
-          {
-            what: "The mascot's reaction to the turn ending",
-            appearMs: 5_000,
-            clearMs: 3_000,
-            quietMs: 2_000,
-          },
-        );
-        if (kind !== "cheer")
-          throw new Error(`The mascot reacted with ${kind}, not cheer`);
-        if (reacting) throw new Error(`While reacting, its mark ${reacting}`);
-        if (mark()?.hasAttribute("data-active"))
-          throw new Error("The mark kept working after the turn ended");
-        return prefersReducedMotion()
-          ? "still while working and reacting (reduced motion)"
-          : "hopped while working, cheered once";
+        if (logo) return "a logo: still, with the running dot";
+        return reduced
+          ? "still while working; fanned and folded without motion (reduced motion)"
+          : "still while working; fanned and folded";
       },
     );
 

@@ -1078,6 +1078,7 @@ const AgentTile = memo(
           <span className="workspace-home-agent-figure">
             <ProjectMark
               appearance={appearance}
+              asAgent
               active={running > 0}
               reacts
               className="workspace-home-agent-mark"
@@ -1269,12 +1270,16 @@ function OutcomeIcon({ kind }: { kind: HomeFinished["kind"] }) {
   );
 }
 
-/** A session's project mark, or a quiet chat glyph for tasks without a project. */
+/**
+ * A session's project mark, in dots as its agent's, or a quiet chat glyph
+ * for tasks without a project.
+ */
 function HomeMark({ cwd, active = false }: { cwd: string; active?: boolean }) {
   const appearance = useProjectAppearance(cwd);
   return appearance ? (
     <ProjectMark
       appearance={appearance}
+      asAgent
       active={active}
       className="workspace-home-mark"
     />
