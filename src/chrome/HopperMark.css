@@ -6,9 +6,9 @@
    The numbers here come from HOPPER_GEOMETRY in src/lib/hopper.ts, in its
    64-unit box (HopperMark.test.ts checks them). The dot rides in a box one
    step across (`.hopper-walk`), so a hop is a translate of 100% of it; the
-   dot itself (`.hopper-dot`) arcs, bounces, drifts and breathes in
-   percentages of its own size. Only those two move, by transform and
-   opacity, and the steps never do. */
+   dot itself (`.hopper-dot`) arcs, bounces and breathes in percentages of
+   its own size. Only those two move, by transform and opacity, and the
+   steps never do. Watching's long loop is in HopperMark.watch.css. */
 
 .hopper-steps {
   display: block;
@@ -71,10 +71,16 @@ html.theme-light .hopper-steps {
   transform: scale(1.04);
 }
 
-/* Watching or needing you, it stands on the top step. */
-.hopper-mark:is([data-hopper="watching"], [data-hopper="needs"]) .hopper-walk,
+/* Needing you, or pleased with a finished turn, it stands on the top step. */
+.hopper-mark[data-hopper="needs"] .hopper-walk,
 .hopper-mark[data-reaction="cheer"] .hopper-walk {
   transform: translate(-400%, -400%);
+}
+
+/* Watching, it sits on the bottom-left grey dot, covering it (the first
+   stop of its loop, and its still frame with reduced motion). */
+.hopper-mark[data-hopper="watching"] .hopper-walk {
+  transform: translate(-400%, 88.4211%);
 }
 
 /* A still frame of a hop, for reduced motion: mid-air between two steps. */
@@ -118,9 +124,13 @@ html.theme-light .hopper-steps {
     height: 92.5%;
   }
 
-  .hopper-mark:is([data-hopper="watching"], [data-hopper="needs"]) .hopper-walk,
+  .hopper-mark[data-hopper="needs"] .hopper-walk,
   .hopper-mark[data-reaction="cheer"] .hopper-walk {
     transform: translate(-200%, -200%);
+  }
+
+  .hopper-mark[data-hopper="watching"] .hopper-walk {
+    transform: translate(-200%, 81.25%);
   }
 
   .hopper-mark[data-hopper="working"] .hopper-walk {
@@ -146,9 +156,17 @@ html.theme-light .hopper-steps {
     animation: hopper-breathe 4.5s ease-in-out infinite;
   }
 
-  /* Side to side, starting from the middle. */
+  /* From dot to dot inside its steps, pausing on each, as if looking
+     around (HopperMark.watch.css). Each agent starts somewhere else in the
+     loop (`--hopper-offset`), so helpers side by side never move together. */
+  .hopper-mark[data-hopper="watching"] .hopper-walk {
+    animation: hopper-watch 18.7s infinite;
+    animation-delay: var(--hopper-offset, 0s);
+  }
+
   .hopper-mark[data-hopper="watching"] .hopper-dot {
-    animation: hopper-look 2.4s ease-in-out -1.2s infinite alternate;
+    animation: hopper-watch-arc 18.7s infinite;
+    animation-delay: var(--hopper-offset, 0s);
   }
 
   .hopper-mark[data-hopper="needs"] .hopper-dot {
@@ -194,8 +212,14 @@ html.theme-light .hopper-steps {
   }
 
   @container (max-width: 23.5px) {
+    .hopper-mark[data-hopper="watching"] .hopper-walk {
+      animation-name: hopper-watch-small;
+      animation-duration: 7.72s;
+    }
+
     .hopper-mark[data-hopper="watching"] .hopper-dot {
-      animation-name: hopper-look-small;
+      animation-name: hopper-watch-arc-small;
+      animation-duration: 7.72s;
     }
 
     .hopper-mark[data-hopper="needs"] .hopper-dot {
@@ -219,24 +243,6 @@ html.theme-light .hopper-steps {
   }
   50% {
     transform: scale(0.98);
-  }
-}
-
-@keyframes hopper-look {
-  from {
-    transform: translateX(-34%);
-  }
-  to {
-    transform: translateX(34%);
-  }
-}
-
-@keyframes hopper-look-small {
-  from {
-    transform: translateX(-23%);
-  }
-  to {
-    transform: translateX(23%);
   }
 }
 

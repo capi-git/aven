@@ -5,7 +5,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   HOPPER_GEOMETRY,
+  HOPPER_WATCH,
   hopperSpot,
+  hopperWatchLoop,
   type HopperGeometry,
 } from "../lib/hopper";
 import { HopperMark } from "./HopperMark";
@@ -35,6 +37,10 @@ const css = readFileSync("src/chrome/HopperMark.css", "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
   "",
 );
+const watchCss = readFileSync(
+  "src/chrome/HopperMark.watch.css",
+  "utf8",
+).replace(/\/\*[\s\S]*?\*\//g, "");
 
 /** The body of the block that opens at the first `{` after `from`. */
 function blockAfter(text: string, from: number): string {
@@ -167,17 +173,21 @@ describe("HopperMark", () => {
   });
 
   it("animates only transform and opacity", () => {
-    const keyframes = [...css.matchAll(/@keyframes ([\w-]+)/g)];
-    expect(keyframes.length).toBeGreaterThan(8);
-    for (const match of keyframes) {
-      const body = blockAfter(css, match.index!);
-      const properties = [...body.matchAll(/([a-z-]+)\s*:/g)].map(
-        (property) => property[1],
-      );
-      for (const property of properties)
-        expect(["transform", "opacity", "animation-timing-function"]).toContain(
-          property,
+    for (const sheet of [css, watchCss]) {
+      const keyframes = [...sheet.matchAll(/@keyframes ([\w-]+)/g)];
+      expect(keyframes.length).toBeGreaterThan(3);
+      for (const match of keyframes) {
+        const body = blockAfter(sheet, match.index!);
+        const properties = [...body.matchAll(/([a-z-]+)\s*:/g)].map(
+          (property) => property[1],
         );
+        for (const property of properties)
+          expect([
+            "transform",
+            "opacity",
+            "animation-timing-function",
+          ]).toContain(property);
+      }
     }
   });
 
@@ -195,6 +205,88 @@ describe("HopperMark", () => {
     ])
       expect(pause).toContain(flag);
     expect(pause).toContain("animation-play-state: paused");
+  });
+
+  it("watches by hopping from dot to dot, pausing on each, as the loop says", () => {
+    /** Each stop of a keyframes block: its time, and its translate in %. */
+    const stops = (name: string) =>
+      [
+        ...blockAfter(watchCss, watchCss.indexOf(`@keyframes ${name} {`))
+          .replace(/\s+/g, " ")
+          .matchAll(/([\d.]+)% \{ transform: ([^;]+);/g),
+      ].map(([, at, transform]) => {
+        const move = /translate\((-?[\d.]+)%, (-?[\d.]+)%\)/.exec(transform);
+        const lift = /translateY\((-?[\d.]+)%\)/.exec(transform);
+        return {
+          at: Number(at),
+          x: move ? Number(move[1]) : 0,
+          y: move ? Number(move[2]) : lift ? Number(lift[1]) : 0,
+        };
+      });
+    for (const size of ["big", "small"] as const) {
+      const geometry = HOPPER_GEOMETRY[size];
+      const path = HOPPER_WATCH.path[size];
+      const loop = hopperWatchLoop(size);
+      const last = geometry.steps - 1;
+      // From the box on the bottom step to a grey dot's own centre.
+      const at = ([column, row]: readonly [number, number]) => ({
+        x: (column - last) * 100,
+        y:
+          (((row - last) * geometry.cell + geometry.above) / geometry.cell) *
+          100,
+      });
+      const walk: { at: number; x: number; y: number }[] = [];
+      const arc: { at: number; x: number; y: number }[] = [
+        { at: 0, x: 0, y: 0 },
+      ];
+      const lift = -(HOPPER_WATCH.arc[size] / (geometry.dotRadius * 2)) * 100;
+      let time = 0;
+      path.forEach((dot, index) => {
+        const leave = time + HOPPER_WATCH.pauses[index];
+        walk.push({ at: time, ...at(dot) }, { at: leave, ...at(dot) });
+        arc.push(
+          { at: leave, x: 0, y: 0 },
+          { at: leave + HOPPER_WATCH.hop / 2, x: 0, y: lift },
+          { at: leave + HOPPER_WATCH.hop, x: 0, y: 0 },
+        );
+        time = leave + HOPPER_WATCH.hop;
+      });
+      walk.push({ at: loop, ...at(path[0]) });
+      const suffix = size === "big" ? "" : "-small";
+      for (const [name, expected] of [
+        [`hopper-watch${suffix}`, walk],
+        [`hopper-watch-arc${suffix}`, arc],
+      ] as const) {
+        const found = stops(name);
+        expect(found, name).toHaveLength(expected.length);
+        found.forEach((stop, index) => {
+          expect(stop.at).toBeCloseTo((expected[index].at / loop) * 100, 2);
+          expect(stop.x).toBeCloseTo(expected[index].x, 1);
+          expect(stop.y).toBeCloseTo(expected[index].y, 1);
+        });
+      }
+      // Its still frame (Reduce motion) is the loop's first dot.
+      const first = at(path[0]);
+      expect(size === "big" ? css : smallBlock).toContain(
+        `transform: translate(${first.x}%, ${Number(first.y.toFixed(4))}%)`,
+      );
+    }
+    // The loops run as long as the pauses and hops add up to.
+    expect(motionBlock).toContain(
+      `hopper-watch ${hopperWatchLoop("big")}s infinite`,
+    );
+    expect(motionBlock).toContain(
+      `animation-duration: ${hopperWatchLoop("small")}s`,
+    );
+  });
+
+  it("starts each agent somewhere else in its watching loop", async () => {
+    const mark = await draw({ state: "watching", offset: 2.3 });
+    expect(mark.style.getPropertyValue("--hopper-offset")).toBe("-2.3s");
+    expect(motionBlock).toContain("animation-delay: var(--hopper-offset, 0s)");
+    expect(
+      (await draw({ state: "watching" })).getAttribute("style"),
+    ).toBeNull();
   });
 
   it("climbs one step every 0.6s", () => {

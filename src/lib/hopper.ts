@@ -9,7 +9,8 @@ import { crewMemberTone, type MarkTone } from "./markTones";
  * - `still`: on the bottom step, not moving (a mark used as a label: a
  *   post's author, a picker, a header).
  * - `resting`: on the bottom step, a little dim, breathing slowly.
- * - `watching`: on the top step, drifting a little side to side.
+ * - `watching`: hopping from one grey dot to the next inside its steps,
+ *   pausing on each (`HOPPER_WATCH`).
  * - `working`: hopping from the bottom step to the top, one step about
  *   every 0.6 s, then starting again.
  * - `needs`: on the top step, bouncing, in amber.
@@ -94,6 +95,79 @@ export function hopperStepsPath(geometry: HopperGeometry): string {
   return hopperStepDots(geometry)
     .map(({ x, y }) => `M${x} ${y}h0`)
     .join("");
+}
+
+/**
+ * Watching: a loop of neighbouring dots that visits every dot of the steps
+ * once, as [column, row] (row 0 is the top step). The bright dot lands on
+ * each one's centre, covering it, waits there `pauses[i]` seconds, then
+ * hops to the next in `hop` seconds, eased in and out, with an arc of `arc`
+ * units. A small mark walks its three rows with the first six pauses.
+ * HopperMark.watch.css holds the keyframes these make.
+ */
+export const HOPPER_WATCH = {
+  path: {
+    big: [
+      [0, 4],
+      [1, 4],
+      [1, 3],
+      [2, 3],
+      [2, 4],
+      [3, 4],
+      [4, 4],
+      [3, 3],
+      [2, 2],
+      [1, 2],
+      [1, 1],
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [0, 3],
+    ],
+    small: [
+      [0, 2],
+      [1, 2],
+      [2, 2],
+      [1, 1],
+      [0, 0],
+      [0, 1],
+    ],
+  },
+  pauses: [
+    0.9, 0.5, 1.3, 0.6, 0.8, 1.1, 0.5, 1.0, 0.7, 1.2, 0.6, 0.9, 0.5, 1.0, 0.8,
+  ],
+  hop: 0.42,
+  arc: { big: 6, small: 7 },
+} as const;
+
+/** How long one watching loop takes, in seconds (to the hundredth). */
+export function hopperWatchLoop(size: "big" | "small"): number {
+  const path = HOPPER_WATCH.path[size];
+  const seconds =
+    path.reduce((sum, _, index) => sum + HOPPER_WATCH.pauses[index], 0) +
+    path.length * HOPPER_WATCH.hop;
+  return Math.round(seconds * 100) / 100;
+}
+
+/**
+ * How far into its watching loop each agent starts, in seconds, so helpers
+ * side by side never hop together. Avos starts at the beginning.
+ */
+const WATCH_OFFSETS: Readonly<Record<string, number>> = {
+  lead: 0,
+  builder: 2.3,
+  checker: 5.9,
+  researcher: 8.6,
+  designer: 11.2,
+  security: 13.9,
+  scout: 16.2,
+  helper: 3.7,
+  fixer: 9.8,
+};
+
+/** An agent's head start in its watching loop, by its role. */
+export function hopperWatchOffset(role: string | undefined): number {
+  return (role && WATCH_OFFSETS[role]) || 0;
 }
 
 /** Where the bright dot's centre stands on a step (0 is the top one). */

@@ -6,7 +6,11 @@ import {
   CREW_STATUS_STAGE,
   type CrewStatus,
 } from "../lib/crewView";
-import { hopperMemberTone, type HopperState } from "../lib/hopper";
+import {
+  hopperMemberTone,
+  hopperWatchOffset,
+  type HopperState,
+} from "../lib/hopper";
 import { HopperMark } from "./HopperMark";
 import "./ChatStatusPill.css";
 import "./CrewCritter.css";
@@ -43,6 +47,7 @@ export const CrewCritter = memo(function CrewCritter({
       <HopperMark
         tone={hopperMemberTone(role, critter, projectTone)}
         state={state ?? (active ? "working" : "still")}
+        offset={hopperWatchOffset(role)}
         className={className}
       />
     </span>

@@ -1,6 +1,10 @@
 import { memo } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { botHopperState, type HopperState } from "../lib/hopper";
+import {
+  botHopperState,
+  hopperWatchOffset,
+  type HopperState,
+} from "../lib/hopper";
 import { appearanceTone } from "../lib/markTones";
 import {
   BOT_STATUS_LABEL,
@@ -41,6 +45,7 @@ export const BotCritter = memo(function BotCritter({
         state ??
         (active ? "working" : status ? botHopperState(status) : "still")
       }
+      offset={hopperWatchOffset("fixer")}
       className={className}
     />
   );

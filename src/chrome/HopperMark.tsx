@@ -11,6 +11,7 @@ import {
   type MascotReactionKind,
 } from "../lib/mascotReactions";
 import "./HopperMark.css";
+import "./HopperMark.watch.css";
 
 export type { HopperState } from "../lib/hopper";
 
@@ -35,6 +36,11 @@ type Props = {
   reaction?: MascotReactionKind | null;
   /** Identifies one reaction, so a new one restarts its motion. */
   reactionId?: string;
+  /**
+   * How far into its watching loop it starts, in seconds
+   * (`hopperWatchOffset`), so agents side by side hop out of step.
+   */
+  offset?: number;
   /** The steps alone: a place for a teammate still to come. */
   vacant?: boolean;
   /** Sizes the mark (15px when not set). */
@@ -57,10 +63,21 @@ export const HopperMark = memo(function HopperMark({
   tone,
   reaction = null,
   reactionId,
+  offset = 0,
   vacant = false,
   className = "",
   style,
 }: Props) {
+  const own: CSSProperties | undefined =
+    reaction || offset
+      ? ({
+          ...style,
+          ...(reaction
+            ? { "--hopper-reaction-ms": `${MASCOT_REACTION_MS[reaction]}ms` }
+            : {}),
+          ...(offset ? { "--hopper-offset": `${-offset}s` } : {}),
+        } as CSSProperties)
+      : style;
   return (
     <span
       key={reaction ? (reactionId ?? reaction) : undefined}
@@ -69,14 +86,7 @@ export const HopperMark = memo(function HopperMark({
       data-tone={tone && tone !== "grey" ? tone : undefined}
       data-reaction={reaction ?? undefined}
       data-vacant={vacant || undefined}
-      style={
-        reaction
-          ? ({
-              ...style,
-              "--hopper-reaction-ms": `${MASCOT_REACTION_MS[reaction]}ms`,
-            } as CSSProperties)
-          : style
-      }
+      style={own}
       aria-hidden
     >
       <svg

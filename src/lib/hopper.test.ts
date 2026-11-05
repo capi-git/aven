@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   HOPPER_GEOMETRY,
+  HOPPER_WATCH,
   botHopperState,
   crewHopperState,
   hopperMemberTone,
   hopperSpot,
   hopperStepDots,
+  hopperWatchLoop,
+  hopperWatchOffset,
 } from "./hopper";
 
 describe("Hopper's steps", () => {
@@ -35,6 +38,48 @@ describe("Hopper's steps", () => {
       // Every spot on one 45° line, so a hop is the same move each time.
       expect(bottom.x - top.x).toBeCloseTo(bottom.y - top.y);
     }
+  });
+});
+
+describe("watching", () => {
+  it("visits every dot of the steps once, hopping only to a neighbour", () => {
+    for (const size of ["big", "small"] as const) {
+      const { steps } = HOPPER_GEOMETRY[size];
+      const path = HOPPER_WATCH.path[size];
+      const cells = new Set(path.map(([column, row]) => `${column},${row}`));
+      expect(cells.size).toBe((steps * (steps + 1)) / 2);
+      for (const [column, row] of path) {
+        // Inside the steps: row r has dots in columns 0 to r.
+        expect(column).toBeGreaterThanOrEqual(0);
+        expect(column).toBeLessThanOrEqual(row);
+        expect(row).toBeLessThan(steps);
+      }
+      path.forEach(([column, row], index) => {
+        const [nextColumn, nextRow] = path[(index + 1) % path.length];
+        expect(Math.abs(nextColumn - column)).toBeLessThanOrEqual(1);
+        expect(Math.abs(nextRow - row)).toBeLessThanOrEqual(1);
+      });
+      // It starts, and rests with reduced motion, on the bottom-left dot.
+      expect(path[0]).toEqual([0, steps - 1]);
+    }
+    expect(HOPPER_WATCH.pauses.length).toBe(HOPPER_WATCH.path.big.length);
+    expect(hopperWatchLoop("big")).toBe(18.7);
+    expect(hopperWatchLoop("small")).toBe(7.72);
+  });
+
+  it("starts each helper somewhere else in the loop, Avos at the start", () => {
+    expect(hopperWatchOffset("lead")).toBe(0);
+    const offsets = [
+      "builder",
+      "checker",
+      "researcher",
+      "designer",
+      "security",
+      "scout",
+      "fixer",
+    ].map(hopperWatchOffset);
+    expect(new Set([0, ...offsets]).size).toBe(offsets.length + 1);
+    expect(hopperWatchOffset(undefined)).toBe(0);
   });
 });
 

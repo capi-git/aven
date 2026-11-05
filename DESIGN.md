@@ -79,7 +79,7 @@ Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`
 
 - Respond on press. Never make someone wait for an animation.
 - Animate only `transform` and `opacity`. Motion must be interruptible, and every animation must end by itself.
-- The one exception is an agent's mark (Hopper). Its dot keeps hopping while the agent works and keeps bouncing while it needs you, because those states last until they change. At rest it breathes and while watching it drifts, both slow and small. Only the one dot moves, never the steps, and it holds still while the window is hidden or resizing, and under Reduce motion.
+- The one exception is an agent's mark (Hopper). Its dot keeps hopping while the agent works and keeps bouncing while it needs you, because those states last until they change. At rest it breathes, and while watching it hops slowly from one grey dot to the next inside its steps, pausing on each; each agent starts at a different point, so helpers never move together. Only the one dot moves, never the steps, and it holds still while the window is hidden or resizing, and under Reduce motion.
 - Use the springs in `src/lib/motionTokens.ts` for things you can touch, with no bounce unless a flick caused it.
 - Honour Reduce motion.
 - Native browser pages can't be animated. For a motion, move a picture of the page instead, and hold only the pages that really move. Dragging an edge or divider keeps the page live, updating as it moves: a stretched picture looks wrong, even if a live page can drift a few points on a fast drag.
