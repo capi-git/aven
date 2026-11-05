@@ -9,10 +9,13 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* A teammate's model, under its row. */
+/* A teammate's model, under its row: lined up with its name (10px padding,
+   its 28px mark and the 11px gap), close under its line, inside the item's
+   hover with the row, so the two read as one card. */
 .team-roster-model {
   display: block;
-  padding: 0 8px 6px 42px;
+  margin-top: -3px;
+  padding: 0 10px 6px 49px;
 }
 
 /* The roster. */
@@ -75,17 +78,15 @@
   text-align: left;
 }
 
-.team-roster-row:hover {
+/* The whole item lights on hover (its row, model and tools); a selected
+   one keeps its fill. */
+.team-roster-item:not([data-selected]):hover {
   background: var(--aven-hover);
 }
 
 .team-roster-item[data-selected] {
   --dot-mark-surface: var(--aven-elevated-3);
   background: var(--aven-selected);
-}
-
-.team-roster-item[data-selected] .team-roster-row:hover {
-  background: transparent;
 }
 
 .team-roster-row:focus-visible,
@@ -774,7 +775,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .team-roster-row,
+  .team-roster-item,
   .team-compose-send {
     transition: background-color 120ms ease;
   }

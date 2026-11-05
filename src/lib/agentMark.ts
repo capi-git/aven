@@ -161,10 +161,11 @@ export const OUTFIT_PATHS: Readonly<
     { d: "M10 44Q12 51 21 51", kind: "boom" },
     { d: circlePath(22, 51, 2.2), kind: "cup" },
   ],
-  // A yellow hard hat with a brim; its lamp is the light.
+  // A light grey site helmet with a darker brim; its lamp is the light.
+  // Never yellow: yellow, green and red say what's happening.
   hat: [
     { d: "M16 27Q16 10 32 10Q48 10 48 27Z", kind: "hat" },
-    { d: roundRectPath(11, 24.5, 42, 4.5, 2.25), kind: "hat" },
+    { d: roundRectPath(11, 24.5, 42, 4.5, 2.25), kind: "brim" },
   ],
   // Light glasses rings around its eyes.
   glasses: [

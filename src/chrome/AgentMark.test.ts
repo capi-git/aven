@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_GEOMETRY, AGENT_SMALL_SCALE } from "../lib/agentMark";
+import { hexToHsl } from "../lib/colorUtils";
 import { AgentMark } from "./AgentMark";
 
 let root: Root;
@@ -128,7 +129,8 @@ describe("AgentMark", () => {
     expect(mark.dataset.tone).toBe("blue");
     expect(mark.dataset.outfit).toBe("hat");
     expect(mark.hasAttribute("data-hatted")).toBe(true);
-    expect(mark.querySelectorAll(".agent-outfit .agent-hat")).toHaveLength(2);
+    expect(mark.querySelector(".agent-outfit .agent-hat")).not.toBeNull();
+    expect(mark.querySelector(".agent-outfit .agent-brim")).not.toBeNull();
     mark = await draw({ tone: "grey", outfit: "tick" });
     expect(mark.dataset.tone).toBeUndefined();
     expect(mark.hasAttribute("data-hatted")).toBe(false);
@@ -195,6 +197,30 @@ describe("AgentMark", () => {
     expect(frames("agent-type")).toContain(
       `translateX(${pct(step, AGENT_GEOMETRY.keys.r * 2)})`,
     );
+  });
+
+  it("dresses agents in greys or their own shade, never a status colour", () => {
+    const own = rule(css, ".agent-mark");
+    const outfits = [
+      "--agent-hat",
+      "--agent-brim",
+      "--agent-lamp",
+      "--agent-beret",
+      "--agent-metal",
+      "--agent-cup",
+      "--agent-badge",
+      "--agent-frame",
+    ];
+    for (const name of outfits) {
+      const hex = new RegExp(`${name}: (#[0-9a-f]{6});`).exec(own)?.[1];
+      expect(hex, name).toBeDefined();
+      const { h, s } = hexToHsl(hex!);
+      if (s < 12) continue;
+      // Yellow, green and red say what's happening (Needs you, Ready,
+      // failed); an outfit's colour says only who it is.
+      const status = (h >= 35 && h <= 170) || h >= 345 || h <= 15;
+      expect(status, `${name} ${hex}`).toBe(false);
+    }
   });
 
   it("animates only transform and opacity", () => {

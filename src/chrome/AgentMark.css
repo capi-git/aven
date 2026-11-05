@@ -11,14 +11,17 @@
    (`.agent-light`) and, while it works, one lit key (`.agent-key`).
 
    The colours of its face, eyes and outfits are its own, like a provider
-   icon's, and the same in light and dark. */
+   icon's, and the same in light and dark. Outfits are greys, or a darker
+   shade of the agent's own colour (the beret), never yellow, green or
+   red: those say what's happening, and only its eyes and light do. */
 
 .agent-mark {
   --agent-body: var(--dot-mark-tint, currentColor);
   --agent-plate: #17171a;
   --agent-glow: #f7f7f5;
-  --agent-hat: #f3c74f;
-  --agent-lamp: #fff3c4;
+  --agent-hat: #cfcfd4;
+  --agent-brim: #b4b4ba;
+  --agent-lamp: #8e8e95;
   --agent-beret: #b85c95;
   --agent-metal: #9a9aa2;
   --agent-cup: #3a3a40;
@@ -112,6 +115,10 @@
 
 .agent-hat {
   fill: var(--agent-hat);
+}
+
+.agent-brim {
+  fill: var(--agent-brim);
 }
 
 .agent-beret {
@@ -232,7 +239,8 @@
 }
 
 /* Dressed, at 28 px and up: its outfit, and a "z" while it rests. A hard
-   hat's lamp or a beret's nub replaces the antenna and is its light. */
+   hat's lamp or a beret's nub replaces the antenna and is its light: the
+   lamp unlit grey until it works (white) or needs you (amber). */
 @container (min-width: 27.5px) {
   .agent-outfit,
   .agent-mark[data-agent="resting"] .agent-z {
@@ -263,7 +271,7 @@
     )
     .agent-light {
     background: var(--agent-lamp);
-    opacity: 0.9;
+    opacity: 1;
   }
 
   .agent-mark[data-outfit="beret"]:not(
