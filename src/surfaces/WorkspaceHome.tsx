@@ -1136,7 +1136,7 @@ const AgentTile = memo(
             title={`${bot.name}, ${name}'s bot`}
             onClick={() => onOpenBot(project.path)}
           >
-            <BotCritter path={project.path} active={bot.status === "working"} />
+            <BotCritter path={project.path} status={bot.status} />
             <span className="workspace-home-agent-bot-name">{bot.name}</span>
             <span className="workspace-home-agent-bot-post">
               {bot.headline}

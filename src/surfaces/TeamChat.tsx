@@ -9,8 +9,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
-import { CrewCritter, crewMarkState } from "../chrome/CrewCritter";
-import { DotMark } from "../chrome/DotMark";
+import { CrewCritter } from "../chrome/CrewCritter";
+import { HopperMark } from "../chrome/HopperMark";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { ArrowRight, ChevronDown, MoveUp, X } from "../chrome/icons";
 import { ProjectMark } from "../chrome/ProjectMark";
@@ -50,6 +50,7 @@ import {
   type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
+import { crewHopperState } from "../lib/hopper";
 import { isImeComposition } from "../lib/keyboard";
 import {
   FEED_FOLLOW_START,
@@ -131,8 +132,6 @@ const MODES: readonly { id: Mode; label: string; word: string }[] = [
   { id: "rule", label: "Remember for every card", word: "Rule" },
   { id: "goal", label: "Make it a goal", word: "Goal" },
 ];
-
-const EMPTY_MARK = { key: "empty", label: "", rows: [] } as const;
 
 export function TeamChat({
   project,
@@ -463,10 +462,10 @@ function Roster({
                   path={project}
                   role={member.role}
                   {...(member.critter ? { critter: member.critter } : {})}
-                  state={crewMarkState(
+                  state={crewHopperState(
                     member.status,
                     member.active,
-                    paused ? "idle" : "still",
+                    paused ? "still" : "resting",
                   )}
                   className="team-roster-mark"
                 />
@@ -542,7 +541,7 @@ function Roster({
             data-team-add
             onClick={onAdd}
           >
-            <DotMark sigil={EMPTY_MARK} className="team-roster-mark" />
+            <HopperMark vacant className="team-roster-mark" />
             <span className="team-roster-text">
               <span className="team-roster-name">Add teammate</span>
             </span>

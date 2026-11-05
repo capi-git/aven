@@ -76,12 +76,10 @@ describe("a working mark", () => {
     return element;
   };
   const working =
-    '<span class="dot-mark helm-critter" data-state="working"><svg><path class="dot-mark-lit-d"></path></svg></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
+    '<span class="dot-mark hopper-mark helm-critter" data-hopper="working"><svg></svg><span class="hopper-walk"><i class="hopper-dot"></i></span></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
 
-  it("sweeps a light across the mark and says for how long", () => {
-    expect(
-      helmWorkingProblem(helm(working), "dot-mark-sweep", false),
-    ).toBeNull();
+  it("hops its dot up the steps and says for how long", () => {
+    expect(helmWorkingProblem(helm(working), "hopper-hop", false)).toBeNull();
     expect(helmWorkingProblem(helm(working), "none", true)).toBeNull();
   });
 
@@ -98,9 +96,9 @@ describe("a working mark", () => {
         "",
         false,
       ),
-    ).toBe("the mark is not sweeping");
+    ).toBe("the mark is not hopping");
     expect(helmWorkingProblem(helm(working), "none", false)).toBe(
-      "the sweep: its animation is none, expected dot-mark-sweep",
+      "the hop: its animation is none, expected hopper-hop",
     );
   });
 });

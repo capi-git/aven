@@ -37,6 +37,7 @@ import {
   type HelmRowId,
 } from "../lib/composerHelm";
 import { composerFit } from "../lib/composerFit";
+import type { MascotReactionKind } from "../lib/mascotReactions";
 import {
   contextRatio,
   contextTooltip,
@@ -73,7 +74,8 @@ import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen } from "../lib/usageHistory";
 import { AgentPanel, useAgentSummary, type AgentPanelFocus } from "./AgentPill";
 import { HarnessIcon } from "./HarnessIcon";
-import { DotMark, type DotMarkState } from "./DotMark";
+import { DotMark } from "./DotMark";
+import { HopperMark, type HopperState } from "./HopperMark";
 import {
   HelmBubble,
   helmOutcome,
@@ -171,14 +173,23 @@ const FOCUS_TRIES = 10;
 /** Six marks to a row in the picker grid. */
 const CRITTER_COLUMNS = 6;
 
-/** What the mark at the helm shows for what the message box is doing. */
-const POSE_STATE: Record<HelmPose, DotMarkState> = {
-  rest: "still",
-  typing: "idle",
-  hover: "idle",
+/**
+ * What the agent at the helm (its Hopper) does for what the message box is
+ * doing: resting, watching you type or the menu, hopping up while it works.
+ * A finished turn hops once on the top step; a failed one slumps back to
+ * the bottom.
+ */
+const POSE_STATE: Record<HelmPose, HopperState> = {
+  rest: "resting",
+  typing: "watching",
+  hover: "watching",
   running: "working",
-  done: "done",
-  error: "error",
+  done: "still",
+  error: "still",
+};
+const POSE_REACTION: Partial<Record<HelmPose, MascotReactionKind>> = {
+  done: "cheer",
+  error: "slump",
 };
 
 /** A row's label, in the system font. */
@@ -1114,12 +1125,11 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             }
           }}
         >
-          <DotMark
+          <HopperMark
             key={hop}
-            sigil={mark}
             tone={tone}
             state={POSE_STATE[pose]}
-            frame="square"
+            reaction={POSE_REACTION[pose] ?? null}
             className={`helm-critter${hop ? " helm-critter-hop" : ""}`}
           />
         </button>

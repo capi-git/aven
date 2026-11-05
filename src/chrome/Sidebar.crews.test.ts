@@ -313,17 +313,22 @@ it("unfolds into each bot with its role, its word and what it's doing", async ()
   expect(members[0].querySelector(".personal-crew-line")?.textContent).toBe(
     "Fixing Dark mode toggle · round 2",
   );
-  // Each wears its role's mark; the Builder's light sweeps while it works.
-  expect(
-    members.map(
-      (member) =>
-        member.querySelector<HTMLElement>("[data-crew-critter] .dot-mark")
-          ?.dataset.sigil,
-    ),
-  ).toEqual(["builder", "checker", "scout", "fixer"]);
-  expect(
-    members[0].querySelector<HTMLElement>(".dot-mark")?.dataset.state,
-  ).toBe("working");
+  // Each is Hopper in its role's colour (the Fixer in its project's): the
+  // Builder hops while it works, the Fixer watches, the others rest.
+  const marks = members.map((member) =>
+    member.querySelector<HTMLElement>("[data-crew-critter] .hopper-mark")!,
+  );
+  expect(marks.slice(0, 3).map((mark) => mark.dataset.tone)).toEqual([
+    "blue",
+    "purple",
+    "teal",
+  ]);
+  expect(marks.map((mark) => mark.dataset.hopper)).toEqual([
+    "working",
+    "resting",
+    "resting",
+    "watching",
+  ]);
   await act(async () => members[1].click());
   expect(onOpenCrewMember).toHaveBeenCalledWith(site, "checker");
   // The fold is remembered.

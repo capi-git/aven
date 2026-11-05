@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  VOICE_TONES,
   discussionMascots,
   discussionVoices,
   providerVoiceColor,
   teamMascots,
+  voiceTone,
 } from "./discussionVoices";
 import { PROJECT_MASCOTS } from "./projectMascots";
 
@@ -47,6 +49,23 @@ describe("discussion voices", () => {
     }
     // Members whose ids hash alike still look different.
     expect(new Set(teamMascots(Array(12).fill("same"))).size).toBe(12);
+  });
+
+  it("gives a team's Hoppers colours of their own, until there are more than colours", () => {
+    for (let size = 1; size <= 12; size += 1) {
+      for (const prefix of ["run", "race", "x"]) {
+        const ids = Array.from({ length: size }, (_, i) => `${prefix}-${i}`);
+        const tones = teamMascots(ids).map(voiceTone);
+        expect(new Set(tones).size).toBe(Math.min(size, VOICE_TONES.length));
+      }
+    }
+    for (let index = 0; index < 40; index += 1) {
+      const pick = discussionMascots(`x${index}`, `y${index}`);
+      expect(voiceTone(pick.a)).not.toBe(voiceTone(pick.b));
+    }
+    // Never a colour that says what's happening.
+    for (const tone of VOICE_TONES)
+      expect(["yellow", "green", "red"]).not.toContain(tone);
   });
 
   it("tags who opened the topic and who responds", () => {

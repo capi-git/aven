@@ -27,6 +27,7 @@ const { PROJECT_SIGILS, SIGIL_CRITTERS } = await import("../lib/dotSigils");
 const { MARK_TONES } = await import("../lib/markTones");
 const { TAB_GROUP_COLORS, tabGroupColor } = await import("../lib/tabGroups");
 const { projectKey } = await import("../lib/paths");
+const { projectSigilAt } = await import("../lib/projectAppearance");
 const { HELM_CRITTER_EVENT, HELM_CRITTER_KEY, HELM_DONE_MS } =
   await import("../lib/composerHelm");
 type HelmRun = import("./HelmRun").HelmRun;
@@ -240,50 +241,32 @@ async function openByClick() {
 /** The mark standing at the helm. */
 const mark = () => critter().querySelector<HTMLElement>(".helm-critter")!;
 
-describe("the mark's square", () => {
+describe("the agent at the helm", () => {
   /** Dots in a path: each starts with a move. */
   const dots = (path: Element | null) =>
     (path?.getAttribute("d")?.match(/M/g) ?? []).length;
   const css = (file: string) =>
     readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("draws all 25 dots at the corner, whatever the sigil, at rest and working", async () => {
+  it("is Hopper, the logo's steps with one dot, at rest and working", async () => {
     await render();
-    expect(mark().dataset.frame).toBe("square");
-    expect(dots(mark().querySelector(".dot-mark-grid"))).toBe(25);
-    // The sigil's own dots, lit over the square.
-    expect(dots(mark().querySelector(".dot-mark-lit"))).toBeGreaterThan(0);
+    expect(mark().classList.contains("hopper-mark")).toBe(true);
+    expect(dots(mark().querySelector(".hopper-steps-big"))).toBe(15);
+    expect(mark().querySelectorAll(".hopper-dot")).toHaveLength(1);
+    // The project's symbol stands for the project, not the agent.
+    expect(mark().querySelector(".dot-mark-lit")).toBeNull();
     props.busy = true;
     await render();
-    expect(mark().dataset.state).toBe("working");
-    const grid = [...mark().querySelectorAll(".dot-mark-grid-d")];
-    expect(grid.reduce((sum, path) => sum + dots(path), 0)).toBe(25);
+    expect(mark().dataset.hopper).toBe("working");
   });
 
-  it("is a 25px square whose unlit dots are plain enough to read as one", () => {
+  it("is 25px, big enough for all five steps", () => {
     const helm = css("src/chrome/ComposerHelm.css");
     const rule = /\.composer-helm \.dot-mark\.helm-critter \{([^}]*)\}/.exec(
       helm,
     )?.[1];
     expect(rule).toContain("width: 25px;");
     expect(rule).toContain("height: 25px;");
-    const marks = css("src/chrome/DotMark.css");
-    const square = (selector: string) =>
-      Number(
-        new RegExp(
-          `${selector.replace(/[.[\]"=]/g, "\\$&")} \\{\\s*--dot-mark-unlit: ([\\d.]+);`,
-        ).exec(marks)?.[1],
-      );
-    expect(square('.dot-mark[data-frame="square"]')).toBeGreaterThanOrEqual(
-      0.18,
-    );
-    expect(
-      square('html.theme-light .dot-mark[data-frame="square"]'),
-    ).toBeGreaterThanOrEqual(0.14);
-    // Small marks drop their grid; the square never does.
-    expect(marks).toMatch(
-      /\.dot-mark:not\(\[data-frame="square"\]\) \.dot-mark-grid,/,
-    );
   });
 });
 
@@ -291,7 +274,7 @@ describe("the mark's states", () => {
   it("rests still with the room line over it", async () => {
     await render();
     expect(helm().dataset.pose).toBe("rest");
-    expect(mark().dataset.state).toBe("still");
+    expect(mark().dataset.hopper).toBe("resting");
     const line = host.querySelector<HTMLElement>(
       ".helm-perch-room .helm-room",
     )!;
@@ -308,7 +291,8 @@ describe("the mark's states", () => {
     props.hasValue = true;
     await render();
     expect(helm().dataset.pose).toBe("typing");
-    expect(mark().dataset.state).toBe("idle");
+    // It watches you type, from the top step.
+    expect(mark().dataset.hopper).toBe("watching");
     const plane = host.querySelector<HTMLButtonElement>("[data-helm-send]")!;
     expect(plane.getAttribute("aria-label")).toBe("Send");
     await act(async () => plane.click());
@@ -399,10 +383,8 @@ describe("the mark's states", () => {
     props.busy = true;
     await render();
     expect(helm().dataset.pose).toBe("running");
-    expect(mark().dataset.state).toBe("working");
-    expect(mark().querySelectorAll(".dot-mark-lit-d").length).toBeGreaterThan(
-      1,
-    );
+    expect(mark().dataset.hopper).toBe("working");
+    expect(mark().querySelector(".hopper-walk > .hopper-dot")).not.toBeNull();
     const bubble = host.querySelector<HTMLElement>(
       '[data-helm-say="running"]',
     )!;
@@ -459,8 +441,9 @@ describe("the mark's states", () => {
     ended("u1", "completed");
     await render();
     expect(helm().dataset.pose).toBe("done");
-    expect(mark().dataset.state).toBe("done");
-    expect(mark().querySelector(".dot-mark-status")).not.toBeNull();
+    // One happy hop on the top step.
+    expect(mark().dataset.reaction).toBe("cheer");
+    expect(mark().dataset.hopper).toBe("still");
     const bubble = host.querySelector('[data-helm-say="done"]')!;
     expect(bubble.textContent).toContain("Done in 1:12");
     expect(bubble.textContent).toContain("3 files changed");
@@ -468,7 +451,8 @@ describe("the mark's states", () => {
     await render();
     expect(host.querySelector("[data-helm-say]")).toBeNull();
     expect(helm().dataset.pose).toBe("rest");
-    expect(mark().dataset.state).toBe("still");
+    expect(mark().dataset.hopper).toBe("resting");
+    expect(mark().hasAttribute("data-reaction")).toBe(false);
   });
 
   it("shows a cross on a failure and offers the fixes Aven has, until dismissed", async () => {
@@ -490,7 +474,8 @@ describe("the mark's states", () => {
     ended("u9", "failed");
     await render();
     expect(helm().dataset.pose).toBe("error");
-    expect(mark().dataset.state).toBe("error");
+    // It slumps back to the bottom step; amber stays for needing you.
+    expect(mark().dataset.reaction).toBe("slump");
     const bubble = host.querySelector('[data-helm-say="error"]')!;
     const fixes = [...bubble.querySelectorAll("[data-helm-fix]")].map(
       (b) => b.textContent,
@@ -920,8 +905,13 @@ describe("choosing the mark", () => {
     ...document.body.querySelectorAll<HTMLButtonElement>("[data-mark-choice]"),
   ];
 
+  /** The symbol the project's mark shows: the helm picks it, Hopper doesn't wear it. */
+  const shownSigil = () => projectSigilAt(PROJECT).key;
   const current = () =>
-    PROJECT_SIGILS.findIndex((sigil) => sigil.key === mark().dataset.sigil);
+    PROJECT_SIGILS.findIndex((sigil) => sigil.key === shownSigil());
+  const checkedMark = () =>
+    cells().find((cell) => cell.getAttribute("aria-checked") === "true")
+      ?.dataset.markChoice;
   const stage = () =>
     document.body.querySelector(".helm-critter-stage")!.textContent;
   const colourCells = () => [
@@ -998,14 +988,13 @@ describe("choosing the mark", () => {
     );
     expect(automatic).toBeGreaterThan(0);
     expect(mark().dataset.tone).toBe(MARK_TONES[automatic].tone);
-    expect(mark().dataset.frame).toBe("square");
     await openPicker();
     expect(checkedColour()).toEqual([MARK_TONES[automatic].label]);
   });
 
   it("saves a project's colour where the project keeps it, keeping its mark", async () => {
     await render();
-    const sigil = mark().dataset.sigil;
+    const sigil = shownSigil();
     await openPicker();
     await act(async () =>
       colourCells()
@@ -1016,7 +1005,7 @@ describe("choosing the mark", () => {
       JSON.parse(storage.get("monocode:tab-group:colors") ?? "{}"),
     ).toEqual({ [projectKey(PROJECT)]: "8" });
     expect(mark().dataset.tone).toBe("orange");
-    expect(mark().dataset.sigil).toBe(sigil);
+    expect(shownSigil()).toBe(sigil);
     expect(checkedColour()).toEqual(["Orange"]);
     // Grey: the plain mark.
     await act(async () =>
@@ -1025,7 +1014,7 @@ describe("choosing the mark", () => {
         .click(),
     );
     expect(mark().hasAttribute("data-tone")).toBe(false);
-    expect(mark().dataset.sigil).toBe(sigil);
+    expect(shownSigil()).toBe(sigil);
     expect(storage.get(HELM_CRITTER_KEY)).toBeUndefined();
   });
 
@@ -1052,7 +1041,7 @@ describe("choosing the mark", () => {
     );
     const saved = JSON.parse(storage.get("monocode:tab-group:mascots") ?? "{}");
     expect(Object.values(saved)).toEqual([SIGIL_CRITTERS[next.key]]);
-    expect(mark().dataset.sigil).toBe(next.key);
+    expect(shownSigil()).toBe(next.key);
     expect(critter().querySelector(".helm-critter-hop")).not.toBeNull();
   });
 
@@ -1068,9 +1057,9 @@ describe("choosing the mark", () => {
       window.dispatchEvent(new Event(HELM_CRITTER_EVENT));
     });
     // The owl picked before marks reads as the Eye, in the colour saved then.
-    expect(mark().dataset.sigil).toBe("eye");
     expect(mark().dataset.tone).toBe("yellow");
     await openPicker();
+    expect(checkedMark()).toBe("eye");
     expect(checkedColour()).toEqual(["Yellow"]);
     await act(async () =>
       cells()
@@ -1081,7 +1070,7 @@ describe("choosing the mark", () => {
       mascot: "fox",
       colorIndex: 3,
     });
-    expect(mark().dataset.sigil).toBe("flag");
+    expect(checkedMark()).toBe("flag");
     await act(async () =>
       colourCells()
         .find((cell) => cell.dataset.markTone === "teal")!

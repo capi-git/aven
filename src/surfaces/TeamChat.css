@@ -101,10 +101,6 @@
   flex: none;
 }
 
-.team-roster-item[data-add] .dot-mark {
-  --dot-mark-unlit: 0.2;
-}
-
 .team-roster-text {
   display: flex;
   min-width: 0;
