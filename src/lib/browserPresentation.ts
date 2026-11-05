@@ -33,8 +33,6 @@ const STILL_RETRY_MS = 120;
 const STILL_BUDGET_MS = 4000;
 /** A motion hold never waits longer than this on the native page. */
 const MOTION_HANDOFF_DEADLINE_MS = 160;
-/** How long a page cut out for a drag gets to draw at its final size. */
-const DRAG_PAGE_DRAWN_MS = 50;
 
 export type BrowserSnapshot = {
   src: string;
@@ -313,12 +311,6 @@ export type BrowserPresentation = {
    */
   holdForMotion(): Promise<void>;
   /**
-   * Cut the whole live page out over the picture painted beneath it, while a
-   * drag moves it each frame. Unlike a page that was hidden, it keeps
-   * rendering at its new size, so nothing has to redraw when it comes back.
-   */
-  cutOutForDrag(): void;
-  /**
    * Show the live page again at its final bounds. Resolves once it is shown
    * (or at a short deadline, or at once when the pane is not showing), so
    * the picture can go without a gap.
@@ -371,7 +363,6 @@ export function createBrowserPresentation({
   // A layout motion moves a picture of the page; the live page stays hidden
   // until the motion hands it back at its final bounds.
   let motionHeld = false;
-  let cutForDrag = false;
   // A still image of the page painted beneath it for surfaces that move with
   // the pointer (browserOverlays.ts): the viewport it shows, once painted.
   // Only then is such a surface cut out of the live page, so a cut-out that
@@ -606,25 +597,6 @@ export function createBrowserPresentation({
     }
     const overlay = browserOverlayState(bounds, readState().holesSupported);
     trackHoleElements(overlay.elements);
-    if (cutForDrag)
-      return {
-        bounds: {
-          ...bounds,
-          holes: [
-            {
-              x: 0,
-              y: 0,
-              width: bounds.width,
-              height: bounds.height,
-              radius: 0,
-            },
-          ],
-        },
-        capture: overlay.capture,
-        moving: [],
-        movingAnimates: false,
-        movingCut: false,
-      };
     return withMoving({
       bounds: withOverlayHoles(bounds, overlay),
       capture: overlay.capture,
@@ -1110,25 +1082,7 @@ export function createBrowserPresentation({
     present();
     return waitForLayout(false);
   };
-  const cutOutForDrag = () => {
-    if (disposed) return;
-    // Without cut-outs, as on Windows, the page can only be hidden.
-    if (!readState().holesSupported) {
-      void holdForMotion();
-      return;
-    }
-    cutForDrag = true;
-    present();
-  };
-  const releaseFromMotion = async () => {
-    if (cutForDrag) {
-      await new Promise((drawn) => setTimeout(drawn, DRAG_PAGE_DRAWN_MS));
-      cutForDrag = false;
-      if (disposed) return;
-      present();
-      if (!isPaused()) await waitForLayout(true);
-      return;
-    }
+  const releaseFromMotion = () => {
     if (disposed || !motionHeld) return Promise.resolve();
     motionHeld = false;
     present();
@@ -1143,7 +1097,6 @@ export function createBrowserPresentation({
     freeze,
     thaw,
     holdForMotion,
-    cutOutForDrag,
     releaseFromMotion,
     dispose: () => {
       if (disposed) return;

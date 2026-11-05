@@ -53,36 +53,6 @@ describe("workspace divider and native page presentation", () => {
     }
     expect(frames.size).toBe(0);
   };
-  /** The page reports it can be cut out, as on a Mac. */
-  const pageTakesCutOuts = async () => {
-    await act(async () =>
-      native.listen.mock.calls.at(-1)![0]({
-        id: native.create.mock.calls[0][0],
-        url: "https://example.com/",
-        title: "Page",
-        loading: false,
-        canGoBack: false,
-        canGoForward: false,
-        error: null,
-        notice: null,
-        nativeHoles: true,
-      }),
-    );
-    await flushFrames();
-    native.layout.mockClear();
-  };
-  /** Long enough for a press's picture to be taken and painted beneath. */
-  const pictureLaid = async () => {
-    await act(async () => vi.advanceTimersByTimeAsync(40));
-    await flushFrames();
-    await act(async () => vi.advanceTimersByTimeAsync(40));
-    await flushFrames();
-  };
-  /** The whole of a page cut out, for a drag. */
-  const cutOutWhole = (of: typeof bounds) => ({
-    ...of,
-    holes: [{ x: 0, y: 0, width: of.width, height: of.height, radius: 0 }],
-  });
   const stage = () =>
     container.querySelector<HTMLElement>("[data-workspace-stage]")!;
   const divider = () =>
@@ -208,17 +178,14 @@ describe("workspace divider and native page presentation", () => {
   });
 
   it.each(["release", "cancel"])(
-    "keeps the same live page, cut out over its picture, from divider grab through drag and %s",
+    "keeps the same live page visible from divider grab through drag and %s",
     async (end) => {
-      await pageTakesCutOuts();
       await act(async () =>
         divider().dispatchEvent(pointer("pointerdown", 500)),
       );
       await notifyDomChange();
       expect(stage().dataset.resizing).toBe("true");
-      await pictureLaid();
-      // The picture is ready beneath the page, which has not changed yet.
-      expect(native.snapshot).toHaveBeenCalledOnce();
+      expect(native.snapshot).not.toHaveBeenCalled();
       expect(native.layout).not.toHaveBeenCalled();
 
       const resized = { ...bounds, x: 704, width: 296 };
@@ -227,9 +194,10 @@ describe("workspace divider and native page presentation", () => {
       await flushFrames();
       expect(native.layout).toHaveBeenLastCalledWith(
         native.create.mock.calls[0][0],
-        cutOutWhole(resized),
+        resized,
         true,
       );
+      expect(native.snapshot).not.toHaveBeenCalled();
 
       await act(async () =>
         window.dispatchEvent(
@@ -238,36 +206,15 @@ describe("workspace divider and native page presentation", () => {
       );
       await notifyDomChange();
       expect(stage().dataset.resizing).toBeUndefined();
-      // Whole again once it has had time to draw at its final size.
-      await act(async () => vi.advanceTimersByTimeAsync(60));
-      await flushFrames();
-      expect(native.layout).toHaveBeenLastCalledWith(
-        native.create.mock.calls[0][0],
-        expect.not.objectContaining({ holes: expect.anything() }),
-        true,
-      );
       expect(native.layout.mock.calls.every((call) => call[2] === true)).toBe(
         true,
       );
-      expect(native.snapshot).toHaveBeenCalledOnce();
       expect(native.create).toHaveBeenCalledOnce();
       expect(native.navigate).not.toHaveBeenCalled();
       expect(native.close).not.toHaveBeenCalled();
+      expect(native.snapshot).not.toHaveBeenCalled();
     },
   );
-
-  it("shows no picture for a press on the divider that never moves", async () => {
-    await pageTakesCutOuts();
-    await act(async () => divider().dispatchEvent(pointer("pointerdown", 500)));
-    await notifyDomChange();
-    await pictureLaid();
-    await act(async () => window.dispatchEvent(pointer("pointerup", 500)));
-    await act(async () => vi.advanceTimersByTimeAsync(60));
-    await flushFrames();
-    expect(props.onLayoutChange).not.toHaveBeenCalled();
-    for (const call of native.layout.mock.calls)
-      expect(call[1].holes).toBeUndefined();
-  });
 
   it("resizes the live vertical browser when WebKit defers animation frames", async () => {
     props.layout = {
@@ -319,6 +266,7 @@ describe("workspace divider and native page presentation", () => {
     expect(native.create).toHaveBeenCalledOnce();
     expect(native.close).not.toHaveBeenCalled();
     expect(native.navigate).not.toHaveBeenCalled();
+    expect(native.snapshot).not.toHaveBeenCalled();
     expect(native.layout.mock.calls.every((call) => call[2] === true)).toBe(
       true,
     );
@@ -334,11 +282,9 @@ describe("workspace divider and native page presentation", () => {
     const page = () =>
       container.querySelector<HTMLElement>('[data-workspace-surface="page"]')!;
     try {
-      await pageTakesCutOuts();
       await act(async () =>
         divider().dispatchEvent(pointer("pointerdown", 500)),
       );
-      await pictureLaid();
       // Narrower, still open: one paint for the frame.
       await act(async () => window.dispatchEvent(pointer("pointermove", 700)));
       await act(async () => window.dispatchEvent(pointer("pointermove", 750)));
@@ -364,12 +310,12 @@ describe("workspace divider and native page presentation", () => {
       expect(page().hidden).toBe(false);
       expect(native.layout).toHaveBeenLastCalledWith(
         native.create.mock.calls[0][0],
-        cutOutWhole(bounds),
+        bounds,
         true,
       );
       await act(async () => window.dispatchEvent(pointer("pointerup", 960)));
       expect(props.onLayoutChange).toHaveBeenCalledOnce();
-      expect(native.snapshot).toHaveBeenCalledOnce();
+      expect(native.snapshot).not.toHaveBeenCalled();
       expect(native.close).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener("supermono:workspace-layout", painted);

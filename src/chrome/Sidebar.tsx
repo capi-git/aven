@@ -636,7 +636,6 @@ function SidebarComponent({
     onLiveWidth: (next) => {
       if (!floating) setDockedSidebarWidth(next);
     },
-    floating,
   });
   const [now, setNow] = useState(() => Date.now());
   const [sessionMenu, setSessionMenu] = useState<{

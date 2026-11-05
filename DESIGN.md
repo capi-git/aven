@@ -79,7 +79,7 @@ Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`
 - Animate only `transform` and `opacity`. Motion must be interruptible, and every animation must end by itself.
 - Use the springs in `src/lib/motionTokens.ts` for things you can touch, with no bounce unless a flick caused it.
 - Honour Reduce motion.
-- Native browser pages can't be animated. Move a picture of the page instead, and hold only the pages that really move.
+- Native browser pages can't be animated. For a motion, move a picture of the page instead, and hold only the pages that really move. Dragging an edge or divider keeps the page live, updating as it moves: a stretched picture looks wrong, even if a live page can drift a few points on a fast drag.
 - Never restyle the whole window: no rule on `html *`, and no inherited property set on `body` or `html` during an interaction.
 - No container query on anything large, such as a chat or the panes. WebKit rechecks every element under a container each time it changes size, on every frame of a drag. Use `useNarrowMark`, and keep containers to small things like a card or a toolbar.
 

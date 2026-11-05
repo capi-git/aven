@@ -125,8 +125,6 @@ export type BrowserPaneProps = {
 
 const BROWSER_ACTIONS_WIDTH = 224;
 const NO_CAPTURE = { microphone: false, camera: false };
-/** How long a held picture stays beneath a page that has come back. */
-const PAGE_ARRIVAL_MS = 200;
 
 /**
  * The owning project's mark, named in its tooltip. Projectless pages show
@@ -553,7 +551,6 @@ function BrowserPaneSession({
   // Layout motions move a picture of the page while the live page waits at
   // its final bounds (browserMotion.ts). Mark up keeps its own still image.
   const [motionImage, setMotionImage] = useState<string | null>(null);
-  const motionHold = useRef(0);
   const markingUp = useRef(false);
   markingUp.current = !!markup.state;
   useEffect(
@@ -578,7 +575,6 @@ function BrowserPaneSession({
           // never shows the window behind it.
           await decodeMotionImage(src);
           if (!wanted()) return false;
-          motionHold.current++;
           flushSync(() => setMotionImage(src));
           await nextPaint();
           // The motion went ahead without this page: it stays live, and no
@@ -590,26 +586,9 @@ function BrowserPaneSession({
           await controller.holdForMotion();
           return true;
         },
-        layBeneath: async (src, wanted) => {
-          if (!presentationController.current || markingUp.current)
-            return false;
-          await decodeMotionImage(src);
-          if (!wanted()) return false;
-          motionHold.current++;
-          flushSync(() => setMotionImage(src));
-          // Two frames: the first one's paint is only on its way to the screen.
-          await nextPaint();
-          await nextPaint();
-          return true;
-        },
-        cutOut: () => presentationController.current?.cutOutForDrag(),
         release: async () => {
-          const held = ++motionHold.current;
           await presentationController.current?.releaseFromMotion();
-          // Beneath the page now, and showing through it until it has drawn:
-          // Chromium's first frame after being shown can be an empty one.
-          await new Promise((done) => setTimeout(done, PAGE_ARRIVAL_MS));
-          if (motionHold.current === held) setMotionImage(null);
+          setMotionImage(null);
         },
       }),
     [id],
@@ -2135,7 +2114,6 @@ function BrowserPaneSession({
             src={motionImage}
             alt=""
             aria-hidden="true"
-            decoding="sync"
             draggable={false}
           />
         ) : null}

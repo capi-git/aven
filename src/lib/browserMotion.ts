@@ -28,13 +28,6 @@ export type MotionPage = {
    * motion has stopped waiting for it (`wanted`) by then.
    */
   hold(src: string, wanted: () => boolean): Promise<boolean>;
-  /**
-   * Put the picture beneath the live page, unseen, unless it is no longer
-   * `wanted` by then. Resolves true once it is painted there.
-   */
-  layBeneath(src: string, wanted: () => boolean): Promise<boolean>;
-  /** Show the picture laid beneath in the page's place, the page unmoved. */
-  cutOut(): void;
   /** Show the live page at its final bounds, then drop the picture. */
   release(): Promise<void>;
 };
@@ -161,54 +154,6 @@ export function releaseMotionPages(ids: readonly string[]) {
     holds.delete(id);
     void pages.get(id)?.release();
   }
-}
-
-/**
- * Hold the pages showing for a drag that moves them on each frame: all of them
- * for a panel's edge, or just those in `only`, for a drag that leaves the rest
- * where they are. A live page takes its new place a frame apart from the
- * workspace around it and draws at its new width a frame after that, so it
- * would shake against the workspace until the drag ends. The pictures are laid
- * beneath the pages on press, ready for the first move; a press that never
- * moves shows none of them. The pages stay live underneath, at the size they
- * will come back at, so they come back drawn.
- */
-export function holdPagesForDrag(only?: readonly string[]): {
-  moved(): void;
-  end(): void;
-} {
-  const hold = ++lastHold;
-  const ready: string[] = [];
-  let dragging = true;
-  let moving = false;
-  for (const [id, page] of pages) {
-    if (holds.has(id) || (only && !only.includes(id))) continue;
-    void (async () => {
-      const src = await page.capture();
-      if (!src || !dragging) return;
-      const laid = await page.layBeneath(src, () => dragging);
-      if (!laid) return;
-      if (!dragging) {
-        void page.release();
-        return;
-      }
-      holds.set(id, hold);
-      ready.push(id);
-      remember(id, src);
-      if (moving) page.cutOut();
-    })().catch(() => {});
-  }
-  return {
-    moved() {
-      if (moving) return;
-      moving = true;
-      for (const id of ready) pages.get(id)?.cutOut();
-    },
-    end() {
-      dragging = false;
-      releaseMotionPages(ready.filter((id) => holds.get(id) === hold));
-    },
-  };
 }
 
 type Box = { left: number; top: number; width: number; height: number };
