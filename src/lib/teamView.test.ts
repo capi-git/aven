@@ -45,15 +45,26 @@ describe("what an Avos screen shows", () => {
     expect(teamView("a")).toBe("chat");
   });
 
-  it("opens Overview and Teammates, which This week took over, on the Chat", () => {
+  it("opens the old pages, which This week and sheets took over, on the Chat", () => {
     localStorage.setItem(
       TEAM_VIEW_KEY,
-      JSON.stringify({ a: "overview", b: "teammates", c: "board" }),
+      JSON.stringify({
+        a: "overview",
+        b: "teammates",
+        c: "board",
+        d: "schedule",
+        e: "notes",
+      }),
     );
-    expect([teamView("a"), teamView("b"), teamView("c")]).toEqual([
+    expect(["a", "b", "c", "d", "e"].map((key) => teamView(key))).toEqual([
       "chat",
       "chat",
-      "board",
+      "chat",
+      "chat",
+      "notes",
     ]);
+    // The real-app check may still show the Board for this session.
+    setTeamView("c", "board");
+    expect(teamView("c")).toBe("board");
   });
 });

@@ -559,3 +559,51 @@ button.avos-week-row:hover {
 .avos-week-goal .crew-pipe-link {
   margin-left: 6px;
 }
+
+/* Needs you: each line, then the buttons that sort it out. */
+.avos-week-need {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.avos-week-need + .avos-week-need {
+  margin-top: 4px;
+}
+.avos-week-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.avos-week-problem {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 1.35;
+}
+.avos-week-more {
+  margin: 0;
+  color: var(--aven-muted);
+}
+
+/* The Schedule and a card's question, each in its own sheet. */
+.avos-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 16px 14px;
+}
+.avos-answer-ways {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.avos-answer-ways:empty {
+  display: none;
+}
+
+/* What's ready is in This week while it shows; on a narrow pane the chat
+   keeps it pinned on top instead. */
+.avos-screen:not([data-narrow]) .team-ready-list {
+  display: none;
+}

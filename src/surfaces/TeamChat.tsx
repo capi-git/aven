@@ -22,7 +22,9 @@ import { avosIntro, avosUnmet } from "../lib/avos";
 import {
   TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
+  addQuestionCard,
   firstCardChatText,
+  wakeAvos,
   subscribeCrewTell,
   takeCrewTell,
   takeCrewTellTo,
@@ -37,6 +39,8 @@ import {
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
+  cardDesigner,
+  cardResearcher,
   crewLead,
   crewMemberById,
   crewMemberName,
@@ -118,7 +122,8 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   lead: "a question for Avos",
 };
 
-type Mode = CrewMessageKind;
+/** What the box does with a message: a kind of message, or a question card. */
+type Mode = CrewMessageKind | "research" | "mockup";
 
 /** The teammate the box writes to: its id, and its name when you picked it. */
 type Addressee = { id: string; name: string };
@@ -128,7 +133,20 @@ const MODES: readonly { id: Mode; label: string; word: string }[] = [
   { id: "card", label: "Build it", word: "Card" },
   { id: "rule", label: "Remember for every card", word: "Rule" },
   { id: "goal", label: "Make it a goal", word: "Goal" },
+  // The Researcher and the Designer, while Avos has them: what the Board's
+  // Add an idea once asked them.
+  { id: "research", label: "Ask the Researcher", word: "Research" },
+  { id: "mockup", label: "Mock it up", word: "Mock-up" },
 ];
+
+/** Whether a mode can be picked for this Avos now. */
+function modeOpen(
+  id: Mode,
+  open: { lead: boolean; research: boolean; mockup: boolean },
+): boolean {
+  if (id === "lead" || id === "research" || id === "mockup") return open[id];
+  return true;
+}
 
 export function TeamChat({
   project,
@@ -210,8 +228,13 @@ export function TeamChat({
   const [chosenMode, setMode] = useState<Mode | null>(null);
   const hasLead = !!crewLead(crew);
   const meeting = avosUnmet(crew);
+  const modesOpen = {
+    lead: hasLead,
+    research: !!cardResearcher(crew),
+    mockup: !!cardDesigner(crew),
+  };
   const mode: Mode =
-    chosenMode && (chosenMode !== "lead" || hasLead)
+    chosenMode && modeOpen(chosenMode, modesOpen)
       ? chosenMode
       : hasLead
         ? "lead"
@@ -362,7 +385,7 @@ export function TeamChat({
           members={members}
           to={to}
           mode={mode}
-          hasLead={hasLead}
+          modesOpen={modesOpen}
           input={input}
           onTo={setTo}
           onMode={setMode}
@@ -911,6 +934,21 @@ function RunPost({ post }: { post: Extract<TeamPost, { kind: "run" }> }) {
 // ---------------------------------------------------------------------------
 // The box
 
+/**
+ * A question for the Researcher, or a screen for the Designer: a card of
+ * its own, as the Board's Add an idea once made. Avos wakes for it.
+ */
+async function askQuestion(
+  project: string,
+  words: string,
+  kind: "research" | "mockup",
+): Promise<string | null> {
+  const woke = await wakeAvos(project);
+  if (woke) return woke;
+  const { problem } = await addQuestionCard(project, words, kind);
+  return problem;
+}
+
 /** The "@word" being typed just before the cursor, if any. */
 /**
  * The "@word" the caret is in, if any: where its @ is, and the whole word
@@ -935,7 +973,7 @@ function Composer({
   members,
   to,
   mode,
-  hasLead,
+  modesOpen,
   input,
   onTo,
   onMode,
@@ -947,7 +985,8 @@ function Composer({
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
   mode: Mode;
-  hasLead: boolean;
+  /** Which modes this Avos has now (Avos itself, a Researcher, a Designer). */
+  modesOpen: { lead: boolean; research: boolean; mockup: boolean };
   input: RefObject<HTMLTextAreaElement | null>;
   onTo: (to: Addressee | null) => void;
   /** Null goes back to the usual: the Lead, or a card without one. */
@@ -1037,11 +1076,12 @@ function Composer({
     requestAnimationFrame(() => element?.focus());
   };
   // How long it may be: a chat message, a goal, or a card's words.
-  const limit = to
-    ? CREW_MESSAGE_MAX
-    : mode === "goal"
-      ? CREW_GOAL_MAX
-      : CREW_NOTE_MAX;
+  const limit =
+    to || mode === "lead"
+      ? CREW_MESSAGE_MAX
+      : mode === "goal"
+        ? CREW_GOAL_MAX
+        : CREW_NOTE_MAX;
   const send = async () => {
     const words = text.trim();
     if (!words || sending) return;
@@ -1065,7 +1105,9 @@ function Composer({
     setText("");
     const why = sentTo
       ? await tellTeammate(project, sentTo.id, words)
-      : await tellTeam(project, words, mode);
+      : mode === "research" || mode === "mockup"
+        ? await askQuestion(project, words, mode)
+        : await tellTeam(project, words, mode);
     setSending(false);
     if (why) {
       setProblem(why);
@@ -1134,9 +1176,13 @@ function Composer({
         ? "A rule for every card, like “Use pnpm”…"
         : mode === "goal"
           ? "A goal Avos keeps going towards…"
-          : mode === "lead"
-            ? "Ask Avos anything, or @ a helper…"
-            : "Write to Avos, or @ a helper…";
+          : mode === "research"
+            ? "A question for the Researcher…"
+            : mode === "mockup"
+              ? "A screen for the Designer to mock up…"
+              : mode === "lead"
+                ? "Ask Avos anything, or @ a helper…"
+                : "Write to Avos, or @ a helper…";
   const current = MODES.find((item) => item.id === mode)!;
   return (
     <div className="team-compose-wrap">
@@ -1295,7 +1341,7 @@ function Composer({
           align="end"
           gap={4}
           ariaLabel="How Avos takes this"
-          items={MODES.filter((item) => item.id !== "lead" || hasLead).map(
+          items={MODES.filter((item) => modeOpen(item.id, modesOpen)).map(
             (item) => ({
               kind: "item" as const,
               id: item.id,

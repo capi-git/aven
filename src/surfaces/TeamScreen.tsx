@@ -37,10 +37,11 @@ import {
   takeCrewReview,
   useCrewWorkspace,
 } from "../lib/crewActions";
-import type { PipelineGoal } from "../lib/crewPipeline";
+import type { PipelineBatch, PipelineGoal } from "../lib/crewPipeline";
 import { type Crew } from "../lib/crews";
 import {
   crewMemberViews,
+  type CrewBoardAction,
   type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
@@ -58,8 +59,10 @@ import { reviewHeading } from "../lib/automationReview";
 import { plural } from "../lib/words";
 import type { TeamView } from "../lib/teamView";
 import type { BoardCard, BoardColumnId } from "../lib/workBoard";
-import { CrewFeed } from "./CrewBoard";
-import { BatchCard, CrewBatchSheet } from "./TeamBatch";
+import { CrewAnswerBox, CrewFeed } from "./CrewBoard";
+import { BatchButtons, BatchCard, CrewBatchSheet } from "./TeamBatch";
+import { TeamCardButton } from "../chrome/TeamCard";
+import type { BatchRange } from "../hooks/useTeamPipeline";
 import { TeamChat } from "./TeamChat";
 import { TeamNotes, TeamSchedule } from "./TeamPanel";
 import type { BoardTop } from "./WorkBoard";
@@ -79,10 +82,13 @@ const TABS: readonly { id: TeamView; label: string }[] = [
   { id: "notes", label: "Notes" },
 ];
 
-/** Views reached from ⋯, named in the header while they're shown. */
+/**
+ * The old Board, kept only for the real-app check to read cards off (it
+ * sets the view itself): nothing on screen leads there. Named in the header
+ * while it's shown, so there's a way back.
+ */
 const DEEPER: Partial<Record<TeamView, string>> = {
   board: "Board",
-  schedule: "Schedule",
 };
 
 /** Below this width This week gives the thread its room. */
@@ -143,6 +149,9 @@ export function TeamScreen({
   };
   const [reviewing, setReviewing] = useState(false);
   const [activity, setActivity] = useState(false);
+  const [schedule, setSchedule] = useState(false);
+  // A card waiting on your answer, open in its own sheet.
+  const [answering, setAnswering] = useState<string | null>(null);
   useEffect(() => {
     // Review from the Inbox or a Ready card: the batch's Review opens here.
     const take = () => {
@@ -202,6 +211,66 @@ export function TeamScreen({
     else if (target.kind === "run") workspace?.openRun?.(target.runId);
     else openAutomation(target.jobId);
   };
+  // What needs you, in This week: what the Board's columns once asked of
+  // you. Ready changes as one line with Review and Apply all, other ready
+  // work with its buttons, a card waiting on your answer, ideas waiting for
+  // Build it, and what Avos's jobs left for you.
+  const act = (cardId: string, id: CrewBoardActionId) => {
+    if (id === "answer") return setAnswering(cardId);
+    const card = cards.find((item) => item.id === cardId);
+    if (card) onCrewAction(card, id);
+  };
+  const stuck = useMemo(
+    () => (crew.on ? crew.cards.filter((card) => card.stage === "stuck") : []),
+    [crew],
+  );
+  const needs = useMemo<NeedsRow[]>(() => {
+    const rows: NeedsRow[] = [];
+    if (view.batch)
+      rows.push({
+        id: "batch",
+        text: `${plural(view.batch.cards.length, "change")} ready`,
+        title: view.batch.status,
+        batch: view.batch,
+      });
+    for (const row of view.ready)
+      if (!row.boardActions)
+        rows.push({
+          id: `ready:${row.id}`,
+          text: row.title,
+          title: row.status,
+          cardId: row.id,
+          actions: row.actions,
+        });
+    for (const card of stuck)
+      rows.push({
+        id: `stuck:${card.id}`,
+        text: `“${card.title}” needs your answer`,
+        ...(card.stuck?.text ? { title: card.stuck.text } : {}),
+        cardId: card.id,
+        actions: [{ id: "answer", label: "Answer", primary: true }],
+      });
+    for (const card of columns.idea) {
+      const give = card.crew?.actions.find((action) => action.id === "give");
+      if (!give || card.crew?.later) continue;
+      const from = card.crew?.line?.split(" · ")[0];
+      rows.push({
+        id: `idea:${card.id}`,
+        text: `${from?.startsWith("From ") ? from : "Idea"}: ${card.title}`,
+        ...(card.crew?.line ? { title: card.crew.line } : {}),
+        cardId: card.id,
+        actions: [give],
+        idea: true,
+      });
+    }
+    for (const row of week.needs)
+      if (row.open?.kind === "run")
+        rows.push({ id: row.id, text: row.text, open: row });
+    return rows;
+  }, [view.batch, view.ready, stuck, columns.idea, week.needs]);
+  const answeringCard = answering
+    ? crew.cards.find((card) => card.id === answering && card.stage === "stuck")
+    : undefined;
   const batch = view.batch ? (
     <BatchCard
       crew={crew}
@@ -234,6 +303,7 @@ export function TeamScreen({
               chat.current?.goal();
             }}
             onActivity={() => setActivity(true)}
+            onSchedule={() => setSchedule(true)}
           />
         )}
         {/* The chat stays put under the other views, so its place and what
@@ -251,7 +321,10 @@ export function TeamScreen({
             problems={problems}
             onCrewAction={onCrewAction}
             onReview={() => setReviewing(true)}
-            onCards={() => setPeek({ project, view: "board" })}
+            onCards={() => {
+              // Answer on its card: its question, in its own sheet.
+              if (stuck[0]) setAnswering(stuck[0].id);
+            }}
             onSelected={() => undefined}
             control={chat}
           />
@@ -276,8 +349,6 @@ export function TeamScreen({
               </div>
             ) : shown === "notes" ? (
               <TeamNotes crew={crew} />
-            ) : shown === "schedule" ? (
-              <TeamSchedule crew={crew} />
             ) : (
               (batch ?? (
                 <p className="team-panel-empty">
@@ -293,6 +364,12 @@ export function TeamScreen({
         <AvosWeekPanel
           project={project}
           week={week}
+          needs={needs}
+          crew={crew}
+          range={range}
+          problems={problems}
+          onReview={() => setReviewing(true)}
+          onAct={act}
           goal={view.goal}
           members={members}
           onOpen={open}
@@ -308,6 +385,58 @@ export function TeamScreen({
           project={project}
           onClose={() => setReviewing(false)}
         />
+      ) : null}
+      {schedule ? (
+        <Modal
+          onClose={() => setSchedule(false)}
+          title="Schedule"
+          description="When Avos and its helpers work"
+          className="avos-schedule-sheet"
+        >
+          <div className="avos-sheet-body">
+            <TeamSchedule crew={crew} />
+          </div>
+        </Modal>
+      ) : null}
+      {answeringCard ? (
+        <Modal
+          onClose={() => setAnswering(null)}
+          title={answeringCard.title}
+          description={
+            answeringCard.stuck?.text ?? "It stopped, and waits for you."
+          }
+          className="avos-answer-sheet"
+        >
+          <div className="avos-sheet-body" data-avos-answer={answeringCard.id}>
+            {answeringCard.stuck?.reason === "question" ? (
+              <CrewAnswerBox
+                path={project}
+                cardId={answeringCard.id}
+                onDone={() => setAnswering(null)}
+              />
+            ) : null}
+            <div className="avos-answer-ways">
+              {(
+                cards.find((card) => card.id === answeringCard.id)?.crew
+                  ?.actions ?? []
+              )
+                .filter((action) => action.id !== "answer")
+                .map((action) => (
+                  <TeamCardButton
+                    key={action.id}
+                    size="compact"
+                    variant={action.primary ? "primary" : "default"}
+                    onClick={() => {
+                      setAnswering(null);
+                      act(answeringCard.id, action.id);
+                    }}
+                  >
+                    {action.label}
+                  </TeamCardButton>
+                ))}
+            </div>
+          </div>
+        </Modal>
       ) : null}
       {activity ? (
         <Modal
@@ -339,6 +468,7 @@ function AvosHeader({
   onMode,
   onSetGoal,
   onActivity,
+  onSchedule,
 }: {
   crew: Crew;
   project: string;
@@ -351,6 +481,8 @@ function AvosHeader({
   onMode: (view: TeamView) => void;
   onSetGoal: () => void;
   onActivity: () => void;
+  /** When Avos and its helpers work, in a sheet. */
+  onSchedule: () => void;
 }) {
   const workspace = useCrewWorkspace();
   const [menu, setMenu] = useState<HTMLElement | null>(null);
@@ -360,13 +492,7 @@ function AvosHeader({
   const goalGoing = !!goal && !goal.done;
   const deeper = DEEPER[mode];
   const items: ExplorerMenuItem[] = [
-    { kind: "item", id: "board", label: "Board", checked: mode === "board" },
-    {
-      kind: "item",
-      id: "schedule",
-      label: "Schedule",
-      checked: mode === "schedule",
-    },
+    { kind: "item", id: "schedule", label: "Schedule" },
     { kind: "item", id: "activity", label: "Activity" },
     { kind: "sep" },
     goalGoing
@@ -450,8 +576,7 @@ function AvosHeader({
           onClose={() => setMenu(null)}
           onPick={(id) => {
             setMenu(null);
-            if (id === "board" || id === "schedule")
-              onMode(mode === id ? "chat" : id);
+            if (id === "schedule") onSchedule();
             else if (id === "activity") onActivity();
             else if (id === "goal") onSetGoal();
             else if (id === "clear-goal") clearCrewGoal(crew.path);
@@ -526,9 +651,35 @@ function helperWord(member: CrewMemberView): string {
  * keeps an eye on and what's done, each shown only when it has something;
  * then who is helping out, each with its Bot and one word.
  */
+/** One line under Needs you, and the buttons that sort it out. */
+type NeedsRow = {
+  id: string;
+  text: string;
+  /** Its whole line, for the tooltip. */
+  title?: string;
+  /** Ready changes on Avos's branch: Review and Apply all. */
+  batch?: PipelineBatch;
+  /** The card it's about, and its buttons (Build it, Answer, Apply…). */
+  cardId?: string;
+  actions?: readonly CrewBoardAction[];
+  /** An idea waiting for Build it. */
+  idea?: true;
+  /** A job's run: opens where its card waits. */
+  open?: AvosWeekRow;
+};
+
+/** Ideas waiting for you shown before "N more". */
+const IDEAS_SHOWN = 4;
+
 function AvosWeekPanel({
   project,
   week,
+  needs,
+  crew,
+  range,
+  problems,
+  onReview,
+  onAct,
   goal,
   members,
   onOpen,
@@ -536,6 +687,12 @@ function AvosWeekPanel({
 }: {
   project: string;
   week: AvosWeek;
+  needs: readonly NeedsRow[];
+  crew: Crew;
+  range: BatchRange | null;
+  problems: Readonly<Record<string, string>>;
+  onReview: () => void;
+  onAct: (cardId: string, id: CrewBoardActionId) => void;
   /** The goal Avos keeps building towards, and where it stands. */
   goal?: PipelineGoal;
   members: readonly CrewMemberView[];
@@ -543,12 +700,89 @@ function AvosWeekPanel({
   onHelper: (id: string) => void;
 }) {
   const helpers = members.filter((member) => member.role !== "lead");
-  const empty = !goal && SECTIONS.every((section) => !week[section.key].length);
+  const empty =
+    !goal &&
+    !needs.length &&
+    SECTIONS.every(
+      (section) => section.key === "needs" || !week[section.key].length,
+    );
+  const ideas = needs.filter((row) => row.idea);
+  const shownNeeds = [
+    ...needs.filter((row) => !row.idea),
+    ...ideas.slice(0, IDEAS_SHOWN),
+  ];
+  const moreIdeas = ideas.length - Math.min(ideas.length, IDEAS_SHOWN);
   return (
     <aside className="avos-week" aria-label="This week" data-avos-week>
       <h2 className="avos-week-title">This week</h2>
       {SECTIONS.map((section) =>
-        section.key === "doing" && goal ? (
+        section.key === "needs" ? (
+          needs.length ? (
+            <section
+              key={section.key}
+              className="avos-week-section"
+              data-avos-week-section={section.key}
+            >
+              <h3 data-needs-you>{section.title}</h3>
+              {shownNeeds.map((row) => (
+                <div
+                  key={row.id}
+                  className="avos-week-need"
+                  data-avos-need={row.id}
+                >
+                  {row.open ? (
+                    <button
+                      type="button"
+                      className="avos-week-row"
+                      title={row.title}
+                      onClick={() => onOpen(row.open!)}
+                    >
+                      {row.text}
+                    </button>
+                  ) : (
+                    <p className="avos-week-row" title={row.title}>
+                      {row.text}
+                    </p>
+                  )}
+                  {row.batch ? (
+                    <BatchButtons
+                      crew={crew}
+                      batch={row.batch}
+                      range={range}
+                      onReview={onReview}
+                      className="avos-week-buttons"
+                      problemClass="avos-week-problem"
+                    />
+                  ) : row.actions?.length && row.cardId ? (
+                    <span className="avos-week-buttons">
+                      {row.actions.map((action) => (
+                        <TeamCardButton
+                          key={action.id}
+                          size="compact"
+                          variant={action.primary ? "primary" : "default"}
+                          onClick={() => onAct(row.cardId!, action.id)}
+                        >
+                          {action.label}
+                        </TeamCardButton>
+                      ))}
+                    </span>
+                  ) : null}
+                  {row.cardId && problems[row.cardId] ? (
+                    <p className="avos-week-problem" role="alert">
+                      {problems[row.cardId]}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+              {moreIdeas > 0 ? (
+                <p className="avos-week-more">
+                  {plural(moreIdeas, "more idea")}{" "}
+                  {moreIdeas === 1 ? "waits" : "wait"} for you
+                </p>
+              ) : null}
+            </section>
+          ) : null
+        ) : section.key === "doing" && goal ? (
           <section
             key={section.key}
             className="avos-week-section"

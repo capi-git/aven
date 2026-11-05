@@ -406,9 +406,14 @@ describe("the team chat", () => {
         (heading) => heading.textContent,
       ),
     ).toEqual(["Needs you", "Doing now", "Helping out"]);
+    // Ready changes, as one line with Review and Apply all.
+    const ready = week.querySelector<HTMLElement>('[data-avos-need="batch"]')!;
+    expect(ready.querySelector(".avos-week-row")?.textContent).toBe(
+      "1 change ready",
+    );
     expect(
-      week.querySelector('[data-avos-week-section="needs"]')?.textContent,
-    ).toContain("Look at “Settings page”");
+      [...ready.querySelectorAll("button")].map((item) => item.textContent),
+    ).toEqual(["Review", "Apply all"]);
     const helpers = [
       ...week.querySelectorAll<HTMLElement>("[data-avos-helper]"),
     ];
@@ -640,7 +645,7 @@ describe("the team chat", () => {
     );
   });
 
-  it("asks you to answer only a card that still waits, and shows the Board without saving it", async () => {
+  it("asks you to answer only a card that still waits, in a sheet of its own", async () => {
     await setUp((crew, boards) => {
       const stuck = (id: string, stage: "stuck" | "applied") => ({
         ...crew.cards.find((card) => card.id === boards[0]!.id)!,
@@ -677,8 +682,19 @@ describe("the team chat", () => {
       true,
     ]);
     expect(button(asks[0]!, "Answer on its card")).toBeUndefined();
+    // Its question opens in a sheet of its own, with the box to answer it.
     await act(async () => button(asks[1]!, "Answer on its card")!.click());
-    expect(container.querySelector("[data-team-board]")).not.toBeNull();
+    const sheet = document.querySelector<HTMLElement>("[data-avos-answer]")!;
+    expect(sheet).not.toBeNull();
+    expect(
+      sheet.querySelector('textarea[aria-label="Your answer"]'),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-team-board]")).toBeNull();
+    // It's under Needs you too, with Answer.
+    expect(
+      container.querySelector('[data-avos-need^="stuck:"] .avos-week-row')
+        ?.textContent,
+    ).toBe("“Timer screen” needs your answer");
     // Which view Avos opens on stays your choice.
     expect(teamView(PROJECT)).toBe("chat");
   });

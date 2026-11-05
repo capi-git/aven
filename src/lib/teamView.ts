@@ -16,10 +16,17 @@ export const TEAM_VIEWS = [
 ] as const;
 export type TeamView = (typeof TEAM_VIEWS)[number];
 
-/** Saved views from before that open on another now. */
+/**
+ * Saved views from before that open on another now. The Board and the
+ * Schedule aren't pages any more (This week took the Board's work, and the
+ * Schedule is a sheet), so a choice saved for them opens on the Chat. The
+ * real-app check may still show the Board for this session (`setTeamView`).
+ */
 const RETIRED_VIEWS: Readonly<Record<string, TeamView>> = {
   overview: "chat",
   teammates: "chat",
+  board: "chat",
+  schedule: "chat",
 };
 
 export const TEAM_VIEW_KEY = "aven.teamView.v2";
@@ -50,10 +57,10 @@ function read(): Readonly<Record<string, TeamView>> {
     const saved = JSON.parse(raw ?? "{}") as unknown;
     if (saved && typeof saved === "object" && !Array.isArray(saved))
       for (const [key, value] of Object.entries(saved))
-        if (TEAM_VIEWS.includes(value as TeamView))
-          next[key] = value as TeamView;
-        else if (typeof value === "string" && RETIRED_VIEWS[value])
+        if (typeof value === "string" && RETIRED_VIEWS[value])
           next[key] = RETIRED_VIEWS[value]!;
+        else if (TEAM_VIEWS.includes(value as TeamView))
+          next[key] = value as TeamView;
   } catch {
     // An unreadable entry opens every Avos on its Chat.
   }

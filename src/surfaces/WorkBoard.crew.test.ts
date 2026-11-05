@@ -1507,3 +1507,61 @@ describe("the team view: the Board with the team on it", () => {
     expect(container.textContent).not.toContain("Build it");
   });
 });
+
+describe("This week, in place of the Board", () => {
+  beforeEach(() => {
+    resetTeamViewCache();
+    setTeamView(PROJECT, "chat");
+  });
+
+  it("lists ideas waiting for you under Needs you, with Build it", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...crew,
+      ideas: {
+        [boards[0].id]: { at: NOW - 60_000, size: "large" },
+      },
+      notNow: [boards[1].id],
+    }));
+    const needs = container.querySelector<HTMLElement>(
+      '[data-avos-week-section="needs"]',
+    )!;
+    const idea = needs.querySelector<HTMLElement>(
+      `[data-avos-need="idea:${boards[0].id}"]`,
+    )!;
+    expect(idea.querySelector(".avos-week-row")?.textContent).toBe(
+      "From Scout: Pricing page",
+    );
+    await act(async () => button(idea, "Build it")!.click());
+    expect(actions.giveCardToCrew).toHaveBeenCalledWith(
+      PROJECT,
+      expect.objectContaining({ id: boards[0].id }),
+    );
+    // The Board isn't on screen, and isn't in ⋯ either.
+    expect(container.querySelector("[data-team-board]")).toBeNull();
+    await teamMenu();
+    const items = [...document.querySelectorAll("[data-menu] button")].map(
+      (item) => item.textContent,
+    );
+    expect(items).not.toContain("Board");
+    expect(items).toContain("Schedule");
+    // Schedule opens as a sheet over the chat.
+    await pickMenu("Schedule");
+    expect(document.querySelector(".avos-schedule-sheet")).not.toBeNull();
+    expect(container.querySelector("[data-team-chat]")).not.toBeNull();
+  });
+
+  it("asks the Researcher from the chat's box while Avos has one", async () => {
+    await setUp(() => (crew) => ({
+      ...crew,
+      members: [...crew.members, { id: "researcher", role: "researcher" }],
+    }));
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
+    );
+    await pickMenu("Ask the Researcher");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(".team-compose-input")!
+        .placeholder,
+    ).toBe("A question for the Researcher…");
+  });
+});
