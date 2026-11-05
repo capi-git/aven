@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { avosJobHeld } from "../lib/avosJobs";
 import {
   claimScheduledSlot,
   failInterruptedScheduledRuns,
@@ -66,6 +67,8 @@ export function useScheduledAgents(
         expired: (runs) => {
           if (!disposed) expiredRef.current?.(runs);
         },
+        // A paused team's jobs wait for it.
+        held: (agent) => avosJobHeld(agent),
       })
         .catch(() => {
           // A failed check is retried on the next tick.

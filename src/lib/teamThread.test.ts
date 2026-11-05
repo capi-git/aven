@@ -6,6 +6,7 @@ import {
   type Crew,
   type CrewFeedEntry,
 } from "./crews";
+import type { ScheduledAgent, ScheduledRun } from "./scheduledAgents";
 import {
   dayLabel,
   latestPosts,
@@ -371,7 +372,7 @@ describe("what still waits on you", () => {
     );
     expect(
       teamPosts(done, nameOf(done)).some(
-        (post) => post.kind !== "you" && post.needsYou,
+        (post) => "needsYou" in post && post.needsYou,
       ),
     ).toBe(false);
   });
@@ -452,5 +453,139 @@ describe("lines saved before the crew was a team", () => {
     expect(teamWording("You gave the crew “Crew settings: add toggle”")).toBe(
       "You gave the team “Crew settings: add toggle”",
     );
+  });
+});
+
+describe("the team's jobs", () => {
+  const job = (patch: Partial<ScheduledAgent> = {}): ScheduledAgent => ({
+    id: "avos-1",
+    name: "Notion articles",
+    prompt: "Draft new articles",
+    project: PATH,
+    harness: "claude",
+    model: "claude:test",
+    runtimeMode: "auto",
+    schedule: { kind: "interval", hours: 6 },
+    enabled: true,
+    createdAt: DAY + MIN,
+    nextRunAt: null,
+    owner: { avos: PATH },
+    ...patch,
+  });
+  const run = (patch: Partial<ScheduledRun> = {}): ScheduledRun => ({
+    id: "r1",
+    scheduleId: "avos-1",
+    name: "Notion articles",
+    project: PATH,
+    status: "completed",
+    summary: "",
+    startedAt: DAY + 60 * MIN,
+    finishedAt: DAY + 70 * MIN,
+    sessionId: "run-chat",
+    inAutomations: true,
+    ...patch,
+  });
+  const withLead = (crew: Crew): Crew => ({
+    ...crew,
+    members: [{ id: "lead", role: "lead", critter: "lead" }, ...crew.members],
+  });
+  const said = withLead(
+    crewWith([
+      {
+        at: DAY + MIN,
+        kind: "say",
+        who: "lead",
+        member: "lead",
+        text: "I'll check the page every 6 hours.",
+      },
+    ]),
+  );
+
+  it("shows a job after the Lead's line that set it up", () => {
+    const posts = teamPosts(said, nameOf(said), {
+      agents: [job(), job({ id: "mine", owner: undefined })],
+      runs: [],
+    });
+    expect(posts.map((post) => post.kind)).toEqual(["post", "job"]);
+    expect(posts[1]).toMatchObject({
+      kind: "job",
+      jobId: "avos-1",
+      name: "Notion articles",
+      schedule: "Every 6 hours",
+      text: "Keeping an eye on “Notion articles”",
+      by: "lead",
+    });
+    expect(postIsMember(posts[1]!, "lead")).toBe(true);
+  });
+
+  it("leaves out another team's jobs", () => {
+    const posts = teamPosts(said, nameOf(said), {
+      agents: [job({ owner: { avos: "/Users/me/other" } })],
+      runs: [],
+    });
+    expect(posts.map((post) => post.kind)).toEqual(["post"]);
+  });
+
+  it("shows a run's card while it waits for you, and nothing for a quiet run", () => {
+    const review = {
+      kind: "publish" as const,
+      title: "Spring launch",
+      summary: "A draft from Notion.",
+      status: "open" as const,
+      postedAt: DAY + 70 * MIN,
+    };
+    const posts = teamPosts(said, nameOf(said), {
+      agents: [job()],
+      runs: [
+        run({ id: "quiet", startedAt: DAY + 30 * MIN }),
+        run({ review }),
+        run({
+          id: "done",
+          startedAt: DAY + 20 * MIN,
+          review: { ...review, status: "done" },
+        }),
+      ],
+    });
+    const cards = posts.filter((post) => post.kind === "run");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      id: "run:r1",
+      at: DAY + 70 * MIN,
+      text: "Ready to publish: Spring launch",
+      needsYou: true,
+    });
+  });
+
+  it("shows a job's latest run when it failed, and not an older failure", () => {
+    const failed = {
+      status: "failed" as const,
+      error: "Notion is signed out.",
+    };
+    const posts = teamPosts(said, nameOf(said), {
+      agents: [job()],
+      runs: [
+        run({ id: "old", startedAt: DAY + 10 * MIN, ...failed }),
+        run({ id: "new", ...failed }),
+      ],
+    });
+    expect(
+      posts.flatMap((post) =>
+        post.kind === "run" ? [[post.id, post.text, post.failed]] : [],
+      ),
+    ).toEqual([
+      [
+        "run:new:failed",
+        "“Notion articles” didn't finish: Notion is signed out.",
+        true,
+      ],
+    ]);
+    const later = teamPosts(said, nameOf(said), {
+      agents: [job()],
+      runs: [
+        run({ id: "old", ...failed }),
+        run({ id: "ok", startedAt: DAY + 90 * MIN }),
+      ],
+    });
+    expect(later.some((post) => post.kind === "run")).toBe(false);
   });
 });

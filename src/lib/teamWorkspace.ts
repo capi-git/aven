@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { ControlOutcome } from "./orchestration";
+import type { ScheduledRun } from "./scheduledAgents";
 import type { Block } from "./session";
 
 /**
@@ -33,6 +34,13 @@ export type TeamWorkspace = {
       whenIdle?: boolean;
     },
   ): Promise<boolean>;
+  /**
+   * A team job's run card, answered from the team's chat: Aven's own words
+   * for its kind (Publish) go to the run, as from the Inbox.
+   */
+  answerRunCard?(run: ScheduledRun): unknown;
+  /** Show a job's run in Automations. */
+  openRun?(runId: string): void;
 };
 
 let workspace: TeamWorkspace | null = null;

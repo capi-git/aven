@@ -1,6 +1,8 @@
+import { addAvosJob } from "./avosJobs";
 import {
   TALK_TEXT_MAX,
   parseTalk,
+  talkMayAddJob,
   talkMayHop,
   talkMessage,
   talkPassedLine,
@@ -848,6 +850,7 @@ export class CrewRunner {
           .map((entry) => this.deps.name(fresh, entry.id)),
         mayAsk: member.role !== "helper" && talkMayHop(talk),
         mayStartHelpers,
+        mayAddJob: talkMayAddJob(talk, member.role),
         guidance: crewGuidanceText({
           ...(member.instructions ? { instructions: member.instructions } : {}),
           ...(member.memory ? { memory: member.memory } : {}),
@@ -953,8 +956,26 @@ export class CrewRunner {
     // Only your own message, to a Lead that has read no other agent's words,
     // can build by itself. A routine runs with nobody watching.
     const yours = talk.from === "you" && !talk.routine && !member?.heardOthers;
+    // Repeating work becomes the team's job, in the project itself, and only
+    // from your own message asking for it. The reply is about the job, so
+    // cards beside it would be the same work again.
+    const jobAsked = isLead && crew.on && !failed && !!said.job;
+    const jobAllowed = jobAsked && talkMayAddJob(talk, member?.role);
+    const lead = this.chatNow(sessionId);
+    const job =
+      jobAllowed && said.job
+        ? addAvosJob({
+            crew,
+            draft: said.job,
+            lead: member,
+            ...(lead
+              ? { chat: { harness: lead.harness, model: lead.model } }
+              : {}),
+            now,
+          })
+        : null;
     const cards =
-      isLead && crew.on && !failed && said.cards.length
+      isLead && crew.on && !failed && !job && said.cards.length
         ? await this.deps.board
             .add(
               path,
@@ -1032,6 +1053,13 @@ export class CrewRunner {
           who: member.role,
           member: member.id,
           text: said.line,
+        });
+      if (jobAsked && !jobAllowed && said.job)
+        next = withFeed(next, {
+          at: now,
+          kind: "note",
+          who: "aven",
+          text: `${who} wanted to keep an eye on “${said.job.name}”, but only a message of yours asking for it can set that up. Ask again, and say how often.`,
         });
       if (!crew.on) return next;
       // Its answer goes back to whoever asked, while there are hops left.
