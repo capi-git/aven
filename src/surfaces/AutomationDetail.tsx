@@ -5,6 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import {
   ChevronLeft,
   MessageSquare,
@@ -79,16 +80,33 @@ export function AutomationDetail({
   onSelectRun,
   onEdit,
   onDelete,
+  onDeleteRun,
+  onDeleteOlderRuns,
   onRunNow,
 }: {
   item: AutomationItem;
   onSelectRun: (run: ScheduledRun) => void;
   onEdit: (agent: ScheduledAgent) => void;
   onDelete: () => void;
+  onDeleteRun: (run: ScheduledRun) => void;
+  /** Deletes these runs after asking: one and those older than it. */
+  onDeleteOlderRuns: (runs: ScheduledRun[]) => void;
   onRunNow?: (agent: ScheduledAgent) => void;
 }) {
   const agent = item.agent;
   const [started, setStarted] = useState(false);
+  const [runMenu, setRunMenu] = useState<{
+    run: ScheduledRun;
+    x: number;
+    y: number;
+  } | null>(null);
+  // The run right-clicked and those older than it; the list is newest first.
+  const fromMenu =
+    runMenu && runMenu.run.status !== "running"
+      ? item.runs
+          .slice(item.runs.findIndex((entry) => entry.id === runMenu.run.id))
+          .filter((entry) => entry.status !== "running")
+      : [];
   const running = item.runs[0]?.status === "running";
   const project = agent?.project ?? item.runs[0]?.project ?? "";
   const meta = [
@@ -178,13 +196,54 @@ export function AutomationDetail({
         ) : (
           <ul className="aven-menu automation-run-list">
             {item.runs.map((run) => (
-              <li key={run.id}>
-                <RunRow run={run} onSelect={() => onSelectRun(run)} />
+              <li key={run.id} className="automation-run-item">
+                <RunRow
+                  run={run}
+                  onSelect={() => onSelectRun(run)}
+                  onMenu={(at) => setRunMenu({ run, ...at })}
+                />
+                {run.status === "running" ? null : (
+                  <button
+                    type="button"
+                    title="Delete run"
+                    aria-label={`Delete the run from ${formatRunTime(run.startedAt)}`}
+                    onClick={() => onDeleteRun(run)}
+                    className={`${ICON_BUTTON} automation-run-delete`}
+                  >
+                    <Trash2 className="size-3.5" strokeWidth={1.75} />
+                  </button>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
+      {runMenu && fromMenu.length ? (
+        <ExplorerMenu
+          x={runMenu.x}
+          y={runMenu.y}
+          items={[
+            { kind: "item", id: "one", label: "Delete run", danger: true },
+            ...(fromMenu.length > 1
+              ? [
+                  {
+                    kind: "item" as const,
+                    id: "older",
+                    label: `Delete this and ${fromMenu.length - 1} older…`,
+                    danger: true,
+                  },
+                ]
+              : []),
+          ]}
+          ariaLabel={`Actions for the run from ${formatRunTime(runMenu.run.startedAt)}`}
+          onClose={() => setRunMenu(null)}
+          onPick={(id) => {
+            setRunMenu(null);
+            if (id === "one") onDeleteRun(runMenu.run);
+            if (id === "older") onDeleteOlderRuns(fromMenu);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -192,9 +251,11 @@ export function AutomationDetail({
 function RunRow({
   run,
   onSelect,
+  onMenu,
 }: {
   run: ScheduledRun;
   onSelect: () => void;
+  onMenu: (at: { x: number; y: number }) => void;
 }) {
   const unread =
     run.status !== "running" && isInboxEntryUnread(scheduledRunSeenEntry(run));
@@ -217,6 +278,20 @@ function RunRow({
       }${length ? `. ${length}` : ""}`}
       className="aven-menu-item aven-menu-item-rich automation-run-row"
       onClick={onSelect}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu({ x: event.clientX, y: event.clientY });
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.key !== "ContextMenu" &&
+          !(event.shiftKey && event.key === "F10")
+        )
+          return;
+        event.preventDefault();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onMenu({ x: rect.left, y: rect.bottom });
+      }}
     >
       <AutomationDot tone={run.status} />
       <span className="aven-menu-text">

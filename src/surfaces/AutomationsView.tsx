@@ -43,6 +43,7 @@ import { projectAppearance } from "../lib/projectAppearance";
 import type { RecentProject } from "../lib/recents";
 import {
   deleteAutomation,
+  deleteAutomationRuns,
   getScheduledAgent,
   getScheduledRun,
   saveScheduledAgent,
@@ -258,6 +259,8 @@ export function AutomationsView({
     setSelection({ automation: id, run: null });
   };
 
+  const archiveRunChat = onArchiveRunChat ?? (async () => true);
+
   const removeAutomation = async (item: AutomationItem) => {
     const count = item.runs.length;
     const ok = await ask(
@@ -274,7 +277,28 @@ export function AutomationsView({
     setSelection((shown) =>
       shown.automation === item.id ? { automation: null, run: null } : shown,
     );
-    await deleteAutomation(item.id, onArchiveRunChat ?? (async () => true));
+    await deleteAutomation(item.id, archiveRunChat);
+  };
+
+  const removeRuns = async (item: AutomationItem, chosen: ScheduledRun[]) => {
+    // Nothing is left to show once a deleted automation's last run goes.
+    if (!item.agent && chosen.length === item.runs.length)
+      setSelection({ automation: null, run: null });
+    await deleteAutomationRuns(
+      chosen.map((entry) => entry.id),
+      archiveRunChat,
+    );
+  };
+
+  const removeOlderRuns = async (
+    item: AutomationItem,
+    chosen: ScheduledRun[],
+  ) => {
+    const ok = await ask(
+      `Delete ${chosen.length} runs? Their chats move to Archive in Settings.`,
+      { title: "Aven", kind: "warning", okLabel: "Delete" },
+    );
+    if (ok) await removeRuns(item, chosen);
   };
 
   const detail = editor ? (
@@ -323,6 +347,8 @@ export function AutomationsView({
       }
       onEdit={(agent) => setEditor({ mode: "edit", agent })}
       onDelete={() => void removeAutomation(current)}
+      onDeleteRun={(entry) => void removeRuns(current, [entry])}
+      onDeleteOlderRuns={(chosen) => void removeOlderRuns(current, chosen)}
       onRunNow={onRunAutomation}
     />
   ) : (

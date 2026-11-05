@@ -637,24 +637,29 @@ export function holdsChat(
 }
 
 /**
- * Delete an automation for good. The schedule goes at once, so it can't fire
- * again. `archiveChat` then takes each chat its runs still hold, stopping one
- * that is running, before the runs go: a run's chat must never end up among
- * the project's chats with no run keeping it out. A run whose chat couldn't
- * be archived stays, so deleting again can finish the job. A chat you opened
- * as a chat stays yours.
+ * Let runs go on purpose. `archiveChat` takes each chat they alone still hold,
+ * stopping one that is running, before the runs go: a run's chat must never
+ * end up among the project's chats with no run keeping it out. A run whose chat
+ * couldn't be archived stays, so deleting again can finish the job. A chat you
+ * opened as a chat stays yours.
  */
-export async function deleteAutomation(
-  id: string,
+async function deleteRuns(
+  going: (run: ScheduledRun) => boolean,
   archiveChat: (sessionId: string) => Promise<boolean>,
 ) {
-  schedules.write(schedules.read().filter((item) => item.id !== id));
-  const stuck = new Set<string>();
-  const chats = runs
-    .read()
-    .filter((run) => run.scheduleId === id)
+  const all = runs.read();
+  const kept = new Set(
+    all
+      .filter((run) => !going(run))
+      .filter(holdsChat)
+      .map((run) => run.sessionId),
+  );
+  const chats = all
+    .filter(going)
     .filter(holdsChat)
-    .map((run) => run.sessionId);
+    .map((run) => run.sessionId)
+    .filter((sessionId) => !kept.has(sessionId));
+  const stuck = new Set<string>();
   for (const sessionId of new Set(chats)) {
     const archived = await archiveChat(sessionId).catch((error) => {
       logError("Archive an automation run's chat", error);
@@ -666,9 +671,29 @@ export async function deleteAutomation(
     runs
       .read()
       .filter(
-        (run) =>
-          run.scheduleId !== id || (run.sessionId && stuck.has(run.sessionId)),
+        (run) => !going(run) || (run.sessionId && stuck.has(run.sessionId)),
       ),
+  );
+}
+
+/** Delete an automation for good; the schedule goes at once, so it can't fire. */
+export async function deleteAutomation(
+  id: string,
+  archiveChat: (sessionId: string) => Promise<boolean>,
+) {
+  schedules.write(schedules.read().filter((item) => item.id !== id));
+  await deleteRuns((run) => run.scheduleId === id, archiveChat);
+}
+
+/** Delete some of an automation's runs. One still running is never among them. */
+export async function deleteAutomationRuns(
+  ids: readonly string[],
+  archiveChat: (sessionId: string) => Promise<boolean>,
+) {
+  const chosen = new Set(ids);
+  await deleteRuns(
+    (run) => chosen.has(run.id) && run.status !== "running",
+    archiveChat,
   );
 }
 
