@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.1.168] - 2026-11-04
+
+### Added
+
+- **Ready-made connections.** Adding a connection starts with official hosted services, one click each. A row can carry an account name such as Work, and shows which of your agents it reaches and which it can't.
+- **Connections reach more agents.** Chats on Cursor, Grok, fx and OpenCode now get the connections Claude and Codex already have, and Pi's own list joins the page.
+- **Set up automations by asking in a chat.** An automation can also name the connections it needs.
+- **A chat tells you when a connection you added isn't working,** in one quiet line above the message box, with Sign in or Reconnect.
+
+### Changed
+
+- **Tabs join only when you mean it.** Passing over a tab, or letting go on it quickly, only moves yours. Rest on it while a line fills around it, about half a second, then let go to join them.
+- **Named tabs on the top row.** Each starts at its left, up to a set width, and they shrink together only once the row is full. New chat sits right after the last one. A pane's own row of tabs is unchanged.
+- **Resize edges stay quiet.** No line or bar appears when you point at or grab one. The cursor says it can be grabbed, and keyboard focus still shows a line.
+- **The hover sidebar opens a little sooner.**
+- **Data files download without a Save dialog,** such as images, PDFs and spreadsheets, so an agent working in a page isn't stopped by one. Apps, installers, scripts and anything unknown still ask.
+
+### Fixed
+
+- **Dragging the sidebar or a pane is smooth,** even with long chats and several tabs open. The top bar now moves with the page instead of jumping when you let go.
+- **Switching chat tabs and showing or hiding the sidebar are about three to four times faster,** and streaming a reply uses about half the CPU, in Aven's speed test.
+- **The iPhone pane no longer fills your disk.** Its simulator helper stops keeping video of its test run, which reached 82 GB on one simulator, and clears what earlier runs left behind. The pane also uses the live screen on Xcode 27.2.
+- **An automation that needs a signed-out connection now fails and says which,** instead of reporting that it finished.
+- **Adding a connection to Codex or Pi can't overwrite one with the same name,** and same-named connections that point to different places stay apart.
+- **Secrets you type for a connection are hidden,** and kept out of error messages.
+- **Sign-in says which agent it's for,** and adding a remote connection to Codex waits for you to finish signing in.
+
+### Known issue
+
+- With a chat wallpaper set, resizing is still slower than without one.
+
 ## [0.1.167] - 2026-11-04
 
 ### Added
