@@ -798,7 +798,7 @@ describe("one card at a time, stacked", () => {
     await h.advance(10 * MINUTE);
     expect(card()).toMatchObject({ stage: "stuck" });
     expect(card().stuck?.text).toContain(
-      "its work couldn't be stacked on the team's branch",
+      "its work couldn't be stacked on Avos's branch",
     );
     expect(card().stacked).toBeUndefined();
     h.runner.stop();
@@ -1301,7 +1301,7 @@ describe("the Scout: ideas start themselves, within limits", () => {
       stage: "stuck",
       stuck: {
         reason: "failed",
-        text: "Beetle's turn didn't finish: Aven couldn't read what changed in the team's copy",
+        text: "Beetle's turn didn't finish: Aven couldn't read what changed in Avos's copy",
       },
     });
     // Its work may still be in the copy: nothing else starts on top of it.
@@ -1833,7 +1833,7 @@ describe("what an agent leaves in the copy", () => {
     expect(h.sent).toEqual([]);
     expect(card().stuck?.reason).toBe("failed");
     expect(card().stuck?.text).toContain(
-      "Aven found .claude/settings.local.json in the team's copy and removed it",
+      "Aven found .claude/settings.local.json in Avos's copy and removed it",
     );
     // Removed: Try again goes ahead.
     resumeCrewCard(PATH, card().id);
@@ -2081,7 +2081,7 @@ describe("the Scout's look", () => {
   });
 });
 
-describe("a goal: the team keeps going", () => {
+describe("a goal: Avos keeps going", () => {
   const goalReply = (body: object) => ({ text: fence("aven-goal", body) });
   const builds = (
     _text: string,
@@ -2158,7 +2158,7 @@ describe("a goal: the team keeps going", () => {
     expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
     expect(crew.goal?.done).toMatchObject({ met: false });
     expect(crew.goal?.done?.text).toBe(
-      "Nothing left to plan for the goal: Needs a design decision. The team stops here.",
+      "Nothing left to plan for the goal: Needs a design decision. Avos stops here.",
     );
     h.runner.stop();
   });
@@ -2225,7 +2225,7 @@ describe("a goal: the team keeps going", () => {
     const crew = getCrew(PATH)!;
     expect(crew.goal?.done?.met).toBe(true);
     expect(crew.feed.map((entry) => entry.text)).toContain(
-      "Aven undid what Beetle changed in the team's copy while planning: planning only reads.",
+      "Aven undid what Beetle changed in Avos's copy while planning: planning only reads.",
     );
     h.runner.stop();
   });
@@ -2245,7 +2245,7 @@ describe("a goal: the team keeps going", () => {
     const crew = getCrew(PATH)!;
     expect(crew.goal?.done).toMatchObject({
       met: false,
-      text: "Aven couldn't check the team's copy after Fox's planning, so the team stopped. Look over the copy, then Keep going to try again.",
+      text: "Aven couldn't check Avos's copy after Fox's planning, so Avos stopped. Look over the copy, then Keep going to try again.",
     });
     expect(crew.feed.at(-1)).toMatchObject({ kind: "hold", who: "aven" });
     expect(h.copy.discard).not.toHaveBeenCalled();

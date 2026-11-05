@@ -21,7 +21,7 @@ describe("a teammate's chat", () => {
     expect(open).toContain(
       "if (!teammateChatReady(crew, member.id)) return firstCardChatText(name);",
     );
-    expect(open).toContain('return "Turn the team on first.";');
+    expect(open).toContain('return "Avos is off. Open Avos to wake it.";');
     const workspace = block("installCrewWorkspace({", "\n      }),");
     expect(workspace).toContain(
       "const why = await openCrewChat(path, role);\n          if (!why) closeUtilityViews();\n          return why;",
@@ -41,16 +41,24 @@ describe("a project you delete or archive", () => {
   });
 });
 
-describe("New team on a project that needs Git", () => {
-  it("asks for Git for a team, and goes on to Build a team once it's set up", () => {
-    expect(block("const onAddCrew = useCallback(")).toContain(
-      'setBotGitSetup({ path, state: need, for: "team" });',
+describe("Avos in a project that needs Git", () => {
+  it("opens without Git, offers Set up Git when building needs it, and opens Avos once it's set up", () => {
+    const open = block("const onOpenAvos = useCallback(");
+    expect(open).toContain("ensureAvos(path);");
+    expect(open).not.toContain("gitSetupNeeded");
+    expect(
+      block("const turnOnCrewFor = useCallback(", "}, []);"),
+    ).not.toContain("gitSetupNeeded");
+    const workspace = block("installCrewWorkspace({", "\n      }),");
+    expect(workspace).toContain("gitNeeded: gitSetupNeeded,");
+    expect(workspace).toContain(
+      'if (need) setBotGitSetup({ path, state: need, for: "team" });',
     );
     expect(block("const onAddBot = useCallback(")).toContain(
       'setBotGitSetup({ path, state: need, for: "bot" });',
     );
     const sheet = block("<BotGitSetupSheet", "/>");
     expect(sheet).toContain("kind={botGitSetup.for}");
-    expect(sheet).toContain("if (forTeam) onAddCrew(path);");
+    expect(sheet).toContain("if (forTeam) onOpenAvos(path);");
   });
 });

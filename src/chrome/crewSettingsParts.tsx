@@ -131,7 +131,7 @@ export function memberAppLine(member: CrewMember): string {
 export function agentProblem(id: HarnessId, role: CrewRole): string | null {
   if (!crewAgentAllowed(id))
     return role === "builder"
-      ? "Can't be held to the team's rules yet"
+      ? "Can't be held to Avos's rules yet"
       : "Can't be locked to read-only";
   if (!crewAgentsFor(role).includes(id))
     return "Can't keep a Builder out of the copy's settings yet";

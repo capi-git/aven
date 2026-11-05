@@ -357,8 +357,8 @@ export function TeamBuilder({
           ))}
         </ul>
         <p className="team-build-note">
-          They change files only in the team's copy and never push or publish.
-          Your files change only when you apply their work.
+          They change files only in Avos's copy and never push or publish. Your
+          files change only when you apply their work.
         </p>
         {problem ? (
           <p className="bot-sheet-problem" role="alert">

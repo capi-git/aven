@@ -783,7 +783,7 @@ describe("the team view: the Board with the team on it", () => {
       container.querySelector<HTMLElement>("[data-crew-goal]")!;
     expect(goal().dataset.crewGoal).toBe("on");
     expect(goal().textContent).toBe(
-      "Goal Build the whole Pom app · the team keeps going",
+      "Goal Build the whole Pom app · Avos keeps going",
     );
     // A card that waits on you with work in hand: the goal waits too.
     await act(async () =>
@@ -891,7 +891,7 @@ describe("the team view: the Board with the team on it", () => {
     const dialog = document.querySelector<HTMLElement>(
       '[data-confirm-dialog="Delete this card?"]',
     )!;
-    expect(dialog.textContent).toContain("It leaves the team's queue too.");
+    expect(dialog.textContent).toContain("It leaves Avos's queue too.");
     await act(async () => button(dialog, "Confirm")!.click());
     await settle();
     expect(crewCard(getCrew(PROJECT)!, boards[5].id)?.stage).toBe("discarded");
@@ -1066,7 +1066,7 @@ describe("the team view: the Board with the team on it", () => {
       '[data-confirm-dialog="Delete this card?"]',
     )!;
     expect(dialog.textContent).toContain(
-      "The team's Ready change is thrown away too.",
+      "Avos's Ready change is thrown away too.",
     );
     // An ordinary card's Delete says nothing about the crew.
     await act(async () =>
@@ -1083,7 +1083,7 @@ describe("the team view: the Board with the team on it", () => {
     ).not.toContain("crew");
   });
 
-  it("shows the team's branch as one batch: Review, Apply all, and a way past a conflict", async () => {
+  it("shows Avos's branch as one batch: Review, Apply all, and a way past a conflict", async () => {
     const boards = await setUp((boards) => (crew) => {
       const stack = (board: FeatureCard, parent: string, commit: string) => ({
         ...crewCardFor(board, "ready"),
@@ -1100,7 +1100,7 @@ describe("the team view: the Board with the team on it", () => {
     // One card on top of Ready for you stands for the cards on the branch.
     expect(column("review").contains(batch)).toBe(true);
     expect(batch.querySelector(".work-board-card-name")?.textContent).toBe(
-      "2 cards ready on the team's branch",
+      "2 cards ready on Avos's branch",
     );
     expect(stage(batch)).toBe(
       `Ready · ${boards[3].title} · ${boards[4].title} · 1 file · checked`,
@@ -1129,7 +1129,7 @@ describe("the team view: the Board with the team on it", () => {
         stack: {
           ...crew.stack!,
           conflict:
-            "Your files changed where the team worked, so nothing was applied. Update the team's branch onto your files, then Apply again.",
+            "Your files changed where Avos worked, so nothing was applied. Update Avos's branch onto your files, then Apply again.",
         },
       })),
     );

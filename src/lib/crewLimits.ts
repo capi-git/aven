@@ -96,7 +96,7 @@ export function crewGate(input: CrewGateInput): CrewGate {
       ok: false,
       reason: "paused",
       title: "Paused",
-      detail: "You paused the team. Nothing new starts until you resume it.",
+      detail: "You paused Avos. Nothing new starts until you resume it.",
     };
   if (inQuietHours(crew.limits.quiet, now))
     return {
@@ -217,7 +217,7 @@ export function crewReviewGate(
     reason: "review",
     title: `${waiting} cards wait for you: review them to keep going`,
     detail:
-      "Nothing new starts until you apply them or take some off the team's branch.",
+      "Nothing new starts until you apply them or take some off Avos's branch.",
   };
 }
 
@@ -452,7 +452,7 @@ export function crewLimitRows(
     },
     {
       title: "One card at a time",
-      detail: `${builder} and ${checker} take turns in the team's copy`,
+      detail: `${builder} and ${checker} take turns in Avos's copy`,
     },
     {
       title: "Your ideas build by themselves, top first",

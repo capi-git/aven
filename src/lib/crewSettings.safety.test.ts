@@ -231,7 +231,7 @@ describe("a member's settings never weaken its rules", () => {
   it("says what to do when the copy isn't ready", () => {
     updateCrew(PROJECT, (crew) => ({ ...crew, copy: undefined }));
     expect(crewChatPermissions("c-chat")?.refuse).toBe(
-      "The team's copy isn't ready yet, so its chat didn't start. Wait a moment, then send again.",
+      "The project's copy isn't ready yet, so this chat didn't start. Wait a moment, then send again.",
     );
   });
 

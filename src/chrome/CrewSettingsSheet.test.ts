@@ -561,7 +561,7 @@ describe("a teammate's page", () => {
     const remove = buttonNamed("Remove from team")!;
     expect(remove.disabled).toBe(true);
     expect(remove.className).toBe("crew-settings-remove-link");
-    expect(remove.title).toBe("A team needs a Checker.");
+    expect(remove.title).toBe("Avos needs a Checker.");
   });
 
   it("keeps a Builder's paths as chips with Edit, its default under When it works, and one line of its rules", async () => {
@@ -715,7 +715,7 @@ describe("the sheet's styles", () => {
   });
 });
 
-describe("a teammate's chat before the team's first card", () => {
+describe("a teammate's chat before Avos's first card", () => {
   it("can't be opened, and says why, from its page", async () => {
     const openChat = vi.fn(async () => null as string | null);
     const onClose = vi.fn();
@@ -736,15 +736,13 @@ describe("a teammate's chat before the team's first card", () => {
           }),
         ),
       );
-      // No copy yet: the chat starts with the team's first card.
+      // No copy yet: the chat starts with Avos's first card.
       const open = buttonNamed("Open chat")!;
       expect(open.disabled).toBe(true);
-      expect(open.title).toBe(
-        "Builder's chat starts with the team's first card.",
-      );
+      expect(open.title).toBe("Builder's chat starts with Avos's first card.");
       expect(
         sheet().querySelector("[data-crew-member-notice]")?.textContent,
-      ).toBe("Builder's chat starts with the team's first card.");
+      ).toBe("Builder's chat starts with Avos's first card.");
       // With its copy, a chat that still won't open says why; the sheet stays.
       await act(async () =>
         updateCrew(PATH, (crew) => ({

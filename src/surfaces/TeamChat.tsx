@@ -128,7 +128,7 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   card: "a card",
   rule: "a rule for every card",
   goal: "the goal",
-  lead: "a question for the Lead",
+  lead: "a question for Avos",
 };
 
 type Mode = CrewMessageKind;
@@ -137,7 +137,7 @@ type Mode = CrewMessageKind;
 type Addressee = { id: string; name: string };
 
 const MODES: readonly { id: Mode; label: string; word: string }[] = [
-  { id: "lead", label: "Ask the Lead", word: "Lead" },
+  { id: "lead", label: "Ask Avos", word: "Avos" },
   { id: "card", label: "Build it", word: "Card" },
   { id: "rule", label: "Remember for every card", word: "Rule" },
   { id: "goal", label: "Make it a goal", word: "Goal" },
@@ -517,7 +517,7 @@ function Roster({
                     type="button"
                     className="team-roster-tool"
                     data-team-open-chat
-                    // Its chat starts with the team's first card.
+                    // Its chat starts with Avos's first card.
                     disabled={!teammateChatReady(crew, member.id)}
                     title={
                       teammateChatReady(crew, member.id)
@@ -790,7 +790,7 @@ function Thread({
         ref={scroller}
         className="team-thread-scroll"
         role="log"
-        aria-label={filterName ? `${filterName}'s posts` : "Team thread"}
+        aria-label={filterName ? `${filterName}'s posts` : "Avos thread"}
         data-team-thread
         onScroll={(event) => {
           const element = event.currentTarget;
@@ -822,7 +822,7 @@ function Thread({
           <p className="team-thread-empty">
             {filterName
               ? `Nothing from ${filterName} yet. Write to it below; its handoffs show here.`
-              : "Nothing here yet. Write to the team below, and its handoffs show here."}
+              : "Nothing here yet. Write to Avos below."}
           </p>
         ) : null}
         {thread.days.map((day) => (
@@ -912,6 +912,7 @@ function PostView({
   post: TeamPost;
   onCards: () => void;
 }) {
+  const workspace = useCrewWorkspace();
   if (post.kind === "you")
     return (
       <li className="team-you" data-team-post="you">
@@ -1005,6 +1006,16 @@ function PostView({
         {post.needsYou ? (
           <button type="button" className="team-post-link" onClick={onCards}>
             Answer on its card
+          </button>
+        ) : null}
+        {post.action === "set-up-git" && workspace?.setUpGit ? (
+          <button
+            type="button"
+            className="team-post-link"
+            data-avos-set-up-git
+            onClick={() => workspace.setUpGit?.(project)}
+          >
+            Set up Git
           </button>
         ) : null}
       </div>
@@ -1187,7 +1198,7 @@ function Composer({
     // choose again.
     if (to && toGone) {
       setProblem(
-        `${toName} isn't in the team any more. Pick someone else or write to everyone.`,
+        `${toName} isn't helping Avos any more. Pick someone else or write to Avos.`,
       );
       return;
     }
@@ -1269,10 +1280,10 @@ function Composer({
     : mode === "rule"
       ? "A rule for every card, like “Use pnpm”…"
       : mode === "goal"
-        ? "A goal the team keeps going towards…"
+        ? "A goal Avos keeps going towards…"
         : mode === "lead"
-          ? "Ask the team, or @ one teammate…"
-          : "Write to the team, or @ one teammate…";
+          ? "Ask Avos anything, or @ a helper…"
+          : "Write to Avos, or @ a helper…";
   const current = MODES.find((item) => item.id === mode)!;
   return (
     <div className="team-compose-wrap">
@@ -1314,7 +1325,7 @@ function Composer({
                       option.name,
                       CREW_ROLE_INFO[option.role.role].label,
                     )
-                  : "The whole team"}
+                  : "Looks after this project"}
               </span>
             </li>
           ))}
@@ -1350,7 +1361,7 @@ function Composer({
           className="team-compose-input"
           rows={1}
           role="combobox"
-          aria-label={toName ? `Write to ${toName}` : "Write to the team"}
+          aria-label={toName ? `Write to ${toName}` : "Write to Avos"}
           aria-autocomplete="list"
           aria-expanded={!!picker && options.length > 0}
           aria-controls={picker ? listId : undefined}
@@ -1380,7 +1391,7 @@ function Composer({
             type="button"
             className="team-compose-mode"
             data-mode={mode}
-            aria-label={`How the team takes this: ${current.label}`}
+            aria-label={`How Avos takes this: ${current.label}`}
             title="A card to build, a rule for every card, or a goal"
             aria-haspopup="menu"
             aria-expanded={!!menu}
@@ -1393,8 +1404,8 @@ function Composer({
         <button
           type="button"
           className="team-compose-at"
-          aria-label="Write to one teammate"
-          title="Write to one teammate"
+          aria-label="Write to one helper"
+          title="Write to one helper"
           aria-expanded={!!picker && picker.start < 0}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
@@ -1407,7 +1418,7 @@ function Composer({
         <button
           type="submit"
           className="team-compose-send"
-          aria-label={toName ? `Send to ${toName}` : "Send to the team"}
+          aria-label={toName ? `Send to ${toName}` : "Send to Avos"}
           disabled={!text.trim() || sending}
         >
           <MoveUp className="size-3.5" />
@@ -1425,7 +1436,7 @@ function Composer({
           anchor={menu}
           align="end"
           gap={4}
-          ariaLabel="How the team takes this"
+          ariaLabel="How Avos takes this"
           items={MODES.filter((item) => item.id !== "lead" || hasLead).map(
             (item) => ({
               kind: "item" as const,

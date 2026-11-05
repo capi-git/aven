@@ -154,7 +154,7 @@ export function boardCardProblem(
 }
 
 /**
- * Why the folder listing of the team's copy isn't clean after a turn: the
+ * Why the folder listing of Avos's copy isn't clean after a turn: the
  * Designer's folder must be gone and no stray file left. Null when it is.
  */
 export function copyLeftoversProblem(
@@ -367,7 +367,7 @@ async function addIdeaFromBoard(project: string, text: string) {
 
 /**
  * Ask the Researcher or the Designer from the Board's box, and the card's
- * id once it is theirs. The team is paused while the card lands: the Board
+ * id once it is theirs. Avos is paused while the card lands: the Board
  * adds it as an idea and asks a moment later, and an idle team would start
  * the idea by itself in between (the Builder, not the one asked).
  */
@@ -1152,7 +1152,7 @@ export async function checkDesigner(
 
 /**
  * A message to everyone, through the app: it reaches the Lead, the Lead asks
- * the Checker and starts a helper, each runs sandboxed in the team's copy with
+ * the Checker and starts a helper, each runs sandboxed in Avos's copy with
  * no web, the answers come back, and the team chat shows the Lead's line.
  */
 export async function checkTeamTalk(
@@ -1224,7 +1224,7 @@ export async function checkTeamTalk(
     const left = getCrew(project);
     return `the Lead asked the Checker and a helper, ${
       left?.helperRuns?.count ?? 0
-    } helper run, every turn sandboxed in the team's copy`;
+    } helper run, every turn sandboxed in Avos's copy`;
   } finally {
     await tidy(project);
   }
@@ -1240,7 +1240,7 @@ const SMOKE_JOB_DRAFT = "Spring launch";
 /**
  * A standing job from the team's chat: asked to watch a Notion page, the Lead
  * sets up the team's job (no idea cards), the chat shows it with Change, the
- * job runs in the project itself (not the team's copy) and its Publish card
+ * job runs in the project itself (not Avos's copy) and its Publish card
  * shows in the chat, a paused team's job doesn't run, and Change opens it.
  */
 export async function checkTeamJob(

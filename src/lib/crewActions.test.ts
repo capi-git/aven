@@ -373,7 +373,7 @@ describe("Apply lands exactly the reviewed change", () => {
       job: { owner: "other", since: NOON, heartbeat: NOON },
     }));
     expect(await applyCrewCard(PATH, id, NOON + 1_000)).toBe(
-      "The team is still working. Apply once it finishes.",
+      "Avos is still working. Apply once it finishes.",
     );
     expect(host.apply).not.toHaveBeenCalled();
   });
@@ -420,7 +420,7 @@ describe("card actions", () => {
 
   it("asks you to turn the team on first", async () => {
     expect(await giveCardToCrew(PATH, { id: "x", title: "X" }, NOON)).toBe(
-      "Turn the team on first.",
+      "Avos is off. Open Avos to wake it.",
     );
   });
 
@@ -663,8 +663,8 @@ describe("crew controls", () => {
     setCrewPaused(PATH, false, NOON);
     expect(getCrew(PATH)!.paused).toBeUndefined();
     expect(getCrew(PATH)!.feed.map((entry) => entry.text)).toEqual([
-      "You paused the team",
-      "You resumed the team",
+      "You paused Avos",
+      "You resumed Avos",
     ]);
   });
 
@@ -851,14 +851,12 @@ describe("Tell the team… gives it work", () => {
       from: "you",
     });
     expect(crew.notes).toEqual([]);
-    expect(crew.feed.at(-1)?.text).toBe(
-      "You gave the team “Add a timer screen”",
-    );
+    expect(crew.feed.at(-1)?.text).toBe("You gave Avos “Add a timer screen”");
   });
 
   it("asks you to turn the team on first, and adds nothing", async () => {
     expect(await tellCrewWork(PATH, "build a timer", NOON)).toBe(
-      "Turn the team on first.",
+      "Avos is off. Open Avos to wake it.",
     );
     expect(featureBoardState(PATH).cards).toEqual([]);
   });
@@ -871,8 +869,8 @@ describe("Tell the team… gives it work", () => {
     expect(featureBoardState(PATH).cards).toEqual([]);
     // Nothing waits, so it says what it needs.
     expect(crew.feed.map((entry) => entry.text).slice(-2)).toEqual([
-      "You resumed the team",
-      "Tell the team what to build, or add an idea.",
+      "You resumed Avos",
+      "Tell Avos what to build, or add an idea.",
     ]);
   });
 });
@@ -898,7 +896,7 @@ describe("a nudge with cards waiting on the branch", () => {
     }));
     expect(await tellCrewWork(PATH, "go", NOON)).toBeNull();
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "2 cards wait for you on the team's branch: review them to apply them.",
+      "2 cards wait for you on Avos's branch: review them to apply them.",
     );
   });
 
@@ -922,7 +920,7 @@ describe("a nudge with cards waiting on the branch", () => {
     });
     expect(await tellCrewWork(PATH, "keep going", NOON)).toBeNull();
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "2 cards wait for you on the team's branch: review them to keep going.",
+      "2 cards wait for you on Avos's branch: review them to keep going.",
     );
   });
 });
@@ -978,7 +976,7 @@ describe("a goal a member took down", () => {
     expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
     expect(
       setMemberGoal(PATH, "scout", "r1", "Build the whole Pom app", {}, NOON),
-    ).toBe("The team already has your goal. Replace it to use this one.");
+    ).toBe("Avos already has your goal. Replace it to use this one.");
     expect(getCrew(PATH)!.goal?.text).toBe("Just the settings page");
     expect(
       setMemberGoal(
@@ -1006,7 +1004,7 @@ describe("a goal from Tell the team…", () => {
       at: NOON,
     });
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "You set the team's goal: Build the whole Pom app",
+      "You set Avos's goal: Build the whole Pom app",
     );
     updateCrew(PATH, (crew) => ({
       ...crew,

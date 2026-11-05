@@ -193,7 +193,7 @@ export function CrewSettingsSheet({
   if (member?.role === "fixer") {
     header = {
       title: crewMemberName(crew, member.id, fixerName),
-      description: `Fixer on ${project}'s team`,
+      description: `Fixer for ${project}'s Avos`,
       leading: (
         <span className="bot-sheet-critter">
           <BotCritter path={path} className="bot-sheet-critter-sprite" />
@@ -251,7 +251,7 @@ export function CrewSettingsSheet({
             disabled={!crew.on || !workspace || !chatReady}
             title={
               !crew.on
-                ? "Turn the team on to open its chat"
+                ? "Wake Avos to open its chat"
                 : !chatReady
                   ? firstCardChatText(name)
                   : undefined
@@ -340,7 +340,7 @@ export function CrewSettingsSheet({
       (entry) => entry.role !== "fixer" || !!fixerName,
     );
     header = {
-      title: `${project} team`,
+      title: `${project}'s Avos`,
       leading: (
         <span className="bot-sheet-critter">
           <CrewCritters
@@ -356,7 +356,7 @@ export function CrewSettingsSheet({
       trailing: (
         <span title="Works only while Aven is open and your Mac is awake">
           <Toggle
-            label="Team on"
+            label="Avos on"
             tone="neutral"
             on={crew.on}
             disabled={busy}
@@ -472,7 +472,7 @@ function CrewBody({
   const allRuns = useCrewsAllRunsPerDay();
   return (
     <div className="bot-sheet-body" data-crew-settings={path}>
-      <Section title="Teammates">
+      <Section title="Helpers">
         {members.map((member) => (
           <button
             key={member.id}
@@ -524,7 +524,7 @@ function CrewBody({
             data-variant="ghost"
             onClick={() => setCrewPaused(path, !crew.paused)}
           >
-            {crew.paused ? "Resume team" : "Pause team"}
+            {crew.paused ? "Resume Avos" : "Pause Avos"}
           </button>
         ) : null}
         <button
@@ -616,7 +616,7 @@ function AccessSection({ crew }: { crew: Crew }) {
         <div data-crew-access-custom>
           <LimitRow
             title="Delete files in its copy"
-            detail="Builders, in the team's copy and temp folders, without asking"
+            detail="Builders, in Avos's copy and temp folders, without asking"
           >
             <Toggle
               label="Delete files in its copy"
@@ -632,7 +632,7 @@ function AccessSection({ crew }: { crew: Crew }) {
                 ? "Everyone searches and reads pages, and uses Aven's browser. The Scout's ideas then wait for you, as the Researcher's always do"
                 : access.web === "builders"
                   ? "Builders and the Researcher search and read pages. All but the Scout use Aven's browser, to try the work"
-                  : "No teammate searches, reads pages or uses Aven's browser"
+                  : "No helper searches, reads pages or uses Aven's browser"
             }
           >
             <Segmented
@@ -757,7 +757,7 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
             detail={
               quiet.on
                 ? `Nothing new starts ${quietText(quiet)}`
-                : "The team may start work at any hour"
+                : "Avos may start work at any hour"
             }
           >
             <Toggle
@@ -778,7 +778,7 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
             <>
               <LimitRow
                 title="Runs a day, all teams"
-                detail="A ceiling for every team together"
+                detail="A ceiling for every Avos together"
               >
                 <NumberPick
                   label="Runs a day, all teams"
@@ -800,7 +800,7 @@ function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
               </LimitRow>
               <LimitRow
                 title="Cards waiting for you"
-                detail="Passed cards on the team's branch before it starts no new one"
+                detail="Passed cards on Avos's branch before it starts no new one"
               >
                 <NumberPick
                   label="Cards waiting for you"

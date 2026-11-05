@@ -276,7 +276,7 @@ describe("Start team from the setup sheet", () => {
         async () => null,
         MODELS,
       ),
-    ).toEqual({ on: false, problem: "A team needs a Builder." });
+    ).toEqual({ on: false, problem: "Avos needs a Builder." });
     updateCrew(PATH, (crew) => ({ ...crew, on: true, onAt: 1 }));
     expect(
       (
@@ -291,8 +291,6 @@ describe("Start team from the setup sheet", () => {
           MODELS,
         )
       ).problem,
-    ).toBe(
-      "This team has started already: add or remove teammates one at a time.",
-    );
+    ).toBe("Avos has started already: add or remove helpers one at a time.");
   });
 });

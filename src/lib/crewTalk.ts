@@ -201,7 +201,7 @@ function howToAnswer(input: {
       : []),
     ...(input.mayStartHelpers
       ? [
-          `A helper looks into one thing at the same time as you: it reads the project in the team's copy, changes nothing, has no web, and its answer comes back to you here. Start one only when several things need looking into at once. At most ${CREW_HELPERS.perAgent} at a time. To get something built, ${input.isLead ? "use cards" : "tell the user"}.`,
+          `A helper looks into one thing at the same time as you: it reads the project in its copy, changes nothing, has no web, and its answer comes back to you here. Start one only when several things need looking into at once. At most ${CREW_HELPERS.perAgent} at a time. To get something built, ${input.isLead ? "use cards" : "tell the user"}.`,
         ]
       : []),
     ...(input.isLead

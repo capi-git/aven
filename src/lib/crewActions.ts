@@ -220,7 +220,7 @@ export function turnOnCrew(path: string, models: CrewModels, now = Date.now()) {
       at: now,
       kind: "note",
       who: "aven",
-      text: "The team is on",
+      text: "Avos is on",
     });
   });
 }
@@ -267,7 +267,7 @@ export function setCrewPaused(path: string, paused: boolean, now = Date.now()) {
             at: now,
             kind: "note",
             who: "you",
-            text: paused ? "You paused the team" : "You resumed the team",
+            text: paused ? "You paused Avos" : "You resumed Avos",
           },
         ),
   );
@@ -355,7 +355,7 @@ export function clearCrewGoal(path: string, now = Date.now()) {
       at: now,
       kind: "note",
       who: "you",
-      text: "You cleared the team's goal",
+      text: "You cleared Avos's goal",
     });
   });
 }
@@ -377,15 +377,14 @@ export function resumeCrewGoal(path: string, now = Date.now()) {
         at: now,
         kind: "note",
         who: "you",
-        text: `You asked the team to keep going: ${crew.goal.text}`,
+        text: `You asked Avos to keep going: ${crew.goal.text}`,
       },
     );
   });
 }
 
 /** What the crew says to a nudge when it has nothing to start. */
-export const CREW_NOTHING_TO_BUILD =
-  "Tell the team what to build, or add an idea.";
+export const CREW_NOTHING_TO_BUILD = "Tell Avos what to build, or add an idea.";
 
 const escapeWord = (word: string) =>
   word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -451,7 +450,7 @@ export async function tellCrewWork(
 ): Promise<string | null> {
   const words = text.trim().slice(0, CREW_NOTE_MAX);
   if (!words) return null;
-  if (!getCrew(path)?.on) return "Turn the team on first.";
+  if (!getCrew(path)?.on) return AVOS_ASLEEP;
   if (crewNudge(words, path)) {
     nudgeCrew(path, words, now);
     return null;
@@ -482,14 +481,17 @@ export async function tellTeam(
   if (!words) return null;
   if (words.length > CREW_NOTE_MAX) return TOO_LONG_FOR_EVERYONE;
   if (as === "goal" && words.length > CREW_GOAL_MAX) return TOO_LONG_FOR_A_GOAL;
+  // Writing to Avos wakes it.
+  const woke = await wakeAvos(path);
+  if (woke) return woke;
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the team on first.";
+  if (!crew?.on) return AVOS_ASLEEP;
   // "keep going" starts what waits: no card, so it isn't called one.
   const nudge = as === "card" && crewNudge(words, path);
   const before = new Set(crew.feed.map((entry) => entry.id));
   if (as === "lead") {
     const lead = crewLead(crew);
-    if (!lead) return "This team has no Lead. Add one, or give it a card.";
+    if (!lead) return "This project has no Avos yet. Open Avos first.";
     updateCrew(path, (current) =>
       withMessage(
         withTalk(current, {
@@ -511,7 +513,7 @@ export async function tellTeam(
     if (problem) return problem;
   }
   // The Feed's own line for what you wrote: your message stands for it.
-  // Anything else it led to ("You resumed the team") stays as it is.
+  // Anything else it led to ("You resumed Avos") stays as it is.
   const echo = getCrew(path)?.feed.find(
     (entry) => !before.has(entry.id) && entry.who === "you" && entry.at === now,
   )?.id;
@@ -530,10 +532,10 @@ export async function tellTeam(
 export const TOO_LONG_FOR_A_GOAL = `A goal has to fit in ${CREW_GOAL_MAX} characters. Shorten it, or send it as a card.`;
 
 /** Said when a message to everyone is longer than a card's note can be. */
-export const TOO_LONG_FOR_EVERYONE = `That's too long for the whole team: keep it under ${CREW_NOTE_MAX} characters, or write to one teammate.`;
+export const TOO_LONG_FOR_EVERYONE = `That's too long for Avos: keep it under ${CREW_NOTE_MAX} characters, or write to one helper.`;
 
 /**
- * A teammate's own chat starts with the team's copy, which is made at its
+ * A teammate's own chat starts with Avos's copy, which is made at its
  * first card: until then there is no chat to open or write to. The Fixer's
  * chat is the project bot's, so it is always there.
  */
@@ -544,9 +546,9 @@ export function teammateChatReady(
   return crewMemberById(crew, memberId)?.role === "fixer" || !!crew.copy;
 }
 
-/** Said while a teammate's chat waits for the team's first card. */
+/** Said while a teammate's chat waits for Avos's first card. */
 export function firstCardChatText(name: string): string {
-  return `${name}'s chat starts with the team's first card.`;
+  return `${name}'s chat starts with Avos's first card.`;
 }
 
 /**
@@ -564,11 +566,11 @@ export async function tellTeammate(
   const words = text.trim().slice(0, CREW_MESSAGE_MAX);
   if (!words) return null;
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the team on first.";
+  if (!crew?.on) return AVOS_ASLEEP;
   if (!crewMemberById(crew, memberId))
-    return "That teammate isn't in the team.";
+    return "That helper isn't with Avos any more.";
   const send = crewWorkspace()?.sendToMember;
-  if (!send) return "Open Aven's main window to write to a teammate.";
+  if (!send) return "Open Aven's main window to write to a helper.";
   const problem = await send(path, memberId, words).catch((error) =>
     errorText(error),
   );
@@ -628,7 +630,7 @@ function nudgeCrew(path: string, words: string, now: number) {
   if (acted && next && !waitsForReview(crew)) return;
   // Passed work waiting on the branch is yours to review, not the crew's.
   const waiting = stackedCards(crew).length;
-  const onBranch = `${waiting === 1 ? "One card waits" : `${waiting} cards wait`} for you on the team's branch`;
+  const onBranch = `${waiting === 1 ? "One card waits" : `${waiting} cards wait`} for you on Avos's branch`;
   const reply = !next
     ? waiting
       ? `${onBranch}: ${waiting === 1 ? "review it to apply it" : "review them to apply them"}.`
@@ -641,7 +643,7 @@ function nudgeCrew(path: string, words: string, now: number) {
         ? `“${next.title}” is Ready: apply it or send it back from its card.`
         : next.stage === "queued" && waitsForReview(crew)
           ? `${onBranch}: review them to keep going.`
-          : `The team is on “${next.title}”.`;
+          : `Avos is on “${next.title}”.`;
   updateCrew(path, (current) =>
     withFeed(current, { at: now, kind: "note", who: "aven", text: reply }),
   );
@@ -697,11 +699,16 @@ export async function giveCardToCrew(
   now = Date.now(),
   choice?: CrewCardChoice,
 ): Promise<string | null> {
-  const crew = getCrew(path);
-  if (!crew?.on) return "Turn the team on first.";
+  let crew = getCrew(path);
+  if (!crew?.on) return AVOS_ASLEEP;
   const known = crewCard(crew, card.id);
   if (known && known.stage !== "applied" && known.stage !== "discarded")
     return null;
+  // Building happens in a copy, which needs Git: Avos offers to set it up.
+  const noGit = await buildingProblem(path, now);
+  if (noGit) return noGit;
+  // Avos brings in the helpers building needs, the first time it does.
+  crew = bringInBuilders(path, now) ?? crew;
   const idea = crew.ideas?.[card.id];
   updateCrew(path, (current) => {
     const chosen = crewCardChoice(current, choice);
@@ -747,7 +754,7 @@ export async function giveCardToCrew(
         who: "you",
         cardId: card.id,
         title: card.title,
-        text: `You gave the team “${card.title}”${to}`,
+        text: `You gave Avos “${card.title}”${to}`,
       },
     );
   });
@@ -765,7 +772,7 @@ export async function giveIdeasToCrew(
   titles: readonly string[],
   now = Date.now(),
 ): Promise<string | null> {
-  if (!getCrew(path)?.on) return "Turn the team on first.";
+  if (!getCrew(path)?.on) return AVOS_ASLEEP;
   await loadFeatureCards(path);
   for (const title of titles) {
     // One the team already has (started by itself, say) isn't made twice.
@@ -802,12 +809,12 @@ export function researchQuestion(text: string): string | null {
   return question || null;
 }
 
-export const NO_RESEARCHER = "Add a Researcher to the team first.";
+export const NO_RESEARCHER = "Add a Researcher as a helper first.";
 const RESEARCHER_OFF = "Turn the Researcher on first.";
 
 /**
  * Ask the Researcher a Board card's question: it waits in Building as
- * Queued and takes one read-only turn when the team's copy is free, ending
+ * Queued and takes one read-only turn when Avos's copy is free, ending
  * in Findings for you. Resolves with why it couldn't, or null.
  */
 export async function askResearcher(
@@ -816,7 +823,7 @@ export async function askResearcher(
   now = Date.now(),
 ): Promise<string | null> {
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the team on first.";
+  if (!crew?.on) return AVOS_ASLEEP;
   if (!cardResearcher(crew))
     return crew.members.some((member) => member.role === "researcher")
       ? RESEARCHER_OFF
@@ -907,7 +914,7 @@ export async function addQuestionCard(
 ): Promise<{ card: FeatureCard | null; problem: string | null }> {
   const crew = getCrew(path);
   if (!crew || (!crew.on && !options.whileOff))
-    return { card: null, problem: "Turn the team on first." };
+    return { card: null, problem: AVOS_ASLEEP };
   const problem =
     kind === "research" ? researcherProblem(crew) : designerProblem(crew);
   if (problem) return { card: null, problem };
@@ -979,12 +986,12 @@ export function designQuestion(text: string): string | null {
   return asked || null;
 }
 
-export const NO_DESIGNER = "Add a Designer to the team first.";
+export const NO_DESIGNER = "Add a Designer as a helper first.";
 const DESIGNER_OFF = "Turn the Designer on first.";
 
 /**
  * Ask the Designer to mock up a Board card: it waits in Building as Queued
- * and takes one turn when the team's copy is free, ending in a Mock-up for
+ * and takes one turn when Avos's copy is free, ending in a Mock-up for
  * you to look at. Resolves with why it couldn't, or null.
  */
 export async function askDesigner(
@@ -993,7 +1000,7 @@ export async function askDesigner(
   now = Date.now(),
 ): Promise<string | null> {
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the team on first.";
+  if (!crew?.on) return AVOS_ASLEEP;
   if (!cardDesigner(crew))
     return crew.members.some((member) => member.role === "designer")
       ? DESIGNER_OFF
@@ -1280,9 +1287,9 @@ export async function queueMemberTasks(
   now = Date.now(),
 ): Promise<string | null> {
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the team on first.";
+  if (!crew?.on) return AVOS_ASLEEP;
   if (!crewMemberById(crew, memberId))
-    return "That teammate isn't in the team.";
+    return "That helper isn't with Avos any more.";
   if (!tasks.length) return null;
   if (!takeAsk(path, replyId)) return null;
   const added: FeatureCard[] = [];
@@ -1347,11 +1354,11 @@ export function setMemberGoal(
   now = Date.now(),
 ): string | null {
   const crew = getCrew(path);
-  if (!crew?.on) return "Turn the team on first.";
+  if (!crew?.on) return AVOS_ASLEEP;
   if (!crewMemberById(crew, memberId))
-    return "That teammate isn't in the team.";
+    return "That helper isn't with Avos any more.";
   if (yourGoal(crew) && !options.replace)
-    return "The team already has your goal. Replace it to use this one.";
+    return "Avos already has your goal. Replace it to use this one.";
   if (!takeAsk(path, replyId)) return null;
   updateCrew(path, (current) =>
     withGoal(
@@ -1542,7 +1549,7 @@ function againFromTheTop(
 }
 
 const NOT_READY = "This card is no longer ready.";
-const STILL_WORKING = "The team is still working. Apply once it finishes.";
+const STILL_WORKING = "Avos is still working. Apply once it finishes.";
 
 /**
  * A Ready card whose change moved after its check: never re-stamped as
@@ -1724,15 +1731,14 @@ export function crewBatch(crew: Crew | undefined): CrewBatch | null {
   return cards.length ? { from: crew.stack.base, cards } : null;
 }
 
-const NOT_ON_BRANCH = "That card isn't on the team's branch any more.";
-const BRANCH_MOVED =
-  "The team's branch changed since you looked. Review it again.";
+const NOT_ON_BRANCH = "That card isn't on Avos's branch any more.";
+const BRANCH_MOVED = "Avos's branch changed since you looked. Review it again.";
 /** Said when an Apply didn't say exactly what it reviewed. */
 export const REVIEW_FIRST =
-  "Review the team's branch first: Apply lands exactly the change you reviewed.";
+  "Review Avos's branch first: Apply lands exactly the change you reviewed.";
 /** Said when the crew is at work in its copy. */
 const CREW_AT_WORK =
-  "The team is at work in its copy. Try again once its turn ends.";
+  "Avos is at work in its copy. Try again once its turn ends.";
 
 /** Where the batch ends: at `upTo` (a card's id), else its last card. */
 function batchEnd(
@@ -1834,7 +1840,7 @@ export async function applyCrewBatch(
     logError("Apply crew batch", error);
     if (!/conflict/i.test(errorText(error))) return botCopyError(error);
     const text =
-      "Your files changed where the team worked, so nothing was applied. Update the team's branch onto your files, then Apply again.";
+      "Your files changed where Avos worked, so nothing was applied. Update Avos's branch onto your files, then Apply again.";
     updateCrew(path, (current) =>
       current.stack
         ? { ...current, stack: { ...current.stack, conflict: text } }
@@ -1875,7 +1881,7 @@ export async function applyCrewBatch(
 
 /** The card the crew is at work on (or that waits on you) builds on its branch. */
 const BUILDS_ON_TOP = (title: string) =>
-  `“${title}” builds on top of the team's branch. Finish it or throw it away first.`;
+  `“${title}” builds on top of Avos's branch. Finish it or throw it away first.`;
 
 /**
  * Take the top card off the crew's branch (Back to Ideas or Throw away):
@@ -1934,7 +1940,7 @@ async function dropStackedCardHeld(
   const card = batch?.cards.at(-1);
   if (!crew?.copy || !batch || !card) return NOT_ON_BRANCH;
   if (card.id !== cardId)
-    return "Only the last card on the team's branch can come off it.";
+    return "Only the last card on Avos's branch can come off it.";
   const busy = cardInCopy(crew);
   if (busy) return BUILDS_ON_TOP(busy.title);
   try {
@@ -1983,8 +1989,8 @@ async function dropStackedCardHeld(
       title: known.title,
       text:
         then === "ideas"
-          ? `“${known.title}” came off the team's branch and went back to Ideas`
-          : `You took “${known.title}” off the team's branch and threw it away`,
+          ? `“${known.title}” came off Avos's branch and went back to Ideas`
+          : `You took “${known.title}” off Avos's branch and threw it away`,
     });
   });
   if (then === "ideas") await moveFeatureCard(path, cardId, "idea", "");
@@ -2054,7 +2060,7 @@ async function restackCrewHeld(
       at: now,
       kind: "note",
       who: "aven",
-      text: `Updated the team's branch onto your files (${batch.cards.length} ${batch.cards.length === 1 ? "card" : "cards"}): replayed, not checked again, so Review them before you apply`,
+      text: `Updated Avos's branch onto your files (${batch.cards.length} ${batch.cards.length === 1 ? "card" : "cards"}): replayed, not checked again, so Review them before you apply`,
     });
   });
   return null;
@@ -2079,10 +2085,9 @@ function heldCrewCard(
 export function crewDeleteNote(crew: Crew | undefined, cardId: string): string {
   const card = heldCrewCard(crew, cardId);
   if (!card) return "";
-  if (card.stage === "ready")
-    return "The team's Ready change is thrown away too.";
-  if (card.stage === "queued") return "It leaves the team's queue too.";
-  return "The team's work on it is thrown away too.";
+  if (card.stage === "ready") return "Avos's Ready change is thrown away too.";
+  if (card.stage === "queued") return "It leaves Avos's queue too.";
+  return "Avos's work on it is thrown away too.";
 }
 
 /**
@@ -2228,7 +2233,7 @@ export function addCrewMember(
   input: CrewNewMember = {},
 ): { id: string } | { error: string } {
   const crew = getCrew(path);
-  if (!crew) return { error: "This project has no team." };
+  if (!crew) return { error: "This project has no Avos yet." };
   const role: Exclude<CrewRole, "fixer"> =
     template === "custom" ? (input.role ?? "builder") : template;
   if (
@@ -2250,7 +2255,7 @@ export function addCrewMember(
       }.`,
     };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "A team has at most 8 teammates." };
+    return { error: "Avos has at most 8 helpers." };
   const harness =
     input.harness &&
     crewAgentAllowed(input.harness) &&
@@ -2310,7 +2315,7 @@ export function updateCrewMember(
 ): string | null {
   const crew = getCrew(path);
   const member = crew ? crewMemberById(crew, id) : undefined;
-  if (!crew || !member) return "That teammate isn't in the team.";
+  if (!crew || !member) return "That helper isn't with Avos any more.";
   if (member.role === "fixer") return "The Fixer is set in its own settings.";
   if (change.harness !== undefined && !crewAgentAllowed(change.harness))
     return "Teams run only on apps that keep their rules: Claude Code or Codex.";
@@ -2482,7 +2487,7 @@ export function startTeamFrom(
   const crew = getCrew(path);
   if (!team || !crew) return "That team isn't available.";
   if (!teamUnstarted(crew))
-    return "Add or remove teammates one at a time once the team has started.";
+    return "Add or remove helpers one at a time once Avos has started.";
   const presets = team.members
     .map((member) => CREW_PRESETS.find((preset) => preset.key === member))
     .filter((preset): preset is CrewPreset => !!preset);
@@ -2553,9 +2558,10 @@ export function addCrewPreset(
   const preset = CREW_PRESETS.find((item) => item.key === key);
   const crew = getCrew(path);
   if (!preset || !crew) return { error: "That member isn't available." };
-  if (presetInCrew(crew, preset)) return { error: "It's in the team already." };
+  if (presetInCrew(crew, preset))
+    return { error: "It's helping Avos already." };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "A team has at most 8 teammates." };
+    return { error: "Avos has at most 8 helpers." };
   if (
     (preset.role === "scout" ||
       preset.role === "lead" ||
@@ -2564,7 +2570,7 @@ export function addCrewPreset(
       preset.role === "designer") &&
     crew.members.some((member) => member.role === preset.role)
   )
-    return { error: "It's in the team already." };
+    return { error: "It's helping Avos already." };
   let id = "";
   updateCrew(path, (current) => {
     id = newMemberId(current, preset.role);
@@ -2598,7 +2604,7 @@ export type TeamSetupDraft = {
 
 /** How Start team from the setup sheet ended. */
 export type TeamSetupResult = {
-  /** The team is on: the sheet shows it, whatever else went wrong. */
+  /** Avos is on: the sheet shows it, whatever else went wrong. */
   on: boolean;
   /** Why it didn't start, or what went wrong after it did. */
   problem: string | null;
@@ -2624,19 +2630,18 @@ export async function startTeamSetup(
   now = Date.now(),
 ): Promise<TeamSetupResult> {
   const crew = getCrew(path);
-  if (!crew) return { on: false, problem: "This project has no team." };
+  if (!crew) return { on: false, problem: "This project has no Avos yet." };
   if (!teamUnstarted(crew))
     return {
       on: false,
-      problem:
-        "This team has started already: add or remove teammates one at a time.",
+      problem: "Avos has started already: add or remove helpers one at a time.",
     };
   const chosen = draft.teammates.filter(
     (mate, index, all) =>
       all.findIndex((other) => other.role === mate.role) === index,
   );
   if (!chosen.some((mate) => mate.role === "builder"))
-    return { on: false, problem: "A team needs a Builder." };
+    return { on: false, problem: "Avos needs a Builder." };
   const presets = chosen.flatMap((mate) => {
     const preset = CREW_PRESETS.find((item) => item.key === mate.role);
     return preset ? [{ mate, preset }] : [];
@@ -2757,7 +2762,7 @@ export function removeCrewMember(path: string, id: string): string | null {
     (member.role === "builder" || member.role === "checker") &&
     crew.members.filter((entry) => entry.role === member.role).length <= 1
   )
-    return `A team needs a ${CREW_ROLE_INFO[member.role].label}.`;
+    return `Avos needs a ${CREW_ROLE_INFO[member.role].label}.`;
   const working =
     !!member.doing ||
     crew.cards.some(
@@ -2774,7 +2779,7 @@ export function removeCrewMember(path: string, id: string): string | null {
       (card.builderId === id || card.checkerId === id),
   );
   if (holding)
-    return `“${holding.title}” is still in the team's copy. Apply it, send it back to Ideas or throw it away first.`;
+    return `“${holding.title}” is still in Avos's copy. Apply it, send it back to Ideas or throw it away first.`;
   updateCrew(path, (current) => withoutMember(current, id));
   return null;
 }
@@ -2854,7 +2859,7 @@ export function setMemberMemory(
 ): string | null {
   const crew = getCrew(path);
   if (!crew || !crewMemberById(crew, id))
-    return "That teammate isn't in the team.";
+    return "That helper isn't with Avos any more.";
   updateCrew(path, (current) => withMemberMemory(current, id, memory, now));
   return null;
 }
@@ -2907,7 +2912,101 @@ export type CrewWorkspace = {
     who: string,
     text: string,
   ) => Promise<string | null>;
+  /**
+   * Wake the project's Avos: turn it on (it needs Claude Code, not Git).
+   * Resolves with why it couldn't, or null.
+   */
+  wake?: (path: string) => Promise<string | null>;
+  /** What the project lacks before anything can be built in a copy of it. */
+  gitNeeded?: (path: string) => Promise<"no-git" | "no-commit" | null>;
+  /** Offer to set up Git for the project (its own dialog). */
+  setUpGit?: (path: string) => void;
 };
+
+/**
+ * Turn the project's Avos on if it's off, as writing to it does. Resolves
+ * with why it couldn't, or null (also when there's no workspace to do it).
+ */
+export async function wakeAvos(path: string): Promise<string | null> {
+  if (getCrew(path)?.on) return null;
+  const wake = crewWorkspace()?.wake;
+  return wake ? wake(path).catch((error) => errorText(error)) : null;
+}
+
+/** Said when Avos is off: writing to it, or opening it, wakes it. */
+export const AVOS_ASLEEP = "Avos is off. Open Avos to wake it.";
+
+/**
+ * The helpers building needs, brought in by Avos when a card first needs
+ * them: a Builder, and a Checker to look at its work. Returns the crew
+ * when it changed.
+ */
+export function bringInBuilders(
+  path: string,
+  now = Date.now(),
+  models: CrewModels = crewModelsHere(),
+): Crew | null {
+  const crew = getCrew(path);
+  if (!crew) return null;
+  const has = (role: CrewRole) =>
+    crew.members.some((member) => member.role === role);
+  const needed = (["builder", "checker"] as const).filter((role) => !has(role));
+  if (!needed.length) return null;
+  const names: string[] = [];
+  const next = updateCrew(path, (current) => {
+    let updated = current;
+    for (const role of needed) {
+      const preset = CREW_PRESETS.find((item) => item.key === role);
+      if (!preset) continue;
+      updated = withPreset(updated, preset, crewModelFor(models, role));
+      names.push(crewMemberName(updated, updated.members.at(-1)!.id));
+    }
+    return names.length
+      ? withFeed(updated, {
+          at: now,
+          kind: "note",
+          who: "lead",
+          text: `I brought in ${names.join(" and ")} to build this.`,
+        })
+      : updated;
+  });
+  return names.length ? next : null;
+}
+
+/** Said when building is asked for in a folder without Git. */
+export const BUILDING_NEEDS_GIT =
+  "Building happens in a copy of the project, which needs Git. Set up Git for this folder, then ask again.";
+
+/**
+ * Whether the project can build in a copy now. When it can't, Avos says so
+ * once in its chat with Set up Git beside it, and this resolves with why.
+ */
+export async function buildingProblem(
+  path: string,
+  now = Date.now(),
+): Promise<string | null> {
+  const need = await crewWorkspace()
+    ?.gitNeeded?.(path)
+    .catch(() => null);
+  if (!need) return null;
+  const text =
+    need === "no-git"
+      ? BUILDING_NEEDS_GIT
+      : "Building happens in a copy of the project, which needs at least one commit. Commit your files, then ask again.";
+  updateCrew(path, (crew) => {
+    const last = crew.feed.at(-1);
+    return last?.text === text
+      ? crew
+      : withFeed(crew, {
+          at: now,
+          kind: "note",
+          who: "lead",
+          text,
+          ...(need === "no-git" ? { action: "set-up-git" as const } : {}),
+        });
+  });
+  return text;
+}
 
 let workspace: CrewWorkspace | null = null;
 const workspaceListeners = new Set<() => void>();

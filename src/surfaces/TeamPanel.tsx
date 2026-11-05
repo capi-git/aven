@@ -168,7 +168,7 @@ export function TeamOverview({
           ? `Paused. ${name("builder")} starts again when you resume.`
           : next
             ? `${next.title} builds next.`
-            : "Nothing is lined up. Tell the team what to build."}
+            : "Nothing is lined up. Tell Avos what to build."}
       </p>
     </div>
   );

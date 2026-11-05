@@ -196,7 +196,12 @@ export function WorkBoard({
   // where they stand, and Ideas offer Give to crew.
   const crew = useCrew(project);
   const bot = useProjectBot(project);
-  const crewOn = !!crew?.on && botsAvailable();
+  // Once you've met the project's Avos (or its team was on), its Board is
+  // the Avos screen, awake or not: writing to it wakes it.
+  const crewOn =
+    !!crew &&
+    botsAvailable() &&
+    (crew.on || crew.members.some((member) => member.role === "lead"));
   const fixerName = bot ? botName(bot) : undefined;
   // The time only matters here to the Scout's daily cap: it moves once a
   // day, so the minute's tick doesn't draw every card again.
@@ -404,7 +409,7 @@ export const WorkBoardView = memo(function WorkBoardView({
           return;
         case "review":
         case "apply": {
-          // A card on the team's branch is reviewed, and lands, with the
+          // A card on Avos's branch is reviewed, and lands, with the
           // batch's Review: Apply lands exactly what you saw there.
           const known = getCrew(project);
           if (
@@ -540,7 +545,7 @@ export const WorkBoardView = memo(function WorkBoardView({
           {ideas && crew && cards.length ? (
             <p className="work-board-column-hint">
               {crew.paused
-                ? "The team is paused: ideas wait"
+                ? "Avos is paused: ideas wait"
                 : "Built one by one, top first, while you're away"}
             </p>
           ) : null}
@@ -697,7 +702,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       {throwing ? (
         <ConfirmDialog
           title="Throw this card away?"
-          body={`The team's work on “${throwing.title}” is thrown away and the card leaves the board. Your files stay as they are.`}
+          body={`Avos's work on “${throwing.title}” is thrown away and the card leaves the board. Your files stay as they are.`}
           confirmLabel="Throw away"
           danger
           onConfirm={() => {

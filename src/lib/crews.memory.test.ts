@@ -134,7 +134,7 @@ describe("a teammate's notes", () => {
       role: "fixer",
     });
     expect(setMemberMemory(PROJECT, "nobody", "x")).toBe(
-      "That teammate isn't in the team.",
+      "That helper isn't with Avos any more.",
     );
   });
 });

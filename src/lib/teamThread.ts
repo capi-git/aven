@@ -11,6 +11,7 @@ import {
   isTime,
   memberCritter,
   type Crew,
+  type CrewFeedAction,
   type CrewFeedEntry,
   type CrewMember,
   type CrewMessageKind,
@@ -59,6 +60,8 @@ export type TeamPost =
       handoff?: TeamHandoff;
       /** It waits on you (a question). */
       needsYou?: boolean;
+      /** What it offers you: Set up Git, when building needs it. */
+      action?: CrewFeedAction;
     }
   | {
       kind: "you";
@@ -143,11 +146,15 @@ export function teamWording(text: string): string {
       if (colon >= 0) spoken = true;
       const words = colon >= 0 ? part.slice(0, colon) : part;
       return (
-        words.replace(
-          /(?<![\w/.-])([Cc])rew(s?)(?![\w/-]|\.\w)/g,
-          (_match, c: string, plural: string) =>
-            `${c === "C" ? "T" : "t"}eam${plural}`,
-        ) + (colon >= 0 ? part.slice(colon) : "")
+        words
+          .replace(
+            /(?<![\w/.-])([Cc])rew(s?)(?![\w/-]|\.\w)/g,
+            (_match, c: string, plural: string) =>
+              `${c === "C" ? "T" : "t"}eam${plural}`,
+          )
+          // The team is Avos now.
+          .replace(/(?<![\w/.-])[Tt]he team('s)?(?![\w/-])/g, "Avos$1") +
+        (colon >= 0 ? part.slice(colon) : "")
       );
     })
     .join("");
@@ -280,6 +287,7 @@ function postOf(
     at: entry.at,
     author: by,
     ...(entry.title ? { card: entry.title } : {}),
+    ...(entry.action ? { action: entry.action } : {}),
   };
   const round = entry.round ?? 1;
   switch (entry.kind) {
@@ -365,7 +373,7 @@ function postOf(
 /**
  * Every post, oldest first: the Feed's entries and your messages, by time
  * (your message first when they share a moment, as you wrote it first).
- * The Feed's own line for a message ("You gave the team …", its `echo`) is
+ * The Feed's own line for a message ("You gave Avos …", its `echo`) is
  * left out: your message says it. Everything else stays.
  */
 export function teamPosts(

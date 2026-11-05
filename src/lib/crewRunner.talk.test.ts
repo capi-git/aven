@@ -229,12 +229,31 @@ describe("a message to everyone", () => {
     runner.stop();
   });
 
+  it("reaches Avos in a folder with no copy, without making one", async () => {
+    team();
+    expect(getCrew(PATH)!.copy).toBeUndefined();
+    const { runner, sent, settle } = harness({
+      lead: () => talk({ line: "I'll keep an eye on it." }),
+    });
+    runner.start();
+    expect(await tellTeam(PATH, "Watch the Notion page", "lead", NOON)).toBe(
+      null,
+    );
+    await settle();
+    expect(sent.map((turn) => turn.memberId)).toEqual(["lead"]);
+    // Its first message briefs it to read your folder, changing nothing.
+    expect(sent[0]!.text).toContain("only read it");
+    expect(getCrew(PATH)!.copy).toBeUndefined();
+    expect(lines()).toEqual(["I'll keep an eye on it."]);
+    runner.stop();
+  });
+
   it("tells you when the team has no Lead", async () => {
     team((crew) => ({
       ...crew,
       members: crew.members.filter((member) => member.role !== "lead"),
     }));
-    expect(await tellTeam(PATH, "Hello", "lead", NOON)).toMatch(/no Lead/);
+    expect(await tellTeam(PATH, "Hello", "lead", NOON)).toMatch(/no Avos/);
     expect(getCrew(PATH)!.messages ?? []).toEqual([]);
   });
 
@@ -622,7 +641,7 @@ describe("a standing job", () => {
     expect(jobs()).toHaveLength(1);
     expect(jobs()[0]).toMatchObject({
       name: "Notion articles",
-      // The project itself, never the team's copy.
+      // The project itself, never Avos's copy.
       project: PATH,
       owner: { avos: PATH },
       harness: "claude",

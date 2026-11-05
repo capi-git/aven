@@ -49,7 +49,7 @@ import "./TeamScreen.css";
  * A project's team, after MonoCode's Mono (MIT): the team's chat on the left,
  * and on the right one header (its name, one sentence on what it's doing and
  * what waits for you, Team, Pause and ⋯) above a panel of tabs. The work stays
- * in the team's copy until you press Apply.
+ * in Avos's copy until you press Apply.
  */
 const TABS: readonly { id: TeamView; label: string }[] = [
   { id: "board", label: "Board" },
@@ -304,7 +304,7 @@ export function TeamScreen({
           ) : (
             <p className="team-panel-empty">
               Nothing to apply yet. Finished work shows up here, and stays in
-              the team's copy until you apply it.
+              Avos's copy until you apply it.
             </p>
           )}
         </div>
@@ -415,7 +415,7 @@ function TeamHeader({
                   ? ` · stopped: ${goal.why ?? ""}`
                   : goal.state === "waits"
                     ? ` · ${goal.why ?? "waits"}`
-                    : " · the team keeps going"}
+                    : " · Avos keeps going"}
             </span>
             {goal.state === "stopped" ? (
               <button

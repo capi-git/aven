@@ -152,13 +152,13 @@ describe("the team thread", () => {
           who: "you",
           cardId: "c1",
           title: "Build a timer screen",
-          text: "You gave the team “Build a timer screen”",
+          text: "You gave Avos “Build a timer screen”",
         },
         {
           at: DAY + MIN,
           kind: "note",
           who: "you",
-          text: "You paused the team",
+          text: "You paused Avos",
         },
         { at: DAY + 2 * MIN, kind: "note", who: "you", text: "Use pnpm" },
         {
@@ -192,7 +192,7 @@ describe("the team thread", () => {
       posts.map((post) => [post.kind, "text" in post ? post.text : ""]),
     ).toEqual([
       ["you", "Build a timer screen: start, pause and a ring."],
-      ["event", "You paused the team"],
+      ["event", "You paused Avos"],
       // Your own words from before messages: yours, a standing rule.
       ["you", "Use pnpm"],
       ["event", "Quiet hours, 11 pm–8 am. Nothing new starts."],
@@ -212,9 +212,9 @@ describe("the team thread", () => {
           who: "you",
           cardId: "c1",
           title: "Build a timer",
-          text: "You gave the team “Build a timer”",
+          text: "You gave Avos “Build a timer”",
         },
-        { at: DAY, kind: "note", who: "you", text: "You resumed the team" },
+        { at: DAY, kind: "note", who: "you", text: "You resumed Avos" },
       ],
       { messages: [{ id: "m1", at: DAY, text: "Build a timer", as: "card" }] },
     );
@@ -222,7 +222,7 @@ describe("the team thread", () => {
       teamPosts(crew, nameOf(crew)).map((post) => [post.kind, post.text]),
     ).toEqual([
       ["you", "Build a timer"],
-      ["event", "You resumed the team"],
+      ["event", "You resumed Avos"],
     ]);
   });
 
@@ -430,28 +430,28 @@ describe("Yesterday", () => {
   });
 });
 
-describe("lines saved before the crew was a team", () => {
-  it("say team, leaving quoted titles and branch names alone", () => {
+describe("lines saved before the team was Avos", () => {
+  it("say Avos, leaving quoted titles and branch names alone", () => {
     expect(teamWording("You gave the crew “Crew screen”")).toBe(
-      "You gave the team “Crew screen”",
+      "You gave Avos “Crew screen”",
     );
-    expect(teamWording("You paused the crew")).toBe("You paused the team");
+    expect(teamWording("You paused the crew")).toBe("You paused Avos");
     expect(teamWording("Crews pause at 80% of the crew's week")).toBe(
-      "Teams pause at 80% of the team's week",
+      "Teams pause at 80% of Avos's week",
     );
     expect(teamWording("On aven/bot/crew-0f26, the crew-wide cap")).toBe(
       "On aven/bot/crew-0f26, the crew-wide cap",
     );
     // A file's name, and someone's own words after a colon, stay.
     expect(teamWording("Changed crews.ts for the crew.")).toBe(
-      "Changed crews.ts for the team.",
+      "Changed crews.ts for Avos.",
     );
     expect(teamWording("You sent “X” back: tell the crew to stop")).toBe(
       "You sent “X” back: tell the crew to stop",
     );
     // A colon in a quoted title is the title's.
     expect(teamWording("You gave the crew “Crew settings: add toggle”")).toBe(
-      "You gave the team “Crew settings: add toggle”",
+      "You gave Avos “Crew settings: add toggle”",
     );
   });
 });
@@ -587,5 +587,26 @@ describe("the team's jobs", () => {
       ],
     });
     expect(later.some((post) => post.kind === "run")).toBe(false);
+  });
+});
+
+describe("Avos offering Set up Git", () => {
+  it("keeps the offer on Avos's line, for its Set up Git button", () => {
+    const crew = crewWith([
+      {
+        at: DAY,
+        kind: "note",
+        who: "lead",
+        text: "Building happens in a copy of the project, which needs Git.",
+        action: "set-up-git",
+      },
+    ]);
+    crew.members.unshift({ id: "lead", role: "lead" });
+    const [post] = teamPosts(crew, nameOf(crew));
+    expect(post).toMatchObject({
+      kind: "post",
+      author: { id: "lead", name: "Avos" },
+      action: "set-up-git",
+    });
   });
 });

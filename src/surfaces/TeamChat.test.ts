@@ -208,7 +208,7 @@ async function setUp(
       who: "you",
       cardId: boards[0]!.id,
       title: "Timer screen",
-      text: "You gave the team “Timer screen”",
+      text: "You gave Avos “Timer screen”",
     });
     next = withFeed(next, {
       at: NOW - 10 * 60_000,
@@ -454,7 +454,7 @@ describe("the team chat", () => {
     const posts = [
       ...thread.querySelectorAll<HTMLElement>("[data-team-post]"),
     ].map((post) => post.dataset.teamPost);
-    // The Feed's own "You gave the team…" is your message.
+    // The Feed's own "You gave Avos…" is your message.
     expect(posts).toEqual(["scout", "you", "builder", "checker"]);
     expect(thread.querySelector(".team-day-label")?.textContent).toBe("Today");
     expect(
@@ -503,7 +503,7 @@ describe("the team chat", () => {
       ),
     ).toBe(true);
     expect(
-      offersRestack("Update the team's branch onto your files, then Apply."),
+      offersRestack("Update Avos's branch onto your files, then Apply."),
     ).toBe(true);
     expect(offersRestack("Something else went wrong")).toBe(false);
   });
@@ -603,7 +603,7 @@ describe("the team chat", () => {
         .querySelector<HTMLButtonElement>(".team-roster-item .team-roster-row")!
         .click(),
     );
-    expect(box().placeholder).toBe("Write to the team, or @ one teammate…");
+    expect(box().placeholder).toBe("Write to Avos, or @ a helper…");
   });
 
   it("keeps a long thread fast: the newest posts, and Show earlier for more", async () => {
@@ -636,7 +636,7 @@ describe("the team chat", () => {
     expect(actions.tellTeam).not.toHaveBeenCalled();
     expect(actions.tellTeammate).not.toHaveBeenCalled();
     expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
-      "Designer isn't in the team any more. Pick someone else or write to everyone.",
+      "Designer isn't helping Avos any more. Pick someone else or write to Avos.",
     );
     expect(box().value).toBe("Can the ring use the project's colour?");
     expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
@@ -837,7 +837,7 @@ describe("the team chat", () => {
             who: "you",
             text: "keep going",
           }),
-          { at: NOW, kind: "note", who: "you", text: "You resumed the team" },
+          { at: NOW, kind: "note", who: "you", text: "You resumed Avos" },
         ),
       ),
     );
@@ -852,7 +852,7 @@ describe("the team chat", () => {
       .slice(-2)
       .map((post) => post.textContent);
     expect(last[0]).toContain("keep going");
-    expect(last[1]).toContain("You resumed the team");
+    expect(last[1]).toContain("You resumed Avos");
   });
 
   it("stays at the very bottom when you write in a thread longer than it shows", async () => {
@@ -960,7 +960,7 @@ describe("the team chat", () => {
     expect(box().value).toBe(goal);
   });
 
-  it("can't open a teammate's chat before the team's first card, and says why", async () => {
+  it("can't open a teammate's chat before Avos's first card, and says why", async () => {
     await setUp((crew) => {
       const next = { ...crew };
       delete next.copy;
@@ -971,11 +971,9 @@ describe("the team chat", () => {
       "[data-team-open-chat]",
     )!;
     expect(open.disabled).toBe(true);
-    expect(open.title).toBe(
-      "Checker's chat starts with the team's first card.",
-    );
+    expect(open.title).toBe("Checker's chat starts with Avos's first card.");
     expect(container.querySelector("[data-team-open-note]")?.textContent).toBe(
-      "Checker's chat starts with the team's first card.",
+      "Checker's chat starts with Avos's first card.",
     );
     // Once it can open, a chat that still doesn't says why, under its name.
     await act(async () =>

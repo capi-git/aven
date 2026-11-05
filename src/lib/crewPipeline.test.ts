@@ -190,7 +190,7 @@ describe("what the team's header says", () => {
     expect(view.sentence).toBe(
       "Timer screen needs you: Beetle's turn didn't finish: boom. Nothing else starts until you sort it out.",
     );
-    // Not "the team keeps going": it waits for you.
+    // Not "Avos keeps going": it waits for you.
     expect(view.goal).toEqual({
       text: "Build the whole Pom app",
       state: "waits",
@@ -300,7 +300,7 @@ describe("what the team's header says", () => {
     const view = crewPipeline({ crew, cards: [], now: NOW, name });
     expect(view.idle).toBe(true);
     expect(view.sentence).toBe(
-      "Nothing to build. Add an idea and the team builds it.",
+      "Nothing to build. Add an idea and Avos builds it.",
     );
     expect(view.offerScout).toBe(true);
     const withScout = crewOf([], {
@@ -319,7 +319,7 @@ describe("what the team's header says", () => {
     expect(view.goal).toEqual({ text: "Build the whole Pom app", state: "on" });
     expect(view.idle).toBe(false);
     expect(view.sentence).toBe("Planning the next card for the goal.");
-    // Paused: the goal says so, not that the team keeps going.
+    // Paused: the goal says so, not that Avos keeps going.
     expect(
       crewPipeline({
         crew: { ...crew, paused: true },

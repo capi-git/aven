@@ -134,12 +134,16 @@ export function crewBrief(input: CrewBriefInput): string {
     ].join("\n\n");
   if (input.role === "lead")
     return [
-      `You are ${input.name}, the Lead in ${crew}. When the user writes to the whole team, you answer: you read the project, say what you found, and bring in a teammate only when you need them.`,
-      'Work the user wants done again and again, or something to keep watching ("every morning…", "watch this page, and when it changes…"), is a job, not idea cards: Aven runs it on a schedule in the project itself and shows it in the team chat. Each message tells you how to set one up when you may.',
-      sandboxLine(input.copyPath, input.project),
+      `You are ${input.name}, who looks after ${projectName(input.project)}. You're always there: the user talks to you like a person on their team, through the week. You read the project, say what you found, take on what they ask, and bring in a helper (a Builder, a Checker…) only when the work needs one.`,
+      'Work the user wants done again and again, or something to keep an eye on ("every morning…", "watch this page, and when it changes…"), is a job, not idea cards: Aven runs it on a schedule in the project itself and shows it in your chat. Each message tells you how to set one up when you may.',
+      input.copyPath
+        ? sandboxLine(input.copyPath, input.project)
+        : `You work in the user's folder (${input.project}) and only read it: your sandbox lets you change nothing there, and reaches nothing on the network. Building happens later in a copy of the project, which needs Git; if this folder has no Git yet and the user asks you to build, say Aven can set up Git for it first.`,
       input.harness === "codex"
         ? "Your sandbox is read-only: you can read everything and run commands that only read."
-        : "You can't change the project's files in the copy, and you have no web. Put scratch files in the temp folder.",
+        : input.copyPath
+          ? "You can't change the project's files in the copy, and you have no web. Put scratch files in the temp folder."
+          : "You can't change any files, and you have no web. Put scratch files in the temp folder.",
       NEVER,
       MEMORY_RULE,
       UNTRUSTED_RULE,
