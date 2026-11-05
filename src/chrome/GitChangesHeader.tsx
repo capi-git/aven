@@ -5,7 +5,7 @@ import { appearanceTone } from "../lib/markTones";
 import { displayAppData } from "../lib/paths";
 import { ChevronDown, GitBranch, GitCompare, Plus } from "./icons";
 import { ProjectMark } from "./ProjectMark";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 
 /** The copy being shown: project, branch, where it stands, and its last commit. */
 export function ChangesHeader({
@@ -152,7 +152,7 @@ export function CleanState({
       {appearance ? (
         // The project's agent at rest on its steps: nothing to do. (The
         // project's own mark is already in the header above.)
-        <HopperMark
+        <AgentMark
           tone={appearanceTone(appearance)}
           className="git-clean-mascot"
         />

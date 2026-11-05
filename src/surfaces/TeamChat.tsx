@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { HopperMark } from "../chrome/HopperMark";
+import { AgentMark } from "../chrome/AgentMark";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { ArrowRight, ChevronDown, MoveUp, X } from "../chrome/icons";
 import { ProjectMark } from "../chrome/ProjectMark";
@@ -51,7 +51,7 @@ import {
   type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
-import { crewHopperState } from "../lib/hopper";
+import { crewAgentState } from "../lib/agentMark";
 import { isImeComposition } from "../lib/keyboard";
 import {
   FEED_FOLLOW_START,
@@ -481,7 +481,7 @@ function Roster({
                   path={project}
                   role={member.role}
                   {...(member.critter ? { critter: member.critter } : {})}
-                  state={crewHopperState(
+                  state={crewAgentState(
                     member.status,
                     member.active,
                     paused ? "still" : "resting",
@@ -560,7 +560,7 @@ function Roster({
             data-team-add
             onClick={onAdd}
           >
-            <HopperMark vacant className="team-roster-mark" />
+            <AgentMark vacant className="team-roster-mark" />
             <span className="team-roster-text">
               <span className="team-roster-name">Add teammate</span>
             </span>

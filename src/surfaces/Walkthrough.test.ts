@@ -104,7 +104,9 @@ describe("the walkthrough dialog", () => {
         (title) => title.textContent,
       ),
     ).toEqual(["Many agents", "Work together", "See and ship"]);
-    expect(dialog().querySelectorAll(".walkthrough-cast svg")).toHaveLength(5);
+    expect(
+      dialog().querySelectorAll(".walkthrough-cast .agent-mark"),
+    ).toHaveLength(5);
     // Get started has the keyboard, so Enter goes on.
     expect(document.activeElement?.textContent).toBe("Get started");
     await click("Get started");

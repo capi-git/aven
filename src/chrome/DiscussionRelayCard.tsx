@@ -5,7 +5,7 @@ import { discussionStore } from "../lib/discussions";
 import type { DiscussionRelayMeta } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
 import { ExternalLink, MessageMultiple } from "./icons";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 
 /**
  * Opens a discussion in the team panel from a chat's transcript. Provided
@@ -34,7 +34,7 @@ export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
     () => false,
   );
   const opening = meta.turn === 0;
-  // The other chat's agent, Hopper in its project's colour.
+  // The other chat's agent, Bot in its project's colour.
   const partnerTone = useProjectTone(meta.partner.cwd);
   const round = Math.min(meta.rounds, Math.floor(meta.turn / 2) + 1);
   const { partner } = meta;
@@ -47,7 +47,7 @@ export function DiscussionRelayCard({ meta }: { meta: DiscussionRelayMeta }) {
     <>
       <MessageMultiple className="size-3 shrink-0" />
       <span className="shrink-0">{opening ? "Discussion with" : "From"}</span>
-      <HopperMark tone={partnerTone} className="shrink-0" />
+      <AgentMark tone={partnerTone} className="shrink-0" />
       <HarnessIcon harness={partner.harness} className="size-3 shrink-0" />
       <span
         className="min-w-0 truncate text-content/80"

@@ -15,9 +15,9 @@ import {
   DiscussionRelayCard,
 } from "./DiscussionRelayCard";
 
-vi.mock("./HopperMark", () => ({
-  HopperMark: ({ tone }: { tone?: string | null }) =>
-    createElement("span", { "data-hopper-tone": tone ?? "grey" }),
+vi.mock("./AgentMark", () => ({
+  AgentMark: ({ tone }: { tone?: string | null }) =>
+    createElement("span", { "data-agent-tone": tone ?? "grey" }),
 }));
 
 let root: Root;
@@ -66,10 +66,10 @@ it("labels the opening topic with the chat it will discuss with", async () => {
   expect(container.textContent).toBe(
     "Discussion withCodex in “Review”· 3 rounds",
   );
-  // The other chat's agent, as Hopper in its project's colour.
+  // The other chat's agent, as Bot in its project's colour.
   expect(
     container.querySelector(
-      `[data-hopper-tone="${projectToneAt("/work/api")}"]`,
+      `[data-agent-tone="${projectToneAt("/work/api")}"]`,
     ),
   ).not.toBeNull();
 });

@@ -151,7 +151,7 @@ describe("CleanState", () => {
     expect(text).toContain("Last commit");
     // The project's agent, still on its steps, under the header's Stack.
     expect(
-      container.querySelector(".hopper-mark.git-clean-mascot"),
+      container.querySelector(".agent-mark.git-clean-mascot"),
     ).not.toBeNull();
     const buttons = Array.from(container.querySelectorAll("button"));
     expect(buttons.map((b) => b.textContent)).toEqual([

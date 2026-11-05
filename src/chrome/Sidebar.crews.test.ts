@@ -313,17 +313,17 @@ it("unfolds into each bot with its role, its word and what it's doing", async ()
   expect(members[0].querySelector(".personal-crew-line")?.textContent).toBe(
     "Fixing Dark mode toggle · round 2",
   );
-  // Each is Hopper in its role's colour (the Fixer in its project's): the
+  // Each is Bot in its role's colour (the Fixer in its project's): the
   // Builder hops while it works, the Fixer watches, the others rest.
   const marks = members.map((member) =>
-    member.querySelector<HTMLElement>("[data-crew-critter] .hopper-mark")!,
+    member.querySelector<HTMLElement>("[data-crew-critter] .agent-mark")!,
   );
   expect(marks.slice(0, 3).map((mark) => mark.dataset.tone)).toEqual([
     "blue",
     "purple",
     "teal",
   ]);
-  expect(marks.map((mark) => mark.dataset.hopper)).toEqual([
+  expect(marks.map((mark) => mark.dataset.agent)).toEqual([
     "working",
     "resting",
     "resting",

@@ -460,7 +460,7 @@ describe("Build a team", () => {
 });
 
 describe("a teammate's page", () => {
-  it("shows its Hopper, and sets its agent, model and effort in view, with no floating menu; other apps say why not", async () => {
+  it("shows its Bot, and sets its agent, model and effort in view, with no floating menu; other apps say why not", async () => {
     await open("checker");
     // The mark grid isn't open until you press the mark.
     expect(document.querySelector('[data-mark-choice="designer"]')).toBeNull();
@@ -527,14 +527,14 @@ describe("a teammate's page", () => {
     )!;
     await act(async () => high.click());
     expect(crewMemberById(getCrew(PATH)!, "checker")?.effort).toBe("high");
-    // Every agent is Hopper: its mark is no button and has no marks to pick
+    // Every agent is Bot: its mark is no button and has no marks to pick
     // from, and the one it chose before stays saved.
     const before = crewMemberById(getCrew(PATH)!, "checker")?.critter;
     const mark = document.querySelector<HTMLElement>(
       "[data-crew-member-mark]",
     )!;
     expect(mark.closest("button")).toBeNull();
-    expect(mark.querySelector<HTMLElement>(".hopper-mark")?.dataset.tone).toBe(
+    expect(mark.querySelector<HTMLElement>(".agent-mark")?.dataset.tone).toBe(
       "purple",
     );
     expect(document.querySelector("[data-mark-choice]")).toBeNull();

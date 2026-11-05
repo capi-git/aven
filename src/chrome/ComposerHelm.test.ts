@@ -241,25 +241,28 @@ async function openByClick() {
 const mark = () => critter().querySelector<HTMLElement>(".helm-critter")!;
 
 describe("the agent at the helm", () => {
-  /** Dots in a path: each starts with a move. */
-  const dots = (path: Element | null) =>
-    (path?.getAttribute("d")?.match(/M/g) ?? []).length;
   const css = (file: string) =>
     readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("is Hopper, the logo's steps with one dot, at rest and working", async () => {
+  it("is Bot, a head with a face, eyes and a light, at rest and working", async () => {
     await render();
-    expect(mark().classList.contains("hopper-mark")).toBe(true);
-    expect(dots(mark().querySelector(".hopper-steps-big"))).toBe(15);
-    expect(mark().querySelectorAll(".hopper-dot")).toHaveLength(1);
+    expect(mark().classList.contains("agent-mark")).toBe(true);
+    expect(mark().querySelector(".agent-head")).not.toBeNull();
+    expect(mark().querySelector(".agent-plate")).not.toBeNull();
+    expect(mark().querySelectorAll(".agent-light")).toHaveLength(1);
+    // Resting, its eyes are closed.
+    expect(mark().querySelector<HTMLElement>(".agent-eyes")?.dataset.mood).toBe(
+      "closed",
+    );
     // The project's symbol stands for the project, not the agent.
     expect(mark().querySelector(".dot-mark-lit")).toBeNull();
     props.busy = true;
     await render();
-    expect(mark().dataset.hopper).toBe("working");
+    expect(mark().dataset.agent).toBe("working");
+    expect(mark().querySelector(".agent-key")).not.toBeNull();
   });
 
-  it("is 25px, big enough for all five steps", () => {
+  it("is 25px: bolts and its own face, but no outfit (that's 28px and up)", () => {
     const helm = css("src/chrome/ComposerHelm.css");
     const rule = /\.composer-helm \.dot-mark\.helm-critter \{([^}]*)\}/.exec(
       helm,
@@ -273,7 +276,7 @@ describe("the mark's states", () => {
   it("rests still with the room line over it", async () => {
     await render();
     expect(helm().dataset.pose).toBe("rest");
-    expect(mark().dataset.hopper).toBe("resting");
+    expect(mark().dataset.agent).toBe("resting");
     const line = host.querySelector<HTMLElement>(
       ".helm-perch-room .helm-room",
     )!;
@@ -291,7 +294,7 @@ describe("the mark's states", () => {
     await render();
     expect(helm().dataset.pose).toBe("typing");
     // It watches you type, from the top step.
-    expect(mark().dataset.hopper).toBe("watching");
+    expect(mark().dataset.agent).toBe("watching");
     const plane = host.querySelector<HTMLButtonElement>("[data-helm-send]")!;
     expect(plane.getAttribute("aria-label")).toBe("Send");
     await act(async () => plane.click());
@@ -382,8 +385,8 @@ describe("the mark's states", () => {
     props.busy = true;
     await render();
     expect(helm().dataset.pose).toBe("running");
-    expect(mark().dataset.hopper).toBe("working");
-    expect(mark().querySelector(".hopper-walk > .hopper-dot")).not.toBeNull();
+    expect(mark().dataset.agent).toBe("working");
+    expect(mark().querySelector(".agent-bob > .agent-key")).not.toBeNull();
     const bubble = host.querySelector<HTMLElement>(
       '[data-helm-say="running"]',
     )!;
@@ -442,7 +445,7 @@ describe("the mark's states", () => {
     expect(helm().dataset.pose).toBe("done");
     // One happy hop on the top step.
     expect(mark().dataset.reaction).toBe("cheer");
-    expect(mark().dataset.hopper).toBe("still");
+    expect(mark().dataset.agent).toBe("still");
     const bubble = host.querySelector('[data-helm-say="done"]')!;
     expect(bubble.textContent).toContain("Done in 1:12");
     expect(bubble.textContent).toContain("3 files changed");
@@ -450,7 +453,7 @@ describe("the mark's states", () => {
     await render();
     expect(host.querySelector("[data-helm-say]")).toBeNull();
     expect(helm().dataset.pose).toBe("rest");
-    expect(mark().dataset.hopper).toBe("resting");
+    expect(mark().dataset.agent).toBe("resting");
     expect(mark().hasAttribute("data-reaction")).toBe(false);
   });
 
@@ -901,7 +904,7 @@ describe("choosing the colour", () => {
     await act(async () => row("critter")!.click());
   }
 
-  /** The symbol picked before Hopper: kept in storage, drawn nowhere. */
+  /** The symbol picked before Bot: kept in storage, drawn nowhere. */
   const savedSigil = () => projectSigilAt(PROJECT).key;
   const stage = () =>
     document.body.querySelector(".helm-critter-stage")!.textContent;
@@ -925,8 +928,8 @@ describe("choosing the colour", () => {
     expect(row("critter")!.querySelector(".helm-label")!.textContent).toBe(
       "Colour",
     );
-    // The agent beside it is Hopper, not a project symbol.
-    expect(row("critter")!.querySelector(".hopper-mark")).not.toBeNull();
+    // The agent beside it is Bot, not a project symbol.
+    expect(row("critter")!.querySelector(".agent-mark")).not.toBeNull();
   });
 
   it("offers only the colours, no symbol, and moves along them with the arrow keys", async () => {

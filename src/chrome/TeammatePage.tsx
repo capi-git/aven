@@ -698,7 +698,7 @@ function WhenItWorks({
 }
 
 /**
- * The teammate's mark at the top of its page. Every agent is Hopper now, so
+ * The teammate's mark at the top of its page. Every agent is Bot now, so
  * there is no mark to pick; the one it chose before is kept (it still gives
  * a Tester or a Scribe its colour).
  */

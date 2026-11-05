@@ -67,7 +67,7 @@ import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen } from "../lib/usageHistory";
 import { AgentPanel, useAgentSummary, type AgentPanelFocus } from "./AgentPill";
 import { HarnessIcon } from "./HarnessIcon";
-import { HopperMark, type HopperState } from "./HopperMark";
+import { AgentMark, type AgentState } from "./AgentMark";
 import {
   HelmBubble,
   helmOutcome,
@@ -163,12 +163,11 @@ const DIALOG_GAP = 14;
 const FOCUS_TRIES = 10;
 
 /**
- * What the agent at the helm (its Hopper) does for what the message box is
- * doing: resting, watching you type or the menu, hopping up while it works.
- * A finished turn hops once on the top step; a failed one slumps back to
- * the bottom.
+ * What the agent at the helm (its Bot) does for what the message box is
+ * doing: resting, watching you type or the menu, typing while it works. A
+ * finished turn makes it hop once for joy; a failed one makes it slump.
  */
-const POSE_STATE: Record<HelmPose, HopperState> = {
+const POSE_STATE: Record<HelmPose, AgentState> = {
   rest: "resting",
   typing: "watching",
   hover: "watching",
@@ -774,7 +773,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
       case "critter":
         value = (
           <>
-            <HopperMark tone={tone} className="helm-mini-critter" />
+            <AgentMark tone={tone} className="helm-mini-critter" />
             {MARK_TONES[toneIndex].label}
           </>
         );
@@ -872,7 +871,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         <div className="helm-critter-page">
           <BackRow label="Colour" onBack={() => backToMain("critter")} />
           <div className="helm-critter-stage" aria-hidden>
-            <HopperMark
+            <AgentMark
               tone={shown.tone}
               state="resting"
               className="helm-critter-preview"
@@ -1023,7 +1022,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             }
           }}
         >
-          <HopperMark
+          <AgentMark
             key={hop}
             tone={tone}
             state={POSE_STATE[pose]}

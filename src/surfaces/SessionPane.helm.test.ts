@@ -185,11 +185,11 @@ describe("a chat's message box and its helm", () => {
     expect(stops()).toHaveLength(1);
   });
 
-  it("stands the agent's Hopper at the helm, in its project's colour", async () => {
+  it("stands the agent's Bot at the helm, in its project's colour", async () => {
     await render();
     const mark = container.querySelector("[data-helm-critter] .helm-critter")!;
-    expect(mark.classList.contains("hopper-mark")).toBe(true);
-    expect(mark.getAttribute("data-hopper")).toBe("resting");
+    expect(mark.classList.contains("agent-mark")).toBe(true);
+    expect(mark.getAttribute("data-agent")).toBe("resting");
     expect(
       container.querySelector("[data-composer][data-helm]"),
     ).not.toBeNull();

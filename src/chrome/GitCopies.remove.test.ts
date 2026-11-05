@@ -141,10 +141,10 @@ describe("other copy status and removal", () => {
     const toggle = button("Parallel work")!;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.textContent).toContain("· 1");
-    // A hopping Hopper for each copy whose agent is working.
+    // A typing Bot for each copy whose agent is working.
     expect(
       container.querySelectorAll(
-        '.git-copies-working .hopper-mark[data-hopper="working"]',
+        '.git-copies-working .agent-mark[data-agent="working"]',
       ),
     ).toHaveLength(1);
     expect(container.querySelector(".git-copy-line")).toBeNull();

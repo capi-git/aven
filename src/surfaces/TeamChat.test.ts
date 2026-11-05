@@ -425,18 +425,18 @@ describe("the team chat", () => {
       "Checking Timer screen · round 2",
     );
     expect(checker.querySelector(".team-roster-when")?.textContent).toBe("now");
-    // Its Hopper hops up its steps while it works, in the Checker's colour.
-    const checkerMark = checker.querySelector<HTMLElement>(".hopper-mark");
-    expect(checkerMark?.dataset.hopper).toBe("working");
+    // Its Bot types while it works, in the Checker's colour.
+    const checkerMark = checker.querySelector<HTMLElement>(".agent-mark");
+    expect(checkerMark?.dataset.agent).toBe("working");
     expect(checkerMark?.dataset.tone).toBe("purple");
     // The others rest, and Add teammate shows the steps alone.
     expect(
       container.querySelector<HTMLElement>(
-        '[data-team-member="security"] .hopper-mark',
-      )?.dataset.hopper,
+        '[data-team-member="security"] .agent-mark',
+      )?.dataset.agent,
     ).toBe("resting");
     expect(
-      container.querySelector("[data-team-add] .hopper-mark[data-vacant]"),
+      container.querySelector("[data-team-add] .agent-mark[data-vacant]"),
     ).not.toBeNull();
     expect(
       container.querySelector('[data-team-member="security"] .team-roster-line')

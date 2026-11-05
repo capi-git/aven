@@ -103,7 +103,7 @@ describe("project marks", () => {
     expect(stack().hasAttribute("data-open")).toBe(false);
     await draw({ appearance: appearance(), open: true });
     expect(stack().hasAttribute("data-open")).toBe(true);
-    // A turn's end moves nothing: reactions are Hopper's, the agent's.
+    // A turn's end moves nothing: reactions are the agent's Bot's.
     await draw({ appearance: appearance() });
     await act(async () => void recordActivity(turn("t1")));
     expect(

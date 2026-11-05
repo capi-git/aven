@@ -291,8 +291,8 @@ export const OPEN_USAGE_EVENT = "aven:open-usage";
 
 /**
  * The colour a chat's agent wears outside any project, chosen in the helm.
- * Saved with the critter picked before Hopper, which is kept but no longer
- * drawn.
+ * Saved with the critter picked before agents were drawn as Bot, which is
+ * kept but no longer drawn.
  */
 export const HELM_CRITTER_KEY = "aven.helmCritter.v1";
 /** Set once the helm has said "Point at me for settings". */

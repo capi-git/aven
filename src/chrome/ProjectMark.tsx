@@ -21,7 +21,7 @@ type Props = {
 /**
  * A project's mark: its logo when one is set, otherwise its Stack, three
  * pages in its colour. It stands for the project, never its agents (they
- * are Hopper), so it never moves on its own. Renders nothing for folders
+ * are Bot), so it never moves on its own. Renders nothing for folders
  * without a project identity.
  */
 export function ProjectMark({

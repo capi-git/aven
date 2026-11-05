@@ -37,7 +37,7 @@ import {
   useInstalledAgents,
 } from "./crewSettingsParts";
 import { CrewCritter } from "./CrewCritter";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 import { Check, ChevronLeft, ChevronRight, Plus } from "./icons";
 import "./TeamBuilder.css";
 
@@ -279,7 +279,7 @@ export function TeamBuilder({
                 );
               })}
               <li className="team-build-role" data-crew-template="custom">
-                <HopperMark vacant className="team-build-role-mark" />
+                <AgentMark vacant className="team-build-role-mark" />
                 <span className="team-build-role-text">
                   <span className="team-build-role-name">Your own</span>
                   <span className="team-build-role-job">

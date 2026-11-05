@@ -58,17 +58,17 @@ vi.mock("../lib/platform", async (original) => ({
   },
 }));
 
-// Each agent's Hopper reports its renders through a Profiler of its own.
+// Each agent's Bot reports its renders through a Profiler of its own.
 // The home's marks render only when the home itself does, so zero commits
 // here means a parent re-render skipped the home entirely.
 const marks = vi.hoisted(() => ({ commits: 0 }));
-vi.mock("../chrome/HopperMark", async () => {
+vi.mock("../chrome/AgentMark", async () => {
   const react = await import("react");
   const onRender: ProfilerOnRenderCallback = () => {
     marks.commits += 1;
   };
   return {
-    HopperMark: ({
+    AgentMark: ({
       tone,
       state,
       reaction,
@@ -82,7 +82,7 @@ vi.mock("../chrome/HopperMark", async () => {
         { id: "mark", onRender },
         react.createElement("span", {
           "data-mark": tone ?? "grey",
-          "data-hopper": state ?? "still",
+          "data-agent": state ?? "still",
           "data-reaction": reaction ?? undefined,
         }),
       ),
@@ -627,9 +627,9 @@ describe("Your agents", () => {
     );
     const [app] = tiles();
     expect(app.getAttribute("data-state")).toBe("running");
-    // Its Hopper hops up the steps, in the project's colour.
+    // Its Bot types, in the project's colour.
     const mark = app.querySelector("[data-mark]")!;
-    expect(mark.getAttribute("data-hopper")).toBe("working");
+    expect(mark.getAttribute("data-agent")).toBe("working");
     expect(mark.getAttribute("data-mark")).toBe(projectToneAt(APP));
     const bubble = app.querySelector(".workspace-home-agent-bubble")!;
     expect(bubble.getAttribute("data-kind")).toBe("doing");
@@ -654,8 +654,8 @@ describe("Your agents", () => {
     expect(bubble.getAttribute("data-kind")).toBe("asking");
     expect(bubble.textContent).toBe("!");
     expect(app.textContent).toContain("Needs you: Run npm test");
-    // Its Hopper bounces in amber on the top step.
-    expect(app.querySelector("[data-mark]")?.getAttribute("data-hopper")).toBe(
+    // Its Bot bounces, in amber.
+    expect(app.querySelector("[data-mark]")?.getAttribute("data-agent")).toBe(
       "needs",
     );
   });
@@ -841,10 +841,10 @@ describe("Needs you", () => {
       rows[0].querySelector("[data-mark]")?.getAttribute("data-mark"),
     ).toBe(projectToneAt(APP));
     expect(
-      rows[0].querySelector("[data-mark]")?.getAttribute("data-hopper"),
+      rows[0].querySelector("[data-mark]")?.getAttribute("data-agent"),
     ).toBe("needs");
     expect(
-      rows[1].querySelector("[data-mark]")?.getAttribute("data-hopper"),
+      rows[1].querySelector("[data-mark]")?.getAttribute("data-agent"),
     ).toBe("still");
     await act(async () => (rows[1] as HTMLButtonElement).click());
     expect(value.onSession).toHaveBeenCalledExactlyOnceWith("done");
@@ -886,7 +886,7 @@ describe("Running now", () => {
     expect(rows[0].textContent).toContain("Running for 12m");
     expect(rows[1].textContent).toContain("Working");
     expect(
-      rows[0].querySelector("[data-mark]")?.getAttribute("data-hopper"),
+      rows[0].querySelector("[data-mark]")?.getAttribute("data-agent"),
     ).toBe("working");
     await act(async () => (rows[0] as HTMLButtonElement).click());
     expect(value.onSession).toHaveBeenCalledExactlyOnceWith("run");

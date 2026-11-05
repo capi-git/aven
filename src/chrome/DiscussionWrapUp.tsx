@@ -6,7 +6,7 @@ import {
 } from "../lib/discussions";
 import type { DiscussionVoice } from "../lib/discussionVoices";
 import { Check, Eye, RotateCcw } from "./icons";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 import { TeamCardButton } from "./TeamCard";
 import "./DiscussionWrapUp.css";
 
@@ -172,7 +172,7 @@ export const DiscussionWrapUpCard = memo(function DiscussionWrapUpCard({
                 {sent ? (
                   <Check className="size-3 shrink-0" strokeWidth={2.5} />
                 ) : (
-                  <HopperMark
+                  <AgentMark
                     tone={voice.tone}
                     className="discussion-build-sprite"
                   />

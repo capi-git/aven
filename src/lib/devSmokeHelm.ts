@@ -54,31 +54,31 @@ export function helmStopProblem(
   return null;
 }
 
-/** A working agent's dot at the helm, whose hop animation is read. */
-export const HELM_HOP_SELECTOR =
-  '.helm-critter[data-hopper="working"] .hopper-dot';
+/** A working agent's lit key at the helm, whose typing animation is read. */
+export const HELM_TYPING_SELECTOR =
+  '.helm-critter[data-agent="working"] .agent-key';
 
 /**
- * Why the helm is not showing a working agent, or null: its Hopper in the
- * running pose with its dot hopping up the steps (unless reduced motion
- * keeps it still), and the bubble saying what it does with a clock. The
- * helm's mark is 25px, so it draws the five big steps and their hop.
+ * Why the helm is not showing a working agent, or null: its Bot in the
+ * running pose, typing (its lit key stepping along, unless reduced motion
+ * keeps it still), and the bubble saying what it does with a clock.
  */
 export function helmWorkingProblem(
   helm: Element | null,
-  hopAnimation: string,
+  typingAnimation: string,
   reducedMotion: boolean,
 ): string | null {
   if (!helm) return "the message box has no helm";
   if ((helm as HTMLElement).dataset.pose !== "running")
     return `the mark is ${(helm as HTMLElement).dataset.pose ?? "unposed"}, not running`;
-  if (!helm.querySelector(HELM_HOP_SELECTOR)) return "the mark is not hopping";
+  if (!helm.querySelector(HELM_TYPING_SELECTOR))
+    return "the mark is not typing";
   const bubble = helm.querySelector('[data-helm-say="running"]');
   if (!bubble) return "the mark's bubble says nothing";
   if (!bubble.querySelector('[role="timer"]'))
     return "the bubble shows no elapsed time";
-  const hopping = animationProblem(hopAnimation, "hopper-hop", reducedMotion);
-  return hopping ? `the hop: ${hopping}` : null;
+  const typing = animationProblem(typingAnimation, "agent-type", reducedMotion);
+  return typing ? `the typing: ${typing}` : null;
 }
 
 /**

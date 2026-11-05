@@ -148,9 +148,9 @@ function app(flaws: Flaws = {}) {
     ].join("");
     return `<span class="project-mark" data-kind="stack"${attributes}><span class="stack-mark"${expanded ? " data-open" : ""}><svg class="stack-mark-art">${page("back", -14)}${page("middle", -6)}<rect class="stack-mark-front"></rect></svg></span></span>`;
   };
-  // A project's agent (Home's tiles): Hopper, hopping while it works.
+  // A project's agent (Home's tiles): Bot, typing while it works.
   const mark = (working: boolean) =>
-    `<span class="dot-mark hopper-mark" data-hopper="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><svg class="hopper-steps"></svg><span class="hopper-walk"><i class="hopper-dot" style="animation-name: ${working && !flaws.stillWhileWorking ? "hopper-hop" : "none"}"></i></span></span>`;
+    `<span class="dot-mark agent-mark" data-agent="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><span class="agent-bob"><svg class="agent-body"><path class="agent-head"></path></svg>${working ? `<i class="agent-key" style="animation-name: ${flaws.stillWhileWorking ? "none" : "agent-type"}"></i>` : ""}</span></span>`;
   function draw() {
     const working = state.sessions.some((session) => session.busy);
     document.body.innerHTML = `
@@ -294,7 +294,7 @@ describe("the real-app check's motion steps", () => {
     const home = named(await check({ stillWhileWorking: true }), "Home shows");
     expect(home.passed).toBe(false);
     expect(home.detail).toBe(
-      "On Home, the working agent's mark its animation is none, expected hopper-hop",
+      "On Home, the working agent's mark its animation is none, expected agent-type",
     );
   });
 
