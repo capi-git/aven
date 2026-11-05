@@ -2,10 +2,11 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check } from "../chrome/icons";
 import { focusableWithin } from "../chrome/Modal";
-import { DotMark } from "../chrome/DotMark";
+import { HopperMark } from "../chrome/HopperMark";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { failureText } from "../lib/errors";
 import { LAYER } from "../lib/layers";
+import { crewMemberTone } from "../lib/markTones";
 import type { HarnessId } from "../lib/session";
 import {
   WALKTHROUGH_STEPS,
@@ -16,8 +17,11 @@ import {
 import { ProviderSetup } from "./ProviderSetup";
 import "./Walkthrough.css";
 
-/** The welcome's cast: a crew's marks, the Builder at work. */
-const CAST = ["builder", "checker", "security", "scout", "designer"] as const;
+/**
+ * The welcome's cast: a team's Hoppers, each in its role's colour (five
+ * that differ), the Builder at work.
+ */
+const CAST = ["builder", "checker", "security", "scout", "researcher"] as const;
 
 const FEATURES = [
   {
@@ -132,11 +136,11 @@ export function Walkthrough({
     body = (
       <>
         <div className="walkthrough-cast" aria-hidden>
-          {CAST.map((sigil) => (
-            <DotMark
-              key={sigil}
-              sigil={sigil}
-              state={sigil === "builder" ? "working" : "still"}
+          {CAST.map((role) => (
+            <HopperMark
+              key={role}
+              tone={crewMemberTone(role)}
+              state={role === "builder" ? "working" : "still"}
               className="walkthrough-cast-mark"
             />
           ))}

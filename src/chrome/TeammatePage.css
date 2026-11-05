@@ -11,9 +11,7 @@
   padding-left: 0;
 }
 
-.modal-panel[role="dialog"].crew-settings.teammate-sheet
-  > header
-  .crew-mark-button {
+.crew-settings.teammate-sheet > header .crew-member-mark {
   width: 60px;
   height: 60px;
 }

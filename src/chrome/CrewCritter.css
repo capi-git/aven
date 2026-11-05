@@ -460,62 +460,6 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   cursor: default;
 }
 
-/* The member's mark, which opens its marks to pick from. */
-/* Over the header's rule for its 28px close button. */
-.modal-panel[role="dialog"] > header .crew-mark-button {
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--aven-radius-sm);
-  background: transparent;
-  cursor: pointer;
-}
-
-.modal-panel[role="dialog"] > header .crew-mark-button:hover,
-.modal-panel[role="dialog"] > header .crew-mark-button[aria-expanded="true"] {
-  background: var(--aven-fill-quaternary);
-}
-
-.crew-mark-popover .crew-critter-grid {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  margin: 0;
-  padding: 6px;
-}
-
-/* A member's page. */
-.crew-critter-grid {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 2px;
-  margin-top: 4px;
-}
-
-.crew-critter-cell {
-  display: grid;
-  place-items: center;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--aven-radius-sm);
-  background: transparent;
-  cursor: pointer;
-}
-
-.crew-critter-cell:hover {
-  background: var(--aven-fill-quaternary);
-}
-
-.crew-critter-cell[aria-checked="true"] {
-  background: var(--aven-fill-tertiary, var(--aven-fill));
-  box-shadow: inset 0 0 0 1px var(--aven-line);
-}
-
-.dot-mark.crew-critter-cell-art {
-  width: 20px;
-  height: 20px;
-}
-
 .crew-settings-text,
 .crew-settings-input {
   width: 100%;

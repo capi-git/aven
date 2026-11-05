@@ -54,35 +54,31 @@ export function helmStopProblem(
   return null;
 }
 
-/** The first diagonal of a working mark's sweep, whose animation is read. */
-export const HELM_SWEEP_SELECTOR =
-  '.helm-critter[data-state="working"] .dot-mark-lit-d';
+/** A working agent's dot at the helm, whose hop animation is read. */
+export const HELM_HOP_SELECTOR =
+  '.helm-critter[data-hopper="working"] .hopper-dot';
 
 /**
- * Why the helm is not showing a working agent, or null: the mark in its
- * running pose with a light sweeping across it (unless reduced motion keeps
- * it still), and the bubble saying what it does with a clock.
+ * Why the helm is not showing a working agent, or null: its Hopper in the
+ * running pose with its dot hopping up the steps (unless reduced motion
+ * keeps it still), and the bubble saying what it does with a clock. The
+ * helm's mark is 25px, so it draws the five big steps and their hop.
  */
 export function helmWorkingProblem(
   helm: Element | null,
-  sweepAnimation: string,
+  hopAnimation: string,
   reducedMotion: boolean,
 ): string | null {
   if (!helm) return "the message box has no helm";
   if ((helm as HTMLElement).dataset.pose !== "running")
     return `the mark is ${(helm as HTMLElement).dataset.pose ?? "unposed"}, not running`;
-  if (!helm.querySelector(HELM_SWEEP_SELECTOR))
-    return "the mark is not sweeping";
+  if (!helm.querySelector(HELM_HOP_SELECTOR)) return "the mark is not hopping";
   const bubble = helm.querySelector('[data-helm-say="running"]');
   if (!bubble) return "the mark's bubble says nothing";
   if (!bubble.querySelector('[role="timer"]'))
     return "the bubble shows no elapsed time";
-  const sweeping = animationProblem(
-    sweepAnimation,
-    "dot-mark-sweep",
-    reducedMotion,
-  );
-  return sweeping ? `the sweep: ${sweeping}` : null;
+  const hopping = animationProblem(hopAnimation, "hopper-hop", reducedMotion);
+  return hopping ? `the hop: ${hopping}` : null;
 }
 
 /**

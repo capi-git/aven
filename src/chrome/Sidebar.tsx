@@ -1244,7 +1244,7 @@ function SidebarComponent({
           onBotSettings(bot.path);
         }}
       >
-        <BotCritter path={bot.path} active={bot.status === "working"} />
+        <BotCritter path={bot.path} status={bot.status} />
         <span className="personal-task-title">{bot.name}</span>
         <span className="personal-bot-project">{bot.project}</span>
         <span className="personal-task-status">

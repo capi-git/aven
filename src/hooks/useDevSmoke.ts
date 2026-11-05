@@ -43,7 +43,7 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
-  HELM_SWEEP_SELECTOR,
+  HELM_HOP_SELECTOR,
   closeHelmDialog,
   helmStateWords,
   restoringComposer,
@@ -2856,7 +2856,7 @@ export async function runDevSmoke(
           await waitFor(
             () => {
               const helm = root.querySelector<HTMLElement>("[data-helm]");
-              const frame = helm?.querySelector(HELM_SWEEP_SELECTOR);
+              const frame = helm?.querySelector(HELM_HOP_SELECTOR);
               seen =
                 helmWorkingProblem(
                   helm ?? null,
@@ -2867,7 +2867,7 @@ export async function runDevSmoke(
               return seen === null;
             },
             5_000,
-            "the mark to sweep while the chat offers its one Stop",
+            "the mark to hop while the chat offers its one Stop",
           ).catch(() => {
             throw new Error(`While the agent worked, ${seen}`);
           });

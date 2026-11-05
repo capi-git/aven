@@ -27,8 +27,6 @@ import {
   type CrewMember,
   type CrewScoutSchedule,
 } from "../lib/crews";
-import { MEMBER_SIGIL_CHOICES } from "../lib/dotSigils";
-import { LAYER } from "../lib/layers";
 import {
   getModelSnapshot,
   pickerModelsFor,
@@ -46,9 +44,7 @@ import {
   useInstalledAgents,
 } from "./crewSettingsParts";
 import { CrewCritter } from "./CrewCritter";
-import { DotMark } from "./DotMark";
 import { ChevronDown } from "./icons";
-import { Popover } from "./Popover";
 import "./TeammatePage.css";
 
 /**
@@ -701,86 +697,27 @@ function WhenItWorks({
   );
 }
 
-/** The teammate's mark: pressing it opens the marks to pick from. */
-export function MarkButton({
+/**
+ * The teammate's mark at the top of its page. Every agent is Hopper now, so
+ * there is no mark to pick; the one it chose before is kept (it still gives
+ * a Tester or a Scribe its colour).
+ */
+export function MemberMark({
   path,
   member,
 }: {
   path: string;
   member: CrewMember;
 }) {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const mark = memberCritter(member);
   return (
-    <>
-      <button
-        type="button"
-        className="bot-sheet-critter crew-mark-button"
-        aria-label="Change its mark"
-        title="Change its mark"
-        aria-haspopup="dialog"
-        aria-expanded={!!anchor}
-        data-crew-mark-button
-        onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
-      >
-        <CrewCritter
-          path={path}
-          role={member.role}
-          {...(member.critter ? { critter: mark } : {})}
-          className="bot-sheet-critter-sprite"
-        />
-      </button>
-      {anchor ? (
-        <Popover
-          anchor={anchor}
-          side="bottom"
-          align="start"
-          width={268}
-          // Above the sheet it opens from.
-          layer={LAYER.dialog + 1}
-          autoFocus
-          onDismiss={() => setAnchor(null)}
-          role="dialog"
-          aria-label="Its mark"
-          className="crew-mark-popover"
-          data-crew-mark-popover
-        >
-          <div
-            className="crew-critter-grid"
-            role="radiogroup"
-            aria-label="Mark"
-          >
-            {MEMBER_SIGIL_CHOICES.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                role="radio"
-                aria-checked={item.key === mark}
-                aria-label={item.label}
-                title={item.label}
-                className="crew-critter-cell"
-                data-mark-choice={item.key}
-                onClick={() => {
-                  const why = updateCrewMember(path, member.id, {
-                    critter: item.key,
-                  });
-                  setProblem(why);
-                  if (!why) setAnchor(null);
-                }}
-              >
-                <DotMark sigil={item} className="crew-critter-cell-art" />
-              </button>
-            ))}
-          </div>
-          {problem ? (
-            <p className="bot-sheet-problem" role="alert">
-              {problem}
-            </p>
-          ) : null}
-        </Popover>
-      ) : null}
-    </>
+    <span className="bot-sheet-critter crew-member-mark" data-crew-member-mark>
+      <CrewCritter
+        path={path}
+        role={member.role}
+        {...(member.critter ? { critter: memberCritter(member) } : {})}
+        className="bot-sheet-critter-sprite"
+      />
+    </span>
   );
 }
 
