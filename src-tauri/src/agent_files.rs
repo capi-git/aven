@@ -365,16 +365,49 @@ mod tests {
         assert!(ensure_files_folder(Path::new("relative")).is_err());
     }
 
+    /// `<root>/p/<parts…>`, absolute on this platform (`/` or `C:\`).
+    fn in_project(parts: &[&str]) -> PathBuf {
+        let root = if cfg!(windows) { r"C:\" } else { "/" };
+        parts
+            .iter()
+            .fold(Path::new(root).join("p"), |path, part| path.join(part))
+    }
+
     #[test]
     fn only_files_under_an_aven_files_folder_count() {
-        assert!(is_agent_file(Path::new("/p/.aven/files/Report.pdf")));
-        assert!(is_agent_file(Path::new("/p/.aven/files/charts/a.png")));
-        assert!(!is_agent_file(Path::new("/p/.aven/files")));
-        assert!(!is_agent_file(Path::new("/p/files/Report.pdf")));
-        assert!(!is_agent_file(Path::new("/p/.aven/Report.pdf")));
-        assert!(!is_agent_file(Path::new("/p/src/Report.pdf")));
-        assert!(!is_agent_file(Path::new(".aven/files/Report.pdf")));
-        assert!(!is_agent_file(Path::new("/p/.aven/files/../../etc/passwd")));
+        assert!(is_agent_file(&in_project(&[
+            ".aven",
+            "files",
+            "Report.pdf"
+        ])));
+        assert!(is_agent_file(&in_project(&[
+            ".aven", "files", "charts", "a.png"
+        ])));
+        assert!(!is_agent_file(&in_project(&[".aven", "files"])));
+        assert!(!is_agent_file(&in_project(&["files", "Report.pdf"])));
+        assert!(!is_agent_file(&in_project(&[".aven", "Report.pdf"])));
+        assert!(!is_agent_file(&in_project(&["src", "Report.pdf"])));
+        assert!(!is_agent_file(&in_project(&[
+            ".aven", "files", "..", "..", "etc", "passwd"
+        ])));
+        assert!(!is_agent_file(
+            &Path::new(".aven").join("files").join("Report.pdf")
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_count_whichever_separators_they_use() {
+        for path in [
+            r"C:\Users\me\p\.aven\files\Report.pdf",
+            "C:/Users/me/p/.aven/files/Report.pdf",
+            r"\\?\C:\Users\me\p\.aven\files\Report.pdf",
+            r"\\server\share\p\.aven\files\Report.pdf",
+        ] {
+            assert!(is_agent_file(Path::new(path)), "{path}");
+        }
+        assert!(!is_agent_file(Path::new(r"C:\Users\me\p\src\Report.pdf")));
+        assert!(!is_agent_file(Path::new(r"\p\.aven\files\Report.pdf")));
     }
 
     #[test]
