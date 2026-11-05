@@ -11483,8 +11483,8 @@ export default function App({
     if (!isHarnessAvailable("claude"))
       return "Avos uses Claude Code. Install it and sign in, then try again.";
     // No Git needed: Avos talks and keeps an eye on things in any folder.
-    // Building asks for Git when it's needed (see buildingProblem).
-    ensureAvos(path);
+    // Building asks for Git when it's needed (see buildingProblem). Opening
+    // Avos saved it (ensureAvos); waking it keeps whoever it has.
     const codex = isHarnessAvailable("codex");
     turnOnCrew(
       path,

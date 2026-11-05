@@ -254,6 +254,22 @@ async function openBoard(project: string): Promise<HTMLElement> {
   return waitFor(() => boardOnScreen(project), 15_000, "the team's Board");
 }
 
+/** The project's Avos on screen, on its Chat. */
+async function openChat(project: string): Promise<HTMLElement> {
+  setTeamView(project, "chat");
+  workspace().openCrew(project);
+  return waitFor(
+    () =>
+      [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].find(
+        (chat) =>
+          sameProjectPath(chat.dataset.teamChat ?? "", project) &&
+          onScreen(chat),
+      ) ?? null,
+    15_000,
+    "Avos's chat",
+  );
+}
+
 /** The Board card with this title, on the project's Board on screen. */
 function boardCardByTitle(project: string, title: string): HTMLElement | null {
   const board = boardOnScreen(project);
@@ -1087,7 +1103,7 @@ export async function checkTeamTalk(
   try {
     const crew = await startTeam(team, project, []);
     if (!crewLead(crew)) throw new Error("A new team started without a Lead");
-    await openBoard(project);
+    await openChat(project);
     const problem = await tellTeam(
       project,
       `Is it fine? ${SMOKE_TALK_WORD}`,
@@ -1125,13 +1141,15 @@ export async function checkTeamTalk(
     // macOS spells the temp folder both with and without /private.
     const plain = (path: string) => path.replace(/^\/private\//, "/");
     const copy = plain(getCrew(project)?.copy?.path ?? "");
+    const folder = plain(project);
     for (const who of ["lead", "checker", "helper"]) {
-      // Only this team's: the log holds every team this check has run.
-      const mine = turns.filter(
-        (turn) =>
-          turn.crew === who &&
-          plain(String(turn.launch ?? "").split("cwd=")[1] ?? "") === copy,
-      );
+      // Only this team's: the log holds every team this check has run. Avos
+      // reads your folder until the copy is made, then works in it.
+      const mine = turns.filter((turn) => {
+        if (turn.crew !== who) return false;
+        const cwd = plain(String(turn.launch ?? "").split("cwd=")[1] ?? "");
+        return cwd === copy || (who === "lead" && cwd === folder);
+      });
       if (!mine.length) throw new Error(`The stand-in logged no ${who} turn`);
       for (const turn of mine) {
         const launch = String(turn.launch ?? "");
@@ -1148,7 +1166,7 @@ export async function checkTeamTalk(
     const left = getCrew(project);
     return `the Lead asked the Checker and a helper, ${
       left?.helperRuns?.count ?? 0
-    } helper run, every turn sandboxed in Avos's copy`;
+    } helper run, every turn sandboxed (Avos in your folder until the copy, the rest in it)`;
   } finally {
     await tidy(project);
   }
@@ -1209,6 +1227,8 @@ export async function checkTeamJob(
       throw new Error(
         `The request also left ${ideas} ideas and ${cards} cards on the Board`,
       );
+    // The job shows in Avos's chat, which the Board's view hides.
+    await openChat(project);
     const chat = () =>
       [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].find(
         onScreen,
