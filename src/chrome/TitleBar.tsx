@@ -495,7 +495,7 @@ type SortableApi = ReturnType<typeof useSortable>;
 /** The first pinned tab draws the backing the others stand on. */
 type PinAttribute = "first" | "true";
 /** A pinned tab's width and the gap after it, as `TitleBar.css` has them. */
-const PINNED_TAB_STEP = 34;
+const PINNED_TAB_STEP = 30;
 
 type MenuPoint = Pick<ReactMouseEvent, "clientX" | "clientY">;
 

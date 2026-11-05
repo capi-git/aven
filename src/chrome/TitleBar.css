@@ -246,12 +246,12 @@ html.theme-light .personal-shell {
 .aven-tab-slot[data-pinned],
 .aven-tab-strip[data-tab-track] .aven-tab-slot[data-pinned] {
   position: sticky;
-  left: calc(var(--aven-tab-pin-index, 0) * 34px);
+  left: calc(var(--aven-tab-pin-index, 0) * 30px);
   z-index: 3;
-  flex: 0 0 32px;
-  width: 32px;
-  min-width: 32px;
-  max-width: 32px;
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
 }
 .aven-tab-slot[data-pinned] .aven-tab-button {
   justify-content: center;
@@ -1374,6 +1374,21 @@ html.theme-light .personal-shell {
 }
 .workspace-status-strip .aven-tab[data-active="false"] .aven-tab-button:hover {
   background: var(--aven-fill-tertiary);
+}
+/* A pinned tab is a quiet mark, like the buttons beside it: no plate until it's
+   pointed at or open. */
+.workspace-status-strip
+  .aven-tab-slot[data-pinned]
+  .aven-tab[data-active="false"]
+  .aven-tab-button:not(:hover) {
+  background: transparent;
+}
+.workspace-status-strip
+  .aven-tab-slot[data-pinned]
+  .aven-tab[data-active="false"]
+  .aven-tab-button:not(:hover)
+  .personal-title-tab-identity {
+  opacity: 0.65;
 }
 .workspace-status-strip
   .aven-tab-strip[data-tab-track]
