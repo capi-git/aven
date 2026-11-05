@@ -225,22 +225,6 @@ export const SETTINGS = {
     restartDescription:
       "Runs web pages in a lighter mode that needs less memory. Restart Aven to apply this change.",
   }),
-  devPreviewAutoOpen: defineSetting({
-    ...defineStoredSetting<boolean>({
-      key: "aven.devPreviewAutoOpen",
-      ...storedBoolean(false),
-      changeEvent: "aven:dev-preview-auto-open-change",
-      storageChanges: true,
-    }),
-    section: "browser",
-    label: "Open dev previews automatically",
-    description:
-      "Show a project's app beside the chat as soon as its dev server starts.",
-    keywords:
-      "live preview localhost dev server vite next port automatic split terminal agent",
-    rowDescription:
-      "When a dev server starts in a terminal or an agent's command, show its page beside the chat once, without asking. When off, a Preview ready chip offers it instead.",
-  }),
   agentsReadAnyTab: defineSetting({
     ...defineStoredSetting<boolean>({
       key: "aven.agentsReadAnyTab",

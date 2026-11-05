@@ -269,7 +269,6 @@ import {
   sessionChangesTabFor,
   showInPane,
 } from "./lib/reviewPlacement";
-import { useDevPreviewAutoOpen } from "./hooks/useDevPreviews";
 import {
   useDuplicateServerMessenger,
   useSharedWorkSessions,
@@ -1678,7 +1677,7 @@ export default function App({
   // reusing a tab that already shows that server.
   useEffect(
     () =>
-      installDevPreviewOpener((preview, { requesterSessionId, automatic }) => {
+      installDevPreviewOpener((preview, { requesterSessionId }) => {
         const project = projectCwdRef.current;
         if (!previewBelongsTo(preview, project)) return false;
         const current = normalizeBrowserWorkspace(
@@ -1696,7 +1695,7 @@ export default function App({
         );
         const surfaceId = browserIdForTab(project, tab.id);
         if (detachedIdsRef.current.has(surfaceId)) {
-          if (!automatic) void detachedShowSurface.current(surfaceId);
+          void detachedShowSurface.current(surfaceId);
           return true;
         }
         flushSync(() =>
@@ -1715,14 +1714,12 @@ export default function App({
             surfaceId,
             workspace.tabs.map((page) => browserIdForTab(project, page.id)),
             requester,
-            !!automatic,
           ),
         );
         return true;
       }),
     [],
   );
-  useDevPreviewAutoOpen(projectCwd);
   // Chats' titles and projects for the shared-work note, read only when a
   // note is built; closed chats stop counting as working.
   useSharedWorkSessions(

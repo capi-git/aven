@@ -17,7 +17,6 @@ import { logError } from "./errors";
 import type { HarnessEvent } from "./harness/types";
 import { isEqualOrInside, joinPath, pathKey } from "./paths";
 import { looksLikeProject } from "./recents";
-import { SETTINGS } from "./settingDefinitions";
 
 /**
  * Dev servers Aven noticed in terminals and agent shell commands, one per
@@ -51,8 +50,6 @@ export type DevPreview = {
   detectedAt: number;
   dismissed: boolean;
   opened: boolean;
-  /** Open without asking: the setting was on and the line named a page. */
-  autoOpen: boolean;
   /** Folder the command ran in: `cwd`, or where the command changed to. */
   folder: string;
   /** Framework or package script (`vite`, `script:dev@web`), when known. */
@@ -130,10 +127,6 @@ export function previewBelongsTo(
   );
 }
 
-function autoOpenEnabled(): boolean {
-  return SETTINGS.devPreviewAutoOpen.load();
-}
-
 /** Stopped servers are forgotten first, oldest first. */
 function bounded(list: DevPreview[]): DevPreview[] {
   if (list.length <= MAX_PREVIEWS) return list;
@@ -148,7 +141,7 @@ function bounded(list: DevPreview[]): DevPreview[] {
 
 /**
  * Record a server announcement. Repeats while it runs change nothing; an
- * announcement after it stopped is a new start, offered (and opened) again.
+ * announcement after it stopped is a new start, offered again.
  */
 export function reportDevServer(
   report: DevServerReport,
@@ -167,7 +160,6 @@ export function reportDevServer(
       url: address.url,
       label: address.label,
       strength: "strong",
-      autoOpen: existing.autoOpen || autoOpenEnabled(),
       ...(!existing.app && report.app ? { app: report.app } : {}),
     };
     if (!upgraded.duplicateOf) {
@@ -200,7 +192,6 @@ export function reportDevServer(
       cwd: report.cwd,
       url: address.url,
     }),
-    autoOpen: address.strength === "strong" && autoOpenEnabled(),
     folder: report.folder ?? report.cwd,
     ...(report.app ? { app: report.app } : {}),
     ...(report.run ? { run: report.run } : {}),
@@ -347,26 +338,9 @@ function rank(preview: DevPreview): number {
   );
 }
 
-/** Live servers in this project that should open without asking. */
-export function pendingAutoOpen(
-  list: readonly DevPreview[],
-  project: string,
-): DevPreview[] {
-  return list.filter(
-    (preview) =>
-      preview.status === "live" &&
-      preview.autoOpen &&
-      !preview.opened &&
-      !preview.dismissed &&
-      previewBelongsTo(preview, project),
-  );
-}
-
 export type DevPreviewOpenRequest = {
   /** The chat to show it beside; the active chat when absent. */
   requesterSessionId?: string;
-  /** Opened by the setting rather than a click: never take over a pane in use. */
-  automatic?: boolean;
 };
 
 export type DevPreviewOpener = (
@@ -470,7 +444,7 @@ function alreadyShown(preview: Pick<DevPreview, "project" | "cwd" | "url">) {
 /**
  * The pages each project's browser shows. A server that already has a tab,
  * because an agent opened it or the user typed its address, is not offered
- * again; with the setting on, it is not opened a second time either.
+ * again.
  */
 export function publishDevPreviewTabs(
   projects: Iterable<readonly [project: string, urls: readonly string[]]>,

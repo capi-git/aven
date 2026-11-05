@@ -10,7 +10,6 @@ import {
   markDuplicateDevServer,
   observeAgentPreviewEvent,
   openDevPreview,
-  pendingAutoOpen,
   previewBelongsTo,
   previewTabMatch,
   previewTabsOnServer,
@@ -113,23 +112,6 @@ describe("reportDevServer", () => {
     });
     report("http://localhost:3000/", { strength: "weak" });
     expect(only().url).toBe("http://localhost:3000/app/");
-  });
-
-  it("opens automatically only for page addresses with the setting on", () => {
-    report("http://localhost:5173/");
-    expect(only().autoOpen).toBe(false);
-    resetDevPreviews();
-    values.set("aven.devPreviewAutoOpen", "1");
-    report("http://localhost:5173/");
-    report("http://localhost:4000/", { strength: "weak" });
-    expect(devPreviewsSnapshot().map((preview) => preview.autoOpen)).toEqual([
-      true,
-      false,
-    ]);
-    expect(pendingAutoOpen(devPreviewsSnapshot(), PROJECT)).toHaveLength(1);
-    expect(pendingAutoOpen(devPreviewsSnapshot(), "/Users/me/other")).toEqual(
-      [],
-    );
   });
 
   it("forgets stopped servers first when the list is full", () => {
@@ -298,12 +280,10 @@ describe("publishDevPreviewTabs", () => {
   });
 
   it("counts a tab left open from the server's previous start", () => {
-    values.set("aven.devPreviewAutoOpen", "1");
     publishDevPreviewTabs([[PROJECT, ["http://localhost:5173/"]]]);
     report("http://localhost:5173/", { sourceId: "terminal:a" });
-    expect(only()).toMatchObject({ opened: true, autoOpen: true });
+    expect(only().opened).toBe(true);
     expect(chipPreview(devPreviewsSnapshot(), PROJECT, "chat")).toBe(undefined);
-    expect(pendingAutoOpen(devPreviewsSnapshot(), PROJECT)).toEqual([]);
     publishDevPreviewTabs([]);
     stopDevServers("terminal:a");
     report("http://localhost:5173/", { sourceId: "terminal:a" });

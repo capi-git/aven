@@ -87,7 +87,7 @@ export const SETTINGS_SECTIONS: {
     id: "browser",
     group: "Workspace",
     label: "Browser",
-    description: "Open dev previews and keep browser tabs ready.",
+    description: "Let agents use your open pages and keep tabs ready.",
   },
   {
     id: "git",
