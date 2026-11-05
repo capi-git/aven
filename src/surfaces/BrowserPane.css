@@ -176,6 +176,46 @@
 .browser-address[data-pane-grab]:hover {
   background-image: linear-gradient(var(--aven-hover), var(--aven-hover));
 }
+/* The star sits in the address field's end, over room the field keeps for
+   it, so a page's header is still just the arrows and the address. In a
+   pane's header it shows on hover or focus, or to say the page is
+   bookmarked; a toolbar of its own always shows its buttons. */
+.browser-address[data-bookmarkable] {
+  padding-inline-end: 28px;
+}
+.browser-toolbar .browser-icon-button.browser-bookmark-star {
+  width: 22px;
+  height: 22px;
+  flex-basis: 22px;
+  margin-inline-start: -29px;
+  position: relative;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease;
+}
+.browser-toolbar[data-pane-header] .browser-icon-button.browser-bookmark-star {
+  margin-inline-start: -27px;
+  opacity: 0;
+}
+.browser-toolbar[data-pane-header]:hover
+  .browser-icon-button.browser-bookmark-star,
+.personal-titlebar[data-variant="title"]:hover
+  .browser-icon-button.browser-bookmark-star,
+.browser-toolbar[data-pane-header]
+  .browser-icon-button.browser-bookmark-star:focus-visible,
+.browser-toolbar[data-pane-header]
+  .browser-icon-button.browser-bookmark-star[data-bookmarked] {
+  opacity: 1;
+}
+.browser-icon-button.browser-bookmark-star[data-bookmarked] {
+  color: var(--color-content);
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-toolbar .browser-icon-button.browser-bookmark-star {
+    transition: none;
+  }
+}
 .browser-edit-hint {
   display: flex;
   flex-shrink: 0;

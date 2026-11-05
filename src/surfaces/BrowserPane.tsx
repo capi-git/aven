@@ -43,9 +43,11 @@ import {
   Plus,
   Search,
   RefreshCw,
+  Star,
   Video,
   X,
 } from "../chrome/icons";
+import { BrowserBookmarks } from "../chrome/BrowserBookmarks";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import {
   BROWSER_NOTICE_ACTION_LABELS,
@@ -56,6 +58,7 @@ import {
   browserSearchSuggestion,
   nativeBrowser,
   openBrowserExternally,
+  readableHost,
   resolveBrowserAddress,
   type BrowserAction,
   type BrowserDownload,
@@ -63,9 +66,11 @@ import {
   type BrowserNoticeAction,
   type BrowserState,
 } from "../lib/browser";
+import { useBrowserBookmarks } from "../hooks/useBrowserBookmarks";
 import { useBrowserDropIndicator } from "../hooks/useBrowserDropIndicator";
 import { useBrowserMarkup } from "../hooks/useBrowserMarkup";
 import { useDevServerStart } from "../hooks/useDevServerStart";
+import { addBookmark, removeBookmark } from "../lib/browserBookmarks";
 import { beginBrowserHandoff, endBrowserHandoff } from "../lib/browserHandoff";
 import { forgetMotionImage, registerMotionPage } from "../lib/browserMotion";
 import {
@@ -160,15 +165,6 @@ function browserMenuPosition(button: HTMLButtonElement) {
   };
 }
 
-/** "example.com" for a page's address; the address itself without a host. */
-function readableHost(url: string): string {
-  try {
-    return new URL(url).host.replace(/^www\./, "") || url;
-  } catch {
-    return url;
-  }
-}
-
 function startsWithUrl(value?: string): string {
   if (!value) return "";
   try {
@@ -207,6 +203,10 @@ function BrowserPaneSession({
   const [url, setUrl] = useState(() => startsWithUrl(initialUrl));
   const [address, setAddress] = useState(initialUrl ?? "");
   const [title, setTitle] = useState("");
+  const bookmarks = useBrowserBookmarks(project);
+  const projectAppearance = useProjectAppearance(project);
+  // The page's icon as native last sent it, for a bookmark made now.
+  const pageFavicon = useRef("");
   // One header per pane: in a workspace pane the page lends its toolbar to
   // the pane's title row when it is the pane's only tab (`headerSlot`), and
   // lists its secondary actions in the pane's "…" (`paneHosted`), leaving
@@ -862,6 +862,7 @@ function BrowserPaneSession({
         callbacks.current.onTitleChange?.(state.title);
       }
       const favicon = browserFavicon(state.favicon) ?? "";
+      pageFavicon.current = favicon;
       if (favicon !== nativeFavicon) {
         nativeFavicon = favicon;
         callbacks.current.onFaviconChange?.(favicon);
@@ -1367,6 +1368,26 @@ function BrowserPaneSession({
     navigate(address);
     addressInput.current?.blur();
   };
+  const bookmarked = bookmarks.some((bookmark) => bookmark.url === url);
+  const toggleBookmark = () => {
+    if (!project) return;
+    if (bookmarked) removeBookmark(project, url);
+    else if (
+      !addBookmark(project, {
+        url,
+        name: title.trim() || readableHost(url),
+        favicon: pageFavicon.current,
+      })
+    )
+      setNotice(
+        "Couldn't bookmark this page. Remove a bookmark and try again.",
+      );
+  };
+  const openBookmark = (target: string) => {
+    callbacks.current.onTakenOver?.();
+    navigate(target);
+    addressInput.current?.blur();
+  };
   const openExternal = () => {
     if (!url) return;
     void openBrowserExternally(url).catch((reason) =>
@@ -1609,6 +1630,11 @@ function BrowserPaneSession({
     },
   ];
 
+  // A page needs a project to belong to.
+  const canBookmark = !!url && !!projectAppearance;
+  const bookmarkLabel = bookmarked
+    ? "Remove bookmark"
+    : `Bookmark in ${projectAppearance?.label}`;
   const toolbar = (
     <form
       className="browser-toolbar"
@@ -1663,6 +1689,7 @@ function BrowserPaneSession({
         value={addressShown}
         title={addressNames ? url : undefined}
         data-pane-grab={addressGrabs ? "face" : undefined}
+        data-bookmarkable={canBookmark || undefined}
         onChange={(event) => setAddress(event.target.value)}
         onFocus={(event) => {
           // Only a field that names the page swaps what it shows.
@@ -1708,6 +1735,18 @@ function BrowserPaneSession({
         autoCapitalize="none"
         autoCorrect="off"
       />
+      {canBookmark ? (
+        <button
+          type="button"
+          className="browser-icon-button browser-bookmark-star"
+          data-bookmarked={bookmarked || undefined}
+          aria-label={bookmarkLabel}
+          title={bookmarkLabel}
+          onClick={toggleBookmark}
+        >
+          <Star size={14} fill={bookmarked ? "currentColor" : "none"} />
+        </button>
+      ) : null}
       {captureLabel ? (
         <span
           className="browser-capture"
@@ -2185,6 +2224,12 @@ function BrowserPaneSession({
               Open this address
             </a>
           </div>
+        ) : !url && project && bookmarks.length ? (
+          <BrowserBookmarks
+            project={project}
+            bookmarks={bookmarks}
+            onOpen={openBookmark}
+          />
         ) : !url ? (
           <div className="browser-empty">
             <span className="browser-empty-mark">↗</span>
