@@ -496,11 +496,13 @@ html:has(.aven-tour)
 }
 
 /* As MonoCode lays it out: past a pinned sidebar the tabs start where the work
-   does, with back and forward just before them; anything else sits at the end. */
+   does, with back and forward just before them; anything else sits at the end.
+   Beside a narrow sidebar its buttons need more room, and the tabs start after
+   them instead of covering them. */
 .personal-shell[data-sidebar-pinned="true"] .workspace-navigation {
   flex: 0 0
     calc(var(--aven-sidebar-width, 216px) / var(--aven-toolbar-zoom, 1) - 89px);
-  min-width: 0;
+  min-width: min-content;
 }
 .personal-shell[data-sidebar-pinned="true"]
   .workspace-navigation
