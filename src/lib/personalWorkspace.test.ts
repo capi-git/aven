@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EMPTY_BROWSER,
-  browserIdForProject,
   loadBrowserWorkspaces,
   saveBrowserWorkspaces,
   loadPersonalInspector,
@@ -61,7 +60,6 @@ describe("personal panel persistence", () => {
     });
     expect(value["/two"].expanded).toBe(false);
     expect(value["/two"].ratio).toBe(0.3);
-    expect(browserIdForProject("/one")).not.toBe(browserIdForProject("/two"));
   });
 
   it("moves an older open preview into a top tab and retains its URL and split width", () => {
