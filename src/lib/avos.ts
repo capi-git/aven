@@ -39,6 +39,30 @@ export function avosMet(crew: Pick<Crew, "on" | "members"> | undefined) {
   );
 }
 
+/**
+ * Whether this is meeting Avos: it has never been awake, and nothing has
+ * been said to it yet. Its chat then opens on its introduction.
+ */
+export function avosUnmet(
+  crew: Pick<Crew, "on" | "onAt" | "messages" | "feed"> | undefined,
+): boolean {
+  return (
+    !!crew &&
+    !crew.on &&
+    !crew.onAt &&
+    !crew.messages?.length &&
+    !crew.feed.some((entry) => entry.kind === "say")
+  );
+}
+
+/** What Avos says when you first meet it: who it is, then its question. */
+export function avosIntro(project: string): { hello: string; ask: string } {
+  return {
+    hello: `Hi, I'm Avos. I'll look after ${project}.`,
+    ask: "What should I keep an eye on, and what's coming up this week?",
+  };
+}
+
 const lowerFirst = (text: string) =>
   text ? `${text[0]!.toLowerCase()}${text.slice(1)}` : text;
 
@@ -69,7 +93,7 @@ export function avosLine(
     busy?: ReadonlySet<string>;
   },
 ): string {
-  if (!crew || !avosMet(crew)) return "Hasn't met you yet";
+  if (!crew || !avosMet(crew) || avosUnmet(crew)) return "Hasn't met you yet";
   const stuck = crew.on
     ? crew.cards.filter((card) => card.stage === "stuck").length
     : 0;
@@ -122,6 +146,8 @@ export function avosGlance(
   });
   if (!crew || !avosMet(crew))
     return { path, note: null, state: "still", line };
+  // Meeting it: it looks at you, waiting for your answer.
+  if (avosUnmet(crew)) return { path, note: null, state: "watching", line };
   const status = crewStatus(crew, {
     ...(input.fixer ? { fixer: input.fixer } : {}),
     ...(input.busy ? { busy: input.busy } : {}),

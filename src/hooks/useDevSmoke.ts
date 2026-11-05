@@ -61,7 +61,7 @@ import {
   checkDesigner,
   checkResearcher,
   checkTeamAccess,
-  checkTeamSetup,
+  checkMeetAvos,
   checkTeamJob,
   checkTeamTalk,
   type SmokeTeam,
@@ -4168,15 +4168,15 @@ export async function runDevSmoke(
       () => checkCrew(get, config.projectPath, crew),
     );
 
-  // The team family, each step in a Git project of its own beside the
-  // check's, with the stand-in as every teammate: a team sets itself up
-  // from a description, the Researcher's findings put ideas on the Board
-  // and its notes are kept between turns, the Designer's mock-up is kept
-  // (and a stray one refused), and the Team sheet's Access choices stay.
+  // The Avos family, each step in a project of its own beside the check's,
+  // with the stand-in as Avos and every helper: meeting Avos in a folder
+  // without Git, the Researcher's findings put ideas on the Board and its
+  // notes are kept between turns, the Designer's mock-up is kept (and a
+  // stray one refused), and the settings' Access choices stay.
   if (safe && crew)
     await step(
-      "a new team sets itself up from a description, with its ideas placed and its about kept",
-      () => checkTeamSetup(get, config, crew),
+      "meeting Avos in a folder without Git: its introduction, a job from your answer, and Set up Git when asked to build",
+      () => checkMeetAvos(config, crew),
     );
   if (safe && crew)
     await step(
@@ -4190,17 +4190,17 @@ export async function runDevSmoke(
     );
   if (safe && crew)
     await step(
-      "a message to the Lead reaches a teammate and a helper and comes back",
+      "a message to Avos reaches a helper and that helper's own helper, and comes back",
       () => checkTeamTalk(config, crew),
     );
   if (safe && crew)
     await step(
-      "a watch request in the team chat becomes the team's job, whose run's Publish card shows in the chat",
+      "a watch request in Avos's chat becomes its job, whose run's Publish card shows in the chat",
       () => checkTeamJob(config, crew, () => get().motion?.showWorkspace?.()),
     );
   if (safe && crew)
     await step(
-      "the Team sheet's Access choices persist across closing and reopening it",
+      "Avos's settings keep their Access choices across closing and reopening them",
       () => checkTeamAccess(get, config),
     );
 

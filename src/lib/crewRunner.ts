@@ -275,6 +275,16 @@ export type CrewRunnerDeps = {
   };
   /** A member's name (by its id, or a role for its first): its own, or its critter's. */
   name: (crew: Crew, who: string) => string;
+  /**
+   * Avos brings in the helpers building needs (a Builder and a Checker)
+   * before its first card builds. None here: such a card waits.
+   */
+  bringInBuilders?: (path: string) => void;
+  /**
+   * Why the project can't build in a copy now (no Git), said once in Avos's
+   * chat with Set up Git; null when it can.
+   */
+  buildingProblem?: (path: string) => Promise<string | null>;
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
   /**
@@ -1224,12 +1234,36 @@ export class CrewRunner {
     } catch (error) {
       logError("Crew board", error);
     }
-    const idea = cards ? nextIdeaToBuild(crew, cards, now) : null;
+    // Avos with no Builder yet builds only what it took down from your own
+    // words: ideas already on the Board wait for you to say Build it.
+    const builds = crew.members.some(
+      (member) => member.role === "builder" && memberOn(member),
+    );
+    const idea = cards
+      ? nextIdeaToBuild(
+          crew,
+          builds ? cards : cards.filter((card) => !!crew.ideas?.[card.id]),
+          now,
+        )
+      : null;
     if (idea) {
       if (waiting) return this.hold(crew, crewReviewGate(waiting));
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
+      if (!builds) {
+        // No Git: it says so, with Set up Git, and the idea waits for you.
+        const problem = await this.deps.buildingProblem?.(path);
+        if (problem || !this.deps.bringInBuilders) {
+          updateCrew(path, (current) =>
+            current.notNow?.includes(idea.id)
+              ? current
+              : { ...current, notNow: [...(current.notNow ?? []), idea.id] },
+          );
+          return;
+        }
+        this.deps.bringInBuilders(path);
+      }
       return this.autoStart(path, idea);
     }
     // Idle with a goal: is it met, and what's the next card towards it.

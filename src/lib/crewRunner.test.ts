@@ -6,6 +6,7 @@ import {
   memberAsk,
   replyForTurn,
   resetCrewRunnerSession,
+  type CrewRunnerDeps,
 } from "./crewRunner";
 import {
   cardInCopy,
@@ -94,7 +95,10 @@ const verdict = (mustFix: unknown[], later: string[] = []) =>
     ran: [{ command: "npm test", ok: true }],
   });
 
-function harness(agents: Partial<Record<Role, Agent>>) {
+function harness(
+  agents: Partial<Record<Role, Agent>>,
+  extra: Partial<CrewRunnerDeps> = {},
+) {
   let now = NOON;
   let nextId = 1;
   let turnIds = 0;
@@ -312,6 +316,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
       update(sessionId, (chat) => ({ ...chat, providerSessionId: undefined }));
     },
     newId: () => `turn-${nextId++}`,
+    ...extra,
   });
 
   const flush = async () => {
@@ -1235,6 +1240,87 @@ describe("the Scout: ideas start themselves, within limits", () => {
     expect(h.moves).toContainEqual({ id: "mine", column: "building" });
     await h.advance(10 * MINUTE);
     expect(card("mine").stage).toBe("ready");
+    h.runner.stop();
+  });
+
+  it("Avos with no Builder yet leaves the Board's ideas to you, and brings in helpers for one it took down from your words", async () => {
+    const bring = vi.fn((path: string) =>
+      updateCrew(path, (crew) => ({
+        ...crew,
+        members: [
+          ...crew.members,
+          { id: "builder", role: "builder" },
+          { id: "checker", role: "checker" },
+        ],
+      })),
+    );
+    const h = harness(
+      {
+        builder: () => ({
+          text: handoff("Built"),
+          copy: { hash: "h1", files: ["src/pricing.ts"] },
+        }),
+        checker: () => ({ text: verdict([]) }),
+      },
+      { bringInBuilders: bring, buildingProblem: async () => null },
+    );
+    onCrew({ members: [{ id: "lead", role: "lead" }] });
+    const idea = (id: string, title: string, createdAt: number) =>
+      h.board.set(id, {
+        id,
+        title,
+        column: "idea",
+        chatIds: [],
+        createdAt,
+        updatedAt: createdAt,
+        movedAt: createdAt,
+      });
+    idea("old", "An idea from before Avos", 1);
+    h.runner.start();
+    await h.advance(0);
+    expect(getCrew(PATH)!.cards).toEqual([]);
+    expect(bring).not.toHaveBeenCalled();
+    // Avos took this one down from what you asked.
+    idea("asked", "Fix the pricing table", 2);
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      ideas: { ...crew.ideas, asked: { at: NOON, size: "small" } },
+    }));
+    await h.advance(MINUTE);
+    expect(bring).toHaveBeenCalledWith(PATH);
+    expect(card("asked")).toMatchObject({
+      from: "scout",
+      title: "Fix the pricing table",
+    });
+    expect(crewCard(getCrew(PATH)!, "old")).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("Avos in a folder without Git says so, and the idea waits for you", async () => {
+    const h = harness(
+      {},
+      {
+        bringInBuilders: vi.fn(),
+        buildingProblem: async () => "Building needs Git.",
+      },
+    );
+    onCrew({
+      members: [{ id: "lead", role: "lead" }],
+      ideas: { asked: { at: NOON, size: "small" } },
+    });
+    h.board.set("asked", {
+      id: "asked",
+      title: "Fix the pricing table",
+      column: "idea",
+      chatIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+      movedAt: 1,
+    });
+    h.runner.start();
+    await h.advance(0);
+    expect(getCrew(PATH)!.cards).toEqual([]);
+    expect(getCrew(PATH)!.notNow).toEqual(["asked"]);
     h.runner.stop();
   });
 

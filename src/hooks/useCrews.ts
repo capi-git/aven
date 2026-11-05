@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { claudeCheckerModel } from "../lib/crewModels";
 import { crewSendHold } from "../lib/crewSmoke";
+import { bringInBuilders, buildingProblem } from "../lib/crewActions";
 import { CrewRunner } from "../lib/crewRunner";
 import {
   anyCrewOn,
@@ -160,6 +161,8 @@ export function useCrews(
         return crewMemberName(crew, who, bot ? botName(bot) : undefined);
       },
       onWorking: (ids) => hostRef.current.onWorking(ids),
+      bringInBuilders: (path) => void bringInBuilders(path),
+      buildingProblem: (path) => buildingProblem(path),
       mockups: {
         read: (path) => readTextFile(path),
         save: saveMockup,

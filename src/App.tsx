@@ -13106,10 +13106,6 @@ export default function App({
                   return bot?.on ? botName(bot) : undefined;
                 })()}
                 onTurnOn={turnOnCrewFor}
-                onStarted={(path) => {
-                  setCrewSheet(null);
-                  onOpenCrew(path);
-                }}
                 onAddFixer={(path) => {
                   setCrewSheet(null);
                   onAddBot(path);

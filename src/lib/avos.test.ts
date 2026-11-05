@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { avosGlance, avosLine, avosMet } from "./avos";
+import { avosGlance, avosLine, avosMet, avosUnmet } from "./avos";
+import { teamPosts } from "./teamThread";
 import {
   BUILDING_NEEDS_GIT,
   bringInBuilders,
@@ -78,6 +79,12 @@ describe("meeting Avos", () => {
     ]);
     expect(crew.on).toBe(false);
     expect(crewMemberName(crew, "lead")).toBe("Avos");
+    // Meeting it, it looks at you.
+    expect(avosGlance(PATH, crew, { name: nameOf(crew) })).toMatchObject({
+      note: null,
+      state: "watching",
+      line: "Hasn't met you yet",
+    });
     expect(avosMet(getCrew(PATH))).toBe(true);
     // Opening it again changes nothing.
     expect(ensureAvos(PATH, NOON + 1)).toBe(getCrew(PATH));
@@ -289,5 +296,35 @@ describe("building with Avos", () => {
       to: "lead",
       text: "Watch the Notion page",
     });
+  });
+
+  it("keeps Avos's introduction above your first answer", async () => {
+    ensureAvos(PATH);
+    expect(avosUnmet(getCrew(PATH))).toBe(true);
+    expect(
+      await tellTeam(PATH, "Watch the Notion page", "lead", NOON),
+    ).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(avosUnmet(crew)).toBe(false);
+    expect(
+      teamPosts(crew, nameOf(crew)).map((post) => [
+        post.kind,
+        "author" in post ? post.author.name : "",
+        post.text,
+      ]),
+    ).toEqual([
+      ["post", "Avos", "Hi, I'm Avos. I'll look after clippedin."],
+      [
+        "post",
+        "Avos",
+        "What should I keep an eye on, and what's coming up this week?",
+      ],
+      ["you", "", "Watch the Notion page"],
+    ]);
+    // Only the first time.
+    await tellTeam(PATH, "And the GitHub issues", "lead", NOON + 1);
+    expect(
+      getCrew(PATH)!.feed.filter((entry) => entry.kind === "say"),
+    ).toHaveLength(2);
   });
 });

@@ -18,6 +18,11 @@ import { ProjectMark } from "../chrome/ProjectMark";
 import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
+  projectDisplayName,
+  useProjectLabels,
+} from "../hooks/useProjectLabels";
+import { avosIntro, avosUnmet } from "../lib/avos";
+import {
   TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
   firstCardChatText,
@@ -216,6 +221,7 @@ export function TeamChat({
   // Your choice for this message; otherwise the Lead, on a team that has one.
   const [chosenMode, setMode] = useState<Mode | null>(null);
   const hasLead = !!crewLead(crew);
+  const meeting = avosUnmet(crew);
   const mode: Mode =
     chosenMode && (chosenMode !== "lead" || hasLead)
       ? chosenMode
@@ -313,6 +319,7 @@ export function TeamChat({
         <Thread
           key={filter ?? "everyone"}
           project={project}
+          meeting={meeting}
           posts={posts}
           filter={filter}
           filterName={filter ? name(filter) : undefined}
@@ -322,6 +329,7 @@ export function TeamChat({
         />
         <Composer
           project={project}
+          meeting={meeting}
           members={members}
           to={to}
           mode={mode}
@@ -707,6 +715,7 @@ function Thread({
   filterName,
   working,
   now,
+  meeting,
   onCards,
 }: {
   project: string;
@@ -715,6 +724,8 @@ function Thread({
   filterName?: string;
   working: readonly CrewMemberView[];
   now: number;
+  /** Meeting Avos: its chat opens on its introduction. */
+  meeting?: boolean;
   onCards: () => void;
 }) {
   const [shown, setShown] = useState(SHOWN);
@@ -818,7 +829,9 @@ function Thread({
             Show earlier
           </button>
         ) : null}
-        {empty ? (
+        {empty && meeting ? (
+          <AvosMeet project={project} />
+        ) : empty ? (
           <p className="team-thread-empty">
             {filterName
               ? `Nothing from ${filterName} yet. Write to it below; its handoffs show here.`
@@ -900,6 +913,27 @@ function AuthorMark({
       {...(author.critter ? { critter: author.critter } : {})}
       className={className}
     />
+  );
+}
+
+/**
+ * Meeting Avos: its Bot, who it is, and its question, centred where the
+ * chat will start. Your answer wakes it, and these lines stay as its first.
+ */
+function AvosMeet({ project }: { project: string }) {
+  const labels = useProjectLabels();
+  const intro = avosIntro(projectDisplayName(project, labels));
+  return (
+    <div className="avos-meet" data-avos-meet>
+      <CrewCritter
+        path={project}
+        role="lead"
+        state="watching"
+        className="avos-meet-mark"
+      />
+      <h2 className="avos-meet-hello">{intro.hello}</h2>
+      <p className="avos-meet-ask">{intro.ask}</p>
+    </div>
   );
 }
 
@@ -1091,6 +1125,7 @@ export function mentionAt(
 
 function Composer({
   project,
+  meeting = false,
   members,
   to,
   mode,
@@ -1100,6 +1135,8 @@ function Composer({
   onMode,
 }: {
   project: string;
+  /** Meeting Avos: the box asks what to keep an eye on, and has the cursor. */
+  meeting?: boolean;
   members: readonly CrewMemberView[];
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
@@ -1151,6 +1188,11 @@ function Composer({
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 132)}px`;
   }, [text, input]);
+  // Meeting Avos: its question waits for your answer, so the box has the
+  // cursor.
+  useEffect(() => {
+    if (meeting) input.current?.focus();
+  }, [meeting, input]);
   /** The typed "@word" the list is for, if the caret is still in it. */
   const mentionStill = (value: string, caret: number) => {
     if (!picker || picker.start < 0) return null;
@@ -1277,13 +1319,15 @@ function Composer({
   };
   const placeholder = toName
     ? `Write to ${toName}…`
-    : mode === "rule"
-      ? "A rule for every card, like “Use pnpm”…"
-      : mode === "goal"
-        ? "A goal Avos keeps going towards…"
-        : mode === "lead"
-          ? "Ask Avos anything, or @ a helper…"
-          : "Write to Avos, or @ a helper…";
+    : meeting
+      ? "Something to keep an eye on, or what's coming up…"
+      : mode === "rule"
+        ? "A rule for every card, like “Use pnpm”…"
+        : mode === "goal"
+          ? "A goal Avos keeps going towards…"
+          : mode === "lead"
+            ? "Ask Avos anything, or @ a helper…"
+            : "Write to Avos, or @ a helper…";
   const current = MODES.find((item) => item.id === mode)!;
   return (
     <div className="team-compose-wrap">

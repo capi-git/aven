@@ -253,7 +253,7 @@ describe("the team's settings", () => {
     expect(sheet().querySelector('[data-crew-rule="r1"]')).not.toBeNull();
   });
 
-  it("opens a teammate's page from the list, and Add teammate opens Build a team", async () => {
+  it("opens a helper's page from the list, and Add opens Add a helper", async () => {
     await open();
     await act(async () =>
       sheet()
@@ -266,20 +266,18 @@ describe("the team's settings", () => {
         ?.getAttribute("data-crew-member-page"),
     ).toBe("checker");
     // The way back sits above its name.
-    await act(async () => buttonNamed("aven-site team")!.click());
+    await act(async () => buttonNamed("aven-site's Avos")!.click());
     await act(async () =>
       sheet()
         .querySelector<HTMLButtonElement>("[data-crew-add-member]")!
         .click(),
     );
     expect(sheet().querySelector("[data-crew-add]")).not.toBeNull();
-    expect(sheet().querySelector("h2")?.textContent).toBe(
-      "Build aven-site's team",
-    );
+    expect(sheet().querySelector("h2")?.textContent).toBe("Add a helper");
   });
 });
 
-describe("Build a team", () => {
+describe("Add a helper", () => {
   it("shows each role with In team or +; a second Builder is fine, a second Security isn't", async () => {
     await open("add");
     const tile = (key: string) =>
@@ -317,123 +315,16 @@ describe("Build a team", () => {
       "security",
       designer.id,
     ]);
-    // A team that has started can't be swapped for a suggested one.
+    // No suggested teams: Avos brings in helpers when work needs them.
     expect(sheet().querySelector("[data-crew-team]")).toBeNull();
     expect(buttonNamed("Done")).toBeTruthy();
-  });
-
-  it("starts from a suggested team before the team has ever started, and Start team turns it on", async () => {
-    updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
-    const onTurnOn = vi.fn(async () => null);
-    const onStarted = vi.fn();
-    await act(async () =>
-      root.render(
-        createElement(CrewSettingsSheet, {
-          path: PATH,
-          initialPage: "add",
-          onTurnOn,
-          onStarted,
-          onClose: () => {},
-        }),
-      ),
-    );
-    const team = (key: string) =>
-      sheet().querySelector<HTMLElement>(`[data-crew-team="${key}"]`)!;
-    // A new team is Builder, Checker and Security: Ship features.
-    expect(team("ship").getAttribute("aria-checked")).toBe("true");
-    expect(team("polish").textContent).toContain("Designer, Tester, Checker");
-    await act(async () => team("polish").click());
-    const roles = getCrew(PATH)!.members.map(
-      (member) => member.preset ?? member.id,
-    );
-    // Its Checker stays as it was; the Builder and Security leave.
-    expect(roles.sort()).toEqual(["checker", "designer", "tester"]);
-    expect(team("polish").getAttribute("aria-checked")).toBe("true");
-    await act(async () => buttonNamed("Start team")!.click());
-    expect(onTurnOn).toHaveBeenCalledWith(PATH);
-    expect(onStarted).toHaveBeenCalledWith(PATH);
-  });
-
-  it("is one stop in the tab order, and arrow keys move between the suggested teams", async () => {
-    updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
-    await open("add");
-    const radios = () => [
-      ...sheet().querySelectorAll<HTMLButtonElement>("[data-crew-team]"),
-    ];
-    expect(radios().map((radio) => radio.tabIndex)).toEqual([0, -1, -1]);
-    const before = JSON.stringify(getCrew(PATH)!.members);
-    await act(async () =>
-      radios()[0]!.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-      ),
-    );
-    // Arrows only move: who is in the team stays as it was.
-    expect(document.activeElement).toBe(radios()[1]);
-    expect(JSON.stringify(getCrew(PATH)!.members)).toBe(before);
-    expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
-      ["true", "false", "false"],
-    );
-    // Choosing is a press (Space or Enter on a button is one).
-    await act(async () => radios()[1]!.click());
-    expect(radios().map((radio) => radio.getAttribute("aria-checked"))).toEqual(
-      ["false", "true", "false"],
-    );
-    expect(radios().map((radio) => radio.tabIndex)).toEqual([-1, 0, -1]);
-  });
-
-  it("never drops a teammate whose settings you changed when you pick a suggested team", async () => {
-    updateCrew(PATH, (crew) => ({
-      ...crew,
-      on: false,
-      onAt: undefined,
-      members: crew.members.map((member) =>
-        member.id === "builder"
-          ? { ...member, instructions: "Use the house style." }
-          : member,
-      ),
-    }));
-    await open("add");
-    await act(async () =>
-      sheet()
-        .querySelector<HTMLButtonElement>('[data-crew-team="polish"]')!
-        .click(),
-    );
-    expect(crewMemberById(getCrew(PATH)!, "builder")?.instructions).toBe(
-      "Use the house style.",
-    );
-    expect(sheet().querySelector('[role="alert"]')?.textContent).toContain(
-      "Kept Builder: you changed its settings.",
-    );
-  });
-
-  it("says why Start team couldn't, and starts nothing", async () => {
-    updateCrew(PATH, (crew) => ({ ...crew, on: false, onAt: undefined }));
-    const onStarted = vi.fn();
-    await act(async () =>
-      root.render(
-        createElement(CrewSettingsSheet, {
-          path: PATH,
-          initialPage: "add",
-          onTurnOn: async () => "Teams need a Git project.",
-          onStarted,
-          onClose: () => {},
-        }),
-      ),
-    );
-    await act(async () => buttonNamed("Start team")!.click());
-    expect(sheet().querySelector('[role="alert"]')?.textContent).toBe(
-      "Teams need a Git project.",
-    );
-    expect(onStarted).not.toHaveBeenCalled();
   });
 
   it("adds your own teammate with a name and one job; a Builder can't pick Codex", async () => {
     await open("add");
     await act(async () =>
       sheet()
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Add your own teammate"]',
-        )!
+        .querySelector<HTMLButtonElement>('[aria-label="Add your own helper"]')!
         .click(),
     );
     const form = sheet().querySelector<HTMLFormElement>("[data-crew-custom]")!;
@@ -763,7 +654,7 @@ describe("a teammate's chat before Avos's first card", () => {
 });
 
 describe("the way back", () => {
-  it("goes from Build a team to the team, and from a teammate to where you opened it", async () => {
+  it("goes from Add a helper to Avos, and from a helper to where you opened it", async () => {
     await open("add");
     // A teammate opened from Build a team goes back there.
     await act(async () =>
@@ -772,10 +663,10 @@ describe("the way back", () => {
         .click(),
     );
     expect(sheet().querySelector("[data-crew-member-page]")).not.toBeNull();
-    await act(async () => buttonNamed("Build aven-site's team")!.click());
+    await act(async () => buttonNamed("Add a helper")!.click());
     expect(sheet().querySelector("[data-crew-add]")).not.toBeNull();
     // Build a team goes back to the team.
-    await act(async () => buttonNamed("aven-site team")!.click());
+    await act(async () => buttonNamed("aven-site's Avos")!.click());
     expect(sheet().querySelector("[data-crew-settings]")).not.toBeNull();
   });
 });

@@ -33,6 +33,7 @@ import {
   useCrewWorkspace,
 } from "../lib/crewActions";
 import type { Pipeline } from "../lib/crewPipeline";
+import { avosUnmet } from "../lib/avos";
 import { crewMembers, memberCritter, type Crew } from "../lib/crews";
 import type { CrewBoardActionId } from "../lib/crewView";
 import type { BotStatus } from "../lib/projectBots";
@@ -195,6 +196,8 @@ export function TeamScreen({
     if (reviewing && !hasBatch) setReviewing(false);
   }, [reviewing, hasBatch]);
   const panel = useRef<HTMLElement | null>(null);
+  // Meeting Avos is the chat alone: nothing else applies yet.
+  const meeting = avosUnmet(crew);
   // ⋯ → Set a goal…: the Chat's box turns to the goal.
   const chat = useRef<{
     goal: () => void;
@@ -224,91 +227,97 @@ export function TeamScreen({
           control={chat}
         />
       </div>
-      <aside ref={panel} className="team-panel" aria-label="Team panel">
-        <TeamPanelResizer key={mode} panel={panel} board={mode === "board"} />
-        <TeamHeader
-          crew={crew}
-          project={project}
-          view={view}
-          dailyCap={dailyCap}
-          onSetGoal={() => chat.current?.goal()}
-          onActivity={() => setActivity(true)}
-        />
-        <div className="team-panel-tabs" role="tablist" aria-label="Team panel">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={mode === tab.id}
-              data-team-tab={tab.id}
-              onClick={() => setMode(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <div className="team-panel-body" role="tabpanel">
-          {mode === "overview" ? (
-            <TeamOverview
-              crew={crew}
-              columns={columns}
-              batchSize={view.batch?.cards.length ?? 0}
-              now={now}
-              name={name}
-            />
-          ) : mode === "teammates" ? (
-            <TeamRoster
-              project={project}
-              crew={crew}
-              now={now}
-              name={name}
-              {...(fixer ? { fixer } : {})}
-              selected={selected}
-              onSelect={(id) => chat.current?.select(id)}
-            />
-          ) : mode === "board" ? (
-            <div className="work-board-columns" data-team-board={project}>
-              {sections(
-                view.batch
-                  ? {
-                      review: {
-                        node: (
-                          <BatchCard
-                            crew={crew}
-                            batch={view.batch}
-                            range={range}
-                            onReview={() => setReviewing(true)}
-                          />
-                        ),
-                        covers: new Set(
-                          view.batch.cards.map((card) => card.id),
-                        ),
-                        count: view.batch.cards.length,
-                      },
-                    }
-                  : {},
-              )}
-            </div>
-          ) : mode === "notes" ? (
-            <TeamNotes crew={crew} />
-          ) : mode === "schedule" ? (
-            <TeamSchedule crew={crew} />
-          ) : view.batch ? (
-            <BatchCard
-              crew={crew}
-              batch={view.batch}
-              range={range}
-              onReview={() => setReviewing(true)}
-            />
-          ) : (
-            <p className="team-panel-empty">
-              Nothing to apply yet. Finished work shows up here, and stays in
-              Avos's copy until you apply it.
-            </p>
-          )}
-        </div>
-      </aside>
+      {meeting ? null : (
+        <aside ref={panel} className="team-panel" aria-label="Avos panel">
+          <TeamPanelResizer key={mode} panel={panel} board={mode === "board"} />
+          <TeamHeader
+            crew={crew}
+            project={project}
+            view={view}
+            dailyCap={dailyCap}
+            onSetGoal={() => chat.current?.goal()}
+            onActivity={() => setActivity(true)}
+          />
+          <div
+            className="team-panel-tabs"
+            role="tablist"
+            aria-label="Team panel"
+          >
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={mode === tab.id}
+                data-team-tab={tab.id}
+                onClick={() => setMode(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="team-panel-body" role="tabpanel">
+            {mode === "overview" ? (
+              <TeamOverview
+                crew={crew}
+                columns={columns}
+                batchSize={view.batch?.cards.length ?? 0}
+                now={now}
+                name={name}
+              />
+            ) : mode === "teammates" ? (
+              <TeamRoster
+                project={project}
+                crew={crew}
+                now={now}
+                name={name}
+                {...(fixer ? { fixer } : {})}
+                selected={selected}
+                onSelect={(id) => chat.current?.select(id)}
+              />
+            ) : mode === "board" ? (
+              <div className="work-board-columns" data-team-board={project}>
+                {sections(
+                  view.batch
+                    ? {
+                        review: {
+                          node: (
+                            <BatchCard
+                              crew={crew}
+                              batch={view.batch}
+                              range={range}
+                              onReview={() => setReviewing(true)}
+                            />
+                          ),
+                          covers: new Set(
+                            view.batch.cards.map((card) => card.id),
+                          ),
+                          count: view.batch.cards.length,
+                        },
+                      }
+                    : {},
+                )}
+              </div>
+            ) : mode === "notes" ? (
+              <TeamNotes crew={crew} />
+            ) : mode === "schedule" ? (
+              <TeamSchedule crew={crew} />
+            ) : view.batch ? (
+              <BatchCard
+                crew={crew}
+                batch={view.batch}
+                range={range}
+                onReview={() => setReviewing(true)}
+              />
+            ) : (
+              <p className="team-panel-empty">
+                Nothing to apply yet. Finished work shows up here, and stays in
+                Avos's copy until you apply it.
+              </p>
+            )}
+          </div>
+        </aside>
+      )}
       {reviewing && view.batch ? (
         <CrewBatchSheet
           crew={crew}

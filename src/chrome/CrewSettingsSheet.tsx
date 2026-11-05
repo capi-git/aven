@@ -61,7 +61,6 @@ import { Check, ChevronLeft, ChevronRight, ChevronUp, Plus, X } from "./icons";
 import { Modal } from "./Modal";
 import { ProjectMark } from "./ProjectMark";
 import { TeamBuilder } from "./TeamBuilder";
-import { TeamSetup } from "./TeamSetup";
 import { MemberMark, TeammateBody, teammateSubtitle } from "./TeammatePage";
 import "./TeamCard.css";
 import "./BotSettingsSheet.css";
@@ -78,9 +77,7 @@ type Page =
   | { kind: "crew" }
   /** A teammate's page, and the page it was opened from (its way back). */
   | { kind: "member"; id: string; from: "crew" | "add" }
-  | { kind: "add" }
-  /** A new team: say what the project is, and Aven suggests the team. */
-  | { kind: "setup" };
+  | { kind: "add" };
 
 /**
  * A team's settings: who is in it, who builds what, its limits and quiet
@@ -95,22 +92,16 @@ export function CrewSettingsSheet({
   fixerName,
   initialPage,
   onTurnOn,
-  onStarted,
   onAddFixer,
   onFixerSettings,
   onClose,
 }: {
   path: string;
   fixerName?: string;
-  /**
-   * Open on a teammate's page (its id), on Build a team ("add"), or on a
-   * new team's setup ("setup": describe the project, Aven suggests a team).
-   */
+  /** Open on a helper's page (its id), or on Add a helper ("add"). */
   initialPage?: string;
   /** Turn the team on (it is off). Resolves with why it couldn't, or null. */
   onTurnOn: (path: string) => Promise<string | null>;
-  /** Start team on Build a team turned it on: show it. */
-  onStarted?: (path: string) => void;
   /** Add the project's bot as the team's Fixer. */
   onAddFixer?: (path: string) => void;
   /** Open the Fixer's own settings (the project bot's). */
@@ -125,11 +116,9 @@ export function CrewSettingsSheet({
   const [page, setPage] = useState<Page>(() =>
     initialPage === "add"
       ? { kind: "add" }
-      : initialPage === "setup"
-        ? { kind: "setup" }
-        : initialPage
-          ? { kind: "member", id: initialPage, from: "crew" }
-          : { kind: "crew" },
+      : initialPage
+        ? { kind: "member", id: initialPage, from: "crew" }
+        : { kind: "crew" },
   );
   // Why its chat didn't open, said on the teammate's page.
   const [chatProblem, setChatProblem] = useState<string | null>(null);
@@ -164,10 +153,10 @@ export function CrewSettingsSheet({
   const back = (
     <button type="button" className="crew-settings-back" onClick={toCrew}>
       <ChevronLeft className="size-3.5" />
-      {project} team
+      {project}'s Avos
     </button>
   );
-  // A teammate opened from Build a team goes back there (Start team too).
+  // A helper opened from Add a helper goes back there.
   const backToBuild = (
     <button
       type="button"
@@ -175,7 +164,7 @@ export function CrewSettingsSheet({
       onClick={() => toPage({ kind: "add" })}
     >
       <ChevronLeft className="size-3.5" />
-      Build {project}'s team
+      Add a helper
     </button>
   );
   // One sheet whose header and body follow the page, so moving between
@@ -292,29 +281,11 @@ export function CrewSettingsSheet({
         alert={chatProblem}
       />
     );
-  } else if (page.kind === "setup") {
-    header = {
-      title: `New team for ${project}`,
-      description: `Say what ${project} is and what you want. Aven suggests a team and first ideas. Change anything before it starts.`,
-      leading: <ProjectMark path={path} className="team-build-head-mark" />,
-      size: "lg",
-      className: "team-setup-sheet",
-    };
-    body = (
-      <TeamSetup
-        crew={crew}
-        project={project}
-        onPickMyself={() => toPage({ kind: "add" })}
-        onTurnOn={() => onTurnOn(path)}
-        onStarted={() => onStarted?.(path)}
-      />
-    );
   } else if (page.kind === "add") {
     header = {
-      title: `Build ${project}'s team`,
-      description: crew.on
-        ? "Add teammates one at a time. You can change anyone later."
-        : "Start from a suggested team, or add teammates one at a time. You can change anyone later.",
+      title: "Add a helper",
+      description:
+        "Avos brings in helpers when work needs them. You can add one yourself, and change anyone later.",
       leading: <ProjectMark path={path} className="team-build-head-mark" />,
       above: back,
       size: "lg",
@@ -327,11 +298,6 @@ export function CrewSettingsSheet({
         {...(fixerName ? { fixerName } : {})}
         {...(onAddFixer ? { onAddFixer } : {})}
         onOpenMember={(id) => toPage({ kind: "member", id, from: "add" })}
-        onStart={async () => {
-          const error = await onTurnOn(path);
-          if (!error) onStarted?.(path);
-          return error;
-        }}
         onClose={onClose}
       />
     );

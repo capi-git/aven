@@ -52,7 +52,6 @@ import {
   stackedHash,
   waitsForReview,
   yourGoal,
-  withAbout,
   withNote,
   withMessage,
   withTalk,
@@ -100,6 +99,8 @@ import {
 } from "./featureCards";
 import { notifyGitChanged } from "./fs";
 import { projectKey, projectName } from "./paths";
+import { projectAppearance } from "./projectAppearance";
+import { avosIntro, avosUnmet } from "./avos";
 import {
   botCopyError,
   botCopyHost,
@@ -481,9 +482,12 @@ export async function tellTeam(
   if (!words) return null;
   if (words.length > CREW_NOTE_MAX) return TOO_LONG_FOR_EVERYONE;
   if (as === "goal" && words.length > CREW_GOAL_MAX) return TOO_LONG_FOR_A_GOAL;
-  // Writing to Avos wakes it.
+  // Writing to Avos wakes it. The first time, its introduction stays in
+  // its chat above what you said, as it was on screen.
+  const meeting = avosUnmet(getCrew(path));
   const woke = await wakeAvos(path);
   if (woke) return woke;
+  if (meeting) keepAvosIntro(path, now);
   const crew = getCrew(path);
   if (!crew?.on) return AVOS_ASLEEP;
   // "keep going" starts what waits: no card, so it isn't called one.
@@ -2579,174 +2583,6 @@ export function addCrewPreset(
   return { id };
 }
 
-// ---------------------------------------------------------------------------
-// A team set up from your description
-
-/** A teammate as the setup sheet has it: a role, and its one-line job. */
-export type SetupMember = { role: Exclude<CrewRole, "fixer">; job: string };
-
-/**
- * A first idea as the setup sheet has it: yours (`source: "you"`), one Aven
- * suggested (`"setup"`, which waits for your tick on the Board), a question
- * for the Researcher (`"researcher"`), or a screen for the Designer to mock
- * up first (`"designer"`).
- */
-export type SetupIdeaDraft = {
-  title: string;
-  source: "you" | "setup" | "researcher" | "designer";
-};
-
-export type TeamSetupDraft = {
-  description: string;
-  teammates: readonly SetupMember[];
-  ideas: readonly SetupIdeaDraft[];
-};
-
-/** How Start team from the setup sheet ended. */
-export type TeamSetupResult = {
-  /** Avos is on: the sheet shows it, whatever else went wrong. */
-  on: boolean;
-  /** Why it didn't start, or what went wrong after it did. */
-  problem: string | null;
-};
-
-/**
- * Start a team from the setup sheet. First the ideas go on the Board, each
- * of Aven's marked so it waits for your tick, while the team is still off
- * (an off team runs nothing, so no tick can start one as yours meanwhile);
- * then the chosen teammates replace the defaults (each its role's
- * ready-made member, with the job line as given) and your description is
- * kept as the team's `about`, read at every turn; then the team turns on
- * the way Start team turns it on. A refusal there undoes all of it, so
- * pressing Start again starts clean. A question for the Researcher is asked
- * of it once the team is on; a problem then is said in the feed, and the
- * team stays on.
- */
-export async function startTeamSetup(
-  path: string,
-  draft: TeamSetupDraft,
-  turnOn: () => Promise<string | null>,
-  models: CrewModels = crewModelsHere(),
-  now = Date.now(),
-): Promise<TeamSetupResult> {
-  const crew = getCrew(path);
-  if (!crew) return { on: false, problem: "This project has no Avos yet." };
-  if (!teamUnstarted(crew))
-    return {
-      on: false,
-      problem: "Avos has started already: add or remove helpers one at a time.",
-    };
-  const chosen = draft.teammates.filter(
-    (mate, index, all) =>
-      all.findIndex((other) => other.role === mate.role) === index,
-  );
-  if (!chosen.some((mate) => mate.role === "builder"))
-    return { on: false, problem: "Avos needs a Builder." };
-  const presets = chosen.flatMap((mate) => {
-    const preset = CREW_PRESETS.find((item) => item.key === mate.role);
-    return preset ? [{ mate, preset }] : [];
-  });
-  const before = { members: crew.members, about: crew.about };
-  // The team first, while nothing runs, so a question can be the
-  // Researcher's or Designer's card from the start.
-  updateCrew(path, (current) => {
-    let next = current;
-    // Who stays: the Fixer, and any teammate you changed (its settings are
-    // yours); the rest give way to the team you chose.
-    for (const member of current.members) {
-      if (member.role === "fixer" || teammateEdited(member, models)) continue;
-      next = withoutMember(next, member.id);
-    }
-    for (const { mate, preset } of presets) {
-      if (next.members.some((member) => member.role === preset.role)) continue;
-      next = withPreset(next, preset, crewModelFor(models, preset.role));
-      const added = next.members.at(-1)!;
-      const job = cleanText(mate.job, 120);
-      if (job && job !== preset.job)
-        next = withMemberId(next, added.id, (member) => ({ ...member, job }));
-    }
-    return withAbout(next, draft.description);
-  });
-  // Then the ideas: a suggestion is marked as it lands, so it never reads
-  // as yours; a question or a screen is queued for its teammate before the
-  // Board has it, so no tick can ever hand it to a Builder.
-  const added: { id: string; question: boolean }[] = [];
-  const undo = async () => {
-    for (const { id } of added) await deleteFeatureCard(path, id);
-    updateCrew(path, (current) => {
-      let next = current;
-      for (const { id, question } of added)
-        if (question) next = withoutCard(next, id);
-      return {
-        ...withAbout(
-          { ...next, members: before.members },
-          before.about ?? null,
-        ),
-        ...(next.ideas
-          ? {
-              ideas: Object.fromEntries(
-                Object.entries(next.ideas).filter(
-                  ([id]) => !added.some((item) => item.id === id),
-                ),
-              ),
-            }
-          : {}),
-      };
-    });
-  };
-  const failed = async () => {
-    await undo();
-    return { on: false, problem: "Couldn't add the first ideas to the Board." };
-  };
-  for (const idea of draft.ideas) {
-    const title = idea.title.trim();
-    if (!title) continue;
-    const live = getCrew(path)!;
-    const kind =
-      idea.source === "researcher" && cardResearcher(live)
-        ? "research"
-        : idea.source === "designer" && cardDesigner(live)
-          ? "mockup"
-          : null;
-    if (kind) {
-      const asked = await addQuestionCard(path, title, kind, now, {
-        whileOff: true,
-        from: "setup",
-      }).catch((error) => {
-        logError("Team setup questions", error);
-        return { card: null, problem: errorText(error) };
-      });
-      if (!asked.card) return failed();
-      added.push({ id: asked.card.id, question: true });
-      continue;
-    }
-    let card: FeatureCard | null = null;
-    try {
-      card = await addFeatureIdea(path, { title });
-    } catch (error) {
-      logError("Team setup ideas", error);
-    }
-    if (!card) return failed();
-    added.push({ id: card.id, question: false });
-    // Without its teammate, a question is a suggestion like any other.
-    if (idea.source === "you") continue;
-    updateCrew(path, (current) =>
-      withIdea(current, card.id, {
-        at: now,
-        size: "medium",
-        by: "setup",
-        outside: true,
-      }),
-    );
-  }
-  const why = await turnOn();
-  if (why) {
-    await undo();
-    return { on: false, problem: why };
-  }
-  return { on: true, problem: null };
-}
-
 /**
  * Remove a member. The last Builder or Checker stays (a crew needs one of
  * each), and one at work stays until its card is stopped. Its chat stays
@@ -2931,6 +2767,25 @@ export async function wakeAvos(path: string): Promise<string | null> {
   if (getCrew(path)?.on) return null;
   const wake = crewWorkspace()?.wake;
   return wake ? wake(path).catch((error) => errorText(error)) : null;
+}
+
+/** Avos's introduction, kept as its first lines, just before your answer. */
+function keepAvosIntro(path: string, now: number) {
+  const intro = avosIntro(projectAppearance(path).label || projectName(path));
+  updateCrew(path, (crew) => {
+    const lead = crewLead(crew);
+    if (!lead || crew.feed.some((entry) => entry.kind === "say")) return crew;
+    let next = crew;
+    for (const [index, text] of [intro.hello, intro.ask].entries())
+      next = withFeed(next, {
+        at: now - 2 + index,
+        kind: "say",
+        who: "lead",
+        member: lead.id,
+        text,
+      });
+    return next;
+  });
 }
 
 /** Said when Avos is off: writing to it, or opening it, wakes it. */
