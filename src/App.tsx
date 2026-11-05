@@ -12949,6 +12949,9 @@ export default function App({
                           onRunAutomation={(agent) =>
                             startScheduledAgentRef.current(agent)
                           }
+                          onArchiveRunChat={(id) =>
+                            onRemoveHistorySession(id, "archive")
+                          }
                           onOpenRunAsChat={onOpenRunAsChat}
                           onApproval={onApproval}
                           onStopRun={onStop}

@@ -1,6 +1,7 @@
 import "./UtilityViews.css";
 import "../chrome/Menu.css";
 import "./AutomationsView.css";
+import { ask } from "@tauri-apps/plugin-dialog";
 import {
   useEffect,
   useMemo,
@@ -9,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { CheckCheck, ChevronRight, Clock, Folder, Plus } from "../chrome/icons";
+import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
@@ -40,6 +42,7 @@ import { IS_MAC } from "../lib/platform";
 import { projectAppearance } from "../lib/projectAppearance";
 import type { RecentProject } from "../lib/recents";
 import {
+  deleteAutomation,
   getScheduledAgent,
   getScheduledRun,
   saveScheduledAgent,
@@ -82,6 +85,8 @@ type Props = {
   onToggleSidebar?: () => void;
   /** Starts an automation now, through the same path as a due run. */
   onRunAutomation?: (agent: ScheduledAgent) => void;
+  /** Archives a run's chat when its automation is deleted; false if it failed. */
+  onArchiveRunChat?: (sessionId: string) => Promise<boolean>;
   /** Makes a run's chat an ordinary chat and opens it. */
   onOpenRunAsChat?: (run: ScheduledRun) => unknown;
   onApproval?: (
@@ -153,6 +158,7 @@ export function AutomationsView({
   onClose,
   onToggleSidebar,
   onRunAutomation,
+  onArchiveRunChat,
   onOpenRunAsChat,
   onApproval,
   onStopRun,
@@ -165,6 +171,11 @@ export function AutomationsView({
   onCloseRef.current = onClose;
   const { selection, setSelection, editor, setEditor } =
     useAutomationSelection();
+  const [rowMenu, setRowMenu] = useState<{
+    item: AutomationItem;
+    x: number;
+    y: number;
+  } | null>(null);
   const agents = useScheduledAgentList();
   const runs = useScheduledRuns();
   const collapsed = useSyncExternalStore(
@@ -247,6 +258,25 @@ export function AutomationsView({
     setSelection({ automation: id, run: null });
   };
 
+  const removeAutomation = async (item: AutomationItem) => {
+    const count = item.runs.length;
+    const ok = await ask(
+      count
+        ? `Delete “${item.name}” and ${
+            count === 1
+              ? "its run? Its chat moves"
+              : `its ${count} runs? Their chats move`
+          } to Archive in Settings.`
+        : `Delete “${item.name}”?`,
+      { title: "Aven", kind: "warning", okLabel: "Delete" },
+    );
+    if (!ok) return;
+    setSelection((shown) =>
+      shown.automation === item.id ? { automation: null, run: null } : shown,
+    );
+    await deleteAutomation(item.id, onArchiveRunChat ?? (async () => true));
+  };
+
   const detail = editor ? (
     <div className="automation-detail">
       <ScheduleEditor
@@ -292,7 +322,7 @@ export function AutomationsView({
         setSelection({ automation: current.id, run: entry.id })
       }
       onEdit={(agent) => setEditor({ mode: "edit", agent })}
-      onDeleted={() => setSelection({ automation: null, run: null })}
+      onDelete={() => void removeAutomation(current)}
       onRunNow={onRunAutomation}
     />
   ) : (
@@ -381,6 +411,7 @@ export function AutomationsView({
                     selected={editor ? null : (current?.id ?? null)}
                     onToggle={(open) => setFolderCollapsed(folder.key, !open)}
                     onSelect={selectAutomation}
+                    onMenu={(item, at) => setRowMenu({ item, ...at })}
                     onNew={() =>
                       setEditor({ mode: "new", project: folder.project ?? "" })
                     }
@@ -412,8 +443,58 @@ export function AutomationsView({
           {detail}
         </div>
       </div>
+      {rowMenu ? (
+        <ExplorerMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          items={automationMenuItems(rowMenu.item, !!onRunAutomation)}
+          ariaLabel={`Actions for ${rowMenu.item.name}`}
+          onClose={() => setRowMenu(null)}
+          onPick={(id) => {
+            const { item } = rowMenu;
+            setRowMenu(null);
+            if (id === "delete") {
+              void removeAutomation(item);
+              return;
+            }
+            if (!item.agent) return;
+            selectAutomation(item.id);
+            if (id === "edit") setEditor({ mode: "edit", agent: item.agent });
+            if (id === "run") {
+              // As the automation's own Run now does.
+              updateScheduledAgent(item.id, { lastRunAt: Date.now() });
+              onRunAutomation?.(item.agent);
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+/** A row's right-click menu. A deleted automation has only its runs to delete. */
+function automationMenuItems(
+  item: AutomationItem,
+  canRun: boolean,
+): ExplorerMenuItem[] {
+  const remove: ExplorerMenuItem = {
+    kind: "item",
+    id: "delete",
+    label: "Delete…",
+    danger: true,
+  };
+  if (!item.agent) return [remove];
+  return [
+    {
+      kind: "item",
+      id: "run",
+      label: "Run now",
+      disabled: !canRun || item.runs[0]?.status === "running",
+    },
+    { kind: "item", id: "edit", label: "Edit…" },
+    { kind: "sep" },
+    remove,
+  ];
 }
 
 function FolderName({ folder }: { folder: AutomationFolder }) {
@@ -427,6 +508,7 @@ function FolderGroup({
   selected,
   onToggle,
   onSelect,
+  onMenu,
   onNew,
 }: {
   folder: AutomationFolder;
@@ -434,6 +516,7 @@ function FolderGroup({
   selected: string | null;
   onToggle: (open: boolean) => void;
   onSelect: (id: string) => void;
+  onMenu: (item: AutomationItem, at: { x: number; y: number }) => void;
   onNew: () => void;
 }) {
   const count = folder.items.length;
@@ -490,6 +573,7 @@ function FolderGroup({
                 item={item}
                 active={item.id === selected}
                 onSelect={() => onSelect(item.id)}
+                onMenu={(at) => onMenu(item, at)}
               />
             </li>
           ))}
@@ -503,10 +587,12 @@ function AutomationRow({
   item,
   active,
   onSelect,
+  onMenu,
 }: {
   item: AutomationItem;
   active: boolean;
   onSelect: () => void;
+  onMenu: (at: { x: number; y: number }) => void;
 }) {
   const last = item.runs[0];
   const tone = automationTone(item);
@@ -522,6 +608,20 @@ function AutomationRow({
       title={item.name}
       className="aven-menu-item aven-menu-item-rich automation-row"
       onClick={onSelect}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu({ x: event.clientX, y: event.clientY });
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.key !== "ContextMenu" &&
+          !(event.shiftKey && event.key === "F10")
+        )
+          return;
+        event.preventDefault();
+        const rect = event.currentTarget.getBoundingClientRect();
+        onMenu({ x: rect.left, y: rect.bottom });
+      }}
     >
       <AutomationDot tone={tone} label={status} />
       <span className="aven-menu-text">
