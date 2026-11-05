@@ -783,12 +783,22 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.extra?.count).toBe(10);
   });
 
-  it("makes a goal from ⋯ in the chat's box, and says when it waits", async () => {
+  it("makes a goal from the chat's box, and says in This week when it waits", async () => {
     const boards = await setUp(() => (crew) => crew);
-    await teamMenu();
-    await pickMenu("Set a goal…");
-    // The Chat is there, its box set to a goal.
-    expect(container.querySelector("[data-team-chat]")).not.toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-tab="chat"]')!
+        .click(),
+    );
+    // The box's menu: Make it a goal.
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
+    );
+    await pickMenu("Make it a goal");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(".team-compose-input")!
+        .placeholder,
+    ).toBe("A goal Avos keeps going towards…");
     await act(async () =>
       updateCrew(PROJECT, (crew) => ({
         ...crew,
@@ -799,7 +809,7 @@ describe("the team view: the Board with the team on it", () => {
       container.querySelector<HTMLElement>("[data-crew-goal]")!;
     expect(goal().dataset.crewGoal).toBe("on");
     expect(goal().textContent).toBe(
-      "Goal Build the whole Pom app · Avos keeps going",
+      "Goal Build the whole Pom app · Avos keeps goingClear",
     );
     // A card that waits on you with work in hand: the goal waits too.
     await act(async () =>
@@ -809,7 +819,7 @@ describe("the team view: the Board with the team on it", () => {
     );
     expect(goal().dataset.crewGoal).toBe("waits");
     expect(goal().textContent).toBe(
-      "Goal Build the whole Pom app · waits for you",
+      "Goal Build the whole Pom app · waits for youClear",
     );
     // A goal it stopped at: Keep going picks it up again.
     await act(async () =>
@@ -823,9 +833,12 @@ describe("the team view: the Board with the team on it", () => {
     );
     await act(async () => button(goal(), "Keep going")!.click());
     expect(getCrew(PROJECT)!.goal?.done).toBeUndefined();
-    // ⋯ → Clear the goal.
-    await teamMenu();
-    await pickMenu("Clear the goal");
+    // Clear, on its line in This week.
+    await act(async () =>
+      goal()
+        .querySelector<HTMLButtonElement>("[data-avos-clear-goal]")!
+        .click(),
+    );
     expect(getCrew(PROJECT)!.goal).toBeUndefined();
   });
 

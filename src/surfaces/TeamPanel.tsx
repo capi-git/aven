@@ -3,6 +3,8 @@ import { updateCrewRoutine, useCrewWorkspace } from "../lib/crewActions";
 import {
   crewMemberName,
   crewMembers,
+  updateCrew,
+  withoutNote,
   type Crew,
   type CrewMember,
 } from "../lib/crews";
@@ -17,27 +19,61 @@ import { formatClockMinutes } from "../lib/projectBots";
 export function TeamNotes({ crew }: { crew: Crew }) {
   const workspace = useCrewWorkspace();
   const members = crewMembers(crew).filter((member) => member.role !== "fixer");
-  const kept = members.filter((member) => member.memory);
-  if (!kept.length)
+  // Avos first, then its helpers.
+  const kept = members
+    .filter((member) => member.memory)
+    .sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"));
+  if (!kept.length && !crew.notes.length)
     return (
       <p className="team-panel-empty">
-        Teammates keep short notes about this project as they work. None yet.
+        What Avos and its helpers learn about this project shows here, and
+        anything you ask it to remember for every card.
       </p>
     );
   return (
-    <ul className="team-notes" role="list">
-      {kept.map((member) => (
-        <li key={member.id}>
-          <button
-            type="button"
-            onClick={() => workspace?.openSettings(crew.path, member.id)}
-          >
-            <b>{crewMemberName(crew, member.id)}</b>
-            <span>{member.memory}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="team-notes-pages" data-avos-notes>
+      {kept.length ? (
+        <section aria-label="What they remember">
+          <h3 className="team-notes-heading">What they remember</h3>
+          <ul className="team-notes" role="list">
+            {kept.map((member) => (
+              <li key={member.id}>
+                <button
+                  type="button"
+                  onClick={() => workspace?.openSettings(crew.path, member.id)}
+                >
+                  <b>{crewMemberName(crew, member.id)}</b>
+                  <span>{member.memory}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {crew.notes.length ? (
+        <section aria-label="For every card">
+          <h3 className="team-notes-heading">For every card</h3>
+          <ul className="team-notes" role="list">
+            {crew.notes.map((note) => (
+              <li key={note.id} className="team-notes-rule" data-avos-rule>
+                <span>{note.text}</span>
+                <button
+                  type="button"
+                  className="team-notes-forget"
+                  onClick={() =>
+                    updateCrew(crew.path, (current) =>
+                      withoutNote(current, note.id),
+                    )
+                  }
+                >
+                  Forget
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
   );
 }
 

@@ -301,12 +301,12 @@ export function TeamScreen({
             sentence={view.sentence}
             dailyCap={dailyCap}
             onMode={setMode}
-            onSetGoal={() => {
-              setMode("chat");
-              chat.current?.goal();
-            }}
             onActivity={() => setActivity(true)}
             onSchedule={() => setSchedule(true)}
+            changes={
+              (view.batch?.cards.length ?? 0) +
+              view.ready.filter((row) => !row.boardActions).length
+            }
           />
         )}
         {/* The chat stays put under the other views, so its place and what
@@ -370,7 +370,7 @@ export function TeamScreen({
           </div>
         )}
       </div>
-      {meeting || shown === "board" ? null : (
+      {meeting || shown !== "chat" ? null : (
         <AvosWeekPanel
           project={project}
           week={week}
@@ -476,9 +476,9 @@ function AvosHeader({
   sentence,
   dailyCap,
   onMode,
-  onSetGoal,
   onActivity,
   onSchedule,
+  changes,
 }: {
   crew: Crew;
   project: string;
@@ -489,31 +489,30 @@ function AvosHeader({
   jobs: AvosJobsInput;
   dailyCap: boolean;
   onMode: (view: TeamView) => void;
-  onSetGoal: () => void;
   onActivity: () => void;
   /** When Avos and its helpers work, in a sheet. */
   onSchedule: () => void;
+  /** Changes ready to apply, for the Changes tab's count. */
+  changes: number;
 }) {
   const workspace = useCrewWorkspace();
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const glance = avosGlance(project, crew, { name, jobs });
   const line = headerLine(crew, sentence, avosReviews(project, jobs), name);
-  const goal = crew.goal;
-  const goalGoing = !!goal && !goal.done;
   const deeper = DEEPER[mode];
+  // Schedule, Activity, Pause and Settings; Stop now and more runs only
+  // while they apply. A goal is set from the message box, and cleared on
+  // its line in This week.
   const items: ExplorerMenuItem[] = [
     { kind: "item", id: "schedule", label: "Schedule" },
     { kind: "item", id: "activity", label: "Activity" },
-    { kind: "sep" },
-    goalGoing
-      ? { kind: "item", id: "clear-goal", label: "Clear the goal" }
-      : { kind: "item", id: "goal", label: "Set a goal…" },
     ...(glance.note === "working"
       ? [{ kind: "item" as const, id: "stop", label: "Stop now" }]
       : []),
     ...(dailyCap
       ? [{ kind: "item" as const, id: "more", label: "Allow 10 more today" }]
       : []),
+    { kind: "sep" },
     crew.paused
       ? { kind: "item", id: "resume", label: "Resume Avos" }
       : { kind: "item", id: "pause", label: "Pause Avos" },
@@ -548,6 +547,12 @@ function AvosHeader({
             onClick={() => onMode(tab.id)}
           >
             {tab.label}
+            {/* Changes counts what's ready to apply; nothing when none. */}
+            {tab.id === "changes" && changes > 0 ? (
+              <span className="avos-head-count" data-avos-changes>
+                {changes}
+              </span>
+            ) : null}
           </button>
         ))}
         {deeper ? (
@@ -587,8 +592,6 @@ function AvosHeader({
             setMenu(null);
             if (id === "schedule") onSchedule();
             else if (id === "activity") onActivity();
-            else if (id === "goal") onSetGoal();
-            else if (id === "clear-goal") clearCrewGoal(crew.path);
             else if (id === "stop") void stopCrewNow(crew.path);
             else if (id === "more") allowMoreRunsToday(crew.path);
             else if (id === "pause" || id === "resume")
@@ -814,6 +817,16 @@ function AvosWeekPanel({
                   onClick={() => resumeCrewGoal(project)}
                 >
                   Keep going
+                </button>
+              ) : null}
+              {goal.state === "on" || goal.state === "waits" ? (
+                <button
+                  type="button"
+                  className="crew-pipe-link"
+                  data-avos-clear-goal
+                  onClick={() => clearCrewGoal(project)}
+                >
+                  Clear
                 </button>
               ) : null}
             </p>

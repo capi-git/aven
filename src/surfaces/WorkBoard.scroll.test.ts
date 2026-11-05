@@ -56,11 +56,11 @@ describe("the Board's columns scroll on their own", () => {
 });
 
 describe("Avos's Board", () => {
-  it("gets the whole pane: This week steps aside while it's shown", () => {
+  it("gets the whole pane: This week shows only beside the Chat", () => {
     expect(rule(team, ".team-screen")).toContain(
       "grid-template-columns: minmax(0, 1fr) auto;",
     );
-    expect(teamScreen).toContain('{meeting || shown === "board" ? null : (');
+    expect(teamScreen).toContain('{meeting || shown !== "chat" ? null : (');
   });
 });
 

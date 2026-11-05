@@ -383,16 +383,22 @@ describe("the team chat", () => {
     const tabs = [
       ...container.querySelectorAll<HTMLButtonElement>("[data-team-tab]"),
     ];
+    // Changes counts what's ready to apply.
     expect(tabs.map((item) => item.textContent)).toEqual([
       "Chat",
-      "Changes",
+      "Changes1",
       "Notes",
       "Sub agents",
     ]);
+    expect(tabs[1]!.querySelector("[data-avos-changes]")?.textContent).toBe(
+      "1",
+    );
     expect(tabs[0]!.getAttribute("aria-selected")).toBe("true");
     await act(async () => tabs[2]!.click());
-    // The chat stays put underneath, hidden, with what you were writing.
+    // The chat stays put underneath, hidden, with what you were writing;
+    // Notes takes the whole width.
     expect(chat().closest<HTMLElement>(".avos-body")!.hidden).toBe(true);
+    expect(container.querySelector("[data-avos-week]")).toBeNull();
     expect(teamView(PROJECT)).toBe("notes");
     expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("notes");
     await act(async () => tabs[0]!.click());
@@ -1042,7 +1048,44 @@ describe("the team chat", () => {
         .click(),
     );
     expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "add");
-    // This week still lists who's helping out.
-    expect(container.querySelector("[data-avos-week]")).not.toBeNull();
+    // Sub agents takes the whole width; back on the Chat, This week still
+    // lists who's helping out.
+    expect(container.querySelector("[data-avos-week]")).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-tab="chat"]')!
+        .click(),
+    );
+    expect(
+      container.querySelector('[data-avos-week-section="helpers"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps what Avos remembers, and what you asked it to remember for every card, under Notes", async () => {
+    await setUp((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.id === "checker"
+          ? { ...member, memory: "Tests live in src/__tests__." }
+          : member,
+      ),
+      notes: [{ id: "n1", at: NOW - 60_000, text: "Use pnpm, not npm" }],
+    }));
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-tab="notes"]')!
+        .click(),
+    );
+    const notes = container.querySelector<HTMLElement>("[data-avos-notes]")!;
+    expect(
+      [...notes.querySelectorAll(".team-notes-heading")].map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["What they remember", "For every card"]);
+    expect(notes.textContent).toContain("Tests live in src/__tests__.");
+    const rule = notes.querySelector<HTMLElement>("[data-avos-rule]")!;
+    expect(rule.textContent).toContain("Use pnpm, not npm");
+    await act(async () => button(rule, "Forget")!.click());
+    expect(getCrew(PROJECT)!.notes).toEqual([]);
   });
 });

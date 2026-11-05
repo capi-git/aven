@@ -80,7 +80,8 @@
   display: inline-flex;
   height: 24px;
   align-items: center;
-  padding: 0 7px;
+  gap: 6px;
+  padding: 0 9px;
   border: 0;
   border-radius: var(--aven-radius-row);
   background: transparent;
@@ -96,8 +97,13 @@
   color: var(--color-content);
 }
 .avos-head-tabs button[aria-selected="true"] {
+  background: var(--aven-control-bg);
   color: var(--color-content);
   font-weight: 500;
+}
+.avos-head-count {
+  color: var(--aven-muted);
+  font-weight: 400;
 }
 .avos-head-more {
   flex: none;
@@ -606,4 +612,44 @@ button.avos-week-row:hover {
    keeps it pinned on top instead. */
 .avos-screen:not([data-narrow]) .team-ready-list {
   display: none;
+}
+
+/* Notes: what Avos and its helpers remember, then what you asked it to
+   remember for every card, each under its own small heading. */
+.team-notes-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.team-notes-heading {
+  margin: 0 0 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+.team-notes-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-card, 10px);
+  font-size: var(--text-ui-body);
+}
+.team-notes-rule > span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.team-notes-forget {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  cursor: pointer;
+}
+.team-notes-forget:hover {
+  color: var(--color-content);
 }
