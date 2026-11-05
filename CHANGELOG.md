@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.1.170] - 2026-11-05
+
+### Added
+
+- **Delete runs from an automation's list.** Point at a run for a trash icon, or right-click one for **Delete this and N older**, which asks first. Their chats move to Archive in Settings.
+
+### Changed
+
+- **Browser pages update as you drag** the sidebar edge or a split-pane divider, instead of showing a stretched picture until you let go. On a fast drag the page's edge can wobble a little.
+- **Top row tabs follow your interface scale,** so at 80% they're in step with the rest of the app instead of a quarter bigger.
+
+### Fixed
+
+- **The first tab no longer covers the forward arrow** beside a narrow sidebar at a smaller interface scale.
+
 ## [0.1.169] - 2026-11-04
 
 ### Added
