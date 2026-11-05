@@ -5,6 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { holdPagesForDrag } from "../lib/browserMotion";
 import { setDragCursor, suppressTextSelection } from "../lib/drag";
 
 const DRAG_FRAME_DEADLINE_MS = 16;
@@ -19,6 +20,8 @@ type Options = {
   onCommit?: (width: number) => void;
   /** Every width the pane takes, for what has to move with it mid-drag. */
   onLiveWidth?: (width: number) => void;
+  /** A pane floating over the work moves no native page beside it. */
+  floating?: boolean;
 };
 
 function clampTo(value: number, min: number, max: number) {
@@ -35,6 +38,7 @@ export function useDragResize({
   initial,
   onCommit,
   onLiveWidth,
+  floating = false,
 }: Options) {
   const minRef = useRef(min);
   minRef.current = min;
@@ -46,6 +50,8 @@ export function useDragResize({
   onLiveWidthRef.current = onLiveWidth;
   const defaultRef = useRef(defaultWidth);
   defaultRef.current = defaultWidth;
+  const floatingRef = useRef(floating);
+  floatingRef.current = floating;
 
   const clamp = useCallback((value: number) => {
     return clampTo(value, minRef.current, maxRef.current());
@@ -113,6 +119,7 @@ export function useDragResize({
     document.documentElement.classList.add("is-resizing");
 
     let pendingWidth = startW;
+    const pages = floatingRef.current ? null : holdPagesForDrag();
     let frame: number | null = null;
     let fallback: number | null = null;
     const cancelPaint = () => {
@@ -140,6 +147,7 @@ export function useDragResize({
         fallback === null &&
         pendingWidth !== widthRef.current
       ) {
+        pages?.moved();
         frame = requestAnimationFrame(flush);
         fallback = window.setTimeout(flush, DRAG_FRAME_DEADLINE_MS);
       }
@@ -166,6 +174,7 @@ export function useDragResize({
         /* already released */
       }
       commit(pendingWidth);
+      pages?.end();
     };
 
     const onUp = (ev: PointerEvent) => {

@@ -10,7 +10,10 @@ import {
   vi,
   type Mock,
 } from "vitest";
+import { holdPagesForDrag } from "../lib/browserMotion";
 import { useDragResize } from "./useDragResize";
+
+vi.mock("../lib/browserMotion", () => ({ holdPagesForDrag: vi.fn() }));
 
 describe("pane resize lifecycle", () => {
   let container: HTMLDivElement;
@@ -21,14 +24,17 @@ describe("pane resize lifecycle", () => {
   let frames: Map<number, FrameRequestCallback>;
   let nextFrame: number;
   let geometry: Mock<() => string>;
+  let pages: { moved: Mock<() => void>; end: Mock<() => void> };
   function Pane({
     enabled = true,
     direction = "right",
     initial = 280,
+    floating = false,
   }: {
     enabled?: boolean;
     direction?: "left" | "right";
     initial?: number;
+    floating?: boolean;
   }) {
     renders();
     const resize = useDragResize({
@@ -40,6 +46,7 @@ describe("pane resize lifecycle", () => {
       initial,
       onCommit,
       onLiveWidth,
+      floating,
     });
     return createElement(
       "aside",
@@ -93,6 +100,8 @@ describe("pane resize lifecycle", () => {
     onCommit = vi.fn();
     onLiveWidth = vi.fn();
     renders = vi.fn();
+    pages = { moved: vi.fn(), end: vi.fn() };
+    vi.mocked(holdPagesForDrag).mockReset().mockReturnValue(pages);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -106,6 +115,38 @@ describe("pane resize lifecycle", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("holds native pages from the press, moves them once the width changes, and lets go after committing", async () => {
+    await act(async () => root.render(createElement(Pane)));
+    start();
+    expect(holdPagesForDrag).toHaveBeenCalledTimes(1);
+    expect(pages.moved).not.toHaveBeenCalled();
+    act(() => window.dispatchEvent(pointer("pointermove", 430)));
+    expect(pages.moved).toHaveBeenCalled();
+    pages.end.mockImplementation(() =>
+      expect(onCommit).toHaveBeenCalledWith(310),
+    );
+    act(() => window.dispatchEvent(pointer("pointerup", 430)));
+    expect(pages.end).toHaveBeenCalledTimes(1);
+    expect(holdPagesForDrag).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat a press that never moves the edge as moving pages", async () => {
+    await act(async () => root.render(createElement(Pane)));
+    start();
+    act(() => window.dispatchEvent(pointer("pointerup", 400)));
+    expect(pages.moved).not.toHaveBeenCalled();
+    expect(pages.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds no page for a pane floating over the work", async () => {
+    await act(async () => root.render(createElement(Pane, { floating: true })));
+    start();
+    act(() => window.dispatchEvent(pointer("pointermove", 430)));
+    act(() => window.dispatchEvent(pointer("pointerup", 430)));
+    expect(holdPagesForDrag).not.toHaveBeenCalled();
+    expect(onCommit).toHaveBeenCalledWith(310);
   });
 
   it("reports each width as it is applied, before the drag commits", async () => {

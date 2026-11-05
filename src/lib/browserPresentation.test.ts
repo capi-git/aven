@@ -325,6 +325,52 @@ describe("browser presentation", () => {
     });
   });
 
+  it("cuts the whole page out for a drag and keeps it live at each new size", async () => {
+    state.holesSupported = true;
+    controller.cutOutForDrag();
+    await settle();
+    expect(native.page.visible).toBe(true);
+    expect(native.page.bounds.holes).toEqual([
+      { x: 0, y: 0, width: 600, height: 500, radius: 0 },
+    ]);
+    // No still image of its own: the drag supplies the picture.
+    expect(native.captures).toEqual([]);
+    // The pane moves: the page follows, unseen, with its hole.
+    native.measured = { ...native.measured, x: 300, width: 400 };
+    window.dispatchEvent(new Event("supermono:workspace-layout"));
+    await settle();
+    expect(native.page).toMatchObject({
+      visible: true,
+      bounds: {
+        x: 300,
+        width: 400,
+        holes: [{ x: 0, y: 0, width: 400, height: 500, radius: 0 }],
+      },
+    });
+    let released = false;
+    void controller.releaseFromMotion().then(() => {
+      released = true;
+    });
+    // It gets time to draw at its final size before it shows.
+    await vi.advanceTimersByTimeAsync(49);
+    expect(native.page.bounds.holes).toHaveLength(1);
+    expect(released).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await settle();
+    expect(released).toBe(true);
+    expect(native.page.visible).toBe(true);
+    expect(native.page.bounds.holes).toBeUndefined();
+  });
+
+  it("hides the page for a drag where pages cannot be cut", async () => {
+    controller.cutOutForDrag();
+    await settle();
+    expect(native.page.visible).toBe(false);
+    await controller.releaseFromMotion();
+    await settle();
+    expect(native.page.visible).toBe(true);
+  });
+
   it("leaves a page that is no longer showing hidden when its motion ends", async () => {
     await controller.holdForMotion();
     state.visible = false;

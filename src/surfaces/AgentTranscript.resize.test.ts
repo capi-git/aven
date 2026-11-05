@@ -209,6 +209,33 @@ describe("transcript reading position across resizes", () => {
     expect(showJump).not.toHaveBeenCalledWith(true);
   });
 
+  it("keeps following when text rewrapping under a panel's edge moves the offset", async () => {
+    measure(await render(turnBlocks(3)));
+    await scrollTo(1400);
+    await layout({ width: 500 });
+    // Past the time a reader's own input still counts.
+    vi.spyOn(performance, "now").mockReturnValue(performance.now() + 2000);
+    document.documentElement.classList.add("is-resizing");
+    try {
+      // Rewrapping can leave the offset short of the end without the reader.
+      await layout({ width: 480, scrollTop: 2000 });
+      expect(view.scrollTop).toBe(boxes().total - 400);
+      expect(showJump).not.toHaveBeenCalledWith(true);
+    } finally {
+      document.documentElement.classList.remove("is-resizing");
+    }
+  });
+
+  it("still takes the same move for the reader when nothing is resizing", async () => {
+    measure(await render(turnBlocks(3)));
+    await scrollTo(1400);
+    await layout({ width: 500 });
+    vi.spyOn(performance, "now").mockReturnValue(performance.now() + 2000);
+    await layout({ scrollTop: 2000 });
+    expect(view.scrollTop).toBe(2000);
+    expect(showJump).toHaveBeenCalledWith(true);
+  });
+
   it("holds a reader who just left the bottom margin while the last turn grows", async () => {
     measure(await render(turnBlocks(3)));
     await scrollTo(1400);

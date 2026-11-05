@@ -446,10 +446,12 @@
 }
 
 /* The window's strip of tabs takes the toolbar's free width and stops 32px
-   short of its end, so the window can always be taken by that room. */
+   short of its end, so the window can always be taken by that room. It starts
+   from nothing: starting from its tabs' width, a full strip would take room
+   from the controls after it, and move them as the sidebar's edge is dragged. */
 .workspace-status-strip {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   align-items: center;
   align-self: stretch;
   min-width: 0;
