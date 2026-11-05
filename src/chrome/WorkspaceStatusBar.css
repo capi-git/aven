@@ -449,7 +449,11 @@
    short of its end, so the window can always be taken by that room. It starts
    from nothing: starting from its tabs' width, a full strip would take room
    from the controls after it, and move them as the sidebar's edge is dragged. */
+/* The row itself stays in native points for the window's buttons, but tabs are
+   part of the work: they follow the interface scale, or at 80% they'd be a
+   quarter bigger than everything else. */
 .workspace-status-strip {
+  zoom: calc(1 / var(--aven-toolbar-zoom, 1));
   display: flex;
   flex: 1 1 0;
   align-items: center;
