@@ -326,6 +326,8 @@ describe("popover stylesheet", () => {
     const frame = rule(mac, ".aven-popover-panel-backdrop");
     expect(frame).toContain("background: var(--aven-glass-overlay);");
     expect(frame).toContain("backdrop-filter: var(--aven-glass-blur);");
+    // Words behind must not show if WebKit loses the blur for a moment.
+    expect(mac).toContain("calc(92% + var(--sidebar-opacity, 1) * 8%)");
     const inner = rule(
       mac,
       '.aven-popover-panel-content\n  > .toolbar-panel:not([data-theme="light"])',

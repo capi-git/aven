@@ -31,6 +31,7 @@ import {
   EVERY_DAY,
   getScheduledRun,
   listScheduledAgents,
+  listScheduledRuns,
   requestAutomationRun,
   requestScheduleEditor,
   saveScheduledAgent,
@@ -114,10 +115,13 @@ const onOpenRunAsChat = vi.fn();
 const onClose = vi.fn();
 const onOpenConnections = vi.fn();
 
-async function render() {
+async function render(
+  props: { onArchiveRunChat?: (id: string) => Promise<boolean> } = {},
+) {
   await act(async () =>
     root.render(
       createElement(AutomationsView, {
+        ...props,
         cwd: PROJECT,
         recents: [
           { path: PROJECT, openedAt: 2 },
@@ -641,6 +645,91 @@ describe("Automations view", () => {
     expect(listScheduledAgents()).toHaveLength(0);
     // Back to the empty state, with the examples.
     expect(container.textContent).toContain("Start from an example");
+  });
+
+  it("deletes an automation's runs with it, archiving their chats", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun(finished);
+    saveScheduledRun({ ...finished, id: "run-2", sessionId: "session-2" });
+    saveScheduledRun({
+      ...finished,
+      id: "run-3",
+      sessionId: "session-3",
+      openedAsChat: true,
+    });
+    const archive = vi.fn<(id: string) => Promise<boolean>>(async () => true);
+    await render({ onArchiveRunChat: archive });
+    await click(row("daily"));
+    host.ask.mockResolvedValueOnce(true);
+    await click(button("Delete Morning review"));
+    expect(host.ask.mock.calls[0][0]).toBe(
+      "Delete “Morning review” and its 3 runs? Their chats move to Archive in Settings.",
+    );
+    expect(archive.mock.calls.map(([id]) => id)).toEqual([
+      "session-1",
+      "session-2",
+    ]);
+    expect(listScheduledAgents()).toHaveLength(0);
+    expect(listScheduledRuns()).toHaveLength(0);
+    expect(row("daily")).toBeNull();
+  });
+
+  it("keeps a run whose chat could not be archived, to delete again", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledRun(finished);
+    saveScheduledRun({ ...finished, id: "run-2", sessionId: "session-2" });
+    const archive = vi.fn(async (id: string) => id !== "session-2");
+    await render({ onArchiveRunChat: archive });
+    await click(row("daily"));
+    host.ask.mockResolvedValueOnce(true);
+    await click(button("Delete Morning review"));
+    expect(listScheduledAgents()).toHaveLength(0);
+    expect(listScheduledRuns().map((run) => run.id)).toEqual(["run-2"]);
+
+    archive.mockResolvedValue(true);
+    await click(row("daily"));
+    host.ask.mockResolvedValueOnce(true);
+    await click(button("Delete Morning review"));
+    expect(host.ask.mock.calls[1][0]).toBe(
+      "Delete “Morning review” and its run? Its chat moves to Archive in Settings.",
+    );
+    expect(listScheduledRuns()).toHaveLength(0);
+  });
+
+  it("deletes what's left of an automation deleted earlier", async () => {
+    saveScheduledRun(finished);
+    await render({ onArchiveRunChat: async () => true });
+    await click(row("daily"));
+    expect(container.textContent).toContain("This automation was deleted.");
+    host.ask.mockResolvedValueOnce(true);
+    await click(button("Delete Morning review"));
+    expect(listScheduledRuns()).toHaveLength(0);
+    expect(row("daily")).toBeNull();
+  });
+
+  it("offers Delete from a row's right-click menu, without opening it", async () => {
+    saveScheduledAgent(schedule);
+    saveScheduledAgent({ ...schedule, id: "weekly", name: "Weekly review" });
+    await render();
+    await click(row("daily"));
+    await act(async () => {
+      row("weekly").dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 40,
+          clientY: 50,
+        }),
+      );
+    });
+    const pick = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent?.trim() === "Delete…");
+    host.ask.mockResolvedValueOnce(true);
+    await click(pick!);
+    expect(host.ask.mock.calls[0][0]).toBe("Delete “Weekly review”?");
+    expect(listScheduledAgents().map((agent) => agent.id)).toEqual(["daily"]);
+    expect(row("daily").getAttribute("aria-current")).toBe("true");
   });
 
   it("opens a blank automation from the command palette request", async () => {

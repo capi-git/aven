@@ -126,17 +126,19 @@
     transparent
   );
   --aven-glass-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
-  /* Opaque enough that text behind stays hidden if a blur is ever lost, and the
-     Glass slider slides it. A popup keeps its blur only while it and its
-     ancestors have no opacity, filter, mask or clip-path, even a finished
-     animation's: animate glass by scale alone. */
+  /* Nearly solid, whatever the Glass slider says: WebKit can lose a popup's
+     blur for a moment, and a chat's words then flicker through anything thinner.
+     The lifted base keeps it as dark as a thin tint over a blurred chat looked.
+     A popup also loses its blur if it or an ancestor has opacity, filter, mask
+     or clip-path, even a finished animation's: animate glass by scale alone. */
   --aven-glass-overlay-opacity: min(
     100%,
-    calc(30% + var(--sidebar-opacity, 1) * 70%)
+    calc(92% + var(--sidebar-opacity, 1) * 8%)
   );
   --aven-glass-overlay: color-mix(
     in srgb,
-    var(--color-background-base) var(--aven-glass-overlay-opacity),
+    color-mix(in srgb, var(--color-background-base) 91%, var(--color-content))
+      var(--aven-glass-overlay-opacity),
     transparent
   );
   --aven-glass-blur: blur(40px) saturate(125%);
