@@ -62,3 +62,18 @@ describe("Avos in a project that needs Git", () => {
     expect(sheet).toContain("if (forTeam) onOpenAvos(path);");
   });
 });
+
+describe("a message to Avos", () => {
+  it("runs Avos's chat where it belongs, and says why if a message can't go", () => {
+    // Avos reads your folder until there's a copy: its first message goes.
+    expect(block("const botChatForTurn = useCallback(")).toContain(
+      "crewChatPlace(",
+    );
+    expect(block("const crewSendProblem = useCallback(")).toContain(
+      "launchRefusal(sessionId, sessionWorkCwd(chat), chat.harness)",
+    );
+    expect(block("const crewHost = useMemo(")).toContain(
+      "whyNotSent: crewSendProblem,",
+    );
+  });
+});

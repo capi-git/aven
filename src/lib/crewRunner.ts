@@ -275,6 +275,8 @@ export type CrewRunnerDeps = {
   };
   /** A member's name (by its id, or a role for its first): its own, or its critter's. */
   name: (crew: Crew, who: string) => string;
+  /** Why a chat refused a message just now, in words, when known. */
+  whyNotSent?: (sessionId: string) => string | undefined;
   /**
    * Avos brings in the helpers building needs (a Builder and a Checker)
    * before its first card builds. None here: such a card waits.
@@ -890,7 +892,11 @@ export class CrewRunner {
         onSettled: (outcome) =>
           void this.afterTalk(path, talkId, turnId, chat.id, outcome),
       });
-      if (!sent) throw new Error(`Couldn't send ${toName} a message.`);
+      if (!sent)
+        throw new Error(
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${toName} a message.`,
+        );
       const carrying = this.talking.get(talkId);
       if (carrying)
         carrying.timer = this.deps.setTimer(() => {
@@ -1838,7 +1844,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
         );
       turn.sentAt = this.deps.now();
       const started = card;
@@ -2533,7 +2540,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
         );
       turn.sentAt = this.deps.now();
       updateCrew(path, (current) =>
@@ -2745,7 +2753,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
         );
       turn.sentAt = this.deps.now();
       const started = card;
@@ -3246,7 +3255,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
         );
       turn.sentAt = this.deps.now();
       updateCrew(path, (current) =>

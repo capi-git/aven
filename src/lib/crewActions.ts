@@ -218,12 +218,15 @@ export function turnOnCrew(path: string, models: CrewModels, now = Date.now()) {
               },
       );
     }
-    return withFeed(next, {
-      at: now,
-      kind: "note",
-      who: "aven",
-      text: "Avos is on",
-    });
+    // Meeting Avos, your answer wakes it: its reply says so, not a line.
+    return crew.onAt
+      ? withFeed(next, {
+          at: now,
+          kind: "note",
+          who: "aven",
+          text: "Avos is on",
+        })
+      : next;
   });
 }
 

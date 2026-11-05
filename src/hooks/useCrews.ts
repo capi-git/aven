@@ -92,6 +92,8 @@ export type CrewsHost = {
     override?: { model?: string; effort?: string },
   ) => Promise<Session | null>;
   send: (sessionId: string, text: string, options: BotSendOptions) => boolean;
+  /** Why a chat refused a message just now, in words, when known. */
+  whyNotSent?: (sessionId: string) => string | undefined;
   /** Stop a chat's turn. */
   stopChat: (sessionId: string) => void;
   /** Start the chat's agent on a new conversation at its next turn. */
@@ -126,6 +128,7 @@ export function useCrews(
         hostRef.current.ensureChat(crew, memberId, override),
       send: (sessionId, text, options) =>
         hostRef.current.send(sessionId, text, options),
+      whyNotSent: (sessionId) => hostRef.current.whyNotSent?.(sessionId),
       stopChat: (sessionId) => hostRef.current.stopChat(sessionId),
       freshConversation: (sessionId) =>
         hostRef.current.freshConversation(sessionId),

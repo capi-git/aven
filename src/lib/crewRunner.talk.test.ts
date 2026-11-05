@@ -1,10 +1,15 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { tellTeam } from "./crewActions";
-import { CrewRunner, resetCrewRunnerSession } from "./crewRunner";
+import { installCrewWorkspace, tellTeam } from "./crewActions";
+import {
+  CrewRunner,
+  resetCrewRunnerSession,
+  type CrewRunnerDeps,
+} from "./crewRunner";
 import { TALK_HOPS, parseTalk, talkMayAddJob } from "./crewTalk";
 import {
   crewLead,
+  ensureAvos,
   getCrew,
   newCrew,
   resetCrewsCache,
@@ -43,7 +48,10 @@ const talk = (fields: Record<string, unknown>, before = "Done.") =>
 
 type Agent = (text: string) => string | { text: string; status: "failed" };
 
-function harness(agents: Record<string, Agent>) {
+function harness(
+  agents: Record<string, Agent>,
+  extra: Partial<CrewRunnerDeps> = {},
+) {
   let now = NOON;
   let nextId = 1;
   const timers = new Map<number, { at: number; run: () => void }>();
@@ -161,6 +169,7 @@ function harness(agents: Record<string, Agent>) {
     weeklyUsed: () => 0,
     fixerRuns: () => 0,
     fixerBranch: () => undefined,
+    ...extra,
   } as never);
   /** Until nothing is running or due. */
   const settle = async () => {
@@ -245,6 +254,70 @@ describe("a message to everyone", () => {
     expect(sent[0]!.text).toContain("only read it");
     expect(getCrew(PATH)!.copy).toBeUndefined();
     expect(lines()).toEqual(["I'll keep an eye on it."]);
+    runner.stop();
+  });
+
+  for (const git of [true, false])
+    it(`gets your first message to Avos right after meeting it, ${git ? "with" : "without"} Git`, async () => {
+      ensureAvos(PATH, NOON);
+      const wake = vi.fn(async (path: string) => {
+        updateCrew(path, (crew) => ({ ...crew, on: true, onAt: NOON }));
+        return null;
+      });
+      const restore = installCrewWorkspace({
+        openChat: async () => null,
+        openCrew: () => undefined,
+        openSettings: () => undefined,
+        stop: async () => undefined,
+        wake,
+        gitNeeded: async () => (git ? null : "no-git"),
+      });
+      const prepare = vi.fn();
+      const { runner, sent, settle } = harness(
+        { lead: () => talk({ line: "Hi. What should I watch?" }) },
+        { copy: { prepare } as never },
+      );
+      runner.start();
+      try {
+        expect(await tellTeam(PATH, "Hey Avos", "lead", NOON)).toBeNull();
+        await settle();
+        expect(wake).toHaveBeenCalledWith(PATH);
+        expect(sent.map((turn) => turn.memberId)).toEqual(["lead"]);
+        expect(sent[0]!.options.displayText).toBe("Hey Avos");
+        // No copy for a message: Avos reads your folder.
+        expect(prepare).not.toHaveBeenCalled();
+        // Its introduction stays above your words, then its answer.
+        expect(lines()).toEqual([
+          "Hi, I'm Avos. I'll look after aven-site.",
+          "What should I keep an eye on, and what's coming up this week?",
+          "Hi. What should I watch?",
+        ]);
+        expect(
+          getCrew(PATH)!.feed.some((entry) =>
+            entry.text.includes("didn't go through"),
+          ),
+        ).toBe(false);
+      } finally {
+        runner.stop();
+        restore();
+      }
+    });
+
+  it("says the real reason when Avos's chat refuses a message", async () => {
+    team();
+    const { runner, settle } = harness(
+      {},
+      {
+        send: () => false,
+        whyNotSent: () => "Its chat isn't open yet. Try again in a moment.",
+      },
+    );
+    runner.start();
+    expect(await tellTeam(PATH, "Hey Avos", "lead", NOON)).toBeNull();
+    await settle();
+    expect(getCrew(PATH)!.feed.at(-1)?.text).toMatch(
+      /didn't go through: Its chat isn't open yet\. Try again in a moment\.$/,
+    );
     runner.stop();
   });
 

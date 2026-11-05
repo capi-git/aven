@@ -927,6 +927,8 @@ import {
   type AvosNotice,
 } from "./lib/avos";
 import { AvosNoticeCard } from "./chrome/AvosNotices";
+import { crewChatPlace } from "./lib/crewChatPlace";
+import { launchRefusal } from "./lib/harness/sessionPermissions";
 import { crewChatModel } from "./lib/crewModels";
 import {
   crewForChat,
@@ -7052,25 +7054,23 @@ export default function App({
       const bot = botForChat(session.id);
       const crew = bot ? undefined : crewForChat(session.id);
       if (!bot && !crew) return session;
-      if (crew && !crew.crew.on)
-        return "This team is off. Turn it on in its settings to use its chats.";
-      const copy = bot ? bot.copy?.path : crew?.crew.copy?.path;
-      if (!copy)
-        return "The bot's copy isn't ready yet. Try again in a moment.";
-      // A crew's Checker may run on Codex (or on Claude, when Codex couldn't
-      // be locked down here); everyone else on Claude.
-      const app = crew ? crewMemberApp(crew.member) : undefined;
-      const fix = botChatInCopy(
-        session,
-        copy,
-        () => preferredModelId("claude"),
-        app
-          ? {
-              harness: app.harness,
-              model: () => app.model ?? preferredModelId(app.harness),
-            }
-          : undefined,
-      );
+      // A helper works in Avos's copy; Avos reads your folder until there is
+      // one (see crewChatPlace). A crew's Checker may run on Codex.
+      const placed = crew
+        ? crewChatPlace(
+            session,
+            crew.crew,
+            crew.member,
+            () => preferredModelId("claude"),
+            (harness) => preferredModelId(harness as HarnessId),
+          )
+        : bot?.copy?.path
+          ? botChatInCopy(session, bot.copy.path, () =>
+              preferredModelId("claude"),
+            )
+          : "The bot's copy isn't ready yet. Try again in a moment.";
+      if (typeof placed === "string") return placed;
+      const fix = placed;
       if (!fix) return session;
       if (fix.restart && session.busy)
         return "The bot is finishing something outside its copy. Send again once it's done.";
@@ -11334,23 +11334,14 @@ export default function App({
         if (saved && !loaded) return null;
       }
       if (loaded) {
-        const fix = copy
-          ? botChatInCopy(loaded, copy, () => preferredModelId("claude"), {
-              harness,
-              model,
-            })
-          : loaded.worktreeCwd
-            ? // A copy that went away: Avos reads your folder again.
-              {
-                restart: true,
-                chat: {
-                  ...loaded,
-                  worktreeCwd: undefined,
-                  providerSessionId: undefined,
-                  pendingSwitch: undefined,
-                },
-              }
-            : null;
+        const placed = crewChatPlace(
+          loaded,
+          { on: true, ...(crew.copy ? { copy: crew.copy } : {}) },
+          member,
+          () => preferredModelId("claude"),
+          () => model(),
+        );
+        const fix = typeof placed === "string" ? null : placed;
         // A chat still titled with the critter's name it once had goes by
         // the member's name now.
         const name = crewMemberName(crew, member.id);
@@ -11381,10 +11372,37 @@ export default function App({
     },
     [ensureOpenSession, sessionsRef, setSessions],
   );
+  /**
+   * Why a helper's chat refused a message, in words: its chat isn't open, it
+   * can't run where it is, or its rules say no now. None when it's unknown.
+   */
+  const crewSendProblem = useCallback(
+    (sessionId: string): string | undefined => {
+      const chat = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (!chat) return "Its chat isn't open yet. Try again in a moment.";
+      const found = crewForChat(sessionId);
+      if (found) {
+        const placed = crewChatPlace(chat, found.crew, found.member, () =>
+          preferredModelId("claude"),
+        );
+        if (typeof placed === "string") return placed;
+        if (placed?.restart && chat.busy)
+          return "Its chat is finishing something. Try again once it's done.";
+      }
+      return (
+        launchRefusal(sessionId, sessionWorkCwd(chat), chat.harness) ??
+        undefined
+      );
+    },
+    [sessionsRef],
+  );
   const crewHost = useMemo(
     () => ({
       ensureChat: ensureCrewChat,
       send: botHost.send,
+      whyNotSent: crewSendProblem,
       stopChat: (sessionId: string) => onStop(sessionId),
       freshConversation: (sessionId: string) => {
         const chat = sessionsRef.current.find(
@@ -11402,7 +11420,14 @@ export default function App({
       },
       onWorking: setCrewWorkingChats,
     }),
-    [ensureCrewChat, botHost, onStop, sessionsRef, setSessions],
+    [
+      ensureCrewChat,
+      botHost,
+      onStop,
+      sessionsRef,
+      setSessions,
+      crewSendProblem,
+    ],
   );
   useCrews(
     sessions,
