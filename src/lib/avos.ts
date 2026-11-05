@@ -4,6 +4,7 @@ import { sameProjectPath } from "./recents";
 import { avosJobRuns, avosJobs } from "./avosJobs";
 import { crewStatus } from "./crewView";
 import type { Crew } from "./crews";
+import type { CrewMemberView } from "./crewView";
 import type { BotStatus } from "./projectBots";
 import type { ScheduledAgent, ScheduledRun } from "./scheduledAgents";
 
@@ -306,4 +307,15 @@ export function avosNoticesFor(
       });
     }
   return { notices, seen: next };
+}
+
+/** A helper's one word, in This week and Sub agents. */
+export function helperWord(
+  member: Pick<CrewMemberView, "status" | "active">,
+): "Needs you" | "Working" | "Paused" | "Resting" {
+  if (member.status === "needs-you" || member.status === "ready")
+    return "Needs you";
+  if (member.status === "working" || member.active) return "Working";
+  if (member.status === "paused") return "Paused";
+  return "Resting";
 }

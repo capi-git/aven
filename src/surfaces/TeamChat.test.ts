@@ -387,6 +387,7 @@ describe("the team chat", () => {
       "Chat",
       "Changes",
       "Notes",
+      "Sub agents",
     ]);
     expect(tabs[0]!.getAttribute("aria-selected")).toBe("true");
     await act(async () => tabs[2]!.click());
@@ -994,5 +995,54 @@ describe("the team chat", () => {
     expect(container.querySelector("[data-team-open-note]")?.textContent).toBe(
       "Couldn't open Checker's chat.",
     );
+  });
+
+  it("lists each helper under Sub agents, with Open chat and Settings, and Add a helper", async () => {
+    await setUp();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-tab="agents"]')!
+        .click(),
+    );
+    const agents = container.querySelector<HTMLElement>("[data-avos-agents]")!;
+    const rows = [...agents.querySelectorAll<HTMLElement>("[data-avos-agent]")];
+    expect(
+      rows.map((row) => [
+        row.querySelector(".avos-agent-name b")?.textContent,
+        row.querySelector(".avos-agent-word")?.textContent,
+      ]),
+    ).toEqual([
+      ["Builder", "Resting"],
+      ["Designer", "Resting"],
+      ["Checker", "Working"],
+      ["Security", "Resting"],
+      ["Scout", "Resting"],
+    ]);
+    const checker = agents.querySelector<HTMLElement>(
+      '[data-avos-agent="checker"]',
+    )!;
+    expect(checker.querySelector(".avos-agent-line")?.textContent).toBe(
+      "Checking Timer screen · round 2",
+    );
+    await act(async () =>
+      checker
+        .querySelector<HTMLButtonElement>("[data-avos-agent-chat]")!
+        .click(),
+    );
+    expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
+    await act(async () =>
+      checker
+        .querySelector<HTMLButtonElement>("[data-avos-agent-settings]")!
+        .click(),
+    );
+    expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "checker");
+    await act(async () =>
+      agents
+        .querySelector<HTMLButtonElement>("[data-avos-add-helper]")!
+        .click(),
+    );
+    expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "add");
+    // This week still lists who's helping out.
+    expect(container.querySelector("[data-avos-week]")).not.toBeNull();
   });
 });

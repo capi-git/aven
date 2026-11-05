@@ -3,7 +3,7 @@ import { normalizeProjectPath } from "./recents";
 
 /**
  * What each project's Avos screen shows under its header: its Chat (unless
- * you chose another), Changes or Notes, or from ⋯ its Board or Schedule;
+ * you chose another), Changes, Notes or Sub agents;
  * remembered in every window. Overview and Teammates, from when a team had
  * a panel of tabs, open on the Chat (This week and Helping out took them).
  */
@@ -11,6 +11,7 @@ export const TEAM_VIEWS = [
   "chat",
   "changes",
   "notes",
+  "agents",
   "board",
   "schedule",
 ] as const;

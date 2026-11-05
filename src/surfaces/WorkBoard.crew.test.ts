@@ -345,7 +345,7 @@ describe("the team view: the Board with the team on it", () => {
     setTeamView(PROJECT, "board");
   });
 
-  it("has one header: Avos's Bot, its name, one live line, Chat | Changes | Notes and ⋯; Board and Activity in ⋯", async () => {
+  it("has one header: Avos's Bot, its name, one live line, Chat | Changes | Notes | Sub agents and ⋯", async () => {
     await setUp(
       () => (crew) =>
         withFeed(crew, {
@@ -379,6 +379,7 @@ describe("the team view: the Board with the team on it", () => {
       ["Chat", "false"],
       ["Changes", "false"],
       ["Notes", "false"],
+      ["Sub agents", "false"],
       ["Board", "true"],
     ]);
     // This week gives the Board its room.
@@ -828,7 +829,7 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.goal).toBeUndefined();
   });
 
-  it("says when nothing builds by itself, with Add a helper in ⋯", async () => {
+  it("says when nothing builds by itself, with Add a helper under Sub agents", async () => {
     const openSettings = vi.fn();
     const uninstall = installCrewWorkspace({
       openChat: vi.fn(),
@@ -847,10 +848,23 @@ describe("the team view: the Board with the team on it", () => {
       expect(sentence().textContent).toBe(
         "2 ideas wait for you to press Build it.",
       );
-      // Add a helper is in ⋯.
-      await teamMenu();
-      await pickMenu("Add a helper…");
+      // Add a helper is under Sub agents.
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[data-team-tab="agents"]')!
+          .click(),
+      );
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>("[data-avos-add-helper]")!
+          .click(),
+      );
       expect(openSettings).toHaveBeenCalledWith(PROJECT, "add");
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[data-team-tab="chat"]')!
+          .click(),
+      );
       // With a Scout too; with work, another sentence.
       await act(async () =>
         updateCrew(PROJECT, (crew) => ({

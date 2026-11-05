@@ -18,6 +18,7 @@ import {
 import { useTeamPipeline } from "../hooks/useTeamPipeline";
 import { useTeamView } from "../hooks/useTeamView";
 import {
+  helperWord,
   avosGlance,
   avosLine,
   avosReviews,
@@ -65,6 +66,7 @@ import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import { TeamChat } from "./TeamChat";
 import { TeamNotes, TeamSchedule } from "./TeamPanel";
+import { AvosAgents } from "./AvosAgents";
 import type { BoardTop } from "./WorkBoard";
 import "./TeamScreen.css";
 
@@ -80,6 +82,7 @@ const TABS: readonly { id: TeamView; label: string }[] = [
   { id: "chat", label: "Chat" },
   { id: "changes", label: "Changes" },
   { id: "notes", label: "Notes" },
+  { id: "agents", label: "Sub agents" },
 ];
 
 /**
@@ -349,6 +352,13 @@ export function TeamScreen({
               </div>
             ) : shown === "notes" ? (
               <TeamNotes crew={crew} />
+            ) : shown === "agents" ? (
+              <AvosAgents
+                project={project}
+                crew={crew}
+                members={members}
+                name={name}
+              />
             ) : (
               (batch ?? (
                 <p className="team-panel-empty">
@@ -508,7 +518,6 @@ function AvosHeader({
       ? { kind: "item", id: "resume", label: "Resume Avos" }
       : { kind: "item", id: "pause", label: "Pause Avos" },
     { kind: "sep" },
-    { kind: "item", id: "add", label: "Add a helper…" },
     { kind: "item", id: "settings", label: "Settings…" },
   ];
   return (
@@ -584,7 +593,6 @@ function AvosHeader({
             else if (id === "more") allowMoreRunsToday(crew.path);
             else if (id === "pause" || id === "resume")
               setCrewPaused(crew.path, id === "pause");
-            else if (id === "add") workspace?.openSettings(crew.path, "add");
             else if (id === "settings") workspace?.openSettings(crew.path);
           }}
         />
@@ -636,15 +644,6 @@ const SECTIONS: readonly {
   { key: "watching", title: "Keeping an eye on" },
   { key: "done", title: "Done" },
 ];
-
-/** A helper's one word in This week. */
-function helperWord(member: CrewMemberView): string {
-  if (member.status === "needs-you" || member.status === "ready")
-    return "Needs you";
-  if (member.status === "working" || member.active) return "Working";
-  if (member.status === "paused") return "Paused";
-  return "Resting";
-}
 
 /**
  * This week, beside the thread: what needs you, what Avos is doing, what it
