@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+## [0.1.169] - 2026-11-04
+
+### Added
+
+- **Delete or run an automation from the list.** Right-click one for Run now, Edit and Delete.
+
+### Changed
+
+- **Deleting an automation takes its runs too,** and their chats move to Archive in Settings. A chat you opened as a chat stays where it is, and automations deleted earlier can now be cleared the same way.
+- **A dev server's page opens when you ask.** **Open beside chat** on the **Preview ready** chip opens it, and the **Open dev previews automatically** setting is gone.
+- **The Windows installer shows the new logo.**
+
+### Fixed
+
+- **Words no longer show through popups.** A chat's words could flicker through when a popup's blur dropped out, so popups, dialogs and sheets are now nearly solid whatever the Glass setting.
+- **Browser pages no longer shake** while you drag the sidebar edge or a split-pane divider. The page shows as a picture during the drag and redraws when you let go.
+- **Top row and chat stay still during a drag.** The far-right button no longer wobbles, and the jump-to-latest button no longer blinks as text rewraps.
+
 ## [0.1.168] - 2026-11-04
 
 ### Added
