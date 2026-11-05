@@ -54,6 +54,19 @@ describe("browser pages in a drag", () => {
     expect(lastMotionImage("web")).toBe("data:web");
   });
 
+  it("leaves pages a drag does not move live", async () => {
+    const moved = fakePage(async () => "data:moved");
+    const still = fakePage(async () => "data:still");
+    registerMotionPage("moved", moved.page);
+    registerMotionPage("still", still.page);
+    const drag = holdPagesForDrag(["moved", "chat"]);
+    await vi.advanceTimersByTimeAsync(0);
+    drag.moved();
+    drag.end();
+    expect(moved.log).toEqual(["beneath data:moved", "cut out", "release"]);
+    expect(still.log).toEqual([]);
+  });
+
   it("drops the unseen picture when a press never moves", async () => {
     const web = fakePage(async () => "data:web");
     registerMotionPage("web", web.page);

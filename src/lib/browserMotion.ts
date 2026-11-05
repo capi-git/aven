@@ -164,21 +164,25 @@ export function releaseMotionPages(ids: readonly string[]) {
 }
 
 /**
- * Hold every page showing for a drag that moves them all on each frame, such
- * as a panel's edge. A live page takes its new place a frame apart from the
+ * Hold the pages showing for a drag that moves them on each frame: all of them
+ * for a panel's edge, or just those in `only`, for a drag that leaves the rest
+ * where they are. A live page takes its new place a frame apart from the
  * workspace around it and draws at its new width a frame after that, so it
  * would shake against the workspace until the drag ends. The pictures are laid
  * beneath the pages on press, ready for the first move; a press that never
  * moves shows none of them. The pages stay live underneath, at the size they
  * will come back at, so they come back drawn.
  */
-export function holdPagesForDrag(): { moved(): void; end(): void } {
+export function holdPagesForDrag(only?: readonly string[]): {
+  moved(): void;
+  end(): void;
+} {
   const hold = ++lastHold;
   const ready: string[] = [];
   let dragging = true;
   let moving = false;
   for (const [id, page] of pages) {
-    if (holds.has(id)) continue;
+    if (holds.has(id) || (only && !only.includes(id))) continue;
     void (async () => {
       const src = await page.capture();
       if (!src || !dragging) return;
