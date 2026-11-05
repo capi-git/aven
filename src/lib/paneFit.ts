@@ -261,22 +261,6 @@ function replaceSplit(
 }
 
 /**
- * The panes beside a divider, which its drag resizes. Any others in the split
- * keep their place, or fold to a rail and stop showing.
- */
-export function panesBesideSash(
-  node: LayoutNode,
-  sash: Pick<FitSash, "splitId" | "index">,
-): string[] {
-  if (node.type === "leaf") return [];
-  if (node.id === sash.splitId)
-    return node.children
-      .slice(sash.index, sash.index + 2)
-      .flatMap((child) => leafIds(child));
-  return node.children.flatMap((child) => panesBesideSash(child, sash));
-}
-
-/**
  * The divider `sash` (as laid out when the drag began) moved to `offset`
  * pixels from its split's start. Neither pane goes below its minimum; one
  * dragged past its collapse threshold folds to a rail, and a rail dragged

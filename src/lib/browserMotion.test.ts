@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   forgetMotionImage,
   holdMotionPages,
-  holdPagesForDrag,
   lastMotionImage,
   panesMoved,
   registerMotionPage,
@@ -21,134 +20,12 @@ function fakePage(capture: () => Promise<string | null>) {
       log.push(`hold ${src}`);
       return true;
     },
-    layBeneath: async (src, wanted) => {
-      log.push(`beneath ${src}`);
-      return wanted();
-    },
-    cutOut: () => log.push("cut out"),
     release: async () => {
       log.push("release");
     },
   };
   return { page, log };
 }
-
-describe("browser pages in a drag", () => {
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => {
-    resetMotionPages();
-    vi.useRealTimers();
-  });
-
-  it("lays the picture beneath on press and cuts the page out on the first move", async () => {
-    const web = fakePage(async () => "data:web");
-    registerMotionPage("web", web.page);
-    const drag = holdPagesForDrag();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(web.log).toEqual(["beneath data:web"]);
-    drag.moved();
-    drag.moved();
-    expect(web.log).toEqual(["beneath data:web", "cut out"]);
-    drag.end();
-    expect(web.log).toEqual(["beneath data:web", "cut out", "release"]);
-    expect(lastMotionImage("web")).toBe("data:web");
-  });
-
-  it("leaves pages a drag does not move live", async () => {
-    const moved = fakePage(async () => "data:moved");
-    const still = fakePage(async () => "data:still");
-    registerMotionPage("moved", moved.page);
-    registerMotionPage("still", still.page);
-    const drag = holdPagesForDrag(["moved", "chat"]);
-    await vi.advanceTimersByTimeAsync(0);
-    drag.moved();
-    drag.end();
-    expect(moved.log).toEqual(["beneath data:moved", "cut out", "release"]);
-    expect(still.log).toEqual([]);
-  });
-
-  it("drops the unseen picture when a press never moves", async () => {
-    const web = fakePage(async () => "data:web");
-    registerMotionPage("web", web.page);
-    const drag = holdPagesForDrag();
-    await vi.advanceTimersByTimeAsync(0);
-    drag.end();
-    expect(web.log).toEqual(["beneath data:web", "release"]);
-  });
-
-  it("cuts a page out as soon as its picture is ready when the drag got there first", async () => {
-    let finish!: (src: string) => void;
-    const web = fakePage(
-      () =>
-        new Promise<string>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    registerMotionPage("web", web.page);
-    const drag = holdPagesForDrag();
-    drag.moved();
-    expect(web.log).toEqual([]);
-    finish("data:web");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(web.log).toEqual(["beneath data:web", "cut out"]);
-    drag.end();
-  });
-
-  it("leaves a page alone when the drag ends before its picture arrives", async () => {
-    let finish!: (src: string) => void;
-    const web = fakePage(
-      () =>
-        new Promise<string>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    registerMotionPage("web", web.page);
-    const drag = holdPagesForDrag();
-    drag.moved();
-    drag.end();
-    finish("data:web");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(web.log).toEqual([]);
-  });
-
-  it("lets a page go when the drag ends while its picture is being laid", async () => {
-    const web = fakePage(async () => "data:web");
-    web.page.layBeneath = async () => true;
-    registerMotionPage("web", web.page);
-    const drag = holdPagesForDrag();
-    await vi.advanceTimersByTimeAsync(0);
-    await Promise.resolve();
-    drag.end();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(web.log).toContain("release");
-  });
-
-  it("does not touch a page a motion still holds, or one not showing", async () => {
-    const held = fakePage(async () => "data:held");
-    const away = fakePage(async () => null);
-    registerMotionPage("held", held.page);
-    registerMotionPage("away", away.page);
-    await holdMotionPages(["held"]);
-    const drag = holdPagesForDrag();
-    await vi.advanceTimersByTimeAsync(0);
-    drag.moved();
-    drag.end();
-    expect(held.log).toEqual(["hold data:held"]);
-    expect(away.log).toEqual([]);
-  });
-
-  it("keeps going when a capture fails", async () => {
-    const web = fakePage(async () => {
-      throw new Error("no picture");
-    });
-    registerMotionPage("web", web.page);
-    const drag = holdPagesForDrag();
-    await vi.advanceTimersByTimeAsync(0);
-    drag.moved();
-    drag.end();
-    expect(web.log).toEqual([]);
-  });
-});
 
 describe("browser pages in motions", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -191,8 +68,6 @@ describe("browser pages in motions", () => {
         wanted = stillWanted;
         return new Promise(() => {});
       },
-      layBeneath: async () => false,
-      cutOut: () => {},
       release: async () => {},
     });
     const holding = holdMotionPages(["web"], [], 80);
@@ -297,8 +172,6 @@ describe("browser pages in motions", () => {
           log.push("hold");
           hidden = resolve;
         }),
-      layBeneath: async () => false,
-      cutOut: () => {},
       release: async () => {
         log.push("release");
       },
