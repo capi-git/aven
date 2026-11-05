@@ -382,35 +382,6 @@ html.has-native-glass.glass-body:not(.theme-light)
   border-color: var(--personal-line);
 }
 
-.personal-shell .personal-browser-dock {
-  position: relative;
-  flex-shrink: 0;
-  min-width: min(280px, 50%);
-  max-width: calc(100% - 240px);
-  min-height: 0;
-  height: 100%;
-  padding-left: 5px;
-  border-left: 1px solid var(--personal-line);
-}
-
-.personal-shell .personal-browser-dock[data-expanded="true"] {
-  width: 100% !important;
-  max-width: 100%;
-  min-width: 0;
-  padding-left: 0;
-  border-left: 0;
-}
-.personal-shell .personal-browser-dock[hidden] {
-  display: none;
-}
-
-.personal-shell
-  .personal-browser-dock[data-expanded="true"]
-  > .personal-browser-divider {
-  display: none;
-}
-
-.personal-shell .personal-browser-divider,
 .personal-shell .personal-inspector-divider {
   position: absolute;
   inset: 0 auto 0 0;
@@ -421,7 +392,6 @@ html.has-native-glass.glass-body:not(.theme-light)
   border-radius: 3px;
 }
 
-.personal-shell .personal-browser-divider:focus-visible:not(:active),
 .personal-shell .personal-inspector-divider:focus-visible:not(:active),
 .personal-shell .personal-sidebar button:focus-visible,
 .personal-shell .personal-sidebar input:focus-visible {
