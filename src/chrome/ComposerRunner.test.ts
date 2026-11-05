@@ -204,16 +204,16 @@ describe("composer mascot presentation", () => {
   it("plays the turn's reaction on the rim, then hops away", async () => {
     await render(true);
     await frame(32);
-    // The agent's Hopper, hopping up its steps as it runs.
-    expect(mascot().classList.contains("hopper-mark")).toBe(true);
-    expect(mascot().dataset.hopper).toBe("working");
+    // The agent's Bot, typing as it runs.
+    expect(mascot().classList.contains("agent-mark")).toBe(true);
+    expect(mascot().dataset.agent).toBe("working");
     await finish("completed");
     // Still working: another session's end never shows on a busy runner.
     expect(mascot().dataset.reaction).toBeUndefined();
     await finish("completed", "ended");
     await render(true, false);
     expect(mascot().dataset.reaction).toBe("cheer");
-    expect(mascot().dataset.hopper).toBe("still");
+    expect(mascot().dataset.agent).toBe("still");
     await frame(48);
     const rim = y();
     await frame(32 + MASCOT_REACTION_MS.cheer - 1);

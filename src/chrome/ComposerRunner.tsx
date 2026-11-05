@@ -44,7 +44,7 @@ import {
 } from "../lib/mascotReactions";
 import { projectKey } from "../lib/paths";
 import { projectToneAt } from "../lib/projectAppearance";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 
 type Props = {
   boxRef: RefObject<HTMLElement | null>;
@@ -65,7 +65,7 @@ const GEOMETRY_SAMPLE_MS = 100;
 /** A reaction belongs to this turn's end if it started this close to it. */
 const REACTION_MATCH_MS = 1500;
 
-/** The agent's Hopper running the composer's top ledge while a turn is live. */
+/** The agent's Bot running the composer's top ledge while a turn is live. */
 export function ComposerRunner({
   boxRef,
   cwd,
@@ -548,7 +548,7 @@ export function ComposerRunner({
           clipPath: `inset(-${REACTION_ROOM_PX}px -${REACTION_ROOM_PX}px var(--runner-clip, 0px) -${REACTION_ROOM_PX}px)`,
         }}
       >
-        <HopperMark
+        <AgentMark
           tone={tone}
           className="size-[18px]"
           state={ownReaction ? "still" : "working"}

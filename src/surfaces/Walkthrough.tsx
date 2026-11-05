@@ -2,10 +2,11 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check } from "../chrome/icons";
 import { focusableWithin } from "../chrome/Modal";
-import { HopperMark } from "../chrome/HopperMark";
+import { AgentMark } from "../chrome/AgentMark";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { failureText } from "../lib/errors";
 import { LAYER } from "../lib/layers";
+import { agentOutfit, agentPhase } from "../lib/agentMark";
 import { crewMemberTone } from "../lib/markTones";
 import type { HarnessId } from "../lib/session";
 import {
@@ -18,8 +19,8 @@ import { ProviderSetup } from "./ProviderSetup";
 import "./Walkthrough.css";
 
 /**
- * The welcome's cast: a team's Hoppers, each in its role's colour (five
- * that differ), the Builder at work.
+ * The welcome's cast: a team's Bots, each in its role's colour (five that
+ * differ) and outfit, the Builder at work.
  */
 const CAST = ["builder", "checker", "security", "scout", "researcher"] as const;
 
@@ -137,9 +138,11 @@ export function Walkthrough({
       <>
         <div className="walkthrough-cast" aria-hidden>
           {CAST.map((role) => (
-            <HopperMark
+            <AgentMark
               key={role}
               tone={crewMemberTone(role)}
+              outfit={agentOutfit(role)}
+              phase={agentPhase(role)}
               state={role === "builder" ? "working" : "still"}
               className="walkthrough-cast-mark"
             />

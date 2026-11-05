@@ -41,7 +41,7 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
-  HELM_HOP_SELECTOR,
+  HELM_TYPING_SELECTOR,
   closeHelmDialog,
   helmStateWords,
   restoringComposer,
@@ -377,19 +377,19 @@ function homeAgentTile(path: string): HTMLElement | null {
 }
 
 /**
- * Why an agent's Hopper is not working as it should, or null: in its
- * working state, its dot hopping up the five big steps (a mark of 24px or
- * more) unless reduced motion keeps it still.
+ * Why an agent's Bot is not working as it should, or null: in its working
+ * state, typing (its lit key stepping along its three keys) unless reduced
+ * motion keeps it still.
  */
-function workingHopperProblem(mark: HTMLElement | null): string | null {
+function workingAgentProblem(mark: HTMLElement | null): string | null {
   if (!mark) return "is missing";
-  if (mark.dataset.hopper !== "working")
-    return `is ${mark.dataset.hopper ?? "not Hopper"}, not working`;
-  const dot = mark.querySelector(".hopper-dot");
-  if (!dot) return "has no dot";
+  if (mark.dataset.agent !== "working")
+    return `is ${mark.dataset.agent ?? "not an agent's Bot"}, not working`;
+  const key = mark.querySelector(".agent-key");
+  if (!key) return "has no lit key";
   return animationProblem(
-    getComputedStyle(dot).animationName,
-    "hopper-hop",
+    getComputedStyle(key).animationName,
+    "agent-type",
     prefersReducedMotion(),
   );
 }
@@ -2852,7 +2852,7 @@ export async function runDevSmoke(
           await waitFor(
             () => {
               const helm = root.querySelector<HTMLElement>("[data-helm]");
-              const frame = helm?.querySelector(HELM_HOP_SELECTOR);
+              const frame = helm?.querySelector(HELM_TYPING_SELECTOR);
               seen =
                 helmWorkingProblem(
                   helm ?? null,
@@ -2863,7 +2863,7 @@ export async function runDevSmoke(
               return seen === null;
             },
             5_000,
-            "the mark to hop while the chat offers its one Stop",
+            "the mark to type while the chat offers its one Stop",
           ).catch(() => {
             throw new Error(`While the agent worked, ${seen}`);
           });
@@ -2993,7 +2993,7 @@ export async function runDevSmoke(
       },
     );
 
-  // Home: every project's agent as Hopper, the working one hopping,
+  // Home: every project's agent as Bot, the working one typing,
   // Right now and today's recap; then the sidebar's New chat pressed over
   // Home leaves it for the new chat.
   if (safe && typedTask && motion)
@@ -3030,12 +3030,10 @@ export async function runDevSmoke(
       ];
       if (tiles.length === 0) throw new Error("Home shows no agents");
       const bare = tiles.filter(
-        (tile) => !tile.querySelector(".hopper-mark .hopper-steps"),
+        (tile) => !tile.querySelector(".agent-mark .agent-head"),
       );
       if (bare.length)
-        throw new Error(
-          `${bare.length} of ${tiles.length} agents are not Hopper`,
-        );
+        throw new Error(`${bare.length} of ${tiles.length} agents are not Bot`);
       const tile = await waitFor(
         () => {
           const found = homeAgentTile(config.projectPath);
@@ -3044,9 +3042,8 @@ export async function runDevSmoke(
         5_000,
         "the project's agent to show it is working",
       );
-      // Home's large tiles hop on all five steps.
-      const working = workingHopperProblem(
-        tile.querySelector<HTMLElement>(".hopper-mark"),
+      const working = workingAgentProblem(
+        tile.querySelector<HTMLElement>(".agent-mark"),
       );
       if (working)
         throw new Error(`On Home, the working agent's mark ${working}`);

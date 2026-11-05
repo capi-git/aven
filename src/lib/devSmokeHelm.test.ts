@@ -76,10 +76,10 @@ describe("a working mark", () => {
     return element;
   };
   const working =
-    '<span class="dot-mark hopper-mark helm-critter" data-hopper="working"><svg></svg><span class="hopper-walk"><i class="hopper-dot"></i></span></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
+    '<span class="dot-mark agent-mark helm-critter" data-agent="working"><span class="agent-bob"><svg></svg><i class="agent-key"></i></span></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
 
-  it("hops its dot up the steps and says for how long", () => {
-    expect(helmWorkingProblem(helm(working), "hopper-hop", false)).toBeNull();
+  it("types while it works and says for how long", () => {
+    expect(helmWorkingProblem(helm(working), "agent-type", false)).toBeNull();
     expect(helmWorkingProblem(helm(working), "none", true)).toBeNull();
   });
 
@@ -96,9 +96,9 @@ describe("a working mark", () => {
         "",
         false,
       ),
-    ).toBe("the mark is not hopping");
+    ).toBe("the mark is not typing");
     expect(helmWorkingProblem(helm(working), "none", false)).toBe(
-      "the hop: its animation is none, expected hopper-hop",
+      "the typing: its animation is none, expected agent-type",
     );
   });
 });

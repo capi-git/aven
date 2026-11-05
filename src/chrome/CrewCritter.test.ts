@@ -41,8 +41,8 @@ async function draw(element: ReactElement) {
 }
 
 const states = () =>
-  [...host.querySelectorAll<HTMLElement>(".hopper-mark")].map(
-    (mark) => mark.dataset.hopper,
+  [...host.querySelectorAll<HTMLElement>(".agent-mark")].map(
+    (mark) => mark.dataset.agent,
   );
 
 const tones = () =>
@@ -62,10 +62,10 @@ describe("crew marks", () => {
       }),
     );
     expect(tones()).toEqual(["blue", "purple", "pink", "teal"]);
-    // Every one is Hopper; the working one hops in its colour too.
-    expect(host.querySelectorAll(".hopper-mark")).toHaveLength(4);
+    // Every one is Bot; the working one types in its colour too.
+    expect(host.querySelectorAll(".agent-mark")).toHaveLength(4);
     expect(
-      host.querySelector<HTMLElement>('.hopper-mark[data-hopper="working"]')
+      host.querySelector<HTMLElement>('.agent-mark[data-agent="working"]')
         ?.dataset.tone,
     ).toBe("blue");
     await act(async () => saveTabGroupColor(projectKey(APP), 6));
@@ -89,7 +89,7 @@ describe("crew marks", () => {
       );
   });
 
-  it("keeps the colour of a mark chosen before Hopper, orange for a Tester", async () => {
+  it("keeps the colour of a mark chosen before Bot, orange for a Tester", async () => {
     await draw(
       createElement(CrewCritter, {
         path: APP,
@@ -98,7 +98,7 @@ describe("crew marks", () => {
       }),
     );
     const mark = host.querySelector<HTMLElement>(".dot-mark")!;
-    expect(mark.classList.contains("hopper-mark")).toBe(true);
+    expect(mark.classList.contains("agent-mark")).toBe(true);
     expect(mark.dataset.tone).toBe("orange");
     // A mark you chose keeps its role's colour.
     await draw(
@@ -139,11 +139,11 @@ describe("crew marks", () => {
     expect(states()).toEqual(["needs"]);
   });
 
-  it("draws a project's bot as Hopper in the project's colour, by its word", async () => {
+  it("draws a project's bot as Bot in the project's colour, by its word", async () => {
     saveTabGroupColor(projectKey(APP), 8);
     await draw(createElement(BotCritter, { path: APP }));
     const mark = host.querySelector<HTMLElement>(".dot-mark")!;
-    expect(mark.classList.contains("hopper-mark")).toBe(true);
+    expect(mark.classList.contains("agent-mark")).toBe(true);
     expect(mark.dataset.tone).toBe("orange");
     expect(states()).toEqual(["still"]);
     for (const [status, state] of [

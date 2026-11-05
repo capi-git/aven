@@ -28,7 +28,7 @@ import { RolePicker } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
 import { Check, ChevronDown, MessageMultiple, Plus, X } from "./icons";
 import { Popover } from "./Popover";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 import { hasProjectAppearance, projectToneAt } from "../lib/projectAppearance";
 import { plural } from "../lib/words";
 import { SecondOpinionButton } from "./SecondOpinionButton";
@@ -393,7 +393,7 @@ function DiscussionMenu({
               onClick={() => onPick(chatPick(candidate))}
               className={`${rowClass(selected, true)} disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent`}
             >
-              <HopperMark
+              <AgentMark
                 tone={
                   hasProjectAppearance(candidate.cwd)
                     ? projectToneAt(candidate.cwd)

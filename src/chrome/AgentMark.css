@@ -1,0 +1,552 @@
+/* Bot, every agent's mark (AgentMark.tsx): a little robot in the agent's
+   colour with a dark face plate, two glowing eyes and a light on its
+   antenna. It is also a `.dot-mark`, so it takes the marks' sizes (15px
+   when not set), their container and their colour tokens
+   (`--dot-mark-tint`) from DotMark.css.
+
+   The numbers here come from AGENT_GEOMETRY in src/lib/agentMark.ts, in
+   its 64-unit box (AgentMark.test.ts checks them). The body is one still
+   SVG. What moves are small HTML layers, by transform and opacity only:
+   the whole bot's bob (`.agent-bob`), its eyes (`.agent-eyes`), its light
+   (`.agent-light`) and, while it works, one lit key (`.agent-key`).
+
+   The colours of its face, eyes and outfits are its own, like a provider
+   icon's, and the same in light and dark. Outfits are greys, or a darker
+   shade of the agent's own colour (the beret), never yellow, green or
+   red: those say what's happening, and only its eyes and light do. */
+
+.agent-mark {
+  --agent-body: var(--dot-mark-tint, currentColor);
+  --agent-plate: #17171a;
+  --agent-glow: #f7f7f5;
+  --agent-hat: #cfcfd4;
+  --agent-brim: #b4b4ba;
+  --agent-lamp: #8e8e95;
+  --agent-beret: #b85c95;
+  --agent-metal: #9a9aa2;
+  --agent-cup: #3a3a40;
+  --agent-badge: #222226;
+  --agent-badge-ring: #0c0c0e;
+  --agent-frame: #e8e8ea;
+  --agent-z: #a8a8ae;
+}
+
+.agent-bob,
+.agent-eyes {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.agent-body,
+.agent-eyes > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.agent-bolts,
+.agent-head,
+.agent-glyph {
+  fill: var(--agent-body);
+}
+
+.agent-bolts {
+  opacity: 0.75;
+}
+
+.agent-plate {
+  fill: var(--agent-plate);
+}
+
+.agent-stalk,
+.agent-z,
+.agent-band,
+.agent-boom,
+.agent-frame,
+.agent-glyph-line,
+.agent-eyes[data-mood="closed"] path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-stalk {
+  stroke: var(--agent-body);
+  stroke-width: 2.6;
+}
+
+/* The three keys it types on while it works, unlit. */
+.agent-keys {
+  fill: var(--agent-glow);
+  opacity: 0.25;
+}
+
+.agent-z {
+  display: none;
+  stroke: var(--agent-z);
+  stroke-width: 1.4;
+  opacity: 0.7;
+}
+
+/* Outfits: at 28 px and up only. */
+.agent-outfit {
+  display: none;
+}
+
+.agent-band,
+.agent-boom {
+  stroke: var(--agent-metal);
+}
+
+.agent-band {
+  stroke-width: 2.4;
+}
+
+.agent-boom {
+  stroke-width: 1.8;
+}
+
+.agent-cup {
+  fill: var(--agent-cup);
+}
+
+.agent-hat {
+  fill: var(--agent-hat);
+}
+
+.agent-brim {
+  fill: var(--agent-brim);
+}
+
+.agent-beret {
+  fill: var(--agent-beret);
+}
+
+.agent-frame {
+  stroke: var(--agent-frame);
+  stroke-width: 1.6;
+}
+
+.agent-badge {
+  fill: var(--agent-badge);
+  stroke: var(--agent-badge-ring);
+  stroke-width: 1.6;
+}
+
+.agent-glyph-line {
+  stroke: var(--agent-body);
+  stroke-width: 2;
+}
+
+/* Its eyes, about the line they sit on, so a blink closes them in place. */
+.agent-eyes {
+  transform-origin: 50% 57.8125%;
+}
+
+.agent-eyes path {
+  fill: var(--agent-glow);
+}
+
+.agent-eyes[data-mood="closed"] path {
+  stroke: var(--agent-glow);
+  stroke-width: 1.8;
+}
+
+.agent-eyes[data-mood="wide"] path {
+  fill: var(--aven-needs-you);
+}
+
+.agent-eye-small {
+  display: none;
+}
+
+/* The light on its antenna: its colour, dim at rest, white while it
+   works, amber while it needs you. */
+.agent-light {
+  position: absolute;
+  left: 43.75%;
+  top: 9.375%;
+  width: 12.5%;
+  height: 12.5%;
+  border-radius: 50%;
+  background: var(--agent-body);
+  pointer-events: none;
+}
+
+.agent-mark[data-agent="resting"] .agent-light {
+  opacity: 0.45;
+}
+
+.agent-mark[data-agent="working"] .agent-light {
+  background: var(--agent-glow);
+}
+
+.agent-mark[data-agent="needs"] .agent-light {
+  background: var(--aven-needs-you);
+}
+
+/* The key it is on, lit, over the first of the three. */
+.agent-key {
+  position: absolute;
+  left: 41.796875%;
+  top: 67.109375%;
+  width: 3.90625%;
+  height: 3.90625%;
+  border-radius: 50%;
+  background: var(--agent-glow);
+  pointer-events: none;
+}
+
+/* At rest it sits a little lower. */
+.agent-mark[data-agent="resting"] .agent-bob {
+  transform: translateY(1.5625%);
+}
+
+/* A place for a teammate still to come: its outline alone, faint. */
+.agent-mark[data-vacant] .agent-bob {
+  opacity: 0.26;
+}
+
+/* Small marks (lists, rails, tabs): no bolts or outfits, and bigger eyes,
+   antenna and strokes, so it stays clear. */
+@container (max-width: 23.5px) {
+  .agent-bolts,
+  .agent-eye-big {
+    display: none;
+  }
+
+  .agent-eye-small {
+    display: inline;
+  }
+
+  .agent-stalk {
+    stroke-width: 3.38;
+  }
+
+  .agent-eyes[data-mood="closed"] path {
+    stroke-width: 2.34;
+  }
+
+  .agent-light {
+    left: 41.875%;
+    top: 7.5%;
+    width: 16.25%;
+    height: 16.25%;
+  }
+}
+
+/* Dressed, at 28 px and up: its outfit, and a "z" while it rests. A hard
+   hat's lamp or a beret's nub replaces the antenna and is its light: the
+   lamp unlit grey until it works (white) or needs you (amber). */
+@container (min-width: 27.5px) {
+  .agent-outfit,
+  .agent-mark[data-agent="resting"] .agent-z {
+    display: inline;
+  }
+
+  .agent-mark[data-hatted] .agent-stalk {
+    display: none;
+  }
+
+  .agent-mark[data-outfit="hat"] .agent-light {
+    left: 45.625%;
+    top: 24.53125%;
+    width: 8.75%;
+    height: 8.75%;
+  }
+
+  .agent-mark[data-outfit="beret"] .agent-light {
+    left: 47.8125%;
+    top: 12.65625%;
+    width: 7.5%;
+    height: 7.5%;
+  }
+
+  .agent-mark[data-outfit="hat"]:not(
+      [data-agent="working"],
+      [data-agent="needs"]
+    )
+    .agent-light {
+    background: var(--agent-lamp);
+    opacity: 1;
+  }
+
+  .agent-mark[data-outfit="beret"]:not(
+      [data-agent="working"],
+      [data-agent="needs"]
+    )
+    .agent-light {
+    background: var(--agent-beret);
+    opacity: 1;
+  }
+}
+
+/* Motion. Working and needing you repeat for as long as they last; resting
+   and watching are slow and small (DESIGN.md, Motion). Each agent starts
+   somewhere else in its loops (`--agent-phase`). A hidden window or a
+   resize holds them still, and Reduce motion shows a still frame. */
+@media (prefers-reduced-motion: no-preference) {
+  .agent-mark[data-agent="resting"] .agent-bob {
+    animation: agent-doze 2.6s ease-in-out infinite alternate;
+    animation-delay: var(--agent-phase, 0s);
+  }
+
+  /* Looks one way, blinks, looks the other way, blinks. */
+  .agent-mark[data-agent="watching"] .agent-eyes {
+    animation: agent-look 7.4s infinite;
+    animation-delay: var(--agent-phase, 0s);
+  }
+
+  .agent-mark[data-agent="working"] .agent-bob {
+    animation: agent-busy 520ms infinite;
+    animation-delay: var(--agent-phase, 0s);
+  }
+
+  .agent-mark[data-agent="working"] .agent-light {
+    animation: agent-pulse 790ms infinite;
+    animation-delay: var(--agent-phase, 0s);
+  }
+
+  /* Typing: the lit key rests on each of the three in turn. */
+  .agent-mark[data-agent="working"] .agent-key {
+    animation: agent-type 900ms ease-in-out infinite;
+    animation-delay: var(--agent-phase, 0s);
+  }
+
+  .agent-mark[data-agent="needs"] .agent-bob {
+    animation: agent-bounce 630ms infinite;
+    animation-delay: var(--agent-phase, 0s);
+  }
+
+  .agent-mark[data-agent="needs"] .agent-light {
+    animation: agent-pulse-needs 630ms infinite;
+    animation-delay: var(--agent-phase, 0s);
+  }
+
+  /* One-shot reactions, timed by MASCOT_REACTION_MS, over its state. */
+  .agent-mark[data-reaction] .agent-bob {
+    transform-origin: 50% 85%;
+    animation-delay: 0s;
+    animation-duration: var(--agent-reaction-ms, 900ms);
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: 1;
+    animation-direction: normal;
+    animation-fill-mode: both;
+  }
+  .agent-mark[data-reaction="cheer"] .agent-bob {
+    animation-name: agent-cheer;
+  }
+  .agent-mark[data-reaction="slump"] .agent-bob {
+    animation-name: agent-slump;
+  }
+  .agent-mark[data-reaction="shrug"] .agent-bob {
+    animation-name: agent-shrug;
+  }
+  .agent-mark[data-reaction="nod"] .agent-bob {
+    animation-name: agent-nod;
+  }
+  .agent-mark[data-reaction="tilt"] .agent-bob {
+    animation-name: agent-tilt;
+  }
+}
+
+/* A slow bob, a little lower than standing. */
+@keyframes agent-doze {
+  from {
+    transform: translateY(0.625%);
+  }
+  to {
+    transform: translateY(2.5%);
+  }
+}
+
+/* Its eyes drift 2.6 units each way, and it blinks at each turn. */
+@keyframes agent-look {
+  0% {
+    transform: translateX(-4.0625%) scaleY(1);
+    animation-timing-function: linear;
+  }
+  0.9% {
+    transform: translateX(-4.0625%) scaleY(0.12);
+    animation-timing-function: linear;
+  }
+  1.8% {
+    transform: translateX(-4.0625%) scaleY(1);
+    animation-timing-function: ease-in-out;
+  }
+  50% {
+    transform: translateX(4.0625%) scaleY(1);
+    animation-timing-function: linear;
+  }
+  50.9% {
+    transform: translateX(4.0625%) scaleY(0.12);
+    animation-timing-function: linear;
+  }
+  51.8% {
+    transform: translateX(4.0625%) scaleY(1);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    transform: translateX(-4.0625%) scaleY(1);
+  }
+}
+
+/* Up fast and down fast, like a ball: out of the ground, into it. */
+@keyframes agent-busy {
+  0%,
+  100% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  50% {
+    transform: translateY(-2.1875%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+}
+
+@keyframes agent-bounce {
+  0%,
+  100% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  50% {
+    transform: translateY(-9.375%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+}
+
+@keyframes agent-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  50% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+}
+
+/* In step with the bounce: brightest at the top. */
+@keyframes agent-pulse-needs {
+  0%,
+  100% {
+    opacity: 0.55;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  50% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+}
+
+/* Four units to the next key, 160% of the key's own width. It rests on
+   each key and moves to the next in about 30ms, so it reads as typing;
+   from the last it fades, goes back unseen, and lights the first again. */
+@keyframes agent-type {
+  0%,
+  30% {
+    transform: none;
+    opacity: 1;
+  }
+  33.333%,
+  63.333% {
+    transform: translateX(160%);
+  }
+  66.667%,
+  93% {
+    transform: translateX(320%);
+    opacity: 1;
+  }
+  96% {
+    transform: translateX(320%);
+    opacity: 0;
+  }
+  99% {
+    transform: none;
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* Done: one happy hop. */
+@keyframes agent-cheer {
+  0%,
+  55%,
+  100% {
+    transform: none;
+  }
+  30% {
+    transform: translateY(-12%) scale(1.05);
+  }
+}
+
+/* Failed: sinks a little and dims, then recovers. */
+@keyframes agent-slump {
+  0%,
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+  20%,
+  70% {
+    transform: translateY(5%) scale(0.96);
+    opacity: 0.6;
+  }
+}
+
+/* Stopped: dims once, as if catching its breath. */
+@keyframes agent-shrug {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.45;
+  }
+}
+
+/* Agrees: two small nods. */
+@keyframes agent-nod {
+  0%,
+  50%,
+  100% {
+    transform: none;
+  }
+  20%,
+  70% {
+    transform: translateY(5%);
+  }
+}
+
+/* Pushes back: leans one way, then the other. */
+@keyframes agent-tilt {
+  0%,
+  100% {
+    transform: none;
+  }
+  25% {
+    transform: rotate(-8deg);
+  }
+  65% {
+    transform: rotate(8deg);
+  }
+}
+
+/* While Aven is hidden, or a window, pane or panel is being resized, it
+   holds still and picks up again where it was. */
+:root:is([data-hidden], .is-resizing, .is-window-resizing)
+  .agent-mark
+  :is(.agent-bob, .agent-eyes, .agent-light, .agent-key),
+[data-workspace-stage][data-resizing="true"]
+  .agent-mark
+  :is(.agent-bob, .agent-eyes, .agent-light, .agent-key) {
+  animation-play-state: paused;
+}

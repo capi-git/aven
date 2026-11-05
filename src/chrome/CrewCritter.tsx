@@ -7,20 +7,21 @@ import {
   type CrewStatus,
 } from "../lib/crewView";
 import {
-  hopperMemberTone,
-  hopperWatchOffset,
-  type HopperState,
-} from "../lib/hopper";
-import { HopperMark } from "./HopperMark";
+  agentMemberTone,
+  agentOutfit,
+  agentPhase,
+  type AgentState,
+} from "../lib/agentMark";
+import { AgentMark } from "./AgentMark";
 import "./ChatStatusPill.css";
 import "./CrewCritter.css";
 
 /**
- * A team member drawn as Hopper, in the teammate's colour: the Lead (Avos)
+ * A team member drawn as Bot, in the teammate's colour: the Lead (Avos)
  * and the Fixer in their project's, every other role its own (Builder blue,
- * Checker purple and so on). The mark it once chose (`critter`) is kept and
- * still picks a Tester's or a Scribe's colour, but every agent wears the
- * same steps; its name says the role.
+ * Checker purple and so on), wearing its role's outfit at 28 px and up (the
+ * Lead's headset, the Builder's hard hat). The mark it once chose
+ * (`critter`) is kept and still picks a Tester's or a Scribe's colour.
  */
 export const CrewCritter = memo(function CrewCritter({
   path,
@@ -33,21 +34,22 @@ export const CrewCritter = memo(function CrewCritter({
   /** The team's project: the Lead's and the Fixer's marks take its colour. */
   path?: string;
   role: CrewRole;
-  /** The mark this member chose before Hopper, which keeps its colour. */
+  /** The mark this member chose before Bot, which keeps its colour. */
   critter?: string;
-  /** Hops up its steps while it works. */
+  /** Works (types, its light pulsing) while true. */
   active?: boolean;
   /** A state of its own (needs you, watching, resting), over `active`. */
-  state?: HopperState;
+  state?: AgentState;
   className?: string;
 }) {
   const projectTone = useProjectTone(path);
   return (
     <span className="crew-critter-wrap" data-crew-critter={role}>
-      <HopperMark
-        tone={hopperMemberTone(role, critter, projectTone)}
+      <AgentMark
+        tone={agentMemberTone(role, critter, projectTone)}
         state={state ?? (active ? "working" : "still")}
-        offset={hopperWatchOffset(role)}
+        outfit={agentOutfit(role)}
+        phase={agentPhase(role)}
         className={className}
       />
     </span>

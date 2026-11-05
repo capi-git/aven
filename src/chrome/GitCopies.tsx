@@ -12,7 +12,7 @@ import {
   Trash2,
 } from "./icons";
 import { ProviderMarks } from "./ProviderMarks";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 import { ShipFlow } from "./ShipFlow";
 import {
   basename,
@@ -806,7 +806,7 @@ export function GitCopies({
   onWorktrees?: (worktrees: GitWorktree[]) => void;
 }) {
   const { worktrees, refresh: refreshCopies } = useWorktrees(cwd, enabled);
-  // Each copy's working agent is Hopper in its project's colour.
+  // Each copy's working agent is Bot in its project's colour.
   const agentTone = useProjectTone(projectCwd || cwd);
   const reportRef = useRef(onWorktrees);
   reportRef.current = onWorktrees;
@@ -1029,7 +1029,7 @@ export function GitCopies({
               {chat ? (
                 <p className="git-copy-chat" data-state={chat.state}>
                   {chat.state === "working" && mark ? (
-                    <HopperMark tone={agentTone} state="working" />
+                    <AgentMark tone={agentTone} state="working" />
                   ) : copy.harness ? (
                     <ProviderMarks harnesses={[copy.harness]} />
                   ) : null}
@@ -1259,7 +1259,7 @@ export function GitCopies({
                     title={text}
                   >
                     {state?.kind === "working" && mark ? (
-                      <HopperMark tone={agentTone} state="working" />
+                      <AgentMark tone={agentTone} state="working" />
                     ) : (
                       <ProviderMarks harnesses={[lane.harness]} />
                     )}
@@ -1479,7 +1479,7 @@ export function GitCopies({
               aria-label={`${working.length} ${working.length === 1 ? "agent" : "agents"} working`}
             >
               {working.slice(0, 3).map((row) => (
-                <HopperMark
+                <AgentMark
                   key={
                     row.kind === "race"
                       ? raceKey(row.group.race)

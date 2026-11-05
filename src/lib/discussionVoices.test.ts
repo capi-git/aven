@@ -51,7 +51,7 @@ describe("discussion voices", () => {
     expect(new Set(teamMascots(Array(12).fill("same"))).size).toBe(12);
   });
 
-  it("gives a team's Hoppers colours of their own, until there are more than colours", () => {
+  it("gives a team's Bots colours of their own, until there are more than colours", () => {
     for (let size = 1; size <= 12; size += 1) {
       for (const prefix of ["run", "race", "x"]) {
         const ids = Array.from({ length: size }, (_, i) => `${prefix}-${i}`);

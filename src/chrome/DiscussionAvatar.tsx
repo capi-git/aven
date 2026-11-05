@@ -2,15 +2,15 @@ import { memo, type CSSProperties } from "react";
 import { agentRole } from "../lib/agentRoles";
 import type { DiscussionVoice } from "../lib/discussionVoices";
 import type { MascotReactionKind } from "../lib/mascotReactions";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 import "./DiscussionAvatar.css";
 
 /**
- * One side's face in a discussion: its Hopper, in its own colour, on a
- * small grey tile, with a letter for the role it was brought in with. Its
- * dot hops up the steps while that side is typing; a reaction plays once
- * when `reaction` is set (a hop at the end, a nod or a lean when a reply
- * lands); otherwise it is still.
+ * One side's face in a discussion: its Bot, in its own colour, on a small
+ * grey tile, with a letter for the role it was brought in with. It types
+ * while that side is typing; a reaction plays once when `reaction` is set
+ * (a hop at the end, a nod or a lean when a reply lands); otherwise it is
+ * still.
  */
 export const DiscussionAvatar = memo(function DiscussionAvatar({
   voice,
@@ -39,7 +39,7 @@ export const DiscussionAvatar = memo(function DiscussionAvatar({
       style={{ "--discussion-voice": voice.color } as CSSProperties}
       aria-hidden
     >
-      <HopperMark
+      <AgentMark
         tone={voice.tone}
         state={typing && !reaction ? "working" : "still"}
         reaction={reaction}

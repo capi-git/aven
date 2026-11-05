@@ -28,7 +28,7 @@ import {
 import { TeamMiniFaces } from "../chrome/TeamCard";
 import type { PopoverAnchor } from "../chrome/Popover";
 import { ProjectCustomizePopover } from "../chrome/ProjectCustomizePopover";
-import { HopperMark } from "../chrome/HopperMark";
+import { AgentMark } from "../chrome/AgentMark";
 import { BotCritter } from "../chrome/BotCritter";
 import { botsAvailable } from "../lib/projectBots";
 import type { SidebarBot } from "../chrome/Sidebar";
@@ -1082,7 +1082,7 @@ const AgentTile = memo(
             </span>
           ) : null}
           <span className="workspace-home-agent-figure">
-            <HopperMark
+            <AgentMark
               tone={appearance ? appearanceTone(appearance) : null}
               state={
                 waiting
@@ -1291,9 +1291,9 @@ function OutcomeIcon({ kind }: { kind: HomeFinished["kind"] }) {
 }
 
 /**
- * A session's agent, Hopper: in its project's colour, or in your own
- * outside a project (as on its message box). It hops while the agent
- * works and turns amber while it needs you.
+ * A session's agent, Bot: in its project's colour, or in your own outside
+ * a project (as on its message box). It types while the agent works and
+ * turns amber while it needs you.
  */
 function HomeMark({
   cwd,
@@ -1311,7 +1311,7 @@ function HomeMark({
     helmCritterSnapshot,
   );
   return (
-    <HopperMark
+    <AgentMark
       tone={hasProjectAppearance(cwd) ? projectTone : markTone(personal)}
       state={needs ? "needs" : active ? "working" : "still"}
       className="workspace-home-mark"

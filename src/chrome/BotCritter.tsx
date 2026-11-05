@@ -1,24 +1,25 @@
 import { memo } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
-  botHopperState,
-  hopperWatchOffset,
-  type HopperState,
-} from "../lib/hopper";
+  agentOutfit,
+  agentPhase,
+  botAgentState,
+  type AgentState,
+} from "../lib/agentMark";
 import { appearanceTone } from "../lib/markTones";
 import {
   BOT_STATUS_LABEL,
   BOT_STATUS_STAGE,
   type BotStatus,
 } from "../lib/projectBots";
-import { HopperMark } from "./HopperMark";
+import { AgentMark } from "./AgentMark";
 import "./ChatStatusPill.css";
 import "./BotCritter.css";
 
 /**
- * A project's bot, drawn as Hopper in its project's colour wherever it
- * shows (the sidebar, its tab and chat, Home): watching from the top step,
- * hopping up while it works, amber when it needs you.
+ * A project's bot (its team's Fixer), drawn as Bot in its project's colour
+ * wherever it shows (the sidebar, its tab and chat, Home), with the Fixer's
+ * plus badge at 28 px and up: watching, working, amber when it needs you.
  */
 export const BotCritter = memo(function BotCritter({
   path,
@@ -28,24 +29,24 @@ export const BotCritter = memo(function BotCritter({
   className = "bot-critter",
 }: {
   path: string;
-  /** Hops up its steps while the bot works. */
+  /** Works while true. */
   active?: boolean;
   /** The bot's word, which picks its state when `state` is not given. */
   status?: BotStatus;
   /** A state of its own, over `status` and `active`. */
-  state?: HopperState;
+  state?: AgentState;
   className?: string;
 }) {
   const appearance = useProjectAppearance(path);
   if (!appearance) return null;
   return (
-    <HopperMark
+    <AgentMark
       tone={appearanceTone(appearance)}
       state={
-        state ??
-        (active ? "working" : status ? botHopperState(status) : "still")
+        state ?? (active ? "working" : status ? botAgentState(status) : "still")
       }
-      offset={hopperWatchOffset("fixer")}
+      outfit={agentOutfit("fixer")}
+      phase={agentPhase("fixer")}
       className={className}
     />
   );

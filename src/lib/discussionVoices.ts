@@ -1,6 +1,6 @@
 /**
- * A face for each side of a discussion: its mark (Hopper, in a colour of
- * its own), the model's name and a short tag for its part. Its provider's
+ * A face for each side of a discussion: its mark (Bot, in a colour of its
+ * own), the model's name and a short tag for its part. Its provider's
  * colour tints its bubbles, never its mark.
  */
 import type { Discussion, DiscussionSide } from "./discussions";
