@@ -1,0 +1,94 @@
+/* A file an agent made: a blue link (the chat's link colour) that downloads. */
+.chat-download-link {
+  cursor: pointer;
+}
+
+.chat-download-link[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* The arrow and the first word wrap together. */
+.chat-download-lead {
+  white-space: nowrap;
+}
+
+.chat-download-glyph {
+  display: inline-block;
+  width: 0.95em;
+  height: 0.95em;
+  margin-inline-end: 0.2em;
+  vertical-align: -0.12em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The popup under the link: the file, what happened, and what to do next. */
+.chat-download-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.chat-download-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chat-download-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-download-name {
+  overflow: hidden;
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-download-status {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  overflow-wrap: anywhere;
+}
+
+.chat-download-popup[data-state="failed"] .chat-download-status {
+  color: var(--aven-danger-text);
+}
+
+.chat-download-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-download-actions button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-control-bg);
+  box-shadow: var(--aven-control-shadow, none);
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-body);
+  cursor: pointer;
+}
+
+.chat-download-actions button:hover {
+  background: var(--aven-hover);
+}
+
+.chat-download-actions button:focus-visible {
+  outline: 2px solid var(--aven-focus-ring, var(--link-color));
+  outline-offset: 1px;
+}

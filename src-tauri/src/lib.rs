@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod access_panel;
+mod agent_files;
 mod agent_tools;
 #[cfg_attr(
     all(feature = "chromium", target_os = "macos"),
@@ -314,6 +315,7 @@ pub fn run() {
         .manage(usage_panel::UsagePanelState::default())
         .manage(team_watch::TeamWatchState::default())
         .manage(access_panel::AccessPanelState::default())
+        .manage(agent_files::AgentDownloads::default())
         .manage(workspace_menu_panel::WorkspaceMenuPanelState::default())
         .setup(|app| {
             // The development app owns only the children it starts. Leave any
@@ -575,6 +577,9 @@ pub fn run() {
             fs::copy_path,
             fs::move_path,
             fs::reveal_path,
+            agent_files::agent_files_folder,
+            agent_files::agent_file_download,
+            agent_files::agent_download_open,
             git::clone_repo,
             fs::read_file_preview,
             fs::stat_files,

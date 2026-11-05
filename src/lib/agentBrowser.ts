@@ -10,6 +10,7 @@ import type {
   AgentBrowserOpened,
 } from "./agentBrowserOpen";
 import { agentGitInstructions } from "./gitPreference";
+import { agentFilesFolder, agentFilesInstructions } from "./chatDownloads";
 import { isRaceLanePath } from "./recents";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
@@ -677,7 +678,12 @@ export async function prepareAgentBrowserPrompt(
     options.worker || isRaceLanePath(context.cwd)
       ? null
       : agentGitInstructions();
-  const prompt = git ? `${git}\n\n${text}` : text;
+  // Where files made for the user go, so the reply can link them for
+  // download instead of leaving them in Downloads (see chatDownloads.ts).
+  const folder = await agentFilesFolder(context.cwd);
+  const files = folder ? agentFilesInstructions(folder) : null;
+  const notes = [git, files].filter((note): note is string => !!note);
+  const prompt = notes.length ? `${notes.join("\n\n")}\n\n${text}` : text;
   if (options.noBrowser) return prompt;
   return withBrowserGuidance(prompt, context, options.typed === true);
 }

@@ -869,7 +869,16 @@ describe("agent browser session connection", () => {
       surfaces: () => [],
       open: vi.fn(),
     });
-    mocks.invoke.mockRejectedValueOnce(new Error("Not supported"));
+    // The first browser call fails; the made-files folder is asked for first.
+    const answer = mocks.invoke.getMockImplementation();
+    let failed = false;
+    mocks.invoke.mockImplementation(async (name: string, args?: unknown) => {
+      if (name !== "agent_files_folder" && !failed) {
+        failed = true;
+        throw new Error("Not supported");
+      }
+      return answer?.(name, args);
+    });
     const text = await api.prepareAgentBrowserPrompt("Fix the code", {
       sessionId: "s",
       cwd: "/p",
@@ -927,7 +936,10 @@ describe("agent browser session connection", () => {
       "Use an external browser only if the user explicitly requests it",
     );
     expect(text).toMatch(/Open the preview$/);
-    expect(mocks.invoke).not.toHaveBeenCalled();
+    // Only the made-files folder, which needs no browser host.
+    expect(mocks.invoke.mock.calls.map(([name]) => name)).toEqual([
+      "agent_files_folder",
+    ]);
   });
   it("leaves non-native text unchanged when no browser host exists", async () => {
     mocks.tauri = false;
