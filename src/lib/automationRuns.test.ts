@@ -112,6 +112,98 @@ function workspace(patch: Partial<AutomationRunDeps> = {}) {
   };
 }
 
+describe("a connection the run needs", () => {
+  const down = async () => ({
+    connection: "Slack",
+    text: "Slack is signed out. Sign in from Settings, then run this again.",
+  });
+
+  it("stops the run before it starts, and tells you", async () => {
+    const check = vi.fn(down);
+    const space = workspace({ connectionProblem: check });
+    const run = await startAutomationRun(agent, space.deps);
+    expect(check).toHaveBeenCalledWith(agent, PROJECT);
+    expect(run).toMatchObject({
+      status: "failed",
+      error: "Slack is signed out. Sign in from Settings, then run this again.",
+      connection: "Slack",
+      finishedAt: 1_000,
+    });
+    expect(run.sessionId).toBeUndefined();
+    expect(space.chats).toHaveLength(0);
+    expect(space.turns).toHaveLength(0);
+    expect(space.notify).toHaveBeenCalledWith({ kind: "failed", run });
+    expect(getScheduledRun(run.id)?.connection).toBe("Slack");
+  });
+
+  it("checks in the chats folder for an automation in no project", async () => {
+    const check = vi.fn(async () => null);
+    const space = workspace({ connectionProblem: check });
+    await startAutomationRun({ ...agent, project: "" }, space.deps);
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({ project: "" }),
+      SCRATCH,
+    );
+  });
+
+  it("lets the run start when nothing is known to be wrong", async () => {
+    const space = workspace({ connectionProblem: async () => null });
+    const run = await startAutomationRun(agent, space.deps);
+    expect(run.status).toBe("running");
+    expect(run.connection).toBeUndefined();
+    expect(space.turns).toHaveLength(1);
+  });
+
+  it("asks nobody for an automation that names no connections", async () => {
+    // No check given: the real one runs, and needs no provider.
+    const space = workspace();
+    const run = await startAutomationRun(agent, space.deps);
+    expect(run.status).toBe("running");
+  });
+
+  it("keeps a plainer problem first, with no connection to fix", async () => {
+    const check = vi.fn(down);
+    const space = workspace({
+      problem: async () => "This schedule has no prompt.",
+      connectionProblem: check,
+    });
+    const run = await startAutomationRun(agent, space.deps);
+    expect(run.error).toBe("This schedule has no prompt.");
+    expect(run.connection).toBeUndefined();
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("doesn't count as trouble once a run has left a plain report", async () => {
+    const space = workspace();
+    const run = await startAutomationRun(agent, space.deps);
+    space.finish("Three changes this week.");
+    expect(getScheduledRun(run.id)).toMatchObject({ status: "completed" });
+    expect(getScheduledRun(run.id)?.review).toBeUndefined();
+    expect(space.notify).not.toHaveBeenCalled();
+  });
+
+  it("brings you a needs-you card when the agent couldn't reach a service", async () => {
+    const space = workspace();
+    const run = await startAutomationRun(agent, space.deps);
+    space.finish(
+      `Couldn't reach Notion.\n\n\`\`\`aven-review\n${JSON.stringify({
+        kind: "needs-you",
+        title: "Couldn't reach Notion",
+        service: "Notion",
+      })}\n\`\`\``,
+    );
+    const saved = getScheduledRun(run.id);
+    expect(saved?.review).toMatchObject({
+      kind: "needs-you",
+      service: "Notion",
+      status: "open",
+    });
+    expect(space.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "review" }),
+    );
+  });
+});
+
 describe("starting an automation run", () => {
   it("gives the run a chat of its own, with no tab, outside the chats list", async () => {
     const space = workspace();

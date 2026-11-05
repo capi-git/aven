@@ -3,6 +3,7 @@ import {
   claudeConnectionsFromStatus,
   claudeInventoryArgs,
   codexConnectionsFromStatus,
+  connectionTarget,
   codexEntryForms,
 } from "./providerConnections";
 
@@ -360,5 +361,88 @@ describe("how a Codex server is written", () => {
       "",
     ].join("\n");
     expect(forms(text)).toEqual(["table"]);
+  });
+});
+
+describe("what a server connects to", () => {
+  it("reads a URL or a command, and nothing that holds a secret", () => {
+    const remote = connectionTarget({
+      type: "http",
+      url: "https://MCP.Example.com/mcp/?team=a",
+      headers: { Authorization: "Bearer fixture" },
+    });
+    expect(remote).toEqual({
+      target: "https://mcp.example.com/mcp?team=a",
+      targetLabel: "mcp.example.com",
+    });
+    expect(JSON.stringify(remote)).not.toContain("fixture");
+
+    const local = connectionTarget({
+      command: "/opt/bin/npx",
+      args: ["-y", "@acme/mcp", "--flag"],
+      env: { ACME: "fixture" },
+    });
+    expect(local).toEqual({
+      target: "npx\0-y\0@acme/mcp\0--flag",
+      targetLabel: "npx @acme/mcp",
+    });
+    expect(JSON.stringify(local)).not.toContain("fixture");
+  });
+
+  it("treats a trailing slash and a program's folder as the same server", () => {
+    expect(connectionTarget({ url: "https://a.dev/mcp/" }).target).toBe(
+      connectionTarget({ url: "https://a.dev/mcp" }).target,
+    );
+    expect(connectionTarget({ command: "/usr/bin/rea" }).target).toBe(
+      connectionTarget({ command: "rea" }).target,
+    );
+    expect(connectionTarget({ url: "https://a.dev/one" }).target).not.toBe(
+      connectionTarget({ url: "https://a.dev/two" }).target,
+    );
+  });
+
+  it("never shows a value a long flag takes, or a URL's path and query", () => {
+    expect(
+      connectionTarget({ command: "tool", args: ["--token", "fixture"] })
+        .targetLabel,
+    ).toBe("tool");
+    expect(
+      connectionTarget({ url: "https://a.dev/secret-path?k=fixture" })
+        .targetLabel,
+    ).toBe("a.dev");
+  });
+
+  it("has no answer when the provider gives none", () => {
+    expect(connectionTarget(undefined)).toEqual({});
+    expect(connectionTarget({ type: "sdk", name: "x" })).toEqual({});
+  });
+
+  it("comes from each provider's own report, except an account connector's", () => {
+    const claude = claudeConnectionsFromStatus({
+      mcpServers: [
+        {
+          name: "acme",
+          status: "connected",
+          scope: "user",
+          config: { type: "http", url: "https://a.dev/mcp" },
+        },
+        {
+          name: "claude.ai Zeta",
+          status: "needs-auth",
+          scope: "claudeai",
+          config: { type: "claudeai-proxy", url: "https://proxy.example/z" },
+        },
+      ],
+    });
+    const target = (key: string) =>
+      claude.find((row) => row.key === key)!.target;
+    expect(target("acme")).toBe("https://a.dev/mcp");
+    expect(target("claude.ai Zeta")).toBeUndefined();
+
+    const [codex] = codexConnectionsFromStatus(
+      [{ name: "acme", tools: { a: {} }, authStatus: "unsupported" }],
+      { mcp_servers: { acme: { url: "https://a.dev/mcp" } } },
+    );
+    expect(codex!.target).toBe("https://a.dev/mcp");
   });
 });

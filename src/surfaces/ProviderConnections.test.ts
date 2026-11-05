@@ -12,6 +12,9 @@ const claude = vi.hoisted(() => vi.fn());
 const codex = vi.hoisted(() => vi.fn());
 const setClaude = vi.hoisted(() => vi.fn());
 const setCodex = vi.hoisted(() => vi.fn());
+const pi = vi.hoisted(() => vi.fn());
+const shared = vi.hoisted(() => vi.fn());
+const installedApps = vi.hoisted(() => new Set<string>());
 
 vi.mock("@tauri-apps/api/core", async (original) => ({
   ...(await original<typeof import("@tauri-apps/api/core")>()),
@@ -23,6 +26,16 @@ vi.mock("../lib/harness/providerConnections", async (original) => ({
   listCodexConnections: codex,
   setClaudeServerEnabled: setClaude,
   setCodexServerEnabled: setCodex,
+  listPiConnections: pi,
+}));
+vi.mock("../lib/mcpShared", async (original) => ({
+  ...(await original<typeof import("../lib/mcpShared")>()),
+  loadSharedList: shared,
+}));
+vi.mock("../lib/harness/availability", async (original) => ({
+  ...(await original<typeof import("../lib/harness/availability")>()),
+  probeHarnessAvailability: async () => undefined,
+  isHarnessAvailable: (id: string) => installedApps.has(id),
 }));
 
 import { ProviderConnections } from "./ProviderConnections";
@@ -90,6 +103,15 @@ const CODEX_ROWS: ProviderConnection[] = [
     toolCount: 170,
   },
 ];
+const signedIn = (
+  rows: ProviderConnection[],
+  key: string,
+): ProviderConnection[] =>
+  structuredClone(rows).map((row) => {
+    if (row.key !== key) return row;
+    const { canSignIn: _unused, ...rest } = row;
+    return { ...rest, state: "ready", toolCount: 3 };
+  });
 const signIns = (count: number): ProviderConnection[] =>
   Array.from({ length: count }, (_, i) => ({
     name: `service${i}`,
@@ -116,6 +138,11 @@ describe("MCP servers page", () => {
       removeItem: (key: string) => void stored.delete(key),
     });
     invoke.mockReset().mockResolvedValue("");
+    pi.mockReset().mockRejectedValue(
+      new ProviderNotInstalledError("Pi not found."),
+    );
+    shared.mockReset().mockResolvedValue({ servers: [], own: {} });
+    installedApps.clear();
     claude.mockReset().mockResolvedValue(structuredClone(CLAUDE_ROWS));
     codex.mockReset().mockResolvedValue(structuredClone(CODEX_ROWS));
     setClaude.mockReset().mockResolvedValue(undefined);
@@ -154,6 +181,11 @@ describe("MCP servers page", () => {
       Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(field, value);
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
+  };
+  /** The form's own fields, one level below the ready-made servers. */
+  const openOwn = async () => {
+    await click(button("Add server"));
+    await click(button("Add your own"));
   };
   const mount = () =>
     act(async () =>
@@ -211,7 +243,8 @@ describe("MCP servers page", () => {
     expect(row("Gmail").dataset.pinned).toBe("true");
     expect(row("rea").dataset.pinned).toBeUndefined();
     expect(button("Remove scape")).toBeDefined();
-    expect(button("Sign in Gmail")).toBeDefined();
+    expect(button("Sign in to Gmail for Claude")).toBeDefined();
+    expect(button("Sign in for Claude")).toBeDefined();
     expect(button("Turn off rea")).toBeDefined();
     expect(button("Hide ChatGPT apps")).toBeDefined();
     expect(button("Remove ChatGPT apps")).toBeUndefined();
@@ -234,12 +267,15 @@ describe("MCP servers page", () => {
 
   it("signs in and removes through the provider, then checks again", async () => {
     await mount();
-    await click(button("Sign in Gmail"));
+    claude.mockResolvedValue(signedIn(CLAUDE_ROWS, "claude.ai Gmail"));
+    await click(button("Sign in to Gmail for Claude"));
     expect(invoke).toHaveBeenCalledWith("provider_mcp", {
       request: { action: "login", provider: "claude", name: "claude.ai Gmail" },
       cwd: expect.stringContaining("/tmp/p-"),
     });
-    expect(notice()).toBe("Signed in to Gmail.");
+    expect(notice()).toBe("Signed in to Gmail for Claude.");
+    // The fresh check counts, and the row says what it found.
+    expect(rowNames(group("Working"))).toContain("Gmail");
 
     await click(button("Remove scape"));
     expect(container.textContent).toContain("Remove from Claude (Personal)?");
@@ -256,6 +292,98 @@ describe("MCP servers page", () => {
     });
     expect(notice()).toBe("Removed scape from Claude (Personal).");
     expect(claude.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("names the agent still waiting after one sign-in, and offers it next", async () => {
+    const acme: ProviderConnection = {
+      name: "acme",
+      key: "acme",
+      state: "needs-sign-in",
+      canSignIn: true,
+    };
+    claude.mockResolvedValue([acme]);
+    codex.mockResolvedValue([acme]);
+    await mount();
+    claude.mockResolvedValue(signedIn([acme], "acme"));
+    await click(button("Sign in to acme for Claude"));
+    expect(notice()).toBe(
+      "Signed in to acme for Claude. Codex still needs sign-in.",
+    );
+    expect(rowNames(group("Needs you"))).toEqual(["acme"]);
+    expect(container.querySelector(".mcp-row-status")?.textContent).toBe(
+      "Needs sign-in",
+    );
+
+    codex.mockResolvedValue(signedIn([acme], "acme"));
+    await click(button("Sign in to acme for Codex"));
+    expect(invoke).toHaveBeenLastCalledWith("provider_mcp", {
+      request: { action: "login", provider: "codex", name: "acme" },
+      cwd: expect.any(String),
+    });
+    expect(notice()).toBe("Signed in to acme for Codex.");
+    expect(group("Needs you")).toBeUndefined();
+  });
+
+  it("doesn't claim a sign-in the provider doesn't agree with", async () => {
+    await mount();
+    await click(button("Sign in to Gmail for Claude"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Claude still says Gmail needs sign-in. Try again, or check again in a minute.",
+    );
+    expect(rowNames(group("Needs you"))).toContain("Gmail");
+  });
+
+  it("checks again when a sign-in fails, and keeps secrets out of the notice", async () => {
+    invoke.mockRejectedValueOnce("login failed: Bearer abcDEF123456 refused");
+    await mount();
+    const before = claude.mock.calls.length;
+    await click(button("Sign in to Gmail for Claude"));
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "login failed: Bearer [hidden] refused",
+    );
+    expect(claude.mock.calls.length).toBe(before + 1);
+  });
+
+  it("gives the next step for a server waiting for approval", async () => {
+    claude.mockResolvedValue([
+      {
+        name: "shared",
+        key: "shared",
+        state: "failed",
+        scope: "project",
+        removable: true,
+        canTurnOff: true,
+        errorCode: "APPROVAL_REQUIRED",
+      },
+    ]);
+    codex.mockResolvedValue([]);
+    await mount();
+    expect(container.textContent).toContain(
+      "In Terminal, run claude in this project, type /mcp and approve it.",
+    );
+    expect(container.querySelector(".mcp-row-status")?.textContent).toBe(
+      "Needs approval",
+    );
+    expect(button("Check again shared")).toBeDefined();
+  });
+
+  it("lists same-named servers with different targets apart", async () => {
+    const github = (host: string): ProviderConnection => ({
+      name: "github",
+      key: "github",
+      state: "ready",
+      removable: true,
+      toolCount: 1,
+      target: `https://${host}/mcp`,
+      targetLabel: host,
+    });
+    claude.mockResolvedValue([github("a.example")]);
+    codex.mockResolvedValue([github("b.example")]);
+    await mount();
+    expect(rowNames(group("Working"))).toEqual([
+      "github (a.example)",
+      "github (b.example)",
+    ]);
   });
 
   it("turns a server off in every agent that has it, and on again from Turned off", async () => {
@@ -455,7 +583,7 @@ describe("MCP servers page", () => {
 
   it("adds one server to both providers with each one's settings", async () => {
     await mount();
-    await click(button("Add server"));
+    await openOwn();
     await type("github", "acme");
     await type("npx", "npx");
     await type("-y", "-y @acme/mcp");
@@ -496,7 +624,7 @@ describe("MCP servers page", () => {
       new ProviderNotInstalledError("Codex CLI not found."),
     );
     await mount();
-    await click(button("Add server"));
+    await openOwn();
     const form = container.querySelector("form")!;
     const target = (label: string) =>
       [...form.querySelectorAll<HTMLLabelElement>(".provider-targets label")]
@@ -525,7 +653,7 @@ describe("MCP servers page", () => {
   it("explains a failure without closing the form", async () => {
     invoke.mockRejectedValueOnce(new Error("MCP server acme already exists"));
     await mount();
-    await click(button("Add server"));
+    await openOwn();
     await type("github", "acme");
     await type("npx", "npx");
     await act(async () => container.querySelector("form")!.requestSubmit());
@@ -538,10 +666,293 @@ describe("MCP servers page", () => {
 
   it("checks names before running anything", async () => {
     await mount();
-    await click(button("Add server"));
+    await openOwn();
     await type("github", "has space");
     await act(async () => container.querySelector("form")!.requestSubmit());
     expect(invoke).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Use letters, numbers");
+  });
+
+  describe("adding a remote server", () => {
+    const openRemote = async () => {
+      await mount();
+      await openOwn();
+      await type("github", "acme");
+      await click(button("Remote URL"));
+      await type("https://mcp", "https://mcp.example.com/mcp");
+    };
+    const submit = () =>
+      act(async () => container.querySelector("form")!.requestSubmit());
+
+    it("says a browser may open while Codex waits, then finishes on a retry", async () => {
+      let finish: (error: string) => void = () => undefined;
+      invoke.mockResolvedValueOnce("").mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            finish = reject;
+          }),
+      );
+      await openRemote();
+      await submit();
+      expect(notice()).toContain("If your browser opens");
+      await act(async () => finish("codex took too long and was stopped."));
+      const alert = container.querySelector('[role="alert"]')?.textContent;
+      expect(alert).toContain("Added to Claude, but Codex failed:");
+      expect(alert).toContain("Add server again to finish.");
+      // The form is still there, and a retry asks both providers again: the
+      // native side skips the Claude entry it already has.
+      expect(container.querySelector("form")).not.toBeNull();
+      invoke.mockClear();
+      invoke.mockResolvedValue("");
+      await submit();
+      expect(
+        invoke.mock.calls.map(([, args]) => args.request.provider),
+      ).toEqual(["claude", "codex"]);
+      expect(notice()).toBe("Added acme to Claude and Codex.");
+      expect(container.querySelector("form")).toBeNull();
+    });
+
+    it("doesn't mention a browser when only Claude is adding it", async () => {
+      invoke.mockImplementation(() => new Promise(() => undefined));
+      await openRemote();
+      const codexBox = [
+        ...container.querySelectorAll<HTMLLabelElement>(
+          ".provider-targets label",
+        ),
+      ]
+        .find((item) => item.textContent === "Codex")!
+        .querySelector<HTMLInputElement>("input")!;
+      await click(codexBox);
+      await submit();
+      expect(notice()).toBeUndefined();
+    });
+
+    it("hides typed headers until asked, and never hides the placeholder", async () => {
+      await openRemote();
+      const headers = () =>
+        container.querySelector<HTMLTextAreaElement>(
+          '[aria-label="Claude headers"]',
+        )!;
+      expect(headers().dataset.masked).toBeUndefined();
+      expect(button("Show Claude headers")).toBeUndefined();
+      await type("Optional. Authorization", "Authorization: Bearer fixture");
+      expect(headers().dataset.masked).toBe("true");
+      await click(button("Show Claude headers"));
+      expect(headers().dataset.masked).toBeUndefined();
+      await click(button("Hide Claude headers"));
+      expect(headers().dataset.masked).toBe("true");
+    });
+
+    it("warns about a Codex token variable once one is typed", async () => {
+      await openRemote();
+      const note = () => container.querySelector("[data-mcp-token-note]");
+      expect(note()).toBeNull();
+      await type("Optional, e.g.", "ACME_TOKEN");
+      expect(note()?.textContent).toContain(
+        "this token probably won’t reach Codex",
+      );
+    });
+  });
+
+  describe("ready-made servers", () => {
+    it("adds one to every provider in one click, with no keys", async () => {
+      await mount();
+      await click(button("Add server"));
+      await click(button("Notion"));
+      expect(invoke.mock.calls.map(([, args]) => args.request)).toEqual([
+        {
+          action: "add",
+          provider: "claude",
+          name: "notion",
+          scope: "user",
+          server: {
+            type: "http",
+            url: "https://mcp.notion.com/mcp",
+            headers: {},
+          },
+        },
+        {
+          action: "add",
+          provider: "codex",
+          name: "notion",
+          server: {
+            type: "http",
+            url: "https://mcp.notion.com/mcp",
+            headers: {},
+          },
+        },
+      ]);
+      expect(container.querySelector("form")).toBeNull();
+    });
+
+    it("lets the same service in again under another account", async () => {
+      claude.mockResolvedValue([
+        {
+          name: "notion",
+          key: "notion",
+          state: "ready",
+          scope: "user",
+          removable: true,
+          source: "Personal",
+        },
+      ]);
+      codex.mockResolvedValue([]);
+      await mount();
+      await click(button("Add server"));
+      // Already in the list under that name.
+      expect(button("Notion")).toBeUndefined();
+      await type("Personal or Work", "Work");
+      await click(button("Notion"));
+      expect(invoke.mock.calls[0]![1].request.name).toBe("notion-work");
+      expect(JSON.parse(stored.get("aven.mcpLabels")!)).toEqual({
+        "notion-work": "Work",
+      });
+    });
+
+    it("adds a service only to providers that don't already have it", async () => {
+      claude.mockResolvedValue([
+        {
+          name: "Notion",
+          key: "claude.ai Notion",
+          state: "ready",
+          source: "claude.ai",
+          account: true,
+          toolCount: 74,
+        },
+      ]);
+      codex.mockResolvedValue([]);
+      await mount();
+      await click(button("Add server"));
+      await click(button("Notion"));
+      expect(
+        invoke.mock.calls.map(([, args]) => args.request.provider),
+      ).toEqual(["codex"]);
+    });
+
+    it("opens the form for a service that needs a token", async () => {
+      await mount();
+      await click(button("Add server"));
+      await click(button("GitHub"));
+      expect(invoke).not.toHaveBeenCalled();
+      expect(container.textContent).toContain("personal access token");
+      expect(
+        container.querySelector<HTMLInputElement>(
+          '[placeholder^="https://mcp"]',
+        )!.value,
+      ).toBe("https://api.githubcopilot.com/mcp/");
+    });
+
+    it("adds to Pi as well when it is installed, without a key", async () => {
+      pi.mockResolvedValue([]);
+      await mount();
+      await click(button("Add server"));
+      await click(button("Linear"));
+      expect(
+        invoke.mock.calls.map(([, args]) => args.request.provider),
+      ).toEqual(["claude", "pi", "codex"]);
+    });
+
+    it("leaves a typed key off Pi, and says so", async () => {
+      pi.mockResolvedValue([]);
+      await mount();
+      await openOwn();
+      await type("github", "acme");
+      await type("npx", "npx");
+      await type("GITHUB_TOKEN", "ACME_KEY=fixture");
+      expect(container.textContent).toContain(
+        "Pi won’t get this one: it uses a private key.",
+      );
+      await act(async () => container.querySelector("form")!.requestSubmit());
+      expect(
+        invoke.mock.calls.map(([, args]) => args.request.provider),
+      ).toEqual(["claude", "codex"]);
+    });
+  });
+
+  describe("where a row reaches", () => {
+    const acme: ProviderConnection = {
+      name: "acme",
+      key: "acme",
+      state: "ready",
+      scope: "user",
+      removable: true,
+      source: "Personal",
+    };
+    const reach = () =>
+      container.querySelector("[data-mcp-reach]")?.textContent ?? null;
+
+    it("says nothing when no other provider is installed", async () => {
+      claude.mockResolvedValue([acme]);
+      codex.mockResolvedValue([{ ...acme, scope: undefined }]);
+      shared.mockResolvedValue({
+        servers: [
+          { name: "acme", from: "claude", kind: "http", url: "https://a.b/c" },
+        ],
+        own: {},
+      });
+      await mount();
+      expect(reach()).toBeNull();
+    });
+
+    it("names the providers it reaches and the ones it can't", async () => {
+      installedApps.add("cursor").add("fx");
+      claude.mockResolvedValue([acme]);
+      codex.mockResolvedValue([{ ...acme, scope: undefined }]);
+      shared.mockResolvedValue({
+        servers: [{ name: "acme", from: "claude", withheld: "secret" }],
+        own: {},
+      });
+      await mount();
+      expect(reach()).toBe("Not on Cursor and fx: it uses a private key.");
+    });
+
+    it("offers to add it to a provider that lacks it, and adds no key", async () => {
+      claude.mockResolvedValue([acme]);
+      codex.mockResolvedValue([]);
+      shared.mockResolvedValue({
+        servers: [
+          { name: "acme", from: "claude", kind: "http", url: "https://a.b/c" },
+        ],
+        own: {},
+      });
+      await mount();
+      expect(reach()).toBe("Not on Codex yet.");
+      await click(button("More for acme"));
+      await click(menuItem("Add to Codex"));
+      expect(invoke.mock.calls.at(-1)![1].request).toEqual({
+        action: "add",
+        provider: "codex",
+        name: "acme",
+        server: { type: "http", url: "https://a.b/c", headers: {} },
+      });
+    });
+
+    it("names an account on the row, and keeps it only in Aven", async () => {
+      claude.mockResolvedValue([acme]);
+      codex.mockResolvedValue([]);
+      await mount();
+      await click(button("More for acme"));
+      await click(menuItem("Name this account"));
+      await type("Personal or Work", "Personal");
+      await click(button("Save"));
+      expect(container.querySelector(".mcp-row-label")?.textContent).toBe(
+        "Personal",
+      );
+      expect(JSON.parse(stored.get("aven.mcpLabels")!)).toEqual({
+        acme: "Personal",
+      });
+      expect(invoke).not.toHaveBeenCalled();
+    });
+  });
+
+  it("hides typed environment values too", async () => {
+    await mount();
+    await openOwn();
+    await type("GITHUB_TOKEN", "ACME_KEY=fixture");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        '[aria-label="Environment"]',
+      )!.dataset.masked,
+    ).toBe("true");
   });
 });

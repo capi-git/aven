@@ -156,6 +156,13 @@
   line-height: 16px;
   overflow-wrap: anywhere;
 }
+/* The account name beside a server's: Personal, Work. */
+.mcp-row-label {
+  margin-left: 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 400;
+}
 /* What is wrong and the fix: the one sentence that matters on the row. */
 .mcp-row-problem,
 .mcp-row-note {
@@ -413,12 +420,40 @@
 .provider-field textarea:focus-visible {
   border-color: color-mix(in srgb, var(--color-content) 30%, transparent);
 }
+/* WebKit and Chromium: a text area has no password type. */
+.provider-field textarea[data-masked] {
+  -webkit-text-security: disc;
+}
 .provider-field .settings-segmented {
   justify-self: start;
 }
 .provider-targets {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 16px;
+}
+.mcp-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mcp-custom-link {
+  justify-self: start;
+}
+.mcp-account-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.mcp-account-form input {
+  width: 130px;
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-md);
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+  font-size: var(--text-ui-caption);
 }
 .provider-targets label {
   display: inline-flex;

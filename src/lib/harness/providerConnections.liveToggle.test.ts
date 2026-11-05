@@ -134,6 +134,11 @@ describe.skipIf(!LIVE)("real providers, fixture settings", () => {
     );
     const on = await listClaudeConnections(project);
     expect(on.find((row) => row.key === "scape")?.state).toBe("failed");
+    // The real report says what it runs, for telling same-named servers apart.
+    expect(on.find((row) => row.key === "scape")).toMatchObject({
+      target: "ScapeMCPServer",
+      targetLabel: "ScapeMCPServer",
+    });
   }, 90_000);
 
   /** Every way to write a server that Codex's writer keeps as it is. */
@@ -158,6 +163,7 @@ describe.skipIf(!LIVE)("real providers, fixture settings", () => {
       writeFileSync(codexConfig, text);
       const before = await listCodexConnections(project);
       expect(before.find((row) => row.key === "tools")?.canTurnOff).toBe(true);
+      expect(before.find((row) => row.key === "tools")?.target).toBe("true");
 
       await setCodexServerEnabled(project, "tools", false);
       const off = readFileSync(codexConfig, "utf8");

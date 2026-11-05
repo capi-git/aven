@@ -27,6 +27,11 @@ import type {
   SendTurnInput,
   SteerTurnInput,
 } from "./types";
+import {
+  acpResumeParams,
+  acpServersForChat,
+  withServersOrWithout,
+} from "../mcpShared";
 
 type SessionSetupResult = {
   sessionId?: string;
@@ -261,8 +266,9 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
   await spawnChild(input.sessionId, path, fxSpawnArgs(input.model), input.cwd);
 
   try {
+    let init: unknown;
     try {
-      await acp.request(
+      init = await acp.request(
         "initialize",
         {
           protocolVersion: 1,
@@ -275,30 +281,40 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
       throw fxStartupError(error);
     }
 
+    const mcpServers = await acpServersForChat(
+      "fx",
+      input.sessionId,
+      input.cwd,
+      init,
+    );
     let setup: SessionSetupResult | undefined;
     let acpSessionId: string | undefined;
     let didLoad = false;
 
     if (canLoad && resume) {
       try {
-        setup = await acp.request<SessionSetupResult>(
-          "session/resume",
-          { sessionId: resume.acpSessionId },
-          SESSION_TIMEOUT_MS,
+        setup = await withServersOrWithout(mcpServers, (servers) =>
+          acp.request<SessionSetupResult>(
+            "session/resume",
+            acpResumeParams(resume.acpSessionId, input.cwd, servers),
+            SESSION_TIMEOUT_MS,
+          ),
         );
         acpSessionId = sessionIdFromResult(setup) ?? resume.acpSessionId;
         didLoad = true;
       } catch {
         muteGate.current = true;
         try {
-          setup = await acp.request<SessionSetupResult>(
-            "session/load",
-            {
-              sessionId: resume.acpSessionId,
-              cwd: input.cwd,
-              mcpServers: [],
-            },
-            SESSION_TIMEOUT_MS,
+          setup = await withServersOrWithout(mcpServers, (servers) =>
+            acp.request<SessionSetupResult>(
+              "session/load",
+              {
+                sessionId: resume.acpSessionId,
+                cwd: input.cwd,
+                mcpServers: servers,
+              },
+              SESSION_TIMEOUT_MS,
+            ),
           );
           acpSessionId = sessionIdFromResult(setup) ?? resume.acpSessionId;
           didLoad = true;
@@ -313,10 +329,12 @@ async function ensureLive(input: SendTurnInput): Promise<Live> {
     }
 
     if (!acpSessionId) {
-      setup = await acp.request<SessionSetupResult>(
-        "session/new",
-        { cwd: input.cwd, mcpServers: [] },
-        SESSION_TIMEOUT_MS,
+      setup = await withServersOrWithout(mcpServers, (servers) =>
+        acp.request<SessionSetupResult>(
+          "session/new",
+          { cwd: input.cwd, mcpServers: servers },
+          SESSION_TIMEOUT_MS,
+        ),
       );
       acpSessionId = sessionIdFromResult(setup);
     }

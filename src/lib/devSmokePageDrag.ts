@@ -668,7 +668,7 @@ async function dragOverPage(
         if (via) {
           await moveThrough(dragPath(from, via, 4));
           // Resting on the page's own tab arms a combine with it.
-          await pause(350);
+          await pause(600);
           await smokeMouse("drag", { x: via.x + 1, y: via.y });
         }
         await moveThrough(dragPath(at, below, 6).slice(1));

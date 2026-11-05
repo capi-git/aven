@@ -421,13 +421,8 @@ html.has-native-glass.glass-body:not(.theme-light)
   border-radius: 3px;
 }
 
-.personal-shell .personal-browser-divider:hover,
-.personal-shell .personal-inspector-divider:hover {
-  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
-}
-
-.personal-shell .personal-browser-divider:focus-visible,
-.personal-shell .personal-inspector-divider:focus-visible,
+.personal-shell .personal-browser-divider:focus-visible:not(:active),
+.personal-shell .personal-inspector-divider:focus-visible:not(:active),
 .personal-shell .personal-sidebar button:focus-visible,
 .personal-shell .personal-sidebar input:focus-visible {
   outline: 2px solid var(--aven-focus-ring);
@@ -806,16 +801,16 @@ html.theme-light.is-mac
   .personal-sidebar-divider:not(:focus-visible)::after {
   background: transparent;
 }
-/* The same seam as between panes: 2px in the muted text colour while
-   pointed at or dragged; keyboard focus shows the focus ring's colour. */
-.personal-shell .personal-panel-resizer:hover::after,
-.personal-shell .personal-panel-resizer:focus-visible::after,
-.personal-shell .personal-panel-resizer[data-resizing="true"]::after {
+/* Pointed at or dragged, only the cursor changes. Keyboard focus shows a line
+   in the focus ring's colour, as nothing else shows where the focus is. A drag
+   focuses the edge too, so it is left out. */
+.personal-shell
+  .personal-panel-resizer:focus-visible:not(
+    [data-resizing="true"],
+    :active
+  )::after {
   left: 3.5px;
   width: 2px;
-  background: color-mix(in srgb, var(--aven-label-secondary) 45%, transparent);
-}
-.personal-shell .personal-panel-resizer:focus-visible::after {
   background: var(--aven-focus-ring, var(--color-accent));
 }
 .personal-shell .personal-panel-resizer:hover,

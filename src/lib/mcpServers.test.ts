@@ -1,11 +1,75 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/core", async (original) => ({
+  ...(await original<typeof import("@tauri-apps/api/core")>()),
+  invoke,
+}));
+
 import {
   EMPTY_MCP_DRAFT,
+  draftHoldsKey,
   draftToSpec,
+  manageMcpServer,
+  mcpRequestSecrets,
   parseEnvLines,
   parseHeaderLines,
   splitArguments,
+  type McpRequest,
 } from "./mcpServers";
+
+describe("keys in a draft", () => {
+  const remote = (url: string) => ({
+    ...EMPTY_MCP_DRAFT,
+    kind: "http" as const,
+    url,
+  });
+  const local = (args: string, env = "") => ({
+    ...EMPTY_MCP_DRAFT,
+    command: "npx",
+    args,
+    env,
+  });
+
+  it("sees a key however it was typed", () => {
+    expect(draftHoldsKey(local("-y @acme/mcp"))).toBe(false);
+    expect(draftHoldsKey(remote("https://mcp.example.com/mcp"))).toBe(false);
+    expect(draftHoldsKey(local("-y @acme/mcp", "A=1"))).toBe(true);
+    expect(draftHoldsKey(local("--api-key x"))).toBe(true);
+    expect(draftHoldsKey(local("abcdef0123456789abcdef0123456789"))).toBe(true);
+    expect(draftHoldsKey(remote("https://mcp.example.com/mcp?k=1"))).toBe(true);
+    expect(draftHoldsKey(remote("https://u:p@mcp.example.com/mcp"))).toBe(true);
+    expect(
+      draftHoldsKey({
+        ...remote("https://mcp.example.com/mcp"),
+        headers: "X-Key: 1",
+      }),
+    ).toBe(true);
+    expect(
+      draftHoldsKey({
+        ...remote("https://mcp.example.com/mcp"),
+        bearerTokenEnvVar: "TOKEN",
+      }),
+    ).toBe(true);
+  });
+
+  it("gives Pi no headers or token variable", () => {
+    expect(
+      draftToSpec(
+        {
+          ...remote("https://mcp.example.com/mcp"),
+          headers: "X-Key: 1",
+          bearerTokenEnvVar: "TOKEN",
+        },
+        "pi",
+      ),
+    ).toEqual({
+      type: "http",
+      url: "https://mcp.example.com/mcp",
+      headers: {},
+    });
+  });
+});
 
 describe("MCP server drafts", () => {
   it("splits arguments like a shell for quotes and escapes", () => {
@@ -28,6 +92,15 @@ describe("MCP server drafts", () => {
       "X-Key": "1",
     });
     expect(() => parseHeaderLines("no colon")).toThrow("Header-Name");
+  });
+
+  it("points at the line instead of repeating what may be a secret", () => {
+    expect(() => parseEnvLines("A=1\nfixture-value")).toThrow(
+      "Line 2 should look like NAME=value.",
+    );
+    expect(() => parseHeaderLines("\n\nBearer fixture-value")).toThrow(
+      "Line 3 should look like Header-Name: value.",
+    );
   });
 
   it("gives each provider only the auth style it supports", () => {
@@ -74,5 +147,56 @@ describe("MCP server drafts", () => {
       env: { GITHUB_TOKEN: "abc" },
     });
     expect(() => draftToSpec(EMPTY_MCP_DRAFT, "claude")).toThrow("command");
+  });
+});
+
+describe("errors from a provider's CLI", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("never repeat the values in the request", async () => {
+    const request: McpRequest = {
+      action: "add",
+      provider: "claude",
+      name: "acme",
+      server: {
+        type: "http",
+        url: "https://mcp.example.com/m?k=fixture-query",
+        headers: {
+          "X-Custom": "fixture-header",
+          Authorization: "Bearer plain",
+        },
+      },
+    };
+    expect(mcpRequestSecrets(request)).toEqual(
+      expect.arrayContaining(["fixture-header", "plain", "fixture-query"]),
+    );
+    invoke.mockRejectedValue(
+      "couldn't use fixture-header or plain at https://mcp.example.com/m?k=fixture-query",
+    );
+    await expect(manageMcpServer(request, "/p")).rejects.toThrow(
+      "couldn't use [hidden] or [hidden] at https://mcp.example.com/m?k=[hidden]",
+    );
+  });
+
+  it("cover a command's environment values too", async () => {
+    invoke.mockRejectedValue(new Error("bad value fixture-env"));
+    await expect(
+      manageMcpServer(
+        {
+          action: "add",
+          provider: "codex",
+          name: "acme",
+          server: {
+            type: "stdio",
+            command: "npx",
+            args: [],
+            env: { ACME: "fixture-env" },
+          },
+        },
+        "/p",
+      ),
+    ).rejects.toThrow("bad value [hidden]");
   });
 });

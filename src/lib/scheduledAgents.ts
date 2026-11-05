@@ -41,6 +41,11 @@ export type ScheduledAgent = {
   harness: HarnessId;
   model: string;
   runtimeMode: RuntimeMode;
+  /**
+   * The connections a run can't work without, by name. One known to be signed
+   * out or failing stops the run before it starts.
+   */
+  connections?: string[];
   schedule: ScheduleRule;
   enabled: boolean;
   createdAt: number;
@@ -62,6 +67,8 @@ export type ScheduledRun = {
   status: ScheduledRunStatus;
   summary: string;
   error?: string;
+  /** The connection that stopped it starting, as its provider names it. */
+  connection?: string;
   startedAt: number;
   finishedAt?: number;
   /**
@@ -245,6 +252,26 @@ export function normalizeScheduleRule(value: unknown): ScheduleRule | null {
   return { kind: "weekly", days, time: rule.time };
 }
 
+const CONNECTION_NAME_LIMIT = 80;
+const CONNECTIONS_LIMIT = 20;
+
+/**
+ * A list of connection names as it can be kept: strings only, tidied, each
+ * once, whatever a saved automation or an agent's block holds.
+ */
+export function normalizeConnectionNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const names = new Map<string, string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const name = item.replace(/\s+/g, " ").trim();
+    if (!name || name.length > CONNECTION_NAME_LIMIT) continue;
+    const key = name.toLowerCase();
+    if (!names.has(key)) names.set(key, name);
+  }
+  return [...names.values()].slice(0, CONNECTIONS_LIMIT);
+}
+
 export function normalizeScheduledAgent(value: unknown): ScheduledAgent | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;
@@ -264,6 +291,7 @@ export function normalizeScheduledAgent(value: unknown): ScheduledAgent | null {
     typeof input === "number" && Number.isFinite(input) ? input : undefined;
   const lastRunAt = finite(item.lastRunAt);
   const next = finite(item.nextRunAt);
+  const connections = normalizeConnectionNames(item.connections);
   return {
     id: item.id,
     name: item.name,
@@ -274,6 +302,7 @@ export function normalizeScheduledAgent(value: unknown): ScheduledAgent | null {
     runtimeMode: isRuntimeMode(item.runtimeMode)
       ? item.runtimeMode
       : "supervised",
+    ...(connections.length ? { connections } : {}),
     schedule,
     enabled: item.enabled !== false,
     createdAt: finite(item.createdAt) ?? 0,
@@ -319,6 +348,9 @@ export function normalizeScheduledRun(value: unknown): ScheduledRun | null {
     status: run.status as ScheduledRunStatus,
     summary: typeof run.summary === "string" ? run.summary : "",
     ...(typeof run.error === "string" && run.error ? { error: run.error } : {}),
+    ...(typeof run.connection === "string" && run.connection
+      ? { connection: run.connection }
+      : {}),
     startedAt: run.startedAt,
     ...(typeof run.finishedAt === "number" && Number.isFinite(run.finishedAt)
       ? { finishedAt: run.finishedAt }
@@ -937,7 +969,9 @@ export async function runDueScheduledAgents({
 // (an Activity entry, the Inbox card, a notification for a run's chat).
 
 export type AutomationsRequest =
-  { kind: "new"; project?: string } | { kind: "run"; runId: string };
+  | { kind: "new"; project?: string }
+  | { kind: "automation"; id: string }
+  | { kind: "run"; runId: string };
 
 const VIEW_REQUEST = "aven:scheduled-agent-editor";
 let pendingRequest: AutomationsRequest | null = null;
@@ -955,6 +989,15 @@ export function requestScheduleEditor(project?: string) {
 /** One run's conversation, under its automation. */
 export function requestAutomationRun(runId: string) {
   request({ kind: "run", runId });
+}
+
+/** Asks the app to show Automations, for what isn't given a way to itself. */
+export const OPEN_AUTOMATIONS_EVENT = "aven:open-automations";
+
+/** Shows one automation, from anywhere (a chat's card). */
+export function openAutomation(id: string) {
+  request({ kind: "automation", id });
+  window.dispatchEvent(new Event(OPEN_AUTOMATIONS_EVENT));
 }
 
 /** The pending request, once. */

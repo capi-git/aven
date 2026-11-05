@@ -40,6 +40,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 - Heights: menu rows 26px, navigation rows 28px, buttons and tabs 24px, settings rows at least 48px.
 - Corners: use the `--aven-radius-*` tokens. Rows and controls are 6px, cards 10px, sheets 12px.
+- A resize edge shows nothing extra while pointed at or dragged: the cursor says it can be grabbed. Only keyboard focus draws a line on it.
 - Use at most one hairline per header. Rows in a list or card are split by a hairline, not by gaps and boxes.
 - Line a section heading up with the edge of its card, and a page title with the same edge.
 - Don't nest a card inside a card, or a tile inside a tile. That includes the app icon: macOS draws its one tile.
@@ -55,6 +56,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 **A sidebar for a mode** belongs to that mode. While Settings is open, the sidebar shows Back to app, search and the sections, and nothing else.
 
 **A work area** has the thing you talk to or work in on the left and a panel on the right. The panel has one header, a row of tabs and one scrolling body.
+
+**Tabs join only on purpose.** Passing over a tab, or letting go on it quickly, only moves yours. Rest on it while a line fills around it, about half a second, and letting go then joins them.
 
 **A menu** is solid, not see-through. It lists what applies, most common first, with sentence-case labels. Group rows with one separator, and move rare choices into a page inside the menu.
 
@@ -78,6 +81,7 @@ Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`
 - Honour Reduce motion.
 - Native browser pages can't be animated. Move a picture of the page instead, and hold only the pages that really move.
 - Never restyle the whole window: no rule on `html *`, and no inherited property set on `body` or `html` during an interaction.
+- No container query on anything large, such as a chat or the panes. WebKit rechecks every element under a container each time it changes size, on every frame of a drag. Use `useNarrowMark`, and keep containers to small things like a card or a toolbar.
 
 An input's first visible response and any frame in motion stay within 33 ms. The speed test reports what goes over.
 

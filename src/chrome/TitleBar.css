@@ -1174,6 +1174,44 @@ html.theme-light .personal-shell {
   outline: 1px solid color-mix(in srgb, var(--color-content) 26%, transparent);
   outline-offset: -1px;
 }
+/* Resting on it: a line fills around the tab, over that light ring. Once it
+   closes the preview above takes over; let go sooner, the tab only moves. */
+.aven-join-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.aven-join-ring rect {
+  x: 0.75px;
+  y: 0.75px;
+  width: calc(100% - 1.5px);
+  height: calc(100% - 1.5px);
+  rx: var(--aven-radius-sm);
+  fill: none;
+  stroke: var(--color-content);
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation-name: aven-join-ring;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes aven-join-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aven-join-ring rect {
+    animation-name: none;
+    stroke-dashoffset: 0;
+    stroke-opacity: 0.5;
+  }
+}
 /* A segment pulled out of its split: the rest of the entry stays put, the
    segment faded where it was. */
 .aven-split-segment {
@@ -1290,4 +1328,55 @@ html.theme-light .personal-shell {
 /* No grab lines: the whole strip still drags the pane. */
 [data-pane-strip] > .aven-tab-strip > span[aria-hidden] {
   display: none;
+}
+
+/* The window's own row of tabs, as MonoCode has it: each tab named and starting
+   at its left, up to 224px wide and shrinking together only once the row is
+   full, with New chat right after the last one. The rest of the row is free to
+   take the window by. A pane's row of tabs keeps its equal widths. */
+.workspace-status-strip .personal-titlebar > .personal-title-tabs {
+  flex: 0 1 auto;
+}
+.workspace-status-strip
+  .aven-tab-strip[data-tab-track]
+  .aven-tab-slot:not([data-pinned]) {
+  flex: 0 1 224px;
+  width: 224px;
+  min-width: 88px;
+  max-width: 224px;
+}
+.workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-button {
+  justify-content: flex-start;
+}
+.workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-label {
+  flex: 1 1 auto;
+}
+.workspace-status-strip .aven-tab-strip[data-tab-track] .aven-split-entry {
+  flex: 0 1 calc(var(--aven-split-panes, 2) * 200px);
+  width: calc(var(--aven-split-panes, 2) * 200px);
+  max-width: calc(var(--aven-split-panes, 2) * 224px);
+}
+.workspace-status-strip .aven-tab-button,
+.workspace-status-strip .aven-split {
+  height: 30px;
+  min-height: 30px;
+}
+.workspace-status-strip .aven-split-segment {
+  height: 26px;
+}
+.workspace-status-strip .aven-tab-highlight {
+  top: calc(50% - 15px);
+  height: 30px;
+}
+/* Tabs at rest sit on a faint plate of their own, with no lines between them. */
+.workspace-status-strip .aven-tab[data-active="false"] .aven-tab-button {
+  background: var(--aven-fill-quaternary);
+}
+.workspace-status-strip .aven-tab[data-active="false"] .aven-tab-button:hover {
+  background: var(--aven-fill-tertiary);
+}
+.workspace-status-strip
+  .aven-tab-strip[data-tab-track]
+  [data-tab-separator]::before {
+  content: none;
 }

@@ -3601,8 +3601,8 @@ export async function runDevSmoke(
   // by. Its header is the handle: with the Mac's own mouse, a still click on
   // its title edits the address, and dragging by the title moves the page
   // into the other pane, beside it and onto the strip without focusing it.
-  // Last, its strip tab let go on the chat's middle with no rest makes a
-  // split of the two (0.1.157 combined only after a rest).
+  // Last, its strip tab rested on the chat's middle, then let go, makes a
+  // split of the two.
   const pageUrl = config.pageUrl;
   if (IS_MAC && pageUrl && get().loneTab)
     await step(

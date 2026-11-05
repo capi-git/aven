@@ -106,7 +106,7 @@ export const frame = () =>
  * next one follows at once (a release with no rest before it).
  */
 export async function smokeMouse(
-  kind: "down" | "drag" | "up",
+  kind: "down" | "drag" | "up" | "move",
   at: Point,
   { settle = true }: { settle?: boolean } = {},
 ) {
@@ -412,8 +412,8 @@ export async function checkLoneTabDrag(
         `the presses on the headers were not the Mac's own (${JSON.stringify(presses)})`,
       );
 
-    // Its strip tab let go on the middle of the chat's, with no rest before
-    // the release: the two make a split.
+    // Its strip tab let go on the middle of the chat's, after resting while
+    // the line fills: the two make a split.
     const stripTab = (id: string) =>
       strip.querySelector<HTMLElement>(
         `[data-surface-tab-id="${CSS.escape(id)}"]`,
@@ -438,8 +438,8 @@ export async function checkLoneTabDrag(
         await smokeMouse("drag", point);
         at = point;
       }
+      await pause(600);
     } finally {
-      // At once, where the last move left it.
       await smokeMouse("up", at, { settle: false });
     }
     await waitFor(

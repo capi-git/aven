@@ -1,4 +1,5 @@
 import { nativeModelId } from "../models";
+import { noteClaudeInit } from "../chatConnections";
 import type { RuntimeMode, TaskListItem, TaskListMeta } from "../session";
 import { loadClaudeHooks } from "../settings";
 import {
@@ -746,6 +747,7 @@ function handleLine(sessionId: string, live: Live, line: string): void {
       stringField(rec, "subtype") === "initialized")
   ) {
     markInitialized(live);
+    noteClaudeInit(sessionId, rec);
   }
 
   if (type === "control_response") {

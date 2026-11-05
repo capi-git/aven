@@ -442,6 +442,133 @@ describe("plain-language errors", () => {
   });
 });
 
+describe("servers that share a name", () => {
+  const server = (
+    target: string | undefined,
+    extra: Partial<ProviderConnection> = {},
+  ): ProviderConnection => ({
+    name: "github",
+    key: "github",
+    state: "ready",
+    toolCount: 1,
+    ...(target ? { target, targetLabel: target } : {}),
+    ...extra,
+  });
+
+  it("stay separate when they point at different things", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([server("one.example")]),
+      codex: loaded([server("two.example")]),
+    });
+    expect(names(overview.working)).toEqual([
+      "github (one.example)",
+      "github (two.example)",
+    ]);
+    expect(new Set(overview.working.map((item) => item.id)).size).toBe(2);
+    expect(overview.working[0]!.entries.map((entry) => entry.id)).toEqual([
+      "claude:github",
+    ]);
+    expect(overview.working[1]!.entries.map((entry) => entry.id)).toEqual([
+      "codex:github",
+    ]);
+  });
+
+  it("stay one row when they point at the same thing", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([server("one.example")]),
+      codex: loaded([server("one.example")]),
+    });
+    expect(names(overview.working)).toEqual(["github"]);
+    expect(overview.working[0]!.entries).toHaveLength(2);
+  });
+
+  it("merge as before when only one target is known", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([server(undefined)]),
+      codex: loaded([server("one.example")]),
+    });
+    expect(names(overview.working)).toEqual(["github"]);
+    expect(overview.working[0]!.entries).toHaveLength(2);
+  });
+
+  it("don't guess which server an entry with no target belongs to", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([
+        server("one.example"),
+        server(undefined, { key: "claude.ai github", account: true }),
+      ]),
+      codex: loaded([server("two.example")]),
+    });
+    expect(overview.working).toHaveLength(3);
+    expect(names(overview.working)).toContain("GitHub");
+  });
+
+  it("keep a plugin's empty copy folded beside the only target", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([
+        server("one.example"),
+        server(undefined, {
+          key: "plugin:design:github",
+          plugin: "design",
+          state: "failed",
+          detail: NO_URL,
+        }),
+      ]),
+      codex: loaded([]),
+    });
+    expect(overview.working[0]!.copies.map((copy) => copy.id)).toEqual([
+      "claude:plugin:design:github",
+    ]);
+  });
+
+  it("keep their parts separate when hidden too", () => {
+    const overview = buildMcpOverview(
+      {
+        claude: loaded([server("one.example")]),
+        codex: loaded([server("two.example")]),
+      },
+      ["claude:github", "codex:github"],
+    );
+    expect(overview.off.map((item) => item.state)).toEqual([
+      "hidden",
+      "hidden",
+    ]);
+  });
+});
+
+describe("secrets in what agents report", () => {
+  it("are taken out of Details", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([
+        {
+          name: "acme",
+          key: "acme",
+          state: "failed",
+          detail: "rejected Authorization: Bearer abcDEF123456",
+        },
+      ]),
+      codex: { status: "error", message: "API_KEY=abcDEF123456 was refused" },
+    });
+    expect(row(overview, "acme").details).toEqual([
+      "rejected Authorization: Bearer [hidden]",
+    ]);
+    expect(row(overview, "Codex").details).toEqual([
+      "API_KEY=[hidden] was refused",
+    ]);
+  });
+
+  it("don't change how a failure is recognised", () => {
+    expect(
+      explainMcpProblem("acme", {
+        name: "acme",
+        key: "acme",
+        state: "failed",
+        detail: "bearer token has expired",
+      }).kind,
+    ).toBe("sign-in-broken");
+  });
+});
+
 describe("actions per state", () => {
   it("offers the fix first", () => {
     const overview = screenshot();
@@ -455,8 +582,67 @@ describe("actions per state", () => {
       more: [],
     });
     expect(row(overview, "Slack")).toMatchObject({
-      primary: { kind: "sign-in", label: "Sign in" },
+      primary: {
+        kind: "sign-in",
+        label: "Sign in for Claude",
+        agent: "claude",
+      },
       more: [{ kind: "turn-off", label: "Turn off" }],
+    });
+  });
+
+  it("offers one agent's sign-in at a time, by name", () => {
+    const entry = (signedIn: boolean): ProviderConnection => ({
+      name: "acme",
+      key: "acme",
+      state: signedIn ? "ready" : "needs-sign-in",
+      ...(signedIn ? {} : { canSignIn: true }),
+    });
+    const both = buildMcpOverview({
+      claude: loaded([entry(false)]),
+      codex: loaded([entry(false)]),
+    });
+    expect(row(both, "acme").primary).toEqual({
+      kind: "sign-in",
+      label: "Sign in for Claude",
+      targets: ["claude:acme"],
+      agent: "claude",
+    });
+    // Once Claude is signed in, the same row offers Codex and still needs you.
+    const next = buildMcpOverview({
+      claude: loaded([entry(true)]),
+      codex: loaded([entry(false)]),
+    });
+    expect(next.signIn.map((item) => item.name)).toEqual(["acme"]);
+    expect(row(next, "acme")).toMatchObject({
+      status: "Needs sign-in",
+      primary: { label: "Sign in for Codex", targets: ["codex:acme"] },
+    });
+  });
+
+  it("gives the next step for a shared server waiting for approval", () => {
+    const overview = buildMcpOverview({
+      claude: loaded([
+        {
+          name: "shared",
+          key: "shared",
+          state: "failed",
+          scope: "project",
+          removable: true,
+          canTurnOff: true,
+          errorCode: "APPROVAL_REQUIRED",
+          detail: "Not approved for this project - approve it via /mcp first",
+        },
+      ]),
+      codex: loaded([]),
+    });
+    expect(row(overview, "shared")).toMatchObject({
+      status: "Needs approval",
+      problem: {
+        kind: "needs-approval",
+        text: "In Terminal, run claude in this project, type /mcp and approve it. Then check again.",
+      },
+      primary: { kind: "check", label: "Check again" },
     });
   });
 

@@ -254,7 +254,16 @@ fn configure_development(config: &mut tauri::Config) {
     config.identifier = DEV_BUNDLE_ID.into();
     config.product_name = Some(DEV_PRODUCT_NAME.into());
     config.version = Some(env!("CARGO_PKG_VERSION").into());
-    config.build.dev_url = Some("http://127.0.0.1:1420".parse().expect("fixed dev URL"));
+    // AVEN_DEV_PORT: the runner's choice, to run beside another checkout's preview.
+    let port = std::env::var("AVEN_DEV_PORT")
+        .ok()
+        .and_then(|port| port.parse::<u16>().ok())
+        .unwrap_or(1420);
+    config.build.dev_url = Some(
+        format!("http://127.0.0.1:{port}")
+            .parse()
+            .expect("fixed dev URL"),
+    );
     for window in &mut config.app.windows {
         window.title = DEV_PRODUCT_NAME.into();
     }
@@ -608,6 +617,7 @@ pub fn run() {
             provider_setup::provider_setup_plan,
             provider_setup::provider_setup_verify,
             mcp_manage::provider_mcp,
+            mcp_manage::mcp_shared_servers,
             rate_limits::fetch_claude_usage,
             pty::pty_spawn,
             pty::pty_write,

@@ -5,17 +5,26 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { Popover } from "../chrome/Popover";
 import { ChevronRight, MoreHorizontal, Plus, RefreshCw } from "../chrome/icons";
+import { errorText } from "../lib/errors";
 import { homeDir } from "../lib/fs";
+import {
+  getHarnessAvailabilitySnapshot,
+  isHarnessAvailable,
+  probeHarnessAvailability,
+  subscribeHarnessAvailability,
+} from "../lib/harness/availability";
 import { harnessDescriptor } from "../lib/harness/descriptors";
 import * as connectionLists from "../lib/harness/providerConnections";
 import { moveMenuFocus } from "../lib/keyboard";
 import {
   EMPTY_MCP_DRAFT,
   MCP_NAME_RE,
+  draftHoldsKey,
   draftToSpec,
   manageMcpServer,
   type ClaudeMcpScope,
@@ -32,8 +41,25 @@ import {
   type McpAction,
   type McpEntry,
   type McpInventory,
+  normalizeServerName,
   type McpRow,
 } from "../lib/mcpOverview";
+import {
+  MCP_LABEL_MAX,
+  mcpLabelsSetting,
+  nameWithoutLabel,
+  serverNameFor,
+  setMcpLabel,
+} from "../lib/mcpLabels";
+import { MCP_PRESETS, type McpPreset } from "../lib/mcpPresets";
+import {
+  loadSharedList,
+  rowReach,
+  type RowReach,
+  type SharedList,
+} from "../lib/mcpShared";
+import type { HarnessId } from "../lib/session";
+import { scrubSecrets } from "../lib/scrubSecrets";
 import { SETTINGS } from "../lib/settings";
 import { useSetting } from "../hooks/useSetting";
 import { Segmented, Select } from "./SettingsControls";
@@ -45,7 +71,12 @@ type Provider = McpProvider;
 
 export type Inventory = McpInventory;
 
-const PROVIDERS = (["claude", "codex"] as const).map((id) => {
+/**
+ * Pi comes last and quietly: it is only asked, never waited for, and shows
+ * nothing unless it is installed. Codex can wait five minutes on a sign-in
+ * while adding, so adding goes to it last.
+ */
+const PROVIDERS = (["claude", "codex", "pi"] as const).map((id) => {
   const connections = harnessDescriptor(id).connections!;
   return { id, ...connections, list: connectionLists[connections.list] };
 });
@@ -72,8 +103,22 @@ const CLAUDE_SCOPES: {
   },
 ];
 
+/** Providers that take servers another way, on a row only when installed. */
+const OTHER_PROVIDERS: readonly HarnessId[] = [
+  "cursor",
+  "grok",
+  "fx",
+  "opencode",
+  "omp",
+];
+
+const ADD_ORDER: readonly Provider[] = ["claude", "pi", "codex"];
+
 /** More sign-ins than this fold into one "N need sign-in" line. */
 const SIGN_IN_FOLD = 3;
+
+/** Codex may sign in to a remote server while adding it. */
+const ADD_WITH_SIGN_IN = "add-with-sign-in";
 
 /**
  * Checking starts each provider and its servers, so a recent result is reused
@@ -89,9 +134,6 @@ function cached(key: string): Inventory | undefined {
 }
 
 type Notice = { tone: "ok" | "error"; text: string } | null;
-
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 function joinAnd(items: string[]): string {
   if (items.length <= 1) return items.join("");
@@ -170,6 +212,54 @@ async function setEachEnabled(
   return notes;
 }
 
+/** An action's full name for a screen reader, where the row isn't in view. */
+function actionName(action: McpAction, row: McpRow): string {
+  return action.kind === "sign-in" && action.agent
+    ? `Sign in to ${row.name} for ${MCP_AGENT_LABEL[action.agent]}`
+    : `${action.label} ${row.name}`;
+}
+
+/**
+ * What a finished sign-in means, from the provider's fresh answer. It says so
+ * when the provider disagrees, and names who still needs a sign-in.
+ */
+function signInResult(row: McpRow, entry: McpEntry, fresh: Inventory): string {
+  const agent = MCP_AGENT_LABEL[entry.provider];
+  const now =
+    fresh.status === "loaded"
+      ? fresh.connections.find(
+          (connection) => connection.key === entry.connection.key,
+        )
+      : undefined;
+  if (now?.state === "needs-sign-in")
+    throw new Error(
+      `${agent} still says ${row.name} needs sign-in. Try again, or check again in a minute.`,
+    );
+  if (now?.state === "failed")
+    return `Signed in for ${agent}, but ${row.name} still isn’t working.`;
+  const others = row.entries.filter(
+    (other) =>
+      other.id !== entry.id &&
+      other.connection.state === "needs-sign-in" &&
+      other.connection.canSignIn,
+  );
+  const next = [
+    ...new Set(
+      others.map((other) =>
+        other.provider === entry.provider
+          ? entryLabel(other)
+          : MCP_AGENT_LABEL[other.provider],
+      ),
+    ),
+  ];
+  return [
+    `Signed in to ${row.name} for ${agent}.`,
+    next.length ? `${joinAnd(next)} still needs sign-in.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 const BUSY_LABEL: Record<McpAction["kind"], string> = {
   "sign-in": "Signing in…",
   remove: "Removing…",
@@ -181,16 +271,29 @@ const BUSY_LABEL: Record<McpAction["kind"], string> = {
 };
 
 export function ProviderConnections({ cwd }: { cwd: string }) {
-  const [inventories, setInventories] = useState<Record<Provider, Inventory>>(
-    () => ({
+  const [inventories, setInventories] = useState<
+    Partial<Record<Provider, Inventory>>
+  >(() => {
+    const pi = cached(`pi:${cwd}`);
+    return {
       claude: cached(`claude:${cwd}`) ?? { status: "loading" },
       codex: cached(`codex:${cwd}`) ?? { status: "loading" },
-    }),
-  );
+      ...(pi ? { pi } : {}),
+    };
+  });
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const hidden = useSetting(mcpHiddenSetting);
+  const labels = useSetting(mcpLabelsSetting);
+  const [shared, setShared] = useState<SharedList>({ servers: [], own: {} });
+  useEffect(() => {
+    void probeHarnessAvailability();
+  }, []);
+  const available = useSyncExternalStore(
+    subscribeHarnessAvailability,
+    getHarnessAvailabilitySnapshot,
+  );
   // Without a project, both the check and every change use the home folder.
   const [home, setHome] = useState<string | null>(null);
   useEffect(() => {
@@ -206,21 +309,11 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
   }, [cwd]);
   const folder = cwd || home || "";
 
-  const load = useCallback(
-    (provider: (typeof PROVIDERS)[number], force: boolean) => {
+  const ask = useCallback(
+    (provider: (typeof PROVIDERS)[number]): Promise<Inventory> => {
       const key = `${provider.id}:${cwd}`;
-      const recent = force ? undefined : cached(key);
-      if (recent) {
-        setInventories((prev) => ({ ...prev, [provider.id]: recent }));
-        return () => {};
-      }
-      let active = true;
-      setInventories((prev) => ({
-        ...prev,
-        [provider.id]: { status: "loading" },
-      }));
       // Settings can open without a project; the user's own setup still applies.
-      void (cwd ? Promise.resolve(cwd) : homeDir())
+      return (cwd ? Promise.resolve(cwd) : homeDir())
         .then((dir) => provider.list(dir))
         .then(
           (connections): Inventory => ({ status: "loaded", connections }),
@@ -234,14 +327,34 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           if (inventory.status === "loaded")
             cache.set(key, { inventory, at: Date.now() });
           else cache.delete(key);
-          if (active)
-            setInventories((prev) => ({ ...prev, [provider.id]: inventory }));
+          return inventory;
         });
+    },
+    [cwd],
+  );
+
+  const load = useCallback(
+    (provider: (typeof PROVIDERS)[number], force: boolean) => {
+      const recent = force ? undefined : cached(`${provider.id}:${cwd}`);
+      if (recent) {
+        setInventories((prev) => ({ ...prev, [provider.id]: recent }));
+        return () => {};
+      }
+      let active = true;
+      if (provider.id !== "pi")
+        setInventories((prev) => ({
+          ...prev,
+          [provider.id]: { status: "loading" },
+        }));
+      void ask(provider).then((inventory) => {
+        if (active)
+          setInventories((prev) => ({ ...prev, [provider.id]: inventory }));
+      });
       return () => {
         active = false;
       };
     },
-    [cwd],
+    [ask, cwd],
   );
 
   useEffect(() => {
@@ -254,12 +367,43 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       if (ids.includes(provider.id)) load(provider, true);
   };
 
+  /** A fresh check that the caller can read the answer of. */
+  const recheck = async (id: Provider): Promise<Inventory> => {
+    const provider = PROVIDERS.find((candidate) => candidate.id === id)!;
+    setInventories((prev) => ({ ...prev, [id]: { status: "loading" } }));
+    const inventory = await ask(provider);
+    setInventories((prev) => ({ ...prev, [id]: inventory }));
+    return inventory;
+  };
+
+  const installed = useMemo(() => {
+    const ids = new Set<HarnessId>(
+      OTHER_PROVIDERS.filter((id) => isHarnessAvailable(id)),
+    );
+    for (const provider of PROVIDERS)
+      if (inventories[provider.id]?.status === "loaded") ids.add(provider.id);
+    return ids;
+    // `available` changes whenever the availability store does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [available, inventories]);
+
   // Claude turns servers off per project, so it needs one open.
   const claudeProject = !!cwd;
   const overview = useMemo(
     () => buildMcpOverview(inventories, hidden, { claudeProject }),
     [inventories, hidden, claudeProject],
   );
+
+  // What other providers get, read again whenever a check finishes.
+  const stillChecking = overview.checking.length > 0;
+  useEffect(() => {
+    if (stillChecking || !folder) return;
+    let active = true;
+    void loadSharedList(folder).then((list) => active && setShared(list));
+    return () => {
+      active = false;
+    };
+  }, [stillChecking, folder, inventories]);
 
   /** One change at a time, reported in plain words, then a fresh check. */
   const run = async (
@@ -275,7 +419,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       refresh(providers);
       return true;
     } catch (error) {
-      setNotice({ tone: "error", text: errorText(error) });
+      setNotice({ tone: "error", text: scrubSecrets(errorText(error)) });
       refresh(providers);
       return false;
     } finally {
@@ -301,17 +445,24 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       case "sign-in": {
         const entry = targets[0];
         if (!entry) return;
+        // No refresh after: the result comes from a check made here.
         void run(label, async () => {
-          await manageMcpServer(
-            {
-              action: "login",
-              provider: entry.provider,
-              name: entry.connection.key,
-            },
-            folder,
-          );
-          return `Signed in to ${row.name}.`;
-        }, [entry.provider]);
+          try {
+            await manageMcpServer(
+              {
+                action: "login",
+                provider: entry.provider,
+                name: entry.connection.key,
+              },
+              folder,
+            );
+          } catch (error) {
+            refresh([entry.provider]);
+            throw error;
+          }
+          setBusy(`check:${row.id}`);
+          return signInResult(row, entry, await recheck(entry.provider));
+        }, []);
         return;
       }
       case "remove": {
@@ -341,6 +492,9 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                 );
               }
             }
+            // Nothing left under this name: its account name goes with it.
+            if (done.length === row.entries.length)
+              setMcpLabel(labelKey(row), "");
             return `Removed ${row.name} from ${joinAnd(targets.map(entryLabel))}.`;
           },
           providersOf(targets),
@@ -417,6 +571,44 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
     }
   };
 
+  /** Writes a row's settings to the providers that don't have it yet. */
+  const onAddElsewhere = (row: McpRow, reach: RowReach) => {
+    const { server, name } = reach;
+    if (!server || !name) return;
+    const done: string[] = [];
+    void run(
+      `add-elsewhere:${row.id}`,
+      async () => {
+        for (const provider of ADD_ORDER.filter((id) =>
+          reach.addTo.includes(id),
+        )) {
+          const who = MCP_AGENT_LABEL[provider];
+          try {
+            await manageMcpServer(
+              {
+                action: "add",
+                provider,
+                name,
+                ...(provider === "claude" ? { scope: "user" as const } : {}),
+                server,
+              },
+              folder,
+            );
+            done.push(who);
+          } catch (error) {
+            throw new Error(
+              done.length
+                ? `Added ${row.name} to ${joinAnd(done)}, but ${who} failed: ${errorText(error)}`
+                : `${who} couldn’t add ${row.name}: ${errorText(error)}`,
+            );
+          }
+        }
+        return `Added ${row.name} to ${joinAnd(done)}.`;
+      },
+      reach.addTo,
+    );
+  };
+
   const onHideCopies = (row: McpRow) => {
     setMcpHidden(
       row.copies.map((entry) => entry.id),
@@ -435,7 +627,25 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
       overview.working.length +
       overview.off.length >
     0;
-  const rowProps = { busy, onAction, onHideCopies };
+  const rowProps = {
+    busy,
+    onAction,
+    onHideCopies,
+    onAddElsewhere,
+    labels,
+    shared,
+    installed,
+  };
+  const missingShown = overview.missing.filter((agent) => agent !== "pi");
+  const allRows = [
+    ...overview.needsYou,
+    ...overview.signIn,
+    ...overview.working,
+    ...overview.off,
+  ];
+  const existingNames = new Set(
+    allRows.flatMap((row) => row.entries.map((entry) => entry.connection.key)),
+  );
 
   return (
     <div
@@ -481,6 +691,12 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
           Finish signing in in your browser. This waits up to five minutes.
         </p>
       ) : null}
+      {busy === ADD_WITH_SIGN_IN ? (
+        <p className="mcp-notice" role="status">
+          If your browser opens, finish signing in there. This waits up to five
+          minutes.
+        </p>
+      ) : null}
       {notice ? (
         <p
           className="mcp-notice"
@@ -496,11 +712,16 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
             <AddServerForm
               cwd={cwd}
               missing={overview.missing}
+              piInstalled={inventories.pi?.status === "loaded"}
+              existing={existingNames}
+              rows={allRows}
               busy={busy !== null}
               onCancel={() => setAdding(false)}
-              onAdd={async (draft, providers, scope) => {
+              onAdd={async (draft, providers, scope, label) => {
                 const added = await run(
-                  "add",
+                  draft.kind === "http" && providers.includes("codex")
+                    ? ADD_WITH_SIGN_IN
+                    : "add",
                   async () => {
                     const done: string[] = [];
                     for (const provider of providers) {
@@ -526,7 +747,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                           harnessDescriptor(provider).connections!.label;
                         throw new Error(
                           done.length
-                            ? `Added to ${done.join(" and ")}, but ${who} failed: ${errorText(error)}`
+                            ? `Added to ${done.join(" and ")}, but ${who} failed: ${errorText(error)} Add server again to finish.`
                             : `${who} couldn’t add it: ${errorText(error)}`,
                         );
                       }
@@ -535,7 +756,10 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
                   },
                   providers,
                 );
-                if (added) setAdding(false);
+                if (added) {
+                  if (label) setMcpLabel(draft.name.trim(), label);
+                  setAdding(false);
+                }
               }}
             />
           </div>
@@ -547,7 +771,7 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
         <section className="settings-group">
           <div className="settings-group-surface mcp-empty">
             <p>
-              No MCP servers yet. Add one to give Claude and Codex more tools.
+              No MCP servers yet. Add one to give your providers more tools.
             </p>
           </div>
         </section>
@@ -594,9 +818,9 @@ export function ProviderConnections({ cwd }: { cwd: string }) {
             .join(" ")}
         </p>
       ) : null}
-      {overview.missing.length ? (
+      {missingShown.length ? (
         <p className="mcp-footnote" data-mcp-missing>
-          {notInstalled(overview.missing)}
+          {notInstalled(missingShown)}
         </p>
       ) : null}
     </div>
@@ -607,7 +831,21 @@ type RowProps = {
   busy: string | null;
   onAction: (row: McpRow, action: McpAction) => void;
   onHideCopies: (row: McpRow) => void;
+  onAddElsewhere: (row: McpRow, reach: RowReach) => void;
+  labels: Readonly<Record<string, string>>;
+  shared: SharedList;
+  installed: ReadonlySet<HarnessId>;
 };
+
+/** What a row's account name is kept under: its server's name. */
+const labelKey = (row: McpRow) =>
+  row.id.replace(/^hidden:/, "").replace(/#\d+$/, "");
+
+/** A ready-made server keeps the service's own spelling on its row. */
+function rowTitle(name: string, label: string | undefined): string {
+  const base = nameWithoutLabel(name, label);
+  return MCP_PRESETS.find((preset) => preset.id === base)?.label ?? base;
+}
 
 function McpGroup({
   title,
@@ -732,14 +970,29 @@ function McpRowView({
   busy,
   onAction,
   onHideCopies,
+  onAddElsewhere,
+  labels,
+  shared,
+  installed,
 }: { row: McpRow; pinned?: boolean } & RowProps) {
   const [details, setDetails] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const label = labels[labelKey(row)];
+  const reach = useMemo(
+    () => rowReach(row, shared, installed),
+    [row, shared, installed],
+  );
   // The Remove being confirmed, with exactly the entries it removes.
   const [confirming, setConfirming] = useState<McpAction | null>(null);
   const [menu, setMenu] = useState(false);
   const moreRef = useRef<HTMLButtonElement | null>(null);
   const detailsId = useId();
   const working = busy?.endsWith(`:${row.id}`) ? busy.split(":")[0] : null;
+  // Only for what the user set up: an account's own servers name themselves.
+  const canName = row.entries.some((entry) => entry.connection.removable);
+  const addLabel = reach.addTo.length
+    ? `Add to ${joinAnd(ADD_ORDER.filter((id) => reach.addTo.includes(id)).map((id) => MCP_AGENT_LABEL[id]))}`
+    : "";
   const disabled = busy !== null;
   const removeFrom = confirming
     ? joinAnd(
@@ -763,7 +1016,10 @@ function McpRowView({
       data-busy={working ? true : undefined}
     >
       <div className="mcp-row-text">
-        <span className="mcp-row-name">{row.name}</span>
+        <span className="mcp-row-name">
+          {rowTitle(row.name, label)}
+          {label ? <span className="mcp-row-label">{label}</span> : null}
+        </span>
         {row.context ? (
           <span className="mcp-row-context">{row.context}</span>
         ) : null}
@@ -799,6 +1055,15 @@ function McpRowView({
           </p>
         ) : null}
         {row.hint ? <p className="mcp-row-note">{row.hint}</p> : null}
+        {reach.line ? (
+          <p
+            className="mcp-row-note"
+            data-mcp-reach
+            title="Each provider signs in for itself. Aven never copies a key between them."
+          >
+            {reach.line}
+          </p>
+        ) : null}
         {details ? (
           <pre className="mcp-row-details" id={detailsId}>
             {row.details.join("\n")}
@@ -806,7 +1071,16 @@ function McpRowView({
         ) : null}
       </div>
       <span className="mcp-row-side">
-        {confirming ? (
+        {naming ? (
+          <AccountNameForm
+            server={row.name}
+            value={label ?? ""}
+            onDone={(next) => {
+              setNaming(false);
+              if (next !== null) setMcpLabel(labelKey(row), next);
+            }}
+          />
+        ) : confirming ? (
           <>
             <span className="mcp-row-question">Remove from {removeFrom}?</span>
             <button
@@ -832,7 +1106,11 @@ function McpRowView({
           <>
             <span className="mcp-row-status">
               <span className="mcp-dot" aria-hidden />
-              {working ? BUSY_LABEL[working as McpAction["kind"]] : row.status}
+              {working
+                ? working === "add-elsewhere"
+                  ? "Adding…"
+                  : BUSY_LABEL[working as McpAction["kind"]]
+                : row.status}
             </span>
             {working ? null : (
               <span className="mcp-row-actions">
@@ -842,13 +1120,13 @@ function McpRowView({
                     className="settings-button mcp-action"
                     data-primary
                     disabled={disabled}
-                    aria-label={`${row.primary.label} ${row.name}`}
+                    aria-label={actionName(row.primary, row)}
                     onClick={() => pick(row.primary!)}
                   >
                     {row.primary.label}
                   </button>
                 ) : null}
-                {row.more.length ? (
+                {row.more.length || addLabel || canName ? (
                   <button
                     ref={moreRef}
                     type="button"
@@ -899,9 +1177,77 @@ function McpRowView({
               <span className="aven-menu-label">{action.label}</span>
             </button>
           ))}
+          {addLabel ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="aven-menu-item"
+              onClick={() => {
+                setMenu(false);
+                moreRef.current?.focus();
+                onAddElsewhere(row, reach);
+              }}
+            >
+              <span className="aven-menu-label">{addLabel}</span>
+            </button>
+          ) : null}
+          {canName ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="aven-menu-item"
+              onClick={() => {
+                setMenu(false);
+                setNaming(true);
+              }}
+            >
+              <span className="aven-menu-label">
+                {label ? "Rename account" : "Name this account"}
+              </span>
+            </button>
+          ) : null}
         </Popover>
       ) : null}
     </li>
+  );
+}
+
+/** A short name for a row, such as Personal or Work. Empty removes it. */
+function AccountNameForm({
+  server,
+  value,
+  onDone,
+}: {
+  server: string;
+  value: string;
+  onDone: (next: string | null) => void;
+}) {
+  const [text, setText] = useState(value);
+  return (
+    <form
+      className="mcp-account-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onDone(text);
+      }}
+    >
+      <input
+        aria-label={`Account name for ${server}`}
+        value={text}
+        maxLength={MCP_LABEL_MAX}
+        placeholder="Personal or Work"
+        autoFocus
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onDone(null);
+        }}
+      />
+      <button type="submit" className="settings-button mcp-action">
+        Save
+      </button>
+    </form>
   );
 }
 
@@ -924,9 +1270,63 @@ function McpSkeleton() {
   );
 }
 
+/**
+ * A box of `NAME=value` or `Header: value` lines that can hold secrets. It is
+ * hidden once there is text to hide, as a password field would be, and can be
+ * shown to check a line.
+ */
+function SecretLines({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  const [shown, setShown] = useState(false);
+  return (
+    <div className="provider-field">
+      <span>
+        {label}
+        {value ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="mcp-link"
+              aria-label={`${shown ? "Hide" : "Show"} ${label}`}
+              onClick={() => setShown((prev) => !prev)}
+            >
+              {shown ? "Hide" : "Show"}
+            </button>
+          </>
+        ) : null}
+      </span>
+      <textarea
+        aria-label={label}
+        value={value}
+        data-masked={(value && !shown) || undefined}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        rows={2}
+        autoComplete="off"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+    </div>
+  );
+}
+
 function AddServerForm({
   cwd,
   missing,
+  piInstalled,
+  existing,
+  rows,
   busy,
   onCancel,
   onAdd,
@@ -934,29 +1334,98 @@ function AddServerForm({
   cwd: string;
   /** Agents that aren't installed: offered unticked, and not to be ticked. */
   missing: readonly Provider[];
+  piInstalled: boolean;
+  /** Names already in a provider's list. */
+  existing: ReadonlySet<string>;
+  /** Every row, to see who already has a service through their account. */
+  rows: readonly McpRow[];
   busy: boolean;
   onCancel: () => void;
   onAdd: (
     draft: McpServerDraft,
     providers: Provider[],
     scope: ClaudeMcpScope,
+    label: string,
   ) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<McpServerDraft>(EMPTY_MCP_DRAFT);
   const [targets, setTargets] = useState<Record<Provider, boolean>>({
     claude: true,
     codex: true,
+    pi: true,
   });
+  const [account, setAccount] = useState("");
+  const [custom, setCustom] = useState(false);
+  const [tokenNote, setTokenNote] = useState<string | null>(null);
   const [scope, setScope] = useState<ClaudeMcpScope>("user");
   const [error, setError] = useState<string | null>(null);
   const set = (patch: Partial<McpServerDraft>) =>
     setDraft((prev) => ({ ...prev, ...patch }));
   // An agent found missing after the form opened is unticked too.
+  // Pi gets no keys from Aven, and its server names can't have dots.
+  const piWarning =
+    piInstalled && targets.pi
+      ? draftHoldsKey(draft)
+        ? "Pi won’t get this one: it uses a private key."
+        : draft.name.includes(".")
+          ? "Pi won’t get this one: its server names can’t have dots."
+          : null
+      : null;
   const chosen: Record<Provider, boolean> = {
     claude: targets.claude && !missing.includes("claude"),
     codex: targets.codex && !missing.includes("codex"),
+    pi: targets.pi && piInstalled && !piWarning,
   };
-  const providers = (["claude", "codex"] as const).filter((id) => chosen[id]);
+  const providers = ADD_ORDER.filter((id) => chosen[id]);
+  const offered = PROVIDERS.filter(
+    (provider) => provider.id !== "pi" || piInstalled,
+  );
+  // Who already has a service under its own name, such as Notion through a
+  // Claude account. Adding it again would give that provider two copies. A
+  // named account is a different sign-in, so it's added everywhere.
+  const presetTargets = (preset: McpPreset) => {
+    const has = account.trim()
+      ? []
+      : rows
+          .filter((row) => normalizeServerName(row.name) === preset.id)
+          .flatMap((row) => row.entries.map((entry) => entry.provider));
+    return ADD_ORDER.filter(
+      (id) =>
+        targets[id] &&
+        !missing.includes(id) &&
+        (id !== "pi" || piInstalled) &&
+        !has.includes(id),
+    );
+  };
+  const presets = MCP_PRESETS.filter(
+    (preset) =>
+      !existing.has(serverNameFor(preset.id, account)) &&
+      (presetTargets(preset).length > 0 ||
+        ADD_ORDER.every((id) => !targets[id])),
+  );
+
+  const addPreset = (preset: McpPreset) => {
+    setError(null);
+    const next: McpServerDraft = {
+      ...EMPTY_MCP_DRAFT,
+      name: serverNameFor(preset.id, account),
+      kind: "http",
+      url: preset.url,
+    };
+    // A token can't be one click: open the form with the address filled in.
+    if (preset.token) {
+      setDraft(next);
+      setTokenNote(preset.token);
+      setCustom(true);
+      return;
+    }
+    const to = presetTargets(preset);
+    if (!to.length) {
+      setError("Choose Claude, Codex, or both.");
+      return;
+    }
+    void onAdd(next, to, "user", account);
+  };
 
   const submit = () => {
     setError(null);
@@ -974,10 +1443,10 @@ function AddServerForm({
     try {
       for (const provider of providers) draftToSpec(draft, provider);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason));
       return;
     }
-    void onAdd(draft, providers, scope);
+    void onAdd(draft, providers, scope, account);
   };
 
   return (
@@ -993,150 +1462,198 @@ function AddServerForm({
         <h3>Add a server</h3>
       </div>
       <label className="provider-field">
-        <span>Name</span>
+        <span>Account (optional)</span>
         <input
-          value={draft.name}
-          onChange={(event) => set({ name: event.target.value })}
-          placeholder="github"
+          value={account}
+          maxLength={MCP_LABEL_MAX}
+          onChange={(event) => setAccount(event.target.value)}
+          placeholder="Personal or Work"
           autoComplete="off"
           spellCheck={false}
-          autoFocus
         />
       </label>
-      <div className="provider-field">
-        <span>Type</span>
-        <Segmented
-          label="Server type"
-          value={draft.kind}
-          options={[
-            { value: "stdio", label: "Command on this Mac" },
-            { value: "http", label: "Remote URL" },
-          ]}
-          onChange={(kind) => set({ kind })}
-        />
-      </div>
-      {draft.kind === "stdio" ? (
-        <>
-          <label className="provider-field">
-            <span>Command</span>
-            <input
-              value={draft.command}
-              onChange={(event) => set({ command: event.target.value })}
-              placeholder="npx"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          <label className="provider-field">
-            <span>Arguments</span>
-            <input
-              value={draft.args}
-              onChange={(event) => set({ args: event.target.value })}
-              placeholder="-y @modelcontextprotocol/server-github"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          <label className="provider-field">
-            <span>Environment</span>
-            <textarea
-              value={draft.env}
-              onChange={(event) => set({ env: event.target.value })}
-              placeholder={"GITHUB_TOKEN=…\nOne NAME=value per line"}
-              rows={2}
-              spellCheck={false}
-            />
-          </label>
-        </>
-      ) : (
-        <>
-          <label className="provider-field">
-            <span>URL</span>
-            <input
-              value={draft.url}
-              onChange={(event) => set({ url: event.target.value })}
-              placeholder="https://mcp.example.com/mcp"
-              autoComplete="off"
-              spellCheck={false}
-              inputMode="url"
-            />
-          </label>
-          {chosen.claude ? (
-            <label className="provider-field">
-              <span>Claude headers</span>
-              <textarea
-                value={draft.headers}
-                onChange={(event) => set({ headers: event.target.value })}
-                placeholder={"Optional. Authorization: Bearer …\nOne per line"}
-                rows={2}
-                spellCheck={false}
-              />
-            </label>
-          ) : null}
-          {chosen.codex ? (
-            <label className="provider-field">
-              <span>Codex token variable</span>
-              <input
-                value={draft.bearerTokenEnvVar}
-                onChange={(event) =>
-                  set({ bearerTokenEnvVar: event.target.value })
-                }
-                placeholder="Optional, e.g. EXAMPLE_TOKEN"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
-          ) : null}
-          <p className="skills-note">
-            Servers that use sign-in show “Sign in” once they’re added.
-          </p>
-        </>
-      )}
-      <div className="provider-field">
-        <span>Add to</span>
-        <span className="provider-targets">
-          {PROVIDERS.map((provider) => (
-            <label
-              key={provider.id}
-              data-missing={missing.includes(provider.id) || undefined}
-            >
-              <input
-                type="checkbox"
-                checked={chosen[provider.id]}
-                disabled={missing.includes(provider.id)}
-                onChange={(event) =>
-                  setTargets((prev) => ({
-                    ...prev,
-                    [provider.id]: event.target.checked,
-                  }))
-                }
-              />
-              {provider.label}
-            </label>
-          ))}
-        </span>
-      </div>
-      {missing.length ? (
-        <p className="skills-note" data-mcp-missing>
-          {notInstalled(missing)}
-        </p>
-      ) : null}
-      {chosen.claude ? (
+      {presets.length ? (
         <div className="provider-field">
-          <span>Claude uses it in</span>
-          <Select
-            label="Where Claude uses it"
-            value={scope}
-            options={CLAUDE_SCOPES.map((option) => ({
-              ...option,
-              disabled: option.value !== "user" && !cwd,
-            }))}
-            onChange={(value) => setScope(value as ClaudeMcpScope)}
-          />
+          <span>Ready-made</span>
+          <span className="mcp-presets">
+            {presets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="settings-button mcp-action"
+                disabled={busy}
+                title={preset.url}
+                onClick={() => addPreset(preset)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </span>
         </div>
       ) : null}
-      {chosen.codex ? (
-        <p className="skills-note">Codex servers apply to all your projects.</p>
+      {custom ? null : (
+        <button
+          type="button"
+          className="mcp-link mcp-custom-link"
+          onClick={() => setCustom(true)}
+        >
+          Add your own
+        </button>
+      )}
+      {custom ? (
+        <>
+          <label className="provider-field">
+            <span>Name</span>
+            <input
+              value={draft.name}
+              onChange={(event) => set({ name: event.target.value })}
+              placeholder="github"
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+            />
+          </label>
+          {tokenNote ? <p className="skills-note">{tokenNote}</p> : null}
+          <div className="provider-field">
+            <span>Type</span>
+            <Segmented
+              label="Server type"
+              value={draft.kind}
+              options={[
+                { value: "stdio", label: "Command on this Mac" },
+                { value: "http", label: "Remote URL" },
+              ]}
+              onChange={(kind) => set({ kind })}
+            />
+          </div>
+          {draft.kind === "stdio" ? (
+            <>
+              <label className="provider-field">
+                <span>Command</span>
+                <input
+                  value={draft.command}
+                  onChange={(event) => set({ command: event.target.value })}
+                  placeholder="npx"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="provider-field">
+                <span>Arguments</span>
+                <input
+                  value={draft.args}
+                  onChange={(event) => set({ args: event.target.value })}
+                  placeholder="-y @modelcontextprotocol/server-github"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
+              <SecretLines
+                label="Environment"
+                value={draft.env}
+                onChange={(env) => set({ env })}
+                placeholder={"GITHUB_TOKEN=…\nOne NAME=value per line"}
+              />
+            </>
+          ) : (
+            <>
+              <label className="provider-field">
+                <span>URL</span>
+                <input
+                  value={draft.url}
+                  onChange={(event) => set({ url: event.target.value })}
+                  placeholder="https://mcp.example.com/mcp"
+                  autoComplete="off"
+                  spellCheck={false}
+                  inputMode="url"
+                />
+              </label>
+              {chosen.claude ? (
+                <SecretLines
+                  label="Claude headers"
+                  value={draft.headers}
+                  onChange={(headers) => set({ headers })}
+                  placeholder={
+                    "Optional. Authorization: Bearer …\nOne per line"
+                  }
+                />
+              ) : null}
+              {chosen.codex ? (
+                <label className="provider-field">
+                  <span>Codex token variable</span>
+                  <input
+                    value={draft.bearerTokenEnvVar}
+                    onChange={(event) =>
+                      set({ bearerTokenEnvVar: event.target.value })
+                    }
+                    placeholder="Optional, e.g. EXAMPLE_TOKEN"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+              ) : null}
+              {chosen.codex && draft.bearerTokenEnvVar.trim() ? (
+                <p className="skills-note" data-mcp-token-note>
+                  Aven opened from the Dock can’t pass on shell variables, so
+                  this token probably won’t reach Codex. Leave it empty to sign
+                  in.
+                </p>
+              ) : null}
+              <p className="skills-note">
+                Servers that use sign-in show “Sign in” once they’re added.
+              </p>
+            </>
+          )}
+          <div className="provider-field">
+            <span>Add to</span>
+            <span className="provider-targets">
+              {offered.map((provider) => (
+                <label
+                  key={provider.id}
+                  data-missing={missing.includes(provider.id) || undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={chosen[provider.id]}
+                    disabled={missing.includes(provider.id)}
+                    onChange={(event) =>
+                      setTargets((prev) => ({
+                        ...prev,
+                        [provider.id]: event.target.checked,
+                      }))
+                    }
+                  />
+                  {provider.label}
+                </label>
+              ))}
+            </span>
+          </div>
+          {piWarning ? <p className="skills-note">{piWarning}</p> : null}
+          {missing.filter((agent) => agent !== "pi").length ? (
+            <p className="skills-note" data-mcp-missing>
+              {notInstalled(missing.filter((agent) => agent !== "pi"))}
+            </p>
+          ) : null}
+          {chosen.claude ? (
+            <div className="provider-field">
+              <span>Claude uses it in</span>
+              <Select
+                label="Where Claude uses it"
+                value={scope}
+                options={CLAUDE_SCOPES.map((option) => ({
+                  ...option,
+                  disabled: option.value !== "user" && !cwd,
+                }))}
+                onChange={(value) => setScope(value as ClaudeMcpScope)}
+              />
+            </div>
+          ) : null}
+          {chosen.codex ? (
+            <p className="skills-note">
+              Codex servers apply to all your projects.
+            </p>
+          ) : null}
+        </>
       ) : null}
       {error ? (
         <p className="skills-error" role="alert">
@@ -1152,9 +1669,11 @@ function AddServerForm({
         >
           Cancel
         </button>
-        <button type="submit" className="settings-button" disabled={busy}>
-          {busy ? "Adding…" : "Add server"}
-        </button>
+        {custom ? (
+          <button type="submit" className="settings-button" disabled={busy}>
+            {busy ? "Adding…" : "Add server"}
+          </button>
+        ) : null}
       </div>
     </form>
   );

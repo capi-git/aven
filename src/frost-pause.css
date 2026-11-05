@@ -1,0 +1,13 @@
+/* Frosted surfaces re-blur what is behind them on every frame of a resize. Pause
+   the blur until the drag or window resize ends; tints stay as they are. Loaded
+   only off the Mac: there, nothing in the page flow is frosted, and these rules
+   would restyle every element when a drag starts and ends. */
+html:is(.is-resizing, .is-window-resizing) *,
+html:is(.is-resizing, .is-window-resizing) *::before,
+body[data-personal-resizing] *,
+body[data-personal-resizing] *::before,
+[data-workspace-stage][data-resizing="true"] *,
+[data-workspace-stage][data-resizing="true"] *::before {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}

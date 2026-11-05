@@ -17,12 +17,13 @@ use objc2_foundation::{NSPoint, NSRect};
 use std::time::Duration;
 use tauri::Webview;
 
-/// NSEventType: left mouse down, up and dragged.
+/// NSEventType: left mouse down, up, dragged and moved.
 fn event_type(kind: &str) -> Option<usize> {
     match kind {
         "down" => Some(1),
         "up" => Some(2),
         "drag" => Some(6),
+        "move" => Some(5),
         _ => None,
     }
 }
@@ -111,6 +112,12 @@ unsafe fn post(
         }
         "drag" => {
             let _: () = msg_send![view, mouseDragged: &*event];
+        }
+        // Through the app's event loop, where the hover sidebar's monitor
+        // watches the pointer as it does a person's.
+        "move" => {
+            let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![app, postEvent: &*event, atStart: false];
         }
         _ => {
             let _: () = msg_send![view, mouseUp: &*event];

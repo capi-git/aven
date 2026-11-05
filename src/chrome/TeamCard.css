@@ -7,9 +7,11 @@
 }
 .team-card {
   --team-accent: var(--color-accent);
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
   max-width: 680px;
   padding: 10px 12px;
   border: 1px solid var(--aven-glass-card-edge, var(--aven-line));

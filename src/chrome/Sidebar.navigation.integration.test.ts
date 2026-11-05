@@ -12,6 +12,7 @@ import {
   saveWorkspaceProfiles,
   useWorkspaceProfiles,
 } from "../lib/workspaceProfiles";
+import { setTopRowNavigation } from "../lib/dockedSidebarWidth";
 import { Sidebar, type SidebarProps } from "./Sidebar";
 
 vi.mock("../lib/platform", async (importOriginal) => ({
@@ -562,5 +563,50 @@ describe("project status in the sidebar", () => {
 
     await render(undefined);
     expect(row("Site")!.querySelector(".personal-project-status")).toBeNull();
+  });
+
+  it("moves the top row with its edge on every frame of a drag", async () => {
+    const navigation = document.createElement("div");
+    setTopRowNavigation(navigation);
+    const page = document.documentElement.style;
+    try {
+      await act(async () => root.render(createElement(Sidebar, props)));
+      const atRest = navigation.style.getPropertyValue("--aven-sidebar-width");
+      const edge = container.querySelector<HTMLElement>(
+        '[aria-label="Resize sidebar"]',
+      )!;
+      edge.setPointerCapture = vi.fn();
+      edge.releasePointerCapture = vi.fn();
+      const pointer = (type: string, clientX: number) =>
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          pointerId: 1,
+          clientX,
+        });
+      act(() => edge.dispatchEvent(pointer("pointerdown", 300)));
+      act(() => edge.dispatchEvent(pointer("pointermove", 330)));
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      const dragged = parseInt(
+        container.querySelector("aside")!.style.width,
+        10,
+      );
+      expect(dragged).toBeGreaterThan(parseInt(atRest, 10));
+      expect(navigation.style.getPropertyValue("--aven-sidebar-width")).toBe(
+        `${dragged}px`,
+      );
+      await act(async () => {
+        edge.dispatchEvent(pointer("pointerup", 330));
+      });
+      expect(navigation.style.getPropertyValue("--aven-sidebar-width")).toBe(
+        `${dragged}px`,
+      );
+      // On the top row only: on the document it would restyle the whole page.
+      expect(page.getPropertyValue("--aven-sidebar-width")).toBe("");
+    } finally {
+      setTopRowNavigation(null);
+    }
   });
 });

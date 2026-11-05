@@ -65,6 +65,8 @@ import { InboxMedia } from "./InboxMedia";
 import { LocalMarkdownImage } from "./LocalMarkdownImage";
 import { CrewFenceCard } from "./CrewFenceCard";
 import { isCrewFence } from "../lib/crewFences";
+import { AUTOMATION_FENCE } from "../lib/chatAutomation";
+import { ChatAutomationCard } from "./ChatAutomationCard";
 
 const MERMAID_BASE_CONFIG = {
   startOnLoad: false,
@@ -470,6 +472,14 @@ function MarkdownCode({
         code={textContent(children)}
         incomplete={incomplete}
         {...(cwd ? { cwd } : {})}
+      />
+    );
+  }
+  if (fence.language === AUTOMATION_FENCE) {
+    return (
+      <ChatAutomationCard
+        code={textContent(children)}
+        incomplete={incomplete}
       />
     );
   }

@@ -111,6 +111,16 @@ export function registerGuardedChats(
 }
 
 /**
+ * A teammate's or a bot's chat, or one that would be if its rules resolved.
+ * These get no connections from Aven, on any provider.
+ */
+export function isWorkerChat(sessionId: string, cwd: string): boolean {
+  if (sessionPermissions(sessionId)) return true;
+  for (const check of guarded) if (check(sessionId, cwd)) return true;
+  return false;
+}
+
+/**
  * A path with `.` and `..` resolved and separators made forward, so
  * `/copy/../../Users/me` reads as `/Users/me`. Symlinks are not resolved
  * here (that needs the file system); copies live in Aven's own data.

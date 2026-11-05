@@ -252,6 +252,7 @@ describe("useSortable between bars on one channel", () => {
       content: "content of a1",
       target: null,
       over: null,
+      rest: null,
     });
     expect(bars.b.joinHint).toBeNull();
     expect(bars.a.joining()).toBe(false);

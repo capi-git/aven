@@ -48,12 +48,17 @@ Development builds can show the restart-to-update screens without a real update.
 
 It prints the time from launch to the workspace being ready and to its window appearing, then, for each scenario, the time from input to the next painted frame (median, 95th percentile, worst), slow frames, the worst frame, CPU as a share of one core, wakeups per second, and memory. CPU, wakeups and memory cover Aven's own processes: the app, the WebKit processes that draw its interface, and Chromium's processes for browser tabs. Agents and shells it started are counted apart. Each run is saved under `target/perf/`; pass `-- --perf-compare <saved file>` to print differences from an earlier run. A scenario during which the window was hidden is flagged, because its timings are not meaningful.
 
+A `--perf-only` run has short chats, which hides what long ones cost. Judge smoothness on a full run. The test window stays on top and follows you across Spaces, because macOS doesn't draw a window you can't see; moving your mouse over it can skew the numbers.
+
+Set `AVEN_DEV_PORT=1421` to run the speed test or the real-app check beside another checkout's preview, which holds port 1420.
+
 To find out why an interaction is slow:
 
 - Each switching scenario also prints a breakdown of its input-to-frame time (script, style and layout, paint), React render time by component (the perf build uses React's profiling build), the calls that forced WebKit to style and lay out early, with the source file and line that made them, and DOM changes.
 - `-- --perf-only switching,sidebar` runs only the scenarios whose names contain those words, after the shared setup, so an experiment takes about a minute.
 - **Limits.** An input's first visible response and any frame in motion stay within 33 ms, on any display. The run ends by listing what is over them, splitting a drag's long frames into lift, motion and drop, with the forced layouts inside the longest ones. It also lists components over their render budget while one chat streams. The list does not fail the run: load on the machine moves these numbers a lot, so compare runs that alternate the builds.
 - `-- --perf-idle 120` stays on the idle scenario that long, so the window can be recorded or driven from outside. `scripts/record-window-frames.swift <window id> <pid> <ms>` prints which frames of one window changed pixels, without taking the screen: the way to compare Aven with another app on the same moves. macOS stops drawing a window that is fully covered or on another Space, so keep it visible.
+- `-- --perf-record NAME` records the window from outside during that scenario and prints the gaps between frames in motion and the window server's CPU, for motion the page's own frames can't see, such as the hover sidebar's native slide.
 - `-- --perf-only restyle` records every attribute an interaction changes, then replays each one alone and times the style and layout it costs, and lists the largest subtrees added or removed.
 - `-- --perf-sample Settings` profiles the interface's WebKit processes with macOS `sample` during that scenario and prints the functions most often on the stack.
 

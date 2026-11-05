@@ -172,7 +172,8 @@ import {
   type DiscussionHost,
 } from "../lib/discussions";
 import { useStartedDiscussionId } from "../hooks/useDiscussions";
-import { useWidth } from "../hooks/useNarrow";
+import { useWidthChoice } from "../hooks/useNarrow";
+import { ChatConnectionsBar } from "./ChatConnectionsBar";
 import { SharedWorkBar } from "./SharedWorkBar";
 import {
   DiscussionChip,
@@ -627,16 +628,6 @@ function ComposerComponent({
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
-  // How much the mode chip can say: in a narrow chat it shortens, never
-  // cutting a word off.
-  const [measureBox, boxWidth] = useWidth<HTMLDivElement>();
-  const setBox = useCallback(
-    (node: HTMLDivElement | null) => {
-      boxRef.current = node;
-      measureBox(node);
-    },
-    [measureBox],
-  );
   const highlightRef = useRef<HTMLDivElement>(null);
   const attachmentsRef = useRef<Attachment[]>(initialAttachments ?? []);
   const draftCallbacks = useRef({ onDraftChange, onAttachmentsChange });
@@ -1989,10 +1980,21 @@ function ComposerComponent({
     () => latest.current.startDiscussion(ref.current?.value ?? "", true),
     [],
   );
-  const fit = composerFit(
-    boxWidth,
+  // How much the mode chip can say: in a narrow chat it shortens, never
+  // cutting a word off.
+  const modeChip =
     !jumpInId &&
-      (raceActive || discussActive || planSelected || orchestrationSelected),
+    (raceActive || discussActive || planSelected || orchestrationSelected);
+  const [measureBox, fit] = useWidthChoice<
+    HTMLDivElement,
+    ReturnType<typeof composerFit>
+  >((width) => composerFit(width, modeChip));
+  const setBox = useCallback(
+    (node: HTMLDivElement | null) => {
+      boxRef.current = node;
+      measureBox(node);
+    },
+    [measureBox],
   );
   const activeModeChip = useMemo((): ReactNode => {
     if (jumpInId) return null;
@@ -2127,6 +2129,11 @@ function ComposerComponent({
       {/* The team this chat started or belongs to (see TeamBar). */}
       {teamBar}
       <SharedWorkBar sessionId={sessionId} />
+      <ChatConnectionsBar
+        sessionId={sessionId}
+        harness={harness}
+        folder={executionCwd}
+      />
       {children}
       <MessageQueue
         messages={queuedMessages}

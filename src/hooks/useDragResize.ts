@@ -5,7 +5,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { suppressTextSelection } from "../lib/drag";
+import { setDragCursor, suppressTextSelection } from "../lib/drag";
 
 const DRAG_FRAME_DEADLINE_MS = 16;
 
@@ -17,6 +17,8 @@ type Options = {
   defaultWidth: number;
   initial: number;
   onCommit?: (width: number) => void;
+  /** Every width the pane takes, for what has to move with it mid-drag. */
+  onLiveWidth?: (width: number) => void;
 };
 
 function clampTo(value: number, min: number, max: number) {
@@ -32,6 +34,7 @@ export function useDragResize({
   defaultWidth,
   initial,
   onCommit,
+  onLiveWidth,
 }: Options) {
   const minRef = useRef(min);
   minRef.current = min;
@@ -39,6 +42,8 @@ export function useDragResize({
   maxRef.current = max;
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
+  const onLiveWidthRef = useRef(onLiveWidth);
+  onLiveWidthRef.current = onLiveWidth;
   const defaultRef = useRef(defaultWidth);
   defaultRef.current = defaultWidth;
 
@@ -58,6 +63,7 @@ export function useDragResize({
     const value = `${next}px`;
     if (pane && pane.style.width !== value) {
       pane.style.width = value;
+      onLiveWidthRef.current?.(next);
       // Native browser siblings need the committed geometry immediately;
       // ResizeObserver/RAF can be throttled while Chromium covers WK.
       window.dispatchEvent(new Event("supermono:workspace-layout"));
@@ -103,8 +109,7 @@ export function useDragResize({
     handle.setPointerCapture(pointerId);
     setDragging(true);
     const restoreSelection = suppressTextSelection();
-    const previousCursor = document.body.style.cursor;
-    document.body.style.cursor = "col-resize";
+    setDragCursor("col-resize");
     document.documentElement.classList.add("is-resizing");
 
     let pendingWidth = startW;
@@ -152,7 +157,7 @@ export function useDragResize({
       window.removeEventListener("blur", stop);
       handle.removeEventListener("lostpointercapture", stop);
       restoreSelection();
-      document.body.style.cursor = previousCursor;
+      setDragCursor(null);
       document.documentElement.classList.remove("is-resizing");
       setDragging(false);
       try {

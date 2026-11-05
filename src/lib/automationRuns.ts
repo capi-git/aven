@@ -1,6 +1,10 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import {
+  automationConnectionProblem,
+  type ConnectionProblem,
+} from "./automationConnections";
+import {
   automationPrompt,
   parseAutomationReview,
   reviewAction,
@@ -43,6 +47,11 @@ export type AutomationRunDeps = {
   /** Where an automation in no project runs: the chats folder. */
   noProjectFolder: () => Promise<string>;
   problem?: (agent: ScheduledAgent, folder: string) => Promise<string | null>;
+  /** A connection the automation needs that is known not to work. */
+  connectionProblem?: (
+    agent: ScheduledAgent,
+    folder: string,
+  ) => Promise<ConnectionProblem | null>;
   /** Puts the run's chat into the workspace, with no tab. */
   addChat: (session: Session) => void;
   /**
@@ -287,11 +296,18 @@ async function beginAutomationRun(
     deps.problem ??
     ((item, where) => scheduledAgentProblem(item, undefined, where))
   )(agent, folder);
-  if (problem) {
+  const blocked = problem
+    ? null
+    : await (deps.connectionProblem ?? automationConnectionProblem)(
+        agent,
+        folder,
+      );
+  if (problem || blocked) {
     const failed: ScheduledRun = {
       ...base,
       status: "failed",
-      error: problem,
+      error: problem ?? blocked?.text,
+      ...(blocked ? { connection: blocked.connection } : {}),
       finishedAt: now(),
     };
     saveScheduledRun(failed);

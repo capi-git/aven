@@ -11,6 +11,7 @@ import {
   unwatchChild,
   watchChild,
 } from "./child";
+import { offerServersToOpenCode } from "../mcpShared";
 import { OpenCodeClient, OpenCodeHttpError } from "./opencodeClient";
 import {
   appendOpenCodeAssistantTextDelta,
@@ -362,6 +363,11 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
       SERVER_TIMEOUT_MS,
     );
     const client = new OpenCodeClient(url, input.cwd);
+    await offerServersToOpenCode(
+      (name, config) => client.addMcpServer(name, config),
+      input.sessionId,
+      input.cwd,
+    );
     const openCodeSession = await resolveSession(client, {
       resume: canResume ? resume : undefined,
       runtimeMode: input.runtimeMode,

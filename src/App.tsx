@@ -28,6 +28,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
+import { armChatAutomation, settleChatAutomation } from "./lib/chatAutomation";
 import {
   memberTurns,
   quietTurns,
@@ -117,6 +118,7 @@ import { useUnreadAutomationRuns } from "./hooks/useUnreadAutomationRuns";
 import { useInboxReviewCount } from "./hooks/useAutomationChats";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
 import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
+import { useChatConnectionsSettings } from "./hooks/useChatConnections";
 import { useMemoryKeeper } from "./hooks/useMemoryKeeper";
 import {
   agentKeepAwakeProgress,
@@ -314,11 +316,13 @@ import {
   automationNoticeChatId,
   automationRunTarget,
   chatsToArchive,
+  finalAssistantText,
   getScheduledAgent,
   getScheduledRun,
   listScheduledRuns,
   markRunOpenedAsChat,
   onScheduledRunsTrimmed,
+  OPEN_AUTOMATIONS_EVENT,
   requestAutomationRun,
   requestScheduleEditor,
   subscribeScheduledRuns,
@@ -1228,6 +1232,7 @@ export default function App({
     onSelectSettingsSection,
     onOpenHome,
   } = useUtilityViews();
+  useChatConnectionsSettings(openSettings, settingsOpen);
   // Settings, Search and the other views load on request; fetch them once
   // startup settles so opening one shows it at once.
   useEffect(() => whenIdle(() => void preloadLazyViews()), []);
@@ -7322,7 +7327,13 @@ export default function App({
             const browserPrompt = rawCommand
               ? prompt
               : await prepareAgentBrowserPrompt(
-                  prompt,
+                  withChatAutomation(
+                    prompt,
+                    sessionId,
+                    current,
+                    text,
+                    options?.typed,
+                  ),
                   {
                     harness: current.harness,
                     title: current.title,
@@ -7778,7 +7789,13 @@ export default function App({
           const browserPrompt = rawCommand
             ? prompt
             : await prepareAgentBrowserPrompt(
-                prompt,
+                withChatAutomation(
+                  prompt,
+                  sessionId,
+                  current,
+                  text,
+                  options?.typed,
+                ),
                 {
                   harness: current.harness,
                   title: current.title,
@@ -8047,11 +8064,21 @@ export default function App({
           }
         })
         .finally(() => {
-          options?.onSettled?.(
+          const settled: ControlOutcome =
             turnGen.current.get(sessionId) !== gen
               ? { status: "cancelled", text: controlText }
-              : controlOutcome,
+              : controlOutcome;
+          const chat = sessionsRef.current.find(
+            (entry) => entry.id === sessionId,
           );
+          if (chat)
+            settleChatAutomation(
+              chat,
+              finalAssistantText(chat.blocks) || settled.text,
+              settled.status === "completed",
+              Date.now(),
+            );
+          options?.onSettled?.(settled);
         });
       return undefined;
     },
@@ -9067,6 +9094,19 @@ export default function App({
     },
     [enqueueHarnessEvent, flushHarnessEvents, onSubmit],
   );
+
+  // A chat's automation card asks to show its automation.
+  useEffect(() => {
+    const show = () => {
+      flushSync(() => {
+        setHomeViewOpen(false);
+        leaveExpandedPreview();
+        onOpenAutomations();
+      });
+    };
+    window.addEventListener(OPEN_AUTOMATIONS_EVENT, show);
+    return () => window.removeEventListener(OPEN_AUTOMATIONS_EVENT, show);
+  }, [leaveExpandedPreview, onOpenAutomations]);
 
   /**
    * Shows one automation run in Automations: where Activity, a banner or the
@@ -11800,6 +11840,7 @@ export default function App({
     focusedSurfaceId: view.focusedId,
     sidebarOpen,
     openWebLink: onOpenWebLink,
+    hoverSidebarRevealed: floatingSidebar.revealed,
     board: true,
     ...(botsAvailable()
       ? {
@@ -12895,6 +12936,7 @@ export default function App({
                           onOpenAutomationRun={(id) =>
                             void showAutomationRun(id)
                           }
+                          onOpenConnections={() => openSettings("connections")}
                         />
                       </LazyViewSlot>
                     ) : null}
@@ -12916,6 +12958,7 @@ export default function App({
                           onReviewAction={(run) =>
                             automationReviewActionRef.current(run)
                           }
+                          onOpenConnections={() => openSettings("connections")}
                         />
                       </LazyViewSlot>
                     ) : null}
@@ -13427,6 +13470,19 @@ function toTitleTab(
     botPath: focused ? botForChat(focused.id)?.path : undefined,
     board,
   };
+}
+
+/** Offers a turn you typed the way to set up an automation, if it asks for one. */
+function withChatAutomation(
+  prompt: string,
+  sessionId: string,
+  chat: { orchestrationLeadId?: string },
+  text: string,
+  typed: boolean | undefined,
+): string {
+  if (chat.orchestrationLeadId || isBotChat(sessionId)) return prompt;
+  const added = armChatAutomation(sessionId, text, typed === true);
+  return added ? `${added}\n\n${prompt}` : prompt;
 }
 
 function racePromptTitle(prompt: string): string {

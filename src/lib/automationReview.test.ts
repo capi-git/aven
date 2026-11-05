@@ -176,6 +176,47 @@ describe("automation review cards", () => {
     expect(prompt).not.toContain('"message"');
   });
 
+  it("tells every run to say so when it couldn't reach a service", () => {
+    const prompt = automationPrompt("Summarise my Slack.");
+    expect(prompt).toContain("could not reach a service");
+    expect(prompt).toContain("do not report success");
+    expect(prompt).toContain('"service": "Notion"');
+    // An ordinary report still needs no card, and the instructions are no card.
+    expect(prompt).toContain("a plain report needs no card");
+    expect(parseAutomationReview(prompt, 1)).toBeNull();
+  });
+
+  it("keeps the service a needs-you card names, and only there", () => {
+    const card = (fields: Record<string, unknown>) =>
+      parseAutomationReview(
+        reply(JSON.stringify({ title: "Blocked", ...fields })),
+        1,
+      );
+    expect(card({ kind: "needs-you", service: " Notion " })?.service).toBe(
+      "Notion",
+    );
+    expect(card({ kind: "needs-you" })).not.toHaveProperty("service");
+    expect(card({ kind: "needs-you", service: 3 })).not.toHaveProperty(
+      "service",
+    );
+    expect(card({ kind: "publish", service: "Notion" })).not.toHaveProperty(
+      "service",
+    );
+    expect(
+      card({ kind: "needs-you", service: "x".repeat(500) })?.service?.length,
+    ).toBeLessThanOrEqual(80);
+    const stored = card({ kind: "needs-you", service: "Notion" });
+    expect(normalizeAutomationReview(stored)).toEqual(stored);
+    expect(
+      normalizeAutomationReview({
+        title: "Odd",
+        postedAt: 1,
+        kind: "review",
+        service: "Notion",
+      }),
+    ).not.toHaveProperty("service");
+  });
+
   it("asks for you, with Try again, when a run couldn't finish", () => {
     const card = parseAutomationReview(
       reply(

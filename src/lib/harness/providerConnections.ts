@@ -1,10 +1,11 @@
 /**
  * Inventory of the MCP connections each provider loads from its own
- * configuration: what Claude Code and Codex say they will start for a task.
+ * configuration: what Claude Code, Codex and Pi say they will start for a task.
  * Adding, removing and signing in go through the provider's own CLI (see
  * mcpServers.ts); turning a server off and on goes through the provider's own
  * protocol, which writes only that server's entry.
  */
+import { invoke } from "@tauri-apps/api/core";
 import {
   acquireHarnessBridge,
   killChild,
@@ -24,6 +25,7 @@ import {
 import { asRecord, stringField } from "./codexProtocol";
 import { JsonRpcClient } from "./jsonRpc";
 import { errorText } from "../errors";
+import { scrubSecrets } from "../scrubSecrets";
 
 export type ConnectionState =
   "ready" | "needs-sign-in" | "failed" | "starting" | "inactive" | "off";
@@ -56,7 +58,51 @@ export type ProviderConnection = {
   errorCode?: string;
   /** Where a server is turned off, when Aven can't turn it on itself. */
   offNote?: string;
+  /**
+   * What it connects to, for comparing same-named servers. Absent when the
+   * provider doesn't say, or the address isn't the service's own. May hold a
+   * URL's query or a command's arguments, so it is never shown.
+   */
+  target?: string;
+  /** A short name for the target that is safe to show: a host or a program. */
+  targetLabel?: string;
 };
+
+/**
+ * The address or program in a provider's description of a server. Reads only
+ * those fields: the same record can hold headers and environment values.
+ */
+export function connectionTarget(
+  config: Record<string, unknown> | null | undefined,
+): Pick<ProviderConnection, "target" | "targetLabel"> {
+  const url = stringField(config, "url");
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      const path = parsed.pathname.replace(/\/+$/, "");
+      return {
+        target: `${parsed.protocol}//${parsed.host}${path}${parsed.search}`,
+        targetLabel: parsed.hostname,
+      };
+    } catch {
+      return { target: url };
+    }
+  }
+  const command = stringField(config, "command");
+  if (!command) return {};
+  const args = Array.isArray(config?.args)
+    ? config.args.filter((arg): arg is string => typeof arg === "string")
+    : [];
+  const program = command.split(/[\\/]/).at(-1) || command;
+  // "npx @acme/mcp", skipping flags and whatever a long flag takes as its value.
+  const subject = args.find(
+    (arg, index) => !arg.startsWith("-") && !args[index - 1]?.startsWith("--"),
+  );
+  return {
+    target: [program, ...args].join("\0"),
+    targetLabel: scrubSecrets(subject ? `${program} ${subject}` : program),
+  };
+}
 
 /** The provider's CLI isn't installed: there is nothing of its to check. */
 export class ProviderNotInstalledError extends Error {}
@@ -344,6 +390,10 @@ export function claudeConnectionsFromStatus(
             : {}),
           ...(error ? { detail: error.trim() } : {}),
           ...(errorCode ? { errorCode } : {}),
+          // A claude.ai connector's address is Anthropic's proxy, not the service.
+          ...(scope === "claudeai"
+            ? {}
+            : connectionTarget(asRecord(server.config))),
         },
       ];
     }),
@@ -785,6 +835,7 @@ export function codexConnectionsFromStatus(
         ...(state === "off" && !switchable
           ? { offNote: codexOffNote(config, name) }
           : {}),
+        ...connectionTarget(entry),
       },
     ];
   });
@@ -802,6 +853,7 @@ export function codexConnectionsFromStatus(
       ...(switchable
         ? { canTurnOff: true }
         : { offNote: codexOffNote(config, name) }),
+      ...connectionTarget(asRecord(value)),
     });
   }
   return sortConnections(connections);
@@ -832,6 +884,80 @@ function codexOffNote(
     default:
       return "Turned off by your organization’s Codex settings.";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Pi
+// ---------------------------------------------------------------------------
+
+/**
+ * What `pi mcp list --json` says. A Pi with no such command, or one that isn't
+ * installed, reads as not installed: a provider's missing MCP support isn't a
+ * problem for this page to raise.
+ */
+export function listPiConnections(cwd: string): Promise<ProviderConnection[]> {
+  return once(`pi:${cwd}`, async () => {
+    let output: unknown;
+    try {
+      output = await invoke("provider_mcp", {
+        request: { action: "list", provider: "pi" },
+        cwd: cwd || null,
+      });
+    } catch (error) {
+      throw new ProviderNotInstalledError(errorText(error));
+    }
+    const rows = piConnectionsFromList(output);
+    if (!rows)
+      throw new ProviderNotInstalledError("Pi didn't list its servers.");
+    return rows;
+  });
+}
+
+export function piConnectionsFromList(
+  output: unknown,
+): ProviderConnection[] | null {
+  if (typeof output !== "string") return null;
+  let parsed: Record<string, unknown> | null;
+  try {
+    parsed = asRecord(JSON.parse(output));
+  } catch {
+    return null;
+  }
+  if (!parsed || !Array.isArray(parsed.servers)) return null;
+  return sortConnections(
+    parsed.servers.flatMap((item): ProviderConnection[] => {
+      const server = asRecord(item);
+      const name = stringField(server, "name");
+      if (!server || !name) return [];
+      const status = stringField(server, "state");
+      const state: ConnectionState =
+        status === "connected"
+          ? "ready"
+          : status === "needs-auth"
+            ? "needs-sign-in"
+            : status === "disabled"
+              ? "off"
+              : status === "failed"
+                ? "failed"
+                : status === "connecting"
+                  ? "starting"
+                  : "inactive";
+      const tools = Array.isArray(server.tools) ? server.tools.length : 0;
+      const error = stringField(server, "error");
+      const personal = stringField(server, "scope") !== "project";
+      return [
+        {
+          name,
+          key: name,
+          ...(personal ? { removable: true, source: "Personal" } : {}),
+          ...(state === "needs-sign-in" ? { canSignIn: true } : {}),
+          state,
+          ...(state === "ready" ? { toolCount: tools } : {}),
+          ...(error ? { detail: error.trim() } : {}),
+        },
+      ];
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

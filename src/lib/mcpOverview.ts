@@ -1,13 +1,15 @@
 /**
- * Turns what Claude Code and Codex report about their MCP servers into the
+ * Turns what Claude Code, Codex and Pi report about their MCP servers into the
  * Settings page's groups: what needs you, what works, and what is turned off
- * or hidden. A server both agents load is one row; a plugin's copy with no
- * address, beside a connector that works, is folded into that row.
+ * or hidden. A server both agents load is one row, unless the same name points
+ * at different servers; a plugin's copy with no address, beside a connector
+ * that works, is folded into that row.
  */
 import type {
   ConnectionState,
   ProviderConnection,
 } from "./harness/providerConnections";
+import { scrubSecrets } from "./scrubSecrets";
 import { defineStoredSetting } from "./settingsRegistry";
 import type { McpProvider } from "./mcpServers";
 
@@ -18,11 +20,12 @@ export type McpInventory =
   | { status: "missing" }
   | { status: "error"; message: string };
 
-export const MCP_AGENTS: readonly McpProvider[] = ["claude", "codex"];
+export const MCP_AGENTS: readonly McpProvider[] = ["claude", "codex", "pi"];
 
 export const MCP_AGENT_LABEL: Record<McpProvider, string> = {
   claude: "Claude",
   codex: "Codex",
+  pi: "Pi",
 };
 
 /** One server as one agent reports it. */
@@ -34,7 +37,12 @@ export type McpEntry = {
 };
 
 export type McpProblemKind =
-  "missing-program" | "sign-in-broken" | "no-address" | "no-answer" | "unknown";
+  | "missing-program"
+  | "sign-in-broken"
+  | "no-address"
+  | "no-answer"
+  | "needs-approval"
+  | "unknown";
 
 export type McpProblem = {
   kind: McpProblemKind;
@@ -50,6 +58,8 @@ export type McpAction = {
   label: string;
   /** The entries it acts on, by id: on a row with a problem, only those. */
   targets: string[];
+  /** Sign-in is per agent, so the action says which one. */
+  agent?: McpProvider;
 };
 
 export type McpRowState = ConnectionState | "hidden";
@@ -143,8 +153,8 @@ export function setMcpHidden(ids: readonly string[], hidden: boolean): void {
 // Names
 
 /**
- * Rows merge on the name alone, ignoring case and spacing: "Google Calendar"
- * and "google calendar" match, but "my-db" and "my_db" stay apart.
+ * Rows start from the name, ignoring case and spacing: "Google Calendar" and
+ * "google calendar" match, but "my-db" and "my_db" stay apart.
  */
 export function normalizeServerName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
@@ -210,10 +220,11 @@ export function explainMcpProblem(
       kind: "sign-in-broken",
       text: `${possessive(name)} sign-in is broken. Sign in to Claude again.`,
     };
+  // Claude has no command for this: only its own /mcp screen approves.
   if (code === "APPROVAL_REQUIRED")
     return {
-      kind: "unknown",
-      text: "Claude Code is waiting for you to approve this project’s server.",
+      kind: "needs-approval",
+      text: "In Terminal, run claude in this project, type /mcp and approve it. Then check again.",
     };
   if (NO_ADDRESS.test(raw))
     return { kind: "no-address", text: "This entry has no address." };
@@ -417,8 +428,9 @@ export function rowActions(
   const signing = affected.find((entry) => entry.connection.canSignIn);
   const signIn: McpAction | false = !!signing && {
     kind: "sign-in",
-    label: "Sign in",
+    label: `Sign in for ${MCP_AGENT_LABEL[signing.provider]}`,
     targets: [signing.id],
+    agent: signing.provider,
   };
   const check: McpAction = {
     kind: "check",
@@ -469,11 +481,34 @@ function urgentState(entries: McpEntry[]): ConnectionState {
   );
 }
 
+/**
+ * One name's entries as rows. Entries with the same target share a row, and
+ * different targets never do. An entry whose target isn't known joins the only
+ * target there is, and stands alone when there are several to choose from.
+ */
+function splitByTarget(id: string, entries: McpEntry[]) {
+  const byTarget = new Map<string, McpEntry[]>();
+  for (const entry of entries) {
+    const target = entry.connection.target;
+    if (target) byTarget.set(target, [...(byTarget.get(target) ?? []), entry]);
+  }
+  const unknown = entries.filter((entry) => !entry.connection.target);
+  if (byTarget.size <= 1) return [{ id, entries, label: undefined }];
+  const groups = [...byTarget.values()];
+  if (unknown.length) groups.push(unknown);
+  return groups.map((group, index) => ({
+    id: index ? `${id}#${index}` : id,
+    entries: group,
+    label: group[0]!.connection.targetLabel,
+  }));
+}
+
 function rowFor(
   id: string,
   visible: McpEntry[],
   hidden: boolean,
   claudeProject: boolean,
+  targetLabel?: string,
 ): McpRow | null {
   if (!visible.length) return null;
   const copies = hidden
@@ -487,7 +522,10 @@ function rowFor(
     rest.find((entry) => entry.connection.account) ??
     rest.find((entry) => /[A-Z]/.test(entry.connection.name)) ??
     rest[0]!;
-  const name = displayName(named);
+  // Same-named servers are told apart by where they point.
+  const name = targetLabel
+    ? `${displayName(named)} (${targetLabel})`
+    : displayName(named);
   const state: McpRowState = hidden
     ? "hidden"
     : on.length
@@ -509,11 +547,10 @@ function rowFor(
       : undefined;
   const details = failing
     .filter((entry) => entry.connection.detail)
-    .map((entry) =>
-      several
-        ? `${MCP_AGENT_LABEL[entry.provider]}: ${entry.connection.detail}`
-        : entry.connection.detail!,
-    );
+    .map((entry) => {
+      const detail = scrubSecrets(entry.connection.detail!);
+      return several ? `${MCP_AGENT_LABEL[entry.provider]}: ${detail}` : detail;
+    });
   // Which one the copy's own agent uses.
   const used = copies.length
     ? on.find(
@@ -543,7 +580,8 @@ function rowFor(
     entries: rest,
     copies,
     state,
-    status: STATUS[state],
+    status:
+      problem?.kind === "needs-approval" ? "Needs approval" : STATUS[state],
     context:
       state === "off" || state === "hidden"
         ? context(state === "off" ? off : rest, [], state)
@@ -562,7 +600,7 @@ function byName(a: McpRow, b: McpRow): number {
 }
 
 export function buildMcpOverview(
-  inventories: Record<McpProvider, McpInventory>,
+  inventories: Partial<Record<McpProvider, McpInventory>>,
   hiddenIds: ReadonlySet<string> | readonly string[] = [],
   { claudeProject = true }: { claudeProject?: boolean } = {},
 ): McpOverview {
@@ -577,6 +615,8 @@ export function buildMcpOverview(
 
   for (const provider of MCP_AGENTS) {
     const inventory = inventories[provider];
+    // Not asked yet (Pi): nothing to say about it.
+    if (!inventory) continue;
     if (inventory.status === "loading") {
       checking.push(provider);
       continue;
@@ -598,7 +638,7 @@ export function buildMcpOverview(
           kind: "unknown",
           text: `Aven couldn’t start ${MCP_AGENT_LABEL[provider]} to check its servers.`,
         },
-        details: inventory.message ? [inventory.message] : [],
+        details: inventory.message ? [scrubSecrets(inventory.message)] : [],
         primary: { kind: "check", label: "Check again", targets: [] },
         more: [],
         agent: provider,
@@ -622,17 +662,21 @@ export function buildMcpOverview(
   const signIn: McpRow[] = [];
   const working: McpRow[] = [];
   const off: McpRow[] = [];
-  for (const [id, entries] of shown) {
-    const row = rowFor(id, entries, false, claudeProject);
-    if (!row) continue;
-    if (row.state === "failed") needsYou.push(row);
-    else if (row.state === "needs-sign-in") signIn.push(row);
-    else if (row.state === "off") off.push(row);
-    else working.push(row);
+  for (const [name, all] of shown) {
+    for (const { id, entries, label } of splitByTarget(name, all)) {
+      const row = rowFor(id, entries, false, claudeProject, label);
+      if (!row) continue;
+      if (row.state === "failed") needsYou.push(row);
+      else if (row.state === "needs-sign-in") signIn.push(row);
+      else if (row.state === "off") off.push(row);
+      else working.push(row);
+    }
   }
-  for (const [id, entries] of tucked) {
-    const row = rowFor(`hidden:${id}`, entries, true, claudeProject);
-    if (row) off.push(row);
+  for (const [name, all] of tucked) {
+    for (const { id, entries, label } of splitByTarget(name, all)) {
+      const row = rowFor(`hidden:${id}`, entries, true, claudeProject, label);
+      if (row) off.push(row);
+    }
   }
 
   return {

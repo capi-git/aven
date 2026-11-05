@@ -39,11 +39,14 @@ export function AutomationReviewCard({
   run,
   onAction,
   onOpenRun,
+  onOpenConnections,
 }: {
   run: ScheduledRun;
   /** Sends the card's fixed answer to the run's conversation. */
   onAction?: (run: ScheduledRun) => unknown;
   onOpenRun?: (run: ScheduledRun) => void;
+  /** Settings, at the page for signing in to connections. */
+  onOpenConnections?: () => void;
 }) {
   const review = run.review;
   const [error, setError] = useState("");
@@ -111,6 +114,16 @@ export function AutomationReviewCard({
             }}
           >
             {action.label}
+          </button>
+        ) : null}
+        {review.kind === "needs-you" && review.service && onOpenConnections ? (
+          <button
+            type="button"
+            className={ACTION_GHOST}
+            title="Check your connections in Settings"
+            onClick={onOpenConnections}
+          >
+            Open Settings
           </button>
         ) : null}
         {onOpenRun ? (

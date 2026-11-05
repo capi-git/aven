@@ -240,7 +240,7 @@ const wait = (ms: number) =>
 const frame = () => wait(40);
 /** Rest where the pointer is until a drop there arms, and paint. */
 const arm = async () => {
-  await wait(260);
+  await wait(500);
   await frame();
 };
 /** Press `handle` at (x, y) and carry it out of its bar, to between them. */
@@ -256,11 +256,21 @@ async function hold(x: number, y: number) {
 }
 
 describe("a pane's tab let go on the window's strip", () => {
-  it("makes a split with a single tab let go on its middle, without resting", async () => {
+  it("only puts it on the strip when let go on a tab's middle too soon", async () => {
+    await render();
+    await lift(tabIn("row", "draft"), 225, 115);
+    await hold(150, 15);
+    await pointer(window, "pointerup", 150, 15);
+    expect(strip.onCombineTabs).not.toHaveBeenCalled();
+    expect(row.onDropOnStrip).toHaveBeenCalledOnce();
+  });
+
+  it("makes a split with a single tab let go on its middle, once it has rested", async () => {
     await render();
     await lift(tabIn("row", "draft"), 225, 115);
     // Checkout's middle is 125–175.
     await hold(150, 15);
+    await arm();
     await pointer(window, "pointerup", 150, 15);
     expect(strip.onCombineTabs).toHaveBeenCalledExactlyOnceWith(
       "checkout",
@@ -341,6 +351,7 @@ describe("a pane's tab let go on the window's strip", () => {
     await lift(tabIn("row", "draft"), 225, 115);
     // Notes (300–398), its first half.
     await hold(330, 15);
+    await arm();
     await pointer(window, "pointerup", 330, 15);
     expect(strip.onAddToSplit).toHaveBeenCalledExactlyOnceWith(SPLIT, "draft", {
       pane: "notes",
@@ -379,6 +390,7 @@ describe("a lone pane's header let go on the window's strip", () => {
     )!;
     await lift(handle, 200, 115);
     await hold(50, 15);
+    await arm();
     await pointer(window, "pointerup", 50, 15);
     expect(strip.onCombineTabs).toHaveBeenCalledExactlyOnceWith(
       "hero",
@@ -427,6 +439,7 @@ describe("a tab let go on a tab in a pane's row", () => {
     await hold(100, 115);
     // The draft's middle is 187.5–262.5.
     await hold(225, 115);
+    await arm();
     await pointer(window, "pointerup", 225, 115);
     expect(row.onPairTabs).toHaveBeenCalledExactlyOnceWith("draft", "signup");
     expect(row.onReorderSurfaces).not.toHaveBeenCalled();
@@ -446,7 +459,7 @@ describe("a tab let go on a tab in a pane's row", () => {
 });
 
 describe("what shows at release is what a release does", () => {
-  it("pairs a brisk drag in a pane's row let go past a neighbour's midpoint, having shown no line", async () => {
+  it("only moves a brisk drag in a pane's row let go on a neighbour's middle", async () => {
     await render();
     await pointer(tabIn("row", "signup"), "pointerdown", 75, 115);
     // To the right, one move per frame, no rest: into the draft's middle
@@ -455,8 +468,8 @@ describe("what shows at release is what a release does", () => {
     expect(insertionIn("row")).toEqual([]);
     expect(nearTarget("row")?.dataset.surfaceTabId).toBe("draft");
     await pointer(window, "pointerup", 240, 115);
-    expect(row.onPairTabs).toHaveBeenCalledExactlyOnceWith("draft", "signup");
-    expect(row.onReorderSurfaces).not.toHaveBeenCalled();
+    expect(row.onPairTabs).not.toHaveBeenCalled();
+    expect(row.onReorderSurfaces).toHaveBeenCalledOnce();
   });
 
   it("combines on the strip let go past a neighbour's midpoint, and moves past its far edge", async () => {
@@ -466,6 +479,7 @@ describe("what shows at release is what a release does", () => {
     for (const x of [70, 100, 130, 160]) await hold(x, 15);
     expect(insertionIn("strip")).toEqual([]);
     expect(nearTarget("strip")?.dataset.surfaceTabId).toBe("checkout");
+    await arm();
     await pointer(window, "pointerup", 160, 15);
     expect(strip.onCombineTabs).toHaveBeenCalledExactlyOnceWith(
       "checkout",

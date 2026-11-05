@@ -56,7 +56,7 @@ Task {
     let picked =
       windowId != 0
       ? content.windows.first { $0.windowID == windowId }
-      : content.windows.filter { $0.owningApplication?.processID == pid && $0.windowLayer == 0 }
+      : content.windows.filter { $0.owningApplication?.processID == pid }
         .max { $0.frame.width < $1.frame.width }
     guard let window = picked else {
       print("No such window")
