@@ -446,6 +446,17 @@ describe("browser presentation", () => {
     expect(native.captures).toEqual([]);
   });
 
+  it("searches a restyled subtree for overlays once per batch of style writes", () => {
+    const pane = document.createElement("div");
+    for (let index = 0; index < 20; index++)
+      pane.append(document.createElement("p"));
+    const search = vi.spyOn(pane, "querySelector");
+    const write = { type: "attributes", target: pane, attributeName: "style" };
+    for (const callback of mutationObservers)
+      callback([write, write, write] as Partial<MutationRecord>[]);
+    expect(search).toHaveBeenCalledOnce();
+  });
+
   it("cuts menus out of the live page and captures true modals", async () => {
     state.holesSupported = true;
     const menu = overlay();

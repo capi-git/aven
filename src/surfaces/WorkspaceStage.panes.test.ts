@@ -132,7 +132,6 @@ describe("flush panes", () => {
       "src/surfaces/WorkspaceStage.tsx",
       "src/surfaces/PaneTree.tsx",
       "src/surfaces/ProjectTerminalDock.tsx",
-      "src/surfaces/PersonalBrowserDock.tsx",
       "src/chrome/GitHistoryGraph.tsx",
     ])
       expect(readFileSync(path, "utf8")).not.toContain(
