@@ -1422,6 +1422,8 @@ export default function App({
         watch: (id) => teamActionsRef.current.watch?.(id),
         send: (id, compose, options) =>
           teamActionsRef.current.send(id, compose, options),
+        answerRunCard: (run) => automationReviewActionRef.current(run),
+        openRun: (runId) => void showAutomationRunRef.current(runId),
       }),
     [],
   );

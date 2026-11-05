@@ -40,8 +40,11 @@ export function AutomationReviewCard({
   onAction,
   onOpenRun,
   onOpenConnections,
+  showProject = true,
 }: {
   run: ScheduledRun;
+  /** Off where the project is already named: a team's chat. */
+  showProject?: boolean;
   /** Sends the card's fixed answer to the run's conversation. */
   onAction?: (run: ScheduledRun) => unknown;
   onOpenRun?: (run: ScheduledRun) => void;
@@ -71,11 +74,12 @@ export function AutomationReviewCard({
       aria-label={`${reviewHeading(review)}: ${review.title}`}
     >
       <p className="automation-review-kind">
-        {!isNoProject(run.project) ? (
+        {showProject && !isNoProject(run.project) ? (
           <ProjectMark path={run.project} className="automation-review-mark" />
         ) : null}
         <span>
-          {reviewHeading(review)} · {run.name} · {project}
+          {reviewHeading(review)} · {run.name}
+          {showProject ? ` · ${project}` : ""}
         </span>
       </p>
       <h2>{review.title}</h2>

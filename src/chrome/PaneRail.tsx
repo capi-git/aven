@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { appearanceSigil } from "../lib/dotSigils";
 import { appearanceTone } from "../lib/markTones";
-import { DotMark } from "./DotMark";
+import { HopperMark } from "./HopperMark";
 
 /** One tab of a collapsed pane, as its rail shows it. */
 export type PaneRailTab = {
@@ -32,7 +31,7 @@ export function paneRailLabel(tabs: readonly PaneRailTab[]): string {
 /**
  * The inside of a collapsed pane's rail: a mark for each of its tabs, the
  * one in front first and lit, its name running along the rail, and the
- * project's mark when a chat is on it, as on that chat's message box.
+ * agent's Hopper when a chat is on it, as on that chat's message box.
  * The rail itself is the button that opens the pane (WorkspaceStage).
  */
 export function PaneRail({
@@ -41,7 +40,7 @@ export function PaneRail({
   chat = false,
 }: {
   tabs: readonly PaneRailTab[];
-  /** The project whose mark stands at the rail's foot. */
+  /** The project whose colour the agent at the rail's foot wears. */
   project?: string | null;
   /** The pane holds a chat. */
   chat?: boolean;
@@ -76,8 +75,7 @@ export function PaneRail({
       ) : null}
       {appearance ? (
         <span className="aven-pane-rail-critter">
-          <DotMark
-            sigil={appearanceSigil(appearance)}
+          <HopperMark
             tone={appearanceTone(appearance)}
             state={tabs.some((tab) => tab.busy) ? "working" : "still"}
           />

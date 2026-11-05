@@ -460,7 +460,7 @@ describe("Build a team", () => {
 });
 
 describe("a teammate's page", () => {
-  it("sets its mark, agent, model and effort in view, with no floating menu; other apps say why not", async () => {
+  it("shows its Hopper, and sets its agent, model and effort in view, with no floating menu; other apps say why not", async () => {
     await open("checker");
     // The mark grid isn't open until you press the mark.
     expect(document.querySelector('[data-mark-choice="designer"]')).toBeNull();
@@ -527,23 +527,18 @@ describe("a teammate's page", () => {
     )!;
     await act(async () => high.click());
     expect(crewMemberById(getCrew(PATH)!, "checker")?.effort).toBe("high");
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>("[data-crew-mark-button]")!
-        .click(),
+    // Every agent is Hopper: its mark is no button and has no marks to pick
+    // from, and the one it chose before stays saved.
+    const before = crewMemberById(getCrew(PATH)!, "checker")?.critter;
+    const mark = document.querySelector<HTMLElement>(
+      "[data-crew-member-mark]",
+    )!;
+    expect(mark.closest("button")).toBeNull();
+    expect(mark.querySelector<HTMLElement>(".hopper-mark")?.dataset.tone).toBe(
+      "purple",
     );
-    // The grid opens above the sheet, not under it.
-    const popover = document
-      .querySelector("[data-crew-mark-popover]")!
-      .closest<HTMLElement>("[style*='z-index']")!;
-    expect(Number(popover.style.zIndex)).toBeGreaterThan(90);
-    await act(async () =>
-      document
-        .querySelector<HTMLButtonElement>('[data-mark-choice="designer"]')!
-        .click(),
-    );
-    expect(crewMemberById(getCrew(PATH)!, "checker")?.critter).toBe("designer");
-    expect(document.querySelector("[data-crew-mark-popover]")).toBeNull();
+    expect(document.querySelector("[data-mark-choice]")).toBeNull();
+    expect(crewMemberById(getCrew(PATH)!, "checker")?.critter).toBe(before);
     const instructions = sheet().querySelector<HTMLTextAreaElement>(
       'textarea[aria-label="Instructions"]',
     )!;
@@ -697,7 +692,7 @@ describe("quiet hours", () => {
 });
 
 describe("the sheet's styles", () => {
-  const css = readFileSync("src/chrome/CrewCritter.css", "utf8");
+  const css = readFileSync("src/chrome/TeammatePage.css", "utf8");
   const overlays = readFileSync("src/chrome/Overlays.css", "utf8");
   const rule = (sheet: string, selector: string) => {
     const at = sheet.indexOf(`${selector} {`);
@@ -705,18 +700,18 @@ describe("the sheet's styles", () => {
     return sheet.slice(at, sheet.indexOf("}", at));
   };
 
-  it("keeps a member's mark full size in the header, over the close button's 28px", () => {
-    // The header's rule for its close button would shrink the mark's button
-    // under its 35px mark; the mark's own rule has to be more specific.
+  it("keeps a member's mark full size in the header, clear of the close button's 28px", () => {
+    // The header shrinks its buttons to 28px; the mark is no button, so its
+    // own 60px holds.
     expect(
       rule(overlays, '.modal-panel[role="dialog"] > header button'),
     ).toContain("width: 28px");
     const mark = rule(
       css,
-      '.modal-panel[role="dialog"] > header .crew-mark-button',
+      ".crew-settings.teammate-sheet > header .crew-member-mark",
     );
-    expect(mark).toContain("width: 40px");
-    expect(mark).toContain("height: 40px");
+    expect(mark).toContain("width: 60px");
+    expect(mark).toContain("height: 60px");
   });
 });
 

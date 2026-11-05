@@ -37,7 +37,7 @@ import {
   useInstalledAgents,
 } from "./crewSettingsParts";
 import { CrewCritter } from "./CrewCritter";
-import { DotMark } from "./DotMark";
+import { HopperMark } from "./HopperMark";
 import { Check, ChevronLeft, ChevronRight, Plus } from "./icons";
 import "./TeamBuilder.css";
 
@@ -61,8 +61,6 @@ const ROLE_ORDER = [
   "tester",
   "scribe",
 ];
-
-const EMPTY_MARK = { key: "empty", label: "", rows: [] } as const;
 
 function presetName(preset: CrewPreset): string {
   return preset.label ?? CREW_ROLE_INFO[preset.role].label;
@@ -281,10 +279,7 @@ export function TeamBuilder({
                 );
               })}
               <li className="team-build-role" data-crew-template="custom">
-                <DotMark
-                  sigil={EMPTY_MARK}
-                  className="team-build-role-mark team-build-empty"
-                />
+                <HopperMark vacant className="team-build-role-mark" />
                 <span className="team-build-role-text">
                   <span className="team-build-role-name">Your own</span>
                   <span className="team-build-role-job">
