@@ -782,18 +782,11 @@
 }
 
 /* Narrow: the thread takes the room. */
-@container (max-width: 760px) {
-  .team-chat {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .team-thread {
-    padding-left: 0;
-  }
-
-  .team-you {
-    max-width: 86%;
-  }
+.avos-screen[data-narrow] .team-thread {
+  padding-left: 0;
+}
+.avos-screen[data-narrow] .team-you {
+  max-width: 86%;
 }
 
 /* Meeting Avos: its Bot, who it is and its question, centred where the chat

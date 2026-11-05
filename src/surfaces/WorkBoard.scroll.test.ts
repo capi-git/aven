@@ -55,12 +55,12 @@ describe("the Board's columns scroll on their own", () => {
   });
 });
 
-describe("a team's Board", () => {
-  it("gets more of the pane than the other tabs", () => {
+describe("Avos's Board", () => {
+  it("gets the whole pane: This week steps aside while it's shown", () => {
     expect(rule(team, ".team-screen")).toContain(
       "grid-template-columns: minmax(0, 1fr) auto;",
     );
-    expect(teamScreen).toContain("board ? Math.round(available() * 0.6) : 380");
+    expect(teamScreen).toContain('{meeting || shown === "board" ? null : (');
   });
 });
 

@@ -2,19 +2,25 @@ import { projectKey } from "./paths";
 import { normalizeProjectPath } from "./recents";
 
 /**
- * The tab each project's team panel shows beside its chat; remembered in
- * every window. Overview unless you chose another. (A saved "chat" is from
- * when the Chat was a choice of its own: it is always on screen now.)
+ * What each project's Avos screen shows under its header: its Chat (unless
+ * you chose another), Changes or Notes, or from ⋯ its Board or Schedule;
+ * remembered in every window. Overview and Teammates, from when a team had
+ * a panel of tabs, open on the Chat (This week and Helping out took them).
  */
 export const TEAM_VIEWS = [
-  "overview",
-  "teammates",
-  "board",
-  "notes",
-  "schedule",
+  "chat",
   "changes",
+  "notes",
+  "board",
+  "schedule",
 ] as const;
 export type TeamView = (typeof TEAM_VIEWS)[number];
+
+/** Saved views from before that open on another now. */
+const RETIRED_VIEWS: Readonly<Record<string, TeamView>> = {
+  overview: "chat",
+  teammates: "chat",
+};
 
 export const TEAM_VIEW_KEY = "aven.teamView.v2";
 /** Projects remembered: the most recently switched. */
@@ -46,8 +52,10 @@ function read(): Readonly<Record<string, TeamView>> {
       for (const [key, value] of Object.entries(saved))
         if (TEAM_VIEWS.includes(value as TeamView))
           next[key] = value as TeamView;
+        else if (typeof value === "string" && RETIRED_VIEWS[value])
+          next[key] = RETIRED_VIEWS[value]!;
   } catch {
-    // An unreadable entry opens every team on its Overview.
+    // An unreadable entry opens every Avos on its Chat.
   }
   cache = next;
   return cache;
@@ -56,13 +64,13 @@ function read(): Readonly<Record<string, TeamView>> {
 const keyFor = (path: string) => projectKey(normalizeProjectPath(path));
 
 export function teamView(path: string): TeamView {
-  return read()[keyFor(path)] ?? "overview";
+  return read()[keyFor(path)] ?? "chat";
 }
 
 export function setTeamView(path: string, view: TeamView) {
   const key = keyFor(path);
   const current = read();
-  if ((current[key] ?? "overview") === view) return;
+  if ((current[key] ?? "chat") === view) return;
   const rest = Object.entries(current).filter(([item]) => item !== key);
   const next = Object.fromEntries([...rest, [key, view]].slice(-KEPT));
   cache = next;

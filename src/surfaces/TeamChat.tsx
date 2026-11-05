@@ -1,4 +1,3 @@
-import { TeamModelButton } from "./TeamPanel";
 import {
   useEffect,
   useId,
@@ -11,10 +10,8 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { AgentMark } from "../chrome/AgentMark";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { ArrowRight, ChevronDown, MoveUp, X } from "../chrome/icons";
-import { ProjectMark } from "../chrome/ProjectMark";
 import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
@@ -56,7 +53,6 @@ import {
   type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
-import { crewAgentState } from "../lib/agentMark";
 import { isImeComposition } from "../lib/keyboard";
 import {
   FEED_FOLLOW_START,
@@ -75,7 +71,6 @@ import {
 } from "../lib/scheduledAgents";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
 import {
-  latestPosts,
   postIsMember,
   teamPosts,
   teamThread,
@@ -105,19 +100,6 @@ function clock(at: number): string {
       hour: "numeric",
       minute: "2-digit",
     });
-  } catch {
-    return "";
-  }
-}
-
-/** A roster time: "now" while it works, its last post's time today, else its day. */
-function rosterWhen(at: number | undefined, now: number): string {
-  if (!at || !isTime(at)) return "";
-  const date = new Date(at);
-  if (date.toDateString() === new Date(now).toDateString())
-    return clock(at).replace(/\s?[AP]\.?M\.?$/i, "");
-  try {
-    return date.toLocaleDateString(undefined, { weekday: "short" });
   } catch {
     return "";
   }
@@ -215,6 +197,12 @@ export function TeamChat({
     [crew, name, agents, runs],
   );
   const [selected, setSelected] = useState<string | null>(null);
+  const workspace = useCrewWorkspace();
+  // Why a helper's own chat didn't open, under the Showing line.
+  const [openProblem, setOpenProblem] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
@@ -284,10 +272,51 @@ export function TeamChat({
         {filter ? (
           <div className="team-thread-showing" data-team-showing={filter}>
             <span>Showing {name(filter)}</span>
-            <button type="button" onClick={() => select(null)}>
-              Show everyone
-            </button>
+            <span className="team-thread-showing-tools">
+              <button
+                type="button"
+                data-team-open-chat
+                // Its chat starts with Avos's first card.
+                disabled={!teammateChatReady(crew, filter)}
+                title={
+                  teammateChatReady(crew, filter)
+                    ? undefined
+                    : firstCardChatText(name(filter))
+                }
+                onClick={() => {
+                  setOpenProblem(null);
+                  void Promise.resolve(
+                    workspace?.openChat(project, filter),
+                  ).then((why) =>
+                    setOpenProblem(why ? { id: filter, text: why } : null),
+                  );
+                }}
+              >
+                Open chat
+              </button>
+              <button
+                type="button"
+                onClick={() => workspace?.openSettings(project, filter)}
+              >
+                Settings
+              </button>
+              <button type="button" onClick={() => select(null)}>
+                Show all
+              </button>
+            </span>
           </div>
+        ) : null}
+        {filter &&
+        (openProblem?.id === filter || !teammateChatReady(crew, filter)) ? (
+          <p
+            className="team-thread-showing-note"
+            role="status"
+            data-team-open-note
+          >
+            {openProblem?.id === filter
+              ? openProblem.text
+              : firstCardChatText(name(filter))}
+          </p>
         ) : null}
         {view.batch || ready.length ? (
           <div className="team-ready-list">
@@ -342,245 +371,6 @@ export function TeamChat({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// The roster
-
-/** The team's teammates, in the panel: Everyone, then each one. */
-export function TeamRoster({
-  project,
-  crew,
-  now,
-  name,
-  fixer,
-  onSelect,
-  selected,
-}: {
-  project: string;
-  crew: Crew;
-  now: number;
-  name: (who: string) => string;
-  fixer?: { status: BotStatus; sessionId?: string };
-  onSelect: (id: string | null) => void;
-  selected: string | null;
-}) {
-  const workspace = useCrewWorkspace();
-  const members = useMemo(
-    () =>
-      crewMemberViews(crew, {
-        name,
-        ...(fixer
-          ? {
-              fixer: {
-                status: fixer.status,
-                ...(fixer.sessionId ? { sessionId: fixer.sessionId } : {}),
-              },
-            }
-          : {}),
-      }),
-    [crew, name, fixer],
-  );
-  const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
-  const latest = useMemo(() => latestPosts(posts), [posts]);
-  // Why a teammate's chat didn't open, under its name.
-  const [openProblem, setOpenProblem] = useState<{
-    id: string;
-    text: string;
-  } | null>(null);
-  return (
-    <Roster
-      project={project}
-      crew={crew}
-      members={members}
-      latest={latest}
-      now={now}
-      selected={selected}
-      onSelect={onSelect}
-      openProblem={openProblem}
-      onOpenChat={(id) => {
-        setOpenProblem(null);
-        void Promise.resolve(workspace?.openChat(project, id)).then((why) =>
-          setOpenProblem(why ? { id, text: why } : null),
-        );
-      }}
-      onSettings={(id) => workspace?.openSettings(project, id)}
-      onAdd={() => workspace?.openSettings(project, "add")}
-    />
-  );
-}
-
-function Roster({
-  project,
-  crew,
-  members,
-  latest,
-  now,
-  selected,
-  onSelect,
-  openProblem,
-  onOpenChat,
-  onSettings,
-  onAdd,
-}: {
-  project: string;
-  crew: Crew;
-  members: readonly CrewMemberView[];
-  latest: ReadonlyMap<string, number>;
-  now: number;
-  selected: string | null;
-  onSelect: (id: string | null) => void;
-  openProblem: { id: string; text: string } | null;
-  onOpenChat: (id: string) => void;
-  onSettings: (id: string) => void;
-  onAdd: () => void;
-}) {
-  return (
-    <nav className="team-roster" aria-label="Teammates">
-      <ul role="list">
-        <li className="team-roster-item" data-selected={!selected || undefined}>
-          <button
-            type="button"
-            className="team-roster-row"
-            aria-pressed={!selected}
-            onClick={() => onSelect(null)}
-          >
-            <ProjectMark path={project} className="team-roster-mark" />
-            <span className="team-roster-text">
-              <span className="team-roster-name">Everyone</span>
-              <span className="team-roster-line">Team thread</span>
-            </span>
-          </button>
-        </li>
-        {members.map((member) => {
-          const known = crewMemberById(crew, member.id);
-          const paused = !!known?.paused;
-          const needs = member.status === "needs-you";
-          const line =
-            member.line ??
-            (needs
-              ? "Needs you"
-              : member.status === "paused" || paused
-                ? "Off"
-                : member.status === "working"
-                  ? "Working"
-                  : "Free");
-          // Its line, said once: "Needs you · Settings page".
-          const said = needs && member.line ? `Needs you · ${line}` : line;
-          const when =
-            member.status === "working"
-              ? "now"
-              : rosterWhen(latest.get(member.id), now);
-          const isSelected = selected === member.id;
-          return (
-            <li
-              key={member.id}
-              className="team-roster-item"
-              data-selected={isSelected || undefined}
-              data-team-member={member.id}
-            >
-              <button
-                type="button"
-                className="team-roster-row"
-                aria-pressed={isSelected}
-                aria-label={`${member.name}: ${said}`}
-                onClick={() => onSelect(isSelected ? null : member.id)}
-              >
-                <CrewCritter
-                  path={project}
-                  role={member.role}
-                  {...(member.critter ? { critter: member.critter } : {})}
-                  state={crewAgentState(
-                    member.status,
-                    member.active,
-                    paused ? "still" : "resting",
-                  )}
-                  className="team-roster-mark"
-                />
-                <span className="team-roster-text">
-                  <span className="team-roster-name">{member.name}</span>
-                  <span
-                    className="team-roster-line"
-                    data-live={
-                      member.status === "working" || needs || undefined
-                    }
-                    title={said}
-                  >
-                    {said}
-                  </span>
-                </span>
-                {when ? (
-                  <span className="team-roster-when" aria-hidden="true">
-                    {when}
-                  </span>
-                ) : null}
-              </button>
-              {known && member.role !== "fixer" ? (
-                <span className="team-roster-model">
-                  <TeamModelButton path={crew.path} member={known} />
-                </span>
-              ) : null}
-              {isSelected ? (
-                <span className="team-roster-tools">
-                  <button
-                    type="button"
-                    className="team-roster-tool"
-                    data-team-open-chat
-                    // Its chat starts with Avos's first card.
-                    disabled={!teammateChatReady(crew, member.id)}
-                    title={
-                      teammateChatReady(crew, member.id)
-                        ? undefined
-                        : firstCardChatText(member.name)
-                    }
-                    onClick={() => onOpenChat(member.id)}
-                  >
-                    Open chat
-                  </button>
-                  <button
-                    type="button"
-                    className="team-roster-tool"
-                    onClick={() => onSettings(member.id)}
-                  >
-                    Settings
-                  </button>
-                </span>
-              ) : null}
-              {isSelected &&
-              (openProblem?.id === member.id ||
-                !teammateChatReady(crew, member.id)) ? (
-                <p
-                  className="team-roster-note"
-                  role="status"
-                  data-team-open-note
-                >
-                  {openProblem?.id === member.id
-                    ? openProblem.text
-                    : firstCardChatText(member.name)}
-                </p>
-              ) : null}
-            </li>
-          );
-        })}
-        <li className="team-roster-item" data-add>
-          <button
-            type="button"
-            className="team-roster-row"
-            data-team-add
-            onClick={onAdd}
-          >
-            <AgentMark vacant className="team-roster-mark" />
-            <span className="team-roster-text">
-              <span className="team-roster-name">Add teammate</span>
-            </span>
-          </button>
-        </li>
-      </ul>
-    </nav>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Ready for you, pinned on top
 
 function ReadyBatch({
   project,
@@ -955,7 +745,8 @@ function PostView({
           <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
           {post.to
             ? ` · to ${post.to.name}`
-            : post.as
+            : // Written to Avos, it needs no word; what else it became does.
+              post.as && post.as !== "lead"
               ? ` · ${BECAME[post.as]}`
               : ""}
         </p>
@@ -1168,12 +959,15 @@ function Composer({
   const toGone = !!to && !members.some((member) => member.id === to.id);
   const options = picker
     ? [
-        { id: null as string | null, name: "Everyone", role: undefined },
-        ...members.map((member) => ({
-          id: member.id as string | null,
-          name: member.name,
-          role: member,
-        })),
+        // Avos itself, then its helpers: writing to Avos is the default.
+        { id: null as string | null, name: "Avos", role: undefined },
+        ...members
+          .filter((member) => member.role !== "lead")
+          .map((member) => ({
+            id: member.id as string | null,
+            name: member.name,
+            role: member,
+          })),
       ].filter((option) =>
         option.name.toLowerCase().startsWith(picker.query.toLowerCase()),
       )
@@ -1360,7 +1154,12 @@ function Composer({
                   className="team-mention-mark"
                 />
               ) : (
-                <ProjectMark path={project} className="team-mention-mark" />
+                <CrewCritter
+                  path={project}
+                  role="lead"
+                  state="watching"
+                  className="team-mention-mark"
+                />
               )}
               <span className="team-mention-name">{option.name}</span>
               <span className="team-mention-role">

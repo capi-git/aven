@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { avosGlance, avosLine, avosMet, avosUnmet } from "./avos";
+import { avosGlance, avosLine, avosMet, avosUnmet, avosWeek } from "./avos";
 import { teamPosts } from "./teamThread";
 import {
   BUILDING_NEEDS_GIT,
@@ -326,5 +326,72 @@ describe("building with Avos", () => {
     expect(
       getCrew(PATH)!.feed.filter((entry) => entry.kind === "say"),
     ).toHaveLength(2);
+  });
+});
+
+describe("This week", () => {
+  it("lists what needs you, what's going on, what Avos keeps an eye on, and what's done", () => {
+    const crew: Crew = {
+      ...newCrew(PATH, NOON),
+      on: true,
+      onAt: NOON,
+      members: [
+        {
+          id: "lead",
+          role: "lead",
+          doing: { at: NOON, text: "Answering a message" },
+        },
+        {
+          id: "builder",
+          role: "builder",
+          doing: { at: NOON, text: "Building Insights page copy" },
+        },
+      ],
+      cards: [
+        card("Pricing table", "ready"),
+        { ...card("Cover image", "stuck") },
+        { ...card("Insights page copy", "building") },
+        {
+          ...card("Footer links", "applied"),
+          endedAt: NOON - 2 * 24 * 60 * 60_000,
+        },
+        {
+          ...card("Old thing", "applied"),
+          endedAt: NOON - 9 * 24 * 60 * 60_000,
+        },
+      ],
+    };
+    const job = {
+      id: "avos-1",
+      name: "Website Articles in Notion",
+      enabled: true,
+      owner: { avos: PATH },
+      createdAt: NOON,
+    } as ScheduledAgent;
+    const run = {
+      id: "r1",
+      scheduleId: "avos-1",
+      startedAt: NOON,
+      status: "succeeded",
+      review: { status: "open", kind: "publish", title: "2 new articles" },
+    } as unknown as ScheduledRun;
+    const week = avosWeek(crew, {
+      jobs: { agents: [job], runs: [run] },
+      now: NOON,
+    });
+    expect(week.needs.map((row) => [row.text, row.open?.kind])).toEqual([
+      ["“Cover image” needs your answer", "card"],
+      ["Look at “Pricing table”", "review"],
+      ["Ready to publish: 2 new articles", "run"],
+    ]);
+    // The card at work once, then Avos answering you.
+    expect(week.doing.map((row) => row.text)).toEqual([
+      "Insights page copy",
+      "Answering a message",
+    ]);
+    expect(week.watching.map((row) => [row.text, row.open?.kind])).toEqual([
+      ["Website Articles in Notion", "job"],
+    ]);
+    expect(week.done.map((row) => row.text)).toEqual(["Footer links"]);
   });
 });

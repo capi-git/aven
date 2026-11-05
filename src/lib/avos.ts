@@ -1,4 +1,5 @@
 import type { AgentState } from "./agentMark";
+import { reviewHeading } from "./automationReview";
 import { avosJobRuns, avosJobs } from "./avosJobs";
 import { crewStatus } from "./crewView";
 import type { Crew } from "./crews";
@@ -159,4 +160,105 @@ export function avosGlance(
   if (!crew.on || status === "paused")
     return { path, note: null, state: "resting", line };
   return { path, note: null, state: "watching", line };
+}
+
+/** One line in Avos's This week list, and what pressing it does. */
+export type AvosWeekRow = {
+  id: string;
+  text: string;
+  /** Look at what's ready, answer a card, open a run or a job. */
+  open?:
+    | { kind: "review" }
+    | { kind: "card"; cardId: string }
+    | { kind: "run"; runId: string }
+    | { kind: "job"; jobId: string };
+};
+
+/** Avos's week: what needs you, what it's doing, watching, and has done. */
+export type AvosWeek = {
+  needs: AvosWeekRow[];
+  doing: AvosWeekRow[];
+  watching: AvosWeekRow[];
+  done: AvosWeekRow[];
+};
+
+const WEEK = 7 * 24 * 60 * 60_000;
+const DONE_SHOWN = 5;
+
+/**
+ * The This week list beside Avos's chat. Needs you: a card waiting on your
+ * answer, finished work to look at, and what its jobs left for you. Doing
+ * now: what Avos and its helpers are at. Keeping
+ * an eye on: its jobs. Done: work you applied in the last seven days.
+ */
+export function avosWeek(
+  crew: Crew,
+  input: { jobs?: AvosJobsInput; now: number },
+): AvosWeek {
+  const on = crew.on;
+  const needs: AvosWeekRow[] = [];
+  for (const card of on ? crew.cards : [])
+    if (card.stage === "stuck")
+      needs.push({
+        id: `stuck:${card.id}`,
+        text: `“${card.title}” needs your answer`,
+        open: { kind: "card", cardId: card.id },
+      });
+  const ready = on ? crew.cards.filter((card) => card.stage === "ready") : [];
+  if (ready.length)
+    needs.push({
+      id: "ready",
+      text:
+        ready.length === 1
+          ? `Look at “${ready[0]!.title}”`
+          : `Look at ${ready.length} finished cards`,
+      open: { kind: "review" },
+    });
+  for (const run of avosReviews(crew.path, input.jobs))
+    needs.push({
+      id: `run:${run.id}`,
+      text:
+        run.review?.status === "open"
+          ? `${reviewHeading(run.review)}: ${run.review.title}`
+          : `“${run.name}” didn't finish`,
+      open: { kind: "run", runId: run.id },
+    });
+  // Cards at work, then anyone busy with something else (Avos answering
+  // you, a Scout looking for ideas).
+  const working = on
+    ? crew.cards.filter(
+        (card) =>
+          (card.stage === "building" || card.stage === "checking") &&
+          !card.paused,
+      )
+    : [];
+  const doing: AvosWeekRow[] = [
+    ...working.map((card) => ({ id: `card:${card.id}`, text: card.title })),
+    ...(on ? crew.members : []).flatMap((member) =>
+      member.role !== "fixer" &&
+      member.doing?.text &&
+      !working.some((card) => member.doing!.text.includes(card.title))
+        ? [{ id: `doing:${member.id}`, text: member.doing.text }]
+        : [],
+    ),
+  ];
+  const watching: AvosWeekRow[] = input.jobs
+    ? avosJobs(crew.path, input.jobs.agents)
+        .filter((job) => job.enabled)
+        .map((job) => ({
+          id: `job:${job.id}`,
+          text: job.name,
+          open: { kind: "job" as const, jobId: job.id },
+        }))
+    : [];
+  const done: AvosWeekRow[] = crew.cards
+    .filter(
+      (card) =>
+        card.stage === "applied" &&
+        (card.endedAt ?? card.updatedAt) >= input.now - WEEK,
+    )
+    .sort((a, b) => (b.endedAt ?? b.updatedAt) - (a.endedAt ?? a.updatedAt))
+    .slice(0, DONE_SHOWN)
+    .map((card) => ({ id: `done:${card.id}`, text: card.title }));
+  return { needs, doing, watching, done };
 }

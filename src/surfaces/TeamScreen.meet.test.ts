@@ -106,7 +106,8 @@ it("opens on meeting Avos: its Bot, who it is and its question, and nothing else
       .agent,
   ).toBe("watching");
   // No setup sheet, no three teammates, no panel: the chat alone.
-  expect(container.querySelector(".team-panel")).toBeNull();
+  expect(container.querySelector("[data-avos-week]")).toBeNull();
+  expect(container.querySelector("[data-crew-header]")).toBeNull();
   const box = container.querySelector<HTMLTextAreaElement>(
     ".team-compose-input",
   )!;
@@ -139,5 +140,6 @@ it("is an ordinary Avos screen once it has been awake", async () => {
   updateCrew(PROJECT, (crew) => ({ ...crew, on: true, onAt: NOW - 1 }));
   await open();
   expect(container.querySelector("[data-avos-meet]")).toBeNull();
-  expect(container.querySelector(".team-panel")).toBeTruthy();
+  expect(container.querySelector("[data-crew-header]")).toBeTruthy();
+  expect(container.querySelector("[data-avos-week]")).toBeTruthy();
 });
