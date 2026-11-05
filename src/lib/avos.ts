@@ -1,5 +1,6 @@
 import type { AgentState } from "./agentMark";
 import { reviewHeading } from "./automationReview";
+import { sameProjectPath } from "./recents";
 import { avosJobRuns, avosJobs } from "./avosJobs";
 import { crewStatus } from "./crewView";
 import type { Crew } from "./crews";
@@ -261,4 +262,48 @@ export function avosWeek(
     .slice(0, DONE_SHOWN)
     .map((card) => ({ id: `done:${card.id}`, text: card.title }));
   return { needs, doing, watching, done };
+}
+
+/** A "needs you" notice from one project's Avos, with what it offers. */
+export type AvosNotice = {
+  /** The project and the This week row it's about: shown once. */
+  id: string;
+  path: string;
+  text: string;
+  open?: AvosWeekRow["open"];
+  /** A job's run waiting for your word (Publish, Approve): one press. */
+  runId?: string;
+};
+
+/** Notices kept on screen at once, the newest. */
+export const AVOS_NOTICES_SHOWN = 3;
+
+/**
+ * Which "needs you" items deserve a notice now: those that weren't there
+ * before (`seen`), for an Avos whose screen isn't in front. The first look
+ * (no `seen` yet) only learns what's there, so opening Aven never brings a
+ * pile of old notices. Returns the new notices and what's been seen.
+ */
+export function avosNoticesFor(
+  needs: readonly { path: string; rows: readonly AvosWeekRow[] }[],
+  seen: ReadonlySet<string> | null,
+  inFront: string | null,
+): { notices: AvosNotice[]; seen: Set<string> } {
+  const next = new Set<string>();
+  const notices: AvosNotice[] = [];
+  for (const { path, rows } of needs)
+    for (const row of rows) {
+      const id = `${path}\n${row.id}`;
+      next.add(id);
+      if (!seen || seen.has(id) || (inFront && sameProjectPath(inFront, path)))
+        continue;
+      notices.push({
+        id,
+        path,
+        text: row.text,
+        ...(row.open ? { open: row.open } : {}),
+        ...(row.open?.kind === "run" ? { runId: row.open.runId } : {}),
+      });
+    }
+  return { notices, seen: next };
 }

@@ -908,13 +908,25 @@ import {
   firstCardChatText,
   installCrewWorkspace,
   pickCrewModels,
+  requestCrewReview,
   stopTeamForProject,
   teammateChatReady,
+  tellTeam,
   turnOnCrew,
 } from "./lib/crewActions";
 import { crewRunsLine } from "./lib/crewLimits";
 import { crewMemberViews, crewStatus } from "./lib/crewView";
-import { avosGlance, type AvosGlance } from "./lib/avos";
+import {
+  AVOS,
+  AVOS_NOTICES_SHOWN,
+  avosGlance,
+  avosMet,
+  avosNoticesFor,
+  avosWeek,
+  type AvosGlance,
+  type AvosNotice,
+} from "./lib/avos";
+import { AvosNoticeCard } from "./chrome/AvosNotices";
 import { crewChatModel } from "./lib/crewModels";
 import {
   crewForChat,
@@ -10010,8 +10022,25 @@ export default function App({
     );
   }, [currentProjectDock, dockVisible]);
 
+  // @Avos from a chat's box, through refs: the handlers are made further down.
+  const avosFromPaneRef = useRef<{
+    tell: (sessionId: string, text: string) => Promise<string | null>;
+    open: (path: string) => void;
+  } | null>(null);
+  const onTellAvosFromPane = useCallback(
+    (sessionId: string, text: string) =>
+      avosFromPaneRef.current?.tell(sessionId, text) ??
+      Promise.resolve("Open Aven's main window to write to Avos."),
+    [],
+  );
+  const onOpenAvosFromPane = useCallback(
+    (path: string) => avosFromPaneRef.current?.open(path),
+    [],
+  );
   const sessionPaneProps = {
     onRace: onRaceFromChat,
+    onTellAvos: onTellAvosFromPane,
+    onOpenAvos: onOpenAvosFromPane,
     recents,
     hideProjectPicker: true,
     onFocus: onFocusPane,
@@ -11488,6 +11517,10 @@ export default function App({
             : null;
         },
         wake: turnOnCrewFor,
+        openSession: (sessionId) => {
+          closeUtilityViews();
+          void onSelectHistorySession(sessionId);
+        },
         gitNeeded: gitSetupNeeded,
         setUpGit: (path) =>
           void gitSetupNeeded(path).then((need) => {
@@ -11503,6 +11536,7 @@ export default function App({
       ensureCrewChat,
       onChatSubmit,
       turnOnCrewFor,
+      onSelectHistorySession,
     ],
   );
   const crewStore = useCrewsStore();
@@ -11608,6 +11642,12 @@ export default function App({
     sessions,
     sessionById,
   ]);
+  // "Needs you" notices from each project's Avos, for what's new since you
+  // last looked and isn't on screen. Only the main window shows them.
+  const [avosNotices, setAvosNotices] = useState<AvosNotice[]>([]);
+  const avosSeen = useRef<Set<string> | null>(null);
+  const avosNoticeWindow =
+    !isDetachedWorkspace() && currentWindowLabel() === "main";
   // The project whose Avos screen is in front, for its row's highlight.
   const activeAvosPath = useMemo(() => {
     const pane = activeTab?.editorPanes.find(
@@ -11616,6 +11656,43 @@ export default function App({
     const file = pane?.files.find((entry) => entry.id === pane.activeFileId);
     return file && isBoardTab(file) ? file.board.project : null;
   }, [activeTab]);
+  useEffect(() => {
+    if (!avosNoticeWindow || !botsAvailable()) return;
+    const now = Date.now();
+    const jobs = { agents: avosAgents, runs: scheduledRuns };
+    const needs = profiles.profileProjects.flatMap((project) => {
+      const crew = crewStore[projectKey(project.path)];
+      return crew && avosMet(crew)
+        ? [{ path: crew.path, rows: avosWeek(crew, { jobs, now }).needs }]
+        : [];
+    });
+    const { notices, seen } = avosNoticesFor(
+      needs,
+      avosSeen.current,
+      activeAvosPath,
+    );
+    avosSeen.current = seen;
+    setAvosNotices((current) => {
+      // Sorted elsewhere, or its Avos is in front: the notice goes.
+      const kept = current.filter(
+        (notice) =>
+          seen.has(notice.id) &&
+          !(activeAvosPath && sameProjectPath(activeAvosPath, notice.path)),
+      );
+      const next = [...kept, ...notices].slice(-AVOS_NOTICES_SHOWN);
+      return next.length === current.length &&
+        next.every((notice, index) => notice === current[index])
+        ? current
+        : next;
+    });
+  }, [
+    avosNoticeWindow,
+    avosAgents,
+    scheduledRuns,
+    crewStore,
+    profiles.profileProjects,
+    activeAvosPath,
+  ]);
   /**
    * Open a project's Avos: every project has one, saved the first time it's
    * opened (never up front). The first open is meeting it, in its chat.
@@ -11629,6 +11706,26 @@ export default function App({
     [onOpenCrew],
   );
   const onAddCrew = onOpenAvos;
+  /**
+   * @Avos from a chat: the message goes to that chat's project's Avos (saved
+   * and woken if need be), with a link back to the chat.
+   */
+  const onTellAvos = useCallback(
+    async (sessionId: string, text: string): Promise<string | null> => {
+      const chat = sessionsRef.current.find(
+        (session) => session.id === sessionId,
+      );
+      if (!chat || !botsAvailable() || !looksLikeProject(chat.cwd))
+        return "Avos looks after a project. Open this chat in one first.";
+      ensureAvos(chat.cwd);
+      return tellTeam(chat.cwd, text, "lead", Date.now(), {
+        sessionId,
+        title: conversationTitle(chat),
+      });
+    },
+    [sessionsRef],
+  );
+  avosFromPaneRef.current = { tell: onTellAvos, open: onOpenAvos };
   // A crew's chats stay its chats when it is off: they never become
   // ordinary chats in your folder, and they refuse to start until the crew
   // is on again (see crewChatPermissions).
@@ -12539,6 +12636,11 @@ export default function App({
                         }}
                         onNewProjectTask={onNewProjectTask}
                         onOpenBoard={onOpenBoard}
+                        avos={avosGlances}
+                        onOpenAvos={(path) => {
+                          setHomeViewOpen(false);
+                          onOpenAvos(path);
+                        }}
                         bots={sidebarBots}
                         onOpenBot={onOpenBot}
                         onBotSettings={onBotAction}
@@ -13261,6 +13363,37 @@ export default function App({
               pillsDocked={footerShown}
             />
             <ApprovalToasts
+              {...(avosNotices.length
+                ? {
+                    extra: avosNotices.map((notice) => (
+                      <AvosNoticeCard
+                        key={notice.id}
+                        notice={notice}
+                        {...(() => {
+                          const run = notice.runId
+                            ? scheduledRuns.find(
+                                (item) => item.id === notice.runId,
+                              )
+                            : undefined;
+                          return run ? { run } : {};
+                        })()}
+                        onOpen={(item) => {
+                          if (item.open?.kind === "review")
+                            requestCrewReview(item.path);
+                          onOpenAvos(item.path);
+                        }}
+                        onAnswer={(run) =>
+                          void automationReviewActionRef.current(run)
+                        }
+                        onDismiss={(id) =>
+                          setAvosNotices((current) =>
+                            current.filter((item) => item.id !== id),
+                          )
+                        }
+                      />
+                    )),
+                  }
+                : {})}
               notices={hiddenApprovalToasts}
               onFocusSession={onOpenApprovalSession}
               onApproval={onApproval}
@@ -13431,7 +13564,9 @@ function toTitleTab(
           ? releaseNotesTitle(file.releaseNotes.version)
           : file.terminal
             ? terminalTabLabel(file)
-            : basename(file.path)),
+            : file.board && avosBoard(file.board.project)
+              ? AVOS
+              : basename(file.path)),
     );
   };
   const focusedPane =
@@ -13501,7 +13636,15 @@ function toTitleTab(
     race: Boolean(race),
     botPath: focused ? botForChat(focused.id)?.path : undefined,
     board,
+    // A project's Board once you've met its Avos is its Avos: named so, and
+    // wearing its Bot, pinned or not.
+    avos: board && !!focusedFile?.board && avosBoard(focusedFile.board.project),
   };
+}
+
+/** Whether a project's Board tab is its Avos (see `WorkBoard`). */
+function avosBoard(project: string): boolean {
+  return botsAvailable() && avosMet(getCrew(project));
 }
 
 /** Offers a turn you typed the way to set up an automation, if it asks for one. */

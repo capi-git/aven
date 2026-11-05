@@ -780,7 +780,12 @@ export type CrewMessage = {
   as?: CrewMessageKind;
   /** The Feed's own line for it ("You gave Avos …"), which it stands for. */
   echo?: string;
+  /** The chat you wrote it from with @Avos, for a link back to it. */
+  from?: CrewMessageFrom;
 };
+
+/** A chat a message to Avos came from: its id and its title then. */
+export type CrewMessageFrom = { sessionId: string; title: string };
 
 export type CrewMessageKind = "card" | "rule" | "goal" | "lead";
 
@@ -1882,6 +1887,13 @@ function readTalks(value: unknown): CrewTalk[] {
     .slice(-CREW_TALKS_KEPT);
 }
 
+function readFrom(value: unknown): { from?: CrewMessageFrom } {
+  const from = value as Partial<CrewMessageFrom> | null | undefined;
+  const sessionId = text(from?.sessionId, 80);
+  const title = text(from?.title, 200);
+  return sessionId ? { from: { sessionId, title: title ?? "" } } : {};
+}
+
 function readMessages(value: unknown): CrewMessage[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1901,6 +1913,7 @@ function readMessages(value: unknown): CrewMessage[] {
         ...(MESSAGE_KINDS.has(entry.as as CrewMessageKind)
           ? { as: entry.as as CrewMessageKind }
           : {}),
+        ...readFrom(entry.from),
       };
     })
     .filter((entry): entry is CrewMessage => !!entry)
@@ -3069,6 +3082,7 @@ export function withMessage(
     ...(message.to ? { to: message.to } : {}),
     ...(message.as ? { as: message.as } : {}),
     ...(message.echo ? { echo: message.echo } : {}),
+    ...(message.from ? { from: message.from } : {}),
   };
   return {
     ...crew,

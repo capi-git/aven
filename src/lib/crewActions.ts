@@ -65,6 +65,7 @@ import {
   type CrewCard,
   type CrewLimitName,
   type CrewMember,
+  type CrewMessageFrom,
   type CrewMessageKind,
   type CrewMockup,
   type CrewRole,
@@ -477,10 +478,14 @@ export async function tellTeam(
   text: string,
   as: CrewMessageKind = "card",
   now = Date.now(),
+  /** The chat you wrote it from with @Avos (a message to Avos only). */
+  from?: CrewMessageFrom,
 ): Promise<string | null> {
   const words = text.trim();
   if (!words) return null;
-  if (words.length > CREW_NOTE_MAX) return TOO_LONG_FOR_EVERYONE;
+  // A message to Avos is a chat message; the rest become cards or rules.
+  if (words.length > (as === "lead" ? CREW_MESSAGE_MAX : CREW_NOTE_MAX))
+    return TOO_LONG_FOR_EVERYONE;
   if (as === "goal" && words.length > CREW_GOAL_MAX) return TOO_LONG_FOR_A_GOAL;
   // Writing to Avos wakes it. The first time, its introduction stays in
   // its chat above what you said, as it was on screen.
@@ -502,10 +507,13 @@ export async function tellTeam(
           at: now,
           from: "you",
           to: lead.id,
-          text: words,
+          // Avos hears where you wrote it from; your words stay as you wrote them.
+          text: from
+            ? `${words}\n\n(The user wrote this to you from their chat “${from.title || "Untitled"}”.)`
+            : words,
           hop: 0,
         }),
-        { at: now, text: words, as },
+        { at: now, text: words, as, ...(from ? { from } : {}) },
       ),
     );
     return null;
@@ -2757,6 +2765,8 @@ export type CrewWorkspace = {
   gitNeeded?: (path: string) => Promise<"no-git" | "no-commit" | null>;
   /** Offer to set up Git for the project (its own dialog). */
   setUpGit?: (path: string) => void;
+  /** Show one of your chats, by its id (a message's link back to it). */
+  openSession?: (sessionId: string) => void;
 };
 
 /**

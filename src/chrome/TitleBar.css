@@ -335,7 +335,8 @@ html.theme-light .personal-shell {
   [data-tab-separator]::before {
   content: none;
 }
-.personal-shell .personal-title-tab-identity .personal-title-tab-bot {
+.personal-shell .personal-title-tab-identity .personal-title-tab-bot,
+.personal-shell .personal-title-tab-identity .personal-title-tab-avos {
   width: 15px;
   height: 15px;
   flex-shrink: 0;

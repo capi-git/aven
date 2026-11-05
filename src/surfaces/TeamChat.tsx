@@ -749,6 +749,21 @@ function PostView({
               post.as && post.as !== "lead"
               ? ` · ${BECAME[post.as]}`
               : ""}
+          {post.from ? (
+            <>
+              {" · "}
+              <button
+                type="button"
+                className="team-post-link"
+                data-team-from={post.from.sessionId}
+                title="Open that chat"
+                disabled={!workspace?.openSession}
+                onClick={() => workspace?.openSession?.(post.from!.sessionId)}
+              >
+                from “{post.from.title || "Untitled"}”
+              </button>
+            </>
+          ) : null}
         </p>
       </li>
     );

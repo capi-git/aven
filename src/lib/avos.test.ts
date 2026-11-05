@@ -1,6 +1,13 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { avosGlance, avosLine, avosMet, avosUnmet, avosWeek } from "./avos";
+import {
+  avosGlance,
+  avosLine,
+  avosMet,
+  avosNoticesFor,
+  avosUnmet,
+  avosWeek,
+} from "./avos";
 import { teamPosts } from "./teamThread";
 import {
   BUILDING_NEEDS_GIT,
@@ -393,5 +400,72 @@ describe("This week", () => {
       ["Website Articles in Notion", "job"],
     ]);
     expect(week.done.map((row) => row.text)).toEqual(["Footer links"]);
+  });
+});
+
+describe("@Avos from another chat", () => {
+  it("tells Avos where it came from, and keeps a link back to that chat", async () => {
+    ensureAvos(PATH);
+    updateCrew(PATH, (crew) => ({ ...crew, on: true, onAt: NOON }));
+    const long = `Look at this: ${"x".repeat(900)}`;
+    expect(
+      await tellTeam(PATH, long, "lead", NOON, {
+        sessionId: "chat-7",
+        title: "Insights page copy",
+      }),
+    ).toBeNull();
+    const crew = getCrew(PATH)!;
+    expect(crew.talks?.at(-1)?.text).toBe(
+      `${long}\n\n(The user wrote this to you from their chat “Insights page copy”.)`,
+    );
+    const [post] = teamPosts(crew, nameOf(crew));
+    expect(post).toMatchObject({
+      kind: "you",
+      text: long,
+      from: { sessionId: "chat-7", title: "Insights page copy" },
+    });
+  });
+});
+
+describe("a needs-you notice", () => {
+  const ready = {
+    id: "ready",
+    text: "Look at “Pricing”",
+    open: { kind: "review" as const },
+  };
+  const run = {
+    id: "run:r1",
+    text: "Ready to publish: 2 new articles",
+    open: { kind: "run" as const, runId: "r1" },
+  };
+  it("learns what's there on the first look, then tells only what's new", () => {
+    const first = avosNoticesFor([{ path: PATH, rows: [ready] }], null, null);
+    expect(first.notices).toEqual([]);
+    const next = avosNoticesFor(
+      [{ path: PATH, rows: [ready, run] }],
+      first.seen,
+      null,
+    );
+    expect(next.notices).toEqual([
+      {
+        id: `${PATH}\nrun:r1`,
+        path: PATH,
+        text: "Ready to publish: 2 new articles",
+        open: { kind: "run", runId: "r1" },
+        runId: "r1",
+      },
+    ]);
+    // Said once.
+    expect(
+      avosNoticesFor([{ path: PATH, rows: [ready, run] }], next.seen, null)
+        .notices,
+    ).toEqual([]);
+  });
+
+  it("stays quiet about the Avos whose screen is in front", () => {
+    const { seen } = avosNoticesFor([{ path: PATH, rows: [] }], null, null);
+    expect(
+      avosNoticesFor([{ path: PATH, rows: [run] }], seen, `${PATH}/`).notices,
+    ).toEqual([]);
   });
 });

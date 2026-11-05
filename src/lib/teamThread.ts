@@ -14,6 +14,7 @@ import {
   type CrewFeedAction,
   type CrewFeedEntry,
   type CrewMember,
+  type CrewMessageFrom,
   type CrewMessageKind,
   type CrewRole,
 } from "./crews";
@@ -72,6 +73,8 @@ export type TeamPost =
       to?: TeamAuthor;
       /** What a message to everyone became. */
       as?: CrewMessageKind;
+      /** The chat you wrote it from with @Avos. */
+      from?: CrewMessageFrom;
     }
   | {
       kind: "event";
@@ -421,6 +424,7 @@ export function teamPosts(
           }
         : {}),
       ...(message.as && !message.to ? { as: message.as } : {}),
+      ...(message.from ? { from: message.from } : {}),
     });
   }
   for (const entry of crew.feed) {
