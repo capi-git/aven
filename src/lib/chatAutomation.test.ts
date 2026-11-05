@@ -5,6 +5,7 @@ import {
   armChatAutomation,
   asksForAutomation,
   chatAutomationId,
+  parseAutomationFields,
   parseChatAutomationBody,
   settleChatAutomation,
 } from "./chatAutomation";
@@ -49,6 +50,27 @@ describe("asking in a chat", () => {
     ])
       expect(asksForAutomation(text), text).toBe(true);
     for (const text of ["fix the bug", "every test passes", "what is daylight"])
+      expect(asksForAutomation(text), text).toBe(false);
+  });
+
+  it("hears a request to keep watching something", () => {
+    for (const text of [
+      "watch this Notion page; if it updates, add it to the articles on the website",
+      "keep an eye on the changelog",
+      "Whenever a new post appears, share it",
+      "if the page changes, tell me",
+      "keep the docs up to date with Notion",
+      "monitor the feed for new releases",
+    ])
+      expect(asksForAutomation(text), text).toBe(true);
+    for (const text of [
+      "run npm in watch mode",
+      "the watch task fails",
+      "does the file watcher work",
+      "what changed in this file",
+      "if this changes the API we need a note",
+      "I watched the demo",
+    ])
       expect(asksForAutomation(text), text).toBe(false);
   });
 
@@ -116,6 +138,16 @@ describe("the block", () => {
         }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("an automation as an object", () => {
+  it("reads a team's job by the same rules as a block", () => {
+    expect(parseAutomationFields(JSON.parse(body))).toEqual(
+      parseChatAutomationBody(body),
+    );
+    for (const bad of [null, "text", [], { name: "N", prompt: "P" }])
+      expect(parseAutomationFields(bad)).toBeNull();
   });
 });
 

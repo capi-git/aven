@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tellTeam } from "./crewActions";
 import { CrewRunner, resetCrewRunnerSession } from "./crewRunner";
-import { TALK_HOPS, parseTalk } from "./crewTalk";
+import { TALK_HOPS, parseTalk, talkMayAddJob } from "./crewTalk";
 import {
   crewLead,
   getCrew,
@@ -16,6 +16,7 @@ import { ideaWaits } from "./crewLimits";
 import { localDay } from "./projectBots";
 import { resetProjectBotsCache } from "./projectBots";
 import type { BotSendOptions } from "./projectBotRunner";
+import { listScheduledAgents } from "./scheduledAgents";
 import type { Session } from "./session";
 
 const PATH = "/Users/me/aven-site";
@@ -588,5 +589,171 @@ describe("teammates asking each other", () => {
       'Before: ```aven-talk\n{"line":"Early","ask":[{"to":"Builder","text":"x"}]}\n```\n\nNot the end of it.',
     );
     expect(said.asks).toEqual([]);
+  });
+});
+
+describe("a standing job", () => {
+  const NOTION = "https://www.notion.so/team/Articles-abc123";
+  const job = {
+    name: "Notion articles",
+    template: "notion-articles",
+    answers: { source: NOTION, destination: "/articles", readyStatus: "" },
+    everyHours: 6,
+  };
+  const ASK = `Watch this Notion page: ${NOTION}. If it updates, add it to the articles on the website.`;
+  const jobs = () =>
+    listScheduledAgents().filter((agent) => agent.owner?.avos === PATH);
+
+  it("turns a watch request into the team's job, with no idea cards", async () => {
+    team();
+    const { runner, sent, added, settle } = harness({
+      lead: () =>
+        talk({
+          line: "I'll check the page every 6 hours and draft new articles.",
+          job,
+          cards: [{ title: "Add Notion articles", size: "small" }],
+        }),
+    });
+    runner.start();
+    await tellTeam(PATH, ASK, "lead", NOON);
+    await settle();
+    expect(sent[0]!.text).toContain('"job"');
+    expect(added).toEqual([]);
+    expect(jobs()).toHaveLength(1);
+    expect(jobs()[0]).toMatchObject({
+      name: "Notion articles",
+      // The project itself, never the team's copy.
+      project: PATH,
+      owner: { avos: PATH },
+      harness: "claude",
+      model: "claude:test",
+      runtimeMode: "auto",
+      schedule: { kind: "interval", hours: 6 },
+      enabled: true,
+      createdAt: NOON + MINUTE,
+    });
+    expect(jobs()[0]!.prompt).toContain(NOTION);
+    expect(lines()).toEqual([
+      "I'll check the page every 6 hours and draft new articles.",
+    ]);
+    runner.stop();
+  });
+
+  it("asks first when the team does", async () => {
+    team((crew) => ({
+      ...crew,
+      access: { deletes: false, web: "builders", others: "ask" },
+    }));
+    const { runner, settle } = harness({
+      lead: () => talk({ line: "On it.", job }),
+    });
+    runner.start();
+    await tellTeam(PATH, ASK, "lead", NOON);
+    await settle();
+    expect(jobs()[0]!.runtimeMode).toBe("supervised");
+    runner.stop();
+  });
+
+  it("sets up the same job once", async () => {
+    team();
+    const { runner, settle } = harness({
+      lead: () => talk({ line: "On it.", job }),
+    });
+    runner.start();
+    await tellTeam(PATH, ASK, "lead", NOON);
+    await settle();
+    await tellTeam(PATH, ASK, "lead", NOON + 10 * MINUTE);
+    await settle();
+    expect(jobs()).toHaveLength(1);
+    runner.stop();
+  });
+
+  it("isn't offered, and sets up nothing, when your message doesn't ask", async () => {
+    team();
+    const { runner, sent, settle } = harness({
+      lead: () => talk({ line: "Sure.", job }),
+    });
+    runner.start();
+    await tellTeam(PATH, "What does the articles page do?", "lead", NOON);
+    await settle();
+    expect(sent[0]!.text).not.toContain('"job"');
+    expect(jobs()).toEqual([]);
+    expect(
+      getCrew(PATH)!.feed.some((entry) =>
+        /only a message of yours asking for it/.test(entry.text),
+      ),
+    ).toBe(true);
+    runner.stop();
+  });
+
+  it("sets up nothing from a routine", async () => {
+    team((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.role === "lead"
+          ? {
+              ...member,
+              routine: { text: ASK, every: "day" as const, at: 0 },
+            }
+          : member,
+      ),
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () => talk({ line: "Done.", job }),
+    });
+    runner.start();
+    await settle();
+    expect(sent[0]!.text).not.toContain('"job"');
+    expect(jobs()).toEqual([]);
+    runner.stop();
+  });
+
+  it("sets up nothing from a teammate's words", async () => {
+    team();
+    const { runner, settle } = harness({
+      lead: () => talk({ line: "Noted.", job }),
+    });
+    updateCrew(PATH, (crew) =>
+      withTalk(crew, {
+        at: NOON,
+        from: "checker",
+        to: "lead",
+        text: ASK,
+        hop: 1,
+      }),
+    );
+    runner.start();
+    await settle();
+    expect(jobs()).toEqual([]);
+    runner.stop();
+  });
+});
+
+describe("a reply's job", () => {
+  it("is read by the same rules as an automation block", () => {
+    const said = parseTalk(
+      talk({
+        line: "Every morning.",
+        job: { name: "Digest", prompt: "Sum up", days: [1], time: "08:00" },
+      }),
+    );
+    expect(said.job).toMatchObject({
+      name: "Digest",
+      schedule: { kind: "weekly", days: [1], time: "08:00" },
+    });
+    expect(parseTalk(talk({ line: "x", job: { name: "No" } })).job).toBe(
+      undefined,
+    );
+  });
+
+  it("is offered only to the Lead, on your own message asking for it", () => {
+    const yours = { from: "you", text: "check the site every morning" };
+    expect(talkMayAddJob(yours, "lead")).toBe(true);
+    expect(talkMayAddJob(yours, "builder")).toBe(false);
+    expect(talkMayAddJob({ ...yours, routine: true }, "lead")).toBe(false);
+    expect(talkMayAddJob({ ...yours, from: "checker" }, "lead")).toBe(false);
+    expect(talkMayAddJob({ ...yours, text: "fix the footer" }, "lead")).toBe(
+      false,
+    );
   });
 });

@@ -1,4 +1,11 @@
 import { finalFencedBlock } from "./automationReview";
+import {
+  AUTOMATION_SHAPE,
+  asksForAutomation,
+  automationRules,
+  parseAutomationFields,
+  type ChatAutomationDraft,
+} from "./chatAutomation";
 import { botLine } from "./crewHandoff";
 import { cleanUntrusted, wrapData } from "./memoryKeeperSafety";
 import {
@@ -36,6 +43,11 @@ export type TalkReply = {
   asks: { to: string; text: string }[];
   cards: { title: string; why?: string; size: CrewIdeaSize }[];
   helpers: { title: string; task: string }[];
+  /**
+   * Work that repeats or keeps watching, as an automation describes it: the
+   * Lead's, and only from your own message (see `CrewRunner.afterTalk`).
+   */
+  job?: ChatAutomationDraft;
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -94,11 +106,13 @@ export function parseTalk(text: string): TalkReply {
     if (title && task && helpers.length < TALK_ASKS_MAX)
       helpers.push({ title, task });
   }
+  const job = parseAutomationFields(fields?.job);
   return {
     line: botLine(fields?.line, TALK_LINE_MAX) || firstLine(text),
     asks,
     cards,
     helpers,
+    ...(job ? { job } : {}),
   };
 }
 
@@ -122,6 +136,24 @@ export function talkTarget(
   );
 }
 
+/**
+ * Whether the Lead's answer to this message may set up a job. A job keeps
+ * running on its own, so only your own typed message that asks for
+ * something repeating can lead to one: never a routine, a teammate's words,
+ * or a page one of them read.
+ */
+export function talkMayAddJob(
+  talk: Pick<CrewTalk, "from" | "text" | "routine">,
+  role: CrewMember["role"] | undefined,
+): boolean {
+  return (
+    role === "lead" &&
+    talk.from === "you" &&
+    !talk.routine &&
+    asksForAutomation(talk.text)
+  );
+}
+
 /** Whether a message may be passed on once more. */
 export function talkMayHop(talk: Pick<CrewTalk, "hop">): boolean {
   return talk.hop < TALK_HOPS;
@@ -141,6 +173,7 @@ function howToAnswer(input: {
   others: readonly string[];
   mayAsk: boolean;
   mayStartHelpers?: boolean;
+  mayAddJob?: boolean;
 }): string {
   const fields = [
     `"line": "One line for the team chat, under ${TALK_LINE_MAX} characters."`,
@@ -157,6 +190,7 @@ function howToAnswer(input: {
           `"helpers": [{"title": "A few words", "task": "One thing to look into."}]`,
         ]
       : []),
+    ...(input.mayAddJob ? [`"job": ${AUTOMATION_SHAPE}`] : []),
   ];
   return [
     `Answer in this chat, as long as it needs. Then end your reply with exactly one block, as the very last thing in it:\n\`\`\`${TALK_FENCE}\n{${fields.join(", ")}}\n\`\`\`\nLeave out what you don't need.`,
@@ -173,6 +207,14 @@ function howToAnswer(input: {
     ...(input.isLead
       ? [
           "When the user asks for something built, put it under cards: it goes on the Board, where the team builds and checks it. Large work waits for the user. You never change files yourself.",
+          ...(input.mayAddJob
+            ? [
+                [
+                  `When the user asks for something that repeats or keeps watching ("every morning…", "watch this page, and when it changes…"), it's a job, not cards: put it under job, with no cards for it. Aven runs it on its schedule in the project itself, leaves anything to publish as a draft for the user, and shows it in this chat. Say in your line what you'll keep an eye on and when. At most one job.`,
+                  ...automationRules("this chat", "job"),
+                ].join("\n"),
+              ]
+            : []),
         ]
       : [
           "This is a message, not a card: answer it. Don't change files for it, don't commit, and leave out any other block you'd end a card's turn with.",
@@ -195,6 +237,8 @@ export function talkMessage(input: {
   /** The reply may pass this on: fewer than the limit so far. */
   mayAsk: boolean;
   mayStartHelpers?: boolean;
+  /** The Lead may set up a job: your own message asks for one. */
+  mayAddJob?: boolean;
   brief?: string;
   /** Its instructions and notes, as any turn carries them. */
   guidance?: string;
