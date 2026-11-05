@@ -280,8 +280,9 @@
   height: 16px;
   color: var(--personal-muted);
 }
-/* What is happening in the project: quiet marks at the row's end. A running
-   agent shows on the mark; a logo, which stays still, gets the accent dot. */
+/* What is happening in the project: quiet marks at the row's end. The
+   project's mark stays still (its Stack fans only while the project is
+   open), so a running agent is the small dot. */
 .personal-shell .personal-navigation .personal-project-status {
   display: inline-flex;
   flex-shrink: 0;
@@ -296,18 +297,11 @@
   line-height: 1;
 }
 .personal-shell .personal-navigation .personal-project-running {
-  display: none;
+  display: inline-block;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--color-content);
-}
-.personal-shell
-  .personal-navigation
-  .project-mark[data-kind="logo"]
-  ~ .personal-project-status
-  .personal-project-running {
-  display: inline-block;
 }
 .personal-shell .personal-navigation .personal-project-memory {
   display: none;
@@ -357,10 +351,6 @@
   background: var(--aven-fill-tertiary);
   color: var(--aven-label-secondary);
   font-weight: 600;
-}
-/* A hidden sidebar keeps its rows; their marks stop moving. */
-.personal-shell .personal-sidebar-slot[data-open="false"] .project-mark * {
-  animation-play-state: paused;
 }
 /* A row's actions (fold, New chat, ···) take no room at rest and
    show on hover, on keyboard focus anywhere in the row (they stay in the Tab

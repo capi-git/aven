@@ -52,13 +52,13 @@ afterEach(async () => {
 
 const PATH = "/tmp/aven-project";
 
-const render = (status?: ProjectStatus) =>
+const render = (status?: ProjectStatus, expanded = false) =>
   act(async () =>
     root.render(
       createElement(PersonalProjectRow, {
         path: PATH,
         active: false,
-        expanded: false,
+        expanded,
         status,
         profiles: DEFAULT_WORKSPACE_PROFILES,
         activeProfileId: "personal",
@@ -109,33 +109,50 @@ it("still opens the context menu at the pointer", async () => {
   expect(frame?.style.top).toBe("50px");
 });
 
-it("shows the project's mark without its colour, sweeping only while an agent runs", async () => {
+it("shows the project as its Stack in its colour, fanned only while it is open", async () => {
   await render();
-  const mark = () =>
-    host.querySelector<HTMLElement>(".project-mark .dot-mark")!;
-  expect(host.querySelector(".project-mark")?.getAttribute("data-kind")).toBe(
-    "mark",
-  );
-  expect(mark().dataset.state).toBe("still");
-  // A colour saved before marks stays saved, and unseen.
+  const mark = () => host.querySelector<HTMLElement>(".project-mark")!;
+  const stack = () => mark().querySelector<HTMLElement>(".stack-mark")!;
+  expect(mark().dataset.kind).toBe("stack");
+  expect(stack().hasAttribute("data-open")).toBe(false);
+  // A colour saved before marks is the Stack's, from the theme's tokens.
   await act(async () => saveTabGroupColor(projectKey(PATH), 4));
-  expect(mark().getAttribute("style")).toBeNull();
+  expect(stack().dataset.tone).toBe("green");
+  expect(stack().getAttribute("style")).toBeNull();
   expect(host.innerHTML).not.toContain(TAB_GROUP_COLORS[4]);
-  await render({ running: 1, waiting: 0, unread: 0 });
-  expect(mark().dataset.state).toBe("working");
-  // The working dot is gone: the mark carries the state.
-  expect(host.querySelector(".personal-task-working-dot")).toBeNull();
+  await render(undefined, true);
+  expect(stack().hasAttribute("data-open")).toBe(true);
+  await render(undefined, false);
+  expect(stack().hasAttribute("data-open")).toBe(false);
 });
 
-it("shows a logo instead of the mascot when one is set", async () => {
-  saveTabGroupLogo(projectKey(PATH), "/logos/aven.png");
+it("keeps the Stack still while an agent runs: a small dot says so", async () => {
   await render({ running: 1, waiting: 0, unread: 0 });
+  const mark = host.querySelector<HTMLElement>(".project-mark")!;
+  expect(mark.dataset.kind).toBe("stack");
+  expect(mark.hasAttribute("data-active")).toBe(false);
+  expect(host.querySelector(".dot-mark")).toBeNull();
+  expect(host.querySelector(".personal-project-running")).not.toBeNull();
+  // The stylesheet shows the dot beside any mark, not only a logo.
+  const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
+  expect(css).toMatch(
+    /\.personal-navigation \.personal-project-running \{\s*display: inline-block;/,
+  );
+  expect(css).not.toContain('.project-mark[data-kind="logo"]');
+  await render({ running: 0, waiting: 0, unread: 0 });
+  expect(host.querySelector(".personal-project-running")).toBeNull();
+});
+
+it("shows a logo instead of the Stack when one is set, open or not", async () => {
+  saveTabGroupLogo(projectKey(PATH), "/logos/aven.png");
+  await render({ running: 1, waiting: 0, unread: 0 }, true);
   const mark = host.querySelector(".project-mark")!;
   expect(mark.getAttribute("data-kind")).toBe("logo");
   expect(mark.querySelector("img")?.getAttribute("src")).toMatch(
     /^asset:\/\/localhost\/logos\/aven\.png/,
   );
-  // A still logo gets the accent dot instead (shown by the stylesheet).
+  expect(mark.querySelector(".stack-mark")).toBeNull();
+  // A logo stays still too, with the running dot.
   expect(host.querySelector(".personal-project-running")).not.toBeNull();
 });
 
@@ -162,7 +179,7 @@ it("spells out what is happening in the tooltip and keeps the marks quiet", asyn
   expect(host.querySelectorAll(".personal-project-row-action")).toHaveLength(2);
 });
 
-it("customizes the name and mark from the actions menu, and resets", async () => {
+it("customizes the name and colour from the actions menu, and resets", async () => {
   await render();
   const button = host.querySelector<HTMLButtonElement>(
     ".personal-project-more",
@@ -190,15 +207,19 @@ it("customizes the name and mark from the actions menu, and resets", async () =>
     setter.call(name, "Aven app");
     name.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  // Marks have no colour, so the panel offers none.
-  expect(dialog()!.querySelector('button[aria-label="Color 3"]')).toBeNull();
+  // The Stack has no sigil to pick: only its colour and a logo.
+  expect(
+    dialog()!.querySelector('[role="radiogroup"][aria-label="Mark"]'),
+  ).toBeNull();
   await act(async () =>
     dialog()!
-      .querySelector<HTMLButtonElement>('button[aria-label="Pillars"]')!
+      .querySelector<HTMLButtonElement>('button[aria-label="Teal"]')!
       .click(),
   );
-  // Saved under the critter name the mark stands for, as before marks.
-  expect(loadTabGroupMascots()[projectKey(PATH)]).toBe("jelly");
+  expect(loadTabGroupColors()[projectKey(PATH)]).toBe(7);
+  expect(
+    host.querySelector<HTMLElement>(".project-mark .stack-mark")?.dataset.tone,
+  ).toBe("teal");
 
   await act(async () =>
     [...dialog()!.querySelectorAll<HTMLButtonElement>("button")]

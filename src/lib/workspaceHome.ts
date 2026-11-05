@@ -486,7 +486,7 @@ export function homeNeedsYou(
   return [...waiting.sort(newestFirst), ...unread.sort(newestFirst)];
 }
 
-export function isWaitingAttention(item: HomeAttention): boolean {
+export function isWaitingAttention(item: Pick<HomeAttention, "kind">): boolean {
   return (
     item.kind === "approval" ||
     item.kind === "question" ||

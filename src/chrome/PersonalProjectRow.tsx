@@ -158,7 +158,6 @@ export function PersonalProjectRow({
     const rect = event.currentTarget.getBoundingClientRect();
     setMenu({ x: rect.left, y: rect.bottom });
   };
-  const running = (status?.running ?? 0) > 0;
   const keeper = useMemoryKeeperProject(path);
   const now = Date.now();
   // Aven updated the project's memory: a line in the tooltip for a day, and
@@ -203,8 +202,7 @@ export function PersonalProjectRow({
         >
           <ProjectMark
             path={path}
-            active={running}
-            reacts
+            open={expanded}
             className="personal-project-symbol"
           />
           <span ref={labelRef} className="personal-project-label">
@@ -317,7 +315,7 @@ export function PersonalProjectRow({
  * Quiet, right-aligned status: a small brain after Aven updated the
  * project's memory (until it is opened), an amber dot while something waits
  * for the user, the unread reply count, and the changed-file count. A running
- * agent shows on the mark itself (or as the accent dot beside a logo).
+ * agent is a small dot: the project's mark stays still.
  */
 function ProjectRowStatus({
   status,

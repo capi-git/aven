@@ -505,8 +505,8 @@
   text-overflow: ellipsis;
 }
 
-/* The mark picker: every project mark in a grid, the one under the cursor
-   previewed above it. */
+/* The colour picker: the agent in the colour under the cursor, above a row
+   of every mark colour. */
 .helm-critter-stage {
   display: flex;
   align-items: center;
@@ -520,46 +520,13 @@
   width: 35px;
   height: 35px;
 }
-.helm-critter-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 2px;
-  padding: 2px;
-}
-.helm-critter-cell {
-  display: grid;
-  place-items: center;
-  height: 38px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--aven-radius-md);
-  background: transparent;
-  cursor: pointer;
-}
-.helm-critter-cell[data-active] {
-  background: var(--helm-row-active);
-}
-.helm-critter-cell[aria-checked="true"] {
-  box-shadow: inset 0 0 0 1px
-    color-mix(in srgb, var(--color-content) 30%, transparent);
-}
-.dot-mark.helm-critter-cell-art {
-  width: 20px;
-  height: 20px;
-}
-/* The colour row under the marks: a dot of each mark colour, Grey first.
-   The chosen one is ringed; the row itself has no colour of its own. */
-.helm-critter-stage-tone {
-  margin-left: 6px;
-  opacity: 0.75;
-}
+/* The colour row: a dot of each mark colour, Grey first. The chosen one is
+   ringed; the row itself has no colour of its own. */
 .helm-colour-row {
   display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 2px;
-  margin-top: 4px;
   padding: 4px 2px 2px;
-  border-top: 1px solid var(--aven-line);
 }
 .helm-colour-cell {
   display: grid;

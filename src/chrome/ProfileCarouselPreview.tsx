@@ -190,6 +190,7 @@ export const ProfileCarouselPreview = memo(function ProfileCarouselPreview({
               <div className="personal-project-open">
                 <ProjectMark
                   path={project.path}
+                  open={!!project.tasks.length}
                   className="personal-project-symbol"
                 />
                 <span className="personal-project-label">{project.name}</span>

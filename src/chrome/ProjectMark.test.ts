@@ -9,7 +9,6 @@ import {
 } from "../lib/activity";
 import { REACTION_CLAIMS_KEY } from "../lib/mascotReactions";
 import { projectKey } from "../lib/paths";
-import { CROSS_ROWS, TICK_ROWS, litPath, projectSigil } from "../lib/dotSigils";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import { ProjectMark } from "./ProjectMark";
 
@@ -48,10 +47,6 @@ function turn(id: string, patch: Partial<ActivityInput> = {}): ActivityInput {
   };
 }
 
-const dots = () => container.querySelector<HTMLElement>(".dot-mark")!;
-const lit = () =>
-  container.querySelector(".dot-mark-lit")?.getAttribute("d") ?? null;
-
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -80,120 +75,66 @@ async function draw(props: Parameters<typeof ProjectMark>[0]) {
   await act(async () => root.render(createElement(ProjectMark, props)));
 }
 
-describe("project marks", () => {
-  it("draws the project's sigil in dots, with no colour of its own", async () => {
-    await draw({ appearance: appearance() });
-    const mark = container.querySelector<HTMLElement>(".project-mark")!;
-    expect(mark.dataset.kind).toBe("mark");
-    // The jellyfish it saved reads as its sigil.
-    expect(dots().dataset.sigil).toBe("pillars");
-    expect(dots().dataset.state).toBe("still");
-    expect(lit()).toBe(litPath(projectSigil("jelly").rows));
-    expect(dots().getAttribute("style")).toBeNull();
-    expect(container.querySelector("[fill='#e06c75']")).toBeNull();
-  });
+const stack = () => container.querySelector<HTMLElement>(".stack-mark")!;
+const kind = () =>
+  container.querySelector<HTMLElement>(".project-mark")?.dataset.kind;
 
-  it("draws its sigil in the project's colour: picked, its own, or Grey", async () => {
+describe("project marks", () => {
+  it("draws the project as its Stack, in the project's colour", async () => {
     await draw({ appearance: appearance({ colorIndex: 7 }) });
-    expect(dots().dataset.tone).toBe("teal");
+    expect(kind()).toBe("stack");
+    expect(container.querySelectorAll(".stack-mark rect")).toHaveLength(3);
+    expect(stack().dataset.tone).toBe("teal");
+    // No dots: the sigil the project saved stays saved, for its agents.
+    expect(container.querySelector(".dot-mark")).toBeNull();
     await draw({ appearance: appearance({ automaticColorIndex: 3 }) });
-    expect(dots().dataset.tone).toBe("yellow");
+    expect(stack().dataset.tone).toBe("yellow");
     await draw({
       appearance: appearance({ colorIndex: 0, automaticColorIndex: 3 }),
     });
-    expect(dots().hasAttribute("data-tone")).toBe(false);
+    expect(stack().hasAttribute("data-tone")).toBe(false);
     // Never an inline colour: the theme's tokens draw it.
-    expect(dots().getAttribute("style")).toBeNull();
+    expect(container.querySelector("[style]")).toBeNull();
+    expect(container.querySelector("[fill='#e06c75']")).toBeNull();
   });
 
-  it("sweeps a light across it while an agent works", async () => {
-    await draw({ appearance: appearance(), active: true });
-    expect(
-      container.querySelector(".project-mark")?.hasAttribute("data-active"),
-    ).toBe(true);
-    expect(dots().dataset.state).toBe("working");
-    expect(
-      container.querySelectorAll(".dot-mark-lit-d").length,
-    ).toBeGreaterThan(1);
-    expect(container.querySelectorAll(".dot-mark-grid-d")).toHaveLength(9);
-  });
-});
-
-describe("mark reactions", () => {
-  it("turns into a tick with a green dot once when a turn completes, then rests", async () => {
-    await draw({ appearance: appearance(), active: true, reacts: true });
-    expect(dots().dataset.state).toBe("working");
-    await act(async () => void recordActivity(turn("t1")));
-    expect(dots().dataset.reaction).toBe("cheer");
-    expect(
-      container.querySelector(".project-mark")?.getAttribute("data-reaction"),
-    ).toBe("cheer");
-    // The finished turn stops the sweep; the tick takes its place.
-    expect(dots().dataset.state).toBe("done");
-    expect(lit()).toBe(litPath(TICK_ROWS));
-    expect(container.querySelector(".dot-mark-was")).not.toBeNull();
-    expect(container.querySelector(".dot-mark-status")).not.toBeNull();
-    expect(dots().style.getPropertyValue("--dot-mark-reaction-ms")).toBe(
-      "900ms",
-    );
-    await act(async () => void vi.advanceTimersByTime(1200));
-    expect(dots().dataset.reaction).toBeUndefined();
-    // Still drawn as working here: the caller never said the agent stopped.
-    expect(dots().dataset.state).toBe("working");
-    expect(container.querySelector(".dot-mark-status")).toBeNull();
-  });
-
-  it("turns into a cross on failure and dims once on stop", async () => {
-    await draw({ appearance: appearance(), reacts: true });
-    await act(
-      async () => void recordActivity(turn("t1", { outcome: "failed" })),
-    );
-    expect(dots().dataset.reaction).toBe("slump");
-    expect(dots().dataset.state).toBe("error");
-    expect(lit()).toBe(litPath(CROSS_ROWS));
-    await act(
-      async () => void recordActivity(turn("t2", { outcome: "stopped" })),
-    );
-    expect(dots().dataset.reaction).toBe("shrug");
-    // A stop keeps the sigil; only the dots dim once.
-    expect(dots().dataset.state).toBe("still");
-    expect(lit()).toBe(litPath(projectSigil("jelly").rows));
-    expect(container.querySelector(".dot-mark-status")).toBeNull();
-  });
-
-  it("restarts the animation for a new turn end", async () => {
-    await draw({ appearance: appearance(), reacts: true });
-    await act(async () => void recordActivity(turn("t1")));
-    const first = dots();
-    await act(async () => void recordActivity(turn("t2")));
-    expect(dots()).not.toBe(first);
-    expect(dots().dataset.reaction).toBe("cheer");
-  });
-
-  it("stays still where reactions are not asked for, and for logos", async () => {
+  it("fans while the project is open, and stays still otherwise", async () => {
+    await draw({ appearance: appearance() });
+    expect(stack().hasAttribute("data-open")).toBe(false);
+    await draw({ appearance: appearance(), open: true });
+    expect(stack().hasAttribute("data-open")).toBe(true);
+    // A turn's end moves nothing: reactions are Hopper's, the agent's.
     await draw({ appearance: appearance() });
     await act(async () => void recordActivity(turn("t1")));
-    expect(dots().dataset.reaction).toBeUndefined();
-    // Nothing watched, so nothing was claimed for another window to miss.
-    expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
-
-    await draw({
-      appearance: appearance({ logoSrc: "asset://logo.png" }),
-      reacts: true,
-    });
-    await act(async () => void recordActivity(turn("t2")));
-    expect(container.querySelector("img")).not.toBeNull();
     expect(
-      container.querySelector(".project-mark")?.getAttribute("data-reaction"),
-    ).toBeNull();
+      container.querySelector(".project-mark")?.hasAttribute("data-reaction"),
+    ).toBe(false);
+    // Nothing watched, so nothing was claimed for another window to miss.
     expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
   });
 
-  it("reacts only for its own project", async () => {
-    await draw({ appearance: appearance(), reacts: true });
-    await act(
-      async () => void recordActivity(turn("t1", { cwd: "/projects/other" })),
+  it("keeps a logo as it is, open or not", async () => {
+    await draw({
+      appearance: appearance({ logoSrc: "asset://logo.png" }),
+      open: true,
+    });
+    expect(kind()).toBe("logo");
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      "asset://logo.png",
     );
-    expect(dots().dataset.reaction).toBeUndefined();
+    expect(container.querySelector(".stack-mark")).toBeNull();
+  });
+
+  it("falls back to the Stack when the logo file is gone", async () => {
+    await draw({ appearance: appearance({ logoSrc: "asset://gone.png" }) });
+    await act(async () => {
+      container.querySelector("img")!.dispatchEvent(new Event("error"));
+    });
+    expect(kind()).toBe("stack");
+  });
+
+  it("renders nothing for a folder that isn't a project", async () => {
+    await draw({ appearance: null });
+    expect(container.innerHTML).toBe("");
   });
 });

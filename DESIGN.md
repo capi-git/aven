@@ -15,7 +15,7 @@ Follow them in anything you add or change. When a rule and a request disagree, f
 ## Colour
 
 - Surfaces, hovers, selections, previews, borders and shadows are neutral grey. Never wash a surface with a colour.
-- Colour appears only in small marks that mean something: status words, errors, diff `+` and `−`, provider icons, and the lit dots of project and teammate marks.
+- Colour appears only in small marks that mean something: status words, errors, diff `+` and `−`, provider icons, a project's Stack, and the bright dot of an agent's Hopper.
 - Use theme tokens (`--color-content`, `--aven-muted`, `--aven-line`, `--aven-hover`, `--aven-control-bg`). Don't add a new hard-coded colour.
 
 ## Text
@@ -48,6 +48,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 ## Patterns
 
 **A page** has a title, one short line under it, then sections. A section is a small muted heading above one card of rows.
+
+**A project's mark** is its Stack: three pages in its colour, the back two fainter. The pages fan out while the project is open in the sidebar, and otherwise the Stack stays still: it never sweeps or reacts, so a small dot at the row's end says an agent is running. A logo, when set, takes its place and stays as it is. A project picks only a colour and a logo, and its agents wear that colour.
 
 **A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
 

@@ -551,15 +551,15 @@ describe("project status in the sidebar", () => {
     expect(site.title).toBe(
       "1 agent running · 1 needs you · 2 unread · 5 files changed\n/projects/Site",
     );
-    expect(
-      site.querySelector('.dot-mark[data-state="working"]'),
-    ).not.toBeNull();
+    // The Stack stays still; the running dot says an agent works.
+    expect(site.querySelector(".personal-project-running")).not.toBeNull();
+    expect(site.querySelector(".project-mark[data-active]")).toBeNull();
     expect(site.querySelector(".personal-project-files")?.textContent).toBe(
       "+5",
     );
     const catalog = row("Catalog")!;
     expect(catalog.querySelector(".personal-project-status")).toBeNull();
-    expect(catalog.querySelector('.dot-mark[data-state="working"]')).toBeNull();
+    expect(catalog.querySelector(".personal-project-running")).toBeNull();
 
     await render(undefined);
     expect(row("Site")!.querySelector(".personal-project-status")).toBeNull();

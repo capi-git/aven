@@ -32,7 +32,7 @@ import {
 import { InboxFiltersMenu } from "../chrome/InboxFiltersMenu";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
-import { DotMark } from "../chrome/DotMark";
+import { StackMark } from "../chrome/StackMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -84,7 +84,7 @@ import {
   markInboxItemsSeen,
   useInboxSeenTick,
 } from "../lib/inboxSeen";
-import { projectSigilAt, projectToneAt } from "../lib/projectAppearance";
+import { projectToneAt } from "../lib/projectAppearance";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { AgentMarkdown } from "./AgentMarkdown";
 import {
@@ -821,8 +821,7 @@ function InboxCard({
               imageClassName="size-3.5"
             />
           ) : (
-            <DotMark
-              sigil={projectSigilAt(item.projectPath)}
+            <StackMark
               tone={projectToneAt(item.projectPath)}
               className="size-[15px] shrink-0"
             />
