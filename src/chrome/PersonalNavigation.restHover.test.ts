@@ -395,6 +395,9 @@ describe("Home's project cards", () => {
 describe("the toolbar's strip", () => {
   const bar = rules("src/chrome/WorkspaceStatusBar.css");
   const extras = ":is(.personal-title-browser-new, .personal-title-board-open)";
+  it("starts from no width, so full tabs never push the controls after it", () => {
+    expect(ruleFor(bar, ".workspace-status-strip").get("flex")).toBe("1 1 0");
+  });
   it("keeps New chat at rest and shows New browser and Open board on hover, focus or the tour", () => {
     expect(ruleFor(bar, `.workspace-status-bar ${extras}`).get("opacity")).toBe(
       "0",

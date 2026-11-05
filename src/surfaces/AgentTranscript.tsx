@@ -379,7 +379,7 @@ function AgentTranscriptComponent({
         stickToBottom.current &&
         !scrollbarDragging.current &&
         !!previous &&
-        el.clientHeight !== previous.clientHeight &&
+        (el.clientHeight !== previous.clientHeight || panesResizing()) &&
         performance.now() - readerInputAt.current > READER_INPUT_MS;
       stickToBottom.current =
         !scrollbarDragging.current &&
@@ -3175,6 +3175,15 @@ function turnUserBlock(
     if (block.role === "user" && (managed || !block.internal)) return block;
   }
   return undefined;
+}
+
+/** A panel's edge or the window is being dragged, and text rewraps under it. */
+function panesResizing() {
+  const { classList } = document.documentElement;
+  return (
+    classList.contains("is-resizing") ||
+    classList.contains("is-window-resizing")
+  );
 }
 
 function pinToBottom(el: HTMLElement | null) {
