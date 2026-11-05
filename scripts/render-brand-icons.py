@@ -20,12 +20,16 @@ from a larger one. Outputs:
 - src-tauri/macos/AppIcon.icon/Assets/icon.png (1024 px glyph layer)
 - src-tauri/macos/Assets.car (with `--bundle`: AppIcon.icon compiled by Xcode's
   actool, committed so a build needs no particular Xcode)
+- .github/assets/banner.png and src-tauri/icons/installer-sidebar.bmp (with
+  `--art`: the README banner and the Windows installer sidebar, set in a Mac's
+  system font)
 
 Run from the repository root, then regenerate the bundle icons with
 `npx tauri icon target/brand/app-icon-1024.png -o src-tauri/icons` and run
 this script again with `--bundle`. That redraws each desktop bundle PNG at its
 own size and rebuilds `icon.icns` (with `iconutil`, macOS only) and
-`icon.ico`, replacing Tauri's resampled copies.
+`icon.ico`, replacing Tauri's resampled copies. `--art` touches neither the
+marks nor the icons, so run it on its own whenever the mark or the words change.
 """
 import argparse
 import io
@@ -36,7 +40,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 ICONS = ROOT / "src-tauri/icons"
@@ -44,6 +48,15 @@ SCALE = 4  # supersampling factor
 GLASS = (42, 43, 48)  # #2a2b30
 GLASS_ALPHA = 0.70
 WHITE = (242, 242, 240)  # #f2f2f0
+# The banner and the installer sidebar: near-black, neutral greys, no colour.
+BACKDROP = (10, 10, 11)
+SOFT_GREY = (168, 168, 166)
+QUIET_GREY = (150, 150, 148)
+BANNER = ROOT / ".github/assets/banner.png"
+BANNER_SIZE = (1200, 630)
+INSTALLER = ICONS / "installer-sidebar.bmp"
+INSTALLER_SIZE = (164, 314)
+ART_FONT = Path("/System/Library/Fonts/SFNS.ttf")
 # Rise, one character per cell: "#" a lit dot. Keep it in step with
 # AVEN_MARK_ROWS in src/lib/avenMark.ts.
 RISE = (
@@ -257,6 +270,92 @@ def fallback_svg():
     )
 
 
+def art_font(size, weight):
+    """The system font at `size` px, supersampled: axes are width, optical size, grade, weight."""
+    face = ImageFont.truetype(str(ART_FONT), size * SCALE)
+    face.set_variation_by_axes([100, max(17, min(96, size)), 400, weight])
+    return face
+
+
+def draw_tracked(draw, x, baseline, text, face, fill, tracking=0.0):
+    """One line from (x, baseline), kerned, with `tracking` em between letters."""
+    x, baseline = x * SCALE, baseline * SCALE
+    for index, char in enumerate(text):
+        draw.text((x, baseline), char, font=face, fill=fill, anchor="ls")
+        pair = text[index : index + 2]
+        # A pair's length less its second letter's is the first's kerned advance.
+        x += face.getlength(pair) - face.getlength(pair[1:]) + tracking * face.size
+
+
+def art_canvas(size, lift):
+    """Near-black, with `lift` of white fading out from the bottom-left corner."""
+    width, height = size
+    n = max(size)
+    corner = height / n
+
+    def fade(u, v):
+        return lift * max(0, 1 - ((u * u + (v - corner) ** 2) ** 0.5) / 0.75) ** 2
+
+    glow = Image.new("RGBA", (n, n), (255, 255, 255, 0))
+    glow.putalpha(ramp(n, (0, 0, n, n), fade))
+    backdrop = Image.new("RGBA", (n, n), BACKDROP + (255,))
+    return Image.alpha_composite(backdrop, glow).crop((0, 0, width, height))
+
+
+def art_tile(canvas, left, top):
+    """The 72 px glass tile with its mark and glow, top-left corner at (left, top)."""
+    margin = 2
+    mark = render(72 + margin * 2, 72, 0.245, INTERFACE_SHARE, shadow=False, glow=True)
+    canvas.alpha_composite(mark, (left - margin, top - margin))
+
+
+def art_words(canvas, draw_words):
+    """Run `draw_words(draw)` on a supersampled layer and lay it over `canvas`."""
+    width, height = canvas.size
+    layer = Image.new("RGBA", (width * SCALE, height * SCALE), WHITE + (0,))
+    draw_words(ImageDraw.Draw(layer))
+    canvas.alpha_composite(layer.resize(canvas.size, Image.LANCZOS))
+
+
+def banner():
+    """The README banner, the size of a link preview."""
+    canvas = art_canvas(BANNER_SIZE, 0.09)
+    art_tile(canvas, 108, 72)
+
+    def words(draw):
+        draw_tracked(draw, 202, 121, "Aven", art_font(38, 600), WHITE, -0.01)
+        draw_tracked(draw, 108, 238, "A DESKTOP WORKSPACE FOR CODING AGENTS", art_font(22, 600), QUIET_GREY, 0.17)
+        headline = art_font(116, 800)
+        draw_tracked(draw, 104, 366, "Every agent.", headline, WHITE, -0.025)
+        draw_tracked(draw, 104, 486, "One window.", headline, SOFT_GREY, -0.025)
+        draw_tracked(draw, 108, 566, "Free and open source · Mac and Windows", art_font(26, 400), SOFT_GREY)
+
+    art_words(canvas, words)
+    return canvas.convert("RGB")
+
+
+def installer_sidebar():
+    """The Windows installer's sidebar: the tile and the name, centred."""
+    width, _ = INSTALLER_SIZE
+    canvas = art_canvas(INSTALLER_SIZE, 0)
+    art_tile(canvas, (width - 72) // 2, 94)
+
+    def words(draw):
+        draw.text((width / 2 * SCALE, 202 * SCALE), "Aven", font=art_font(16, 600), fill=WHITE, anchor="ms")
+
+    art_words(canvas, words)
+    return canvas.convert("RGB")
+
+
+def write_art():
+    """Redraw the banner and the installer sidebar (24-bit, uncompressed BMP)."""
+    if not ART_FONT.exists():
+        sys.exit(f"--art needs {ART_FONT}, a Mac's system font")
+    banner().save(BANNER, optimize=True)
+    installer_sidebar().save(INSTALLER, "BMP")
+    print(f"Wrote {BANNER.relative_to(ROOT)} and {INSTALLER.relative_to(ROOT)}")
+
+
 def write_ico(path):
     """PNG-compressed entries in Tauri's order, each drawn at its own size."""
     entries = []
@@ -330,9 +429,18 @@ def main():
         action="store_true",
         help="after `npx tauri icon`, redraw the desktop bundle icons at their own sizes",
     )
-    if parser.parse_args().bundle:
+    parser.add_argument(
+        "--art",
+        action="store_true",
+        help="redraw the README banner and the Windows installer sidebar (needs a Mac's system font)",
+    )
+    args = parser.parse_args()
+    if args.art:
+        write_art()
+    if args.bundle:
         write_bundle()
         write_asset_catalog()
+    if args.art or args.bundle:
         return
     brand = ROOT / "target/brand"
     brand.mkdir(parents=True, exist_ok=True)
