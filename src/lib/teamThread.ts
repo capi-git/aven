@@ -1,8 +1,11 @@
+import { reviewHeading } from "./automationReview";
+import { avosJobRuns, avosJobs } from "./avosJobs";
 import {
   cardBuilder,
   cardChecker,
   cardSecurity,
   crewCard,
+  crewLead,
   crewMember,
   crewMemberById,
   isTime,
@@ -13,6 +16,11 @@ import {
   type CrewMessageKind,
   type CrewRole,
 } from "./crews";
+import {
+  describeSchedule,
+  type ScheduledAgent,
+  type ScheduledRun,
+} from "./scheduledAgents";
 
 /**
  * The team chat's thread: the team's Feed read as short posts by the
@@ -70,7 +78,42 @@ export type TeamPost =
       /** The teammate it is about, when it is about one. */
       about?: string;
       needsYou?: boolean;
+    }
+  | {
+      /** A job the team keeps: "Keeping an eye on … · <schedule> · Change". */
+      kind: "job";
+      id: string;
+      at: number;
+      /** The automation it is. */
+      jobId: string;
+      name: string;
+      schedule: string;
+      /** "Keeping an eye on “…”", for a screen reader and a search. */
+      text: string;
+      /** The Lead that keeps it, for its posts alone. */
+      by?: string;
+    }
+  | {
+      /**
+       * A job's run that needs you: the card it left (a draft to publish),
+       * or its latest run failing.
+       */
+      kind: "run";
+      id: string;
+      at: number;
+      run: ScheduledRun;
+      /** "Ready to publish: …", or what went wrong. */
+      text: string;
+      failed?: boolean;
+      needsYou: true;
+      by?: string;
     };
+
+/** The team's jobs and their runs, from the automations store. */
+export type TeamJobs = {
+  agents: readonly ScheduledAgent[];
+  runs: readonly ScheduledRun[];
+};
 
 export type TeamDay = { key: string; label: string; posts: TeamPost[] };
 
@@ -328,6 +371,7 @@ function postOf(
 export function teamPosts(
   crew: Crew,
   name: (who: string) => string,
+  jobs?: TeamJobs,
 ): TeamPost[] {
   const messages = crew.messages ?? [];
   // The Feed's own line for each message: the message says it. A message
@@ -377,6 +421,7 @@ export function teamPosts(
     const post = postOf(crew, entry, name, rules, waiting);
     if (post) posts.push(post);
   }
+  if (jobs) posts.push(...jobPosts(crew, jobs));
   const order = (post: TeamPost) => (post.kind === "you" ? 0 : 1);
   return (
     posts
@@ -393,10 +438,58 @@ export function teamPosts(
   );
 }
 
+/**
+ * The team's jobs, each where it was set up (after the Lead's line that
+ * led to it), and their runs that need you, where each did.
+ */
+function jobPosts(crew: Crew, jobs: TeamJobs): TeamPost[] {
+  const owned = avosJobs(crew.path, jobs.agents);
+  if (!owned.length) return [];
+  const lead = crewLead(crew)?.id;
+  const by = lead ? { by: lead } : {};
+  const posts: TeamPost[] = owned.map((agent) => ({
+    kind: "job",
+    id: `job:${agent.id}`,
+    at: agent.createdAt,
+    jobId: agent.id,
+    name: agent.name,
+    schedule: describeSchedule(agent.schedule),
+    text: `Keeping an eye on “${agent.name}”`,
+    ...by,
+  }));
+  for (const run of avosJobRuns(owned, jobs.runs))
+    posts.push(
+      run.review?.status === "open"
+        ? {
+            kind: "run",
+            id: `run:${run.id}`,
+            at: run.review.postedAt,
+            run,
+            text: plain(`${reviewHeading(run.review)}: ${run.review.title}`),
+            needsYou: true,
+            ...by,
+          }
+        : {
+            kind: "run",
+            id: `run:${run.id}:failed`,
+            at: run.finishedAt ?? run.startedAt,
+            run,
+            text: plain(
+              `“${run.name}” didn't finish${run.error ? `: ${run.error}` : "."}`,
+            ),
+            failed: true,
+            needsYou: true,
+            ...by,
+          },
+    );
+  return posts;
+}
+
 /** Whether a post is a teammate's: its own, your message to it, or Aven's about it. */
 export function postIsMember(post: TeamPost, memberId: string): boolean {
   if (post.kind === "post") return post.author.id === memberId;
   if (post.kind === "you") return post.to?.id === memberId;
+  if (post.kind === "job" || post.kind === "run") return post.by === memberId;
   return post.about === memberId;
 }
 

@@ -135,6 +135,7 @@ export function crewBrief(input: CrewBriefInput): string {
   if (input.role === "lead")
     return [
       `You are ${input.name}, the Lead in ${crew}. When the user writes to the whole team, you answer: you read the project, say what you found, and bring in a teammate only when you need them.`,
+      'Work the user wants done again and again, or something to keep watching ("every morning…", "watch this page, and when it changes…"), is a job, not idea cards: Aven runs it on a schedule in the project itself and shows it in the team chat. Each message tells you how to set one up when you may.',
       sandboxLine(input.copyPath, input.project),
       input.harness === "codex"
         ? "Your sandbox is read-only: you can read everything and run commands that only read."

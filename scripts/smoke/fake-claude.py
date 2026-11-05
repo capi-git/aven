@@ -14,7 +14,8 @@ discussion, write files into its folder as a race lane, or edit one file
 through its Write tool. As a team's Researcher or Designer it hands back
 findings, or draws one mock-up file in its folder (or strays outside it),
 and can rewrite its notes; asked to set a team up it proposes the same
-four teammates and three ideas. Asked to plan an
+four teammates and three ideas; as a Lead asked to watch a Notion page it
+sets up a job, whose run leaves a Publish card. Asked to plan an
 orchestration that carries the orchestration marker, it proposes two tasks;
 as a worker it can ask its lead a question; as the lead it supervises
 through Aven's control command, the same way a real lead does. For the iPhone
@@ -538,6 +539,41 @@ def talk_turn(text, args):
     })
 
 
+# "AVEN_SMOKE_JOB" on a message to the Lead asking it to watch a Notion page:
+# invited to set up a job, it answers with one (the built-in Notion steps) and
+# no cards. The job's run, which carries the same word in its link, leaves a
+# Publish card.
+JOB_WORD = "AVEN_SMOKE_JOB"
+JOB_SOURCE = f"https://www.notion.so/aven-smoke/Articles-{JOB_WORD}"
+JOB_DRAFT = "Spring launch"
+
+
+def job_turn(text):
+    """A team's job, asked for or run; None when the turn is neither."""
+    if JOB_WORD not in text:
+        return None
+    if "aven-talk" in text:
+        invited = '"job"' in text
+        log({"pid": os.getpid(), "crew": "job-lead", "invited": invited, "cwd": os.getcwd()})
+        body = {"line": f"I'll check the page every 6 hours and draft new articles. {JOB_WORD}"}
+        if invited:
+            body["job"] = {
+                "name": "Notion articles",
+                "template": "notion-articles",
+                "answers": {"source": JOB_SOURCE, "destination": "the articles page", "readyStatus": ""},
+                "everyHours": 6,
+            }
+        return crew_fence("aven-talk", body)
+    if "aven-review" in text:
+        log({"pid": os.getpid(), "crew": "job-run", "cwd": os.getcwd()})
+        return crew_fence("aven-review", {
+            "kind": "publish",
+            "title": JOB_DRAFT,
+            "summary": f"One new article drafted from Notion. {JOB_WORD}",
+        })
+    return None
+
+
 def crew_turn(session, turn, text, args):
     """A crew member's reply, by role; None when the turn isn't a crew card's."""
     if CREW_WORD not in text:
@@ -913,6 +949,8 @@ def main():
                 reply = iphone_turn(text)
             elif not helper and chat_session(args) and PAGES_PATTERN.search(text):
                 reply = pages_turn(PAGES_PATTERN.search(text).group(1))
+            elif not helper and chat_session(args) and JOB_WORD in text:
+                reply = job_turn(text) or reply
             elif not helper and chat_session(args) and TALK_WORD in text:
                 reply = talk_turn(text, args) or reply
             elif not helper and chat_session(args) and CREW_WORD in text:

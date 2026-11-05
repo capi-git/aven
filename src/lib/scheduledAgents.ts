@@ -52,6 +52,12 @@ export type ScheduledAgent = {
   lastRunAt?: number;
   /** Epoch ms of the next due time; null when the rule never fires. */
   nextRunAt: number | null;
+  /**
+   * The team (Avos) that keeps this job, by its project folder: the job
+   * shows in its chat and waits while it is paused. An older build ignores
+   * it and runs the job as an ordinary automation.
+   */
+  owner?: { avos: string };
 };
 
 export type ScheduledRunStatus =
@@ -292,6 +298,7 @@ export function normalizeScheduledAgent(value: unknown): ScheduledAgent | null {
   const lastRunAt = finite(item.lastRunAt);
   const next = finite(item.nextRunAt);
   const connections = normalizeConnectionNames(item.connections);
+  const owner = normalizeOwner(item.owner);
   return {
     id: item.id,
     name: item.name,
@@ -312,7 +319,16 @@ export function normalizeScheduledAgent(value: unknown): ScheduledAgent | null {
       (schedule.kind === "weekly" && schedule.days.length === 0
         ? null
         : nextRunAt(schedule, new Date())),
+    ...(owner ? { owner } : {}),
   };
+}
+
+/** A job's team as it can be kept: a project folder, nothing else. */
+function normalizeOwner(value: unknown): ScheduledAgent["owner"] {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const avos = (value as Record<string, unknown>).avos;
+  return typeof avos === "string" && avos.trim() ? { avos } : undefined;
 }
 
 const RUN_STATUSES: ScheduledRunStatus[] = [
@@ -988,6 +1004,11 @@ export type DueCheck = {
   fire: (agent: ScheduledAgent) => void;
   /** Runs given up on in this check, to tell you about. */
   expired?: (runs: ScheduledRun[]) => void;
+  /**
+   * A job whose team is paused: it waits, and runs once when the team
+   * resumes, as a time missed while Aven was closed does.
+   */
+  held?: (agent: ScheduledAgent) => boolean;
 };
 
 /**
@@ -1000,6 +1021,7 @@ export async function runDueScheduledAgents({
   claim,
   fire,
   expired,
+  held,
 }: DueCheck): Promise<number> {
   const given = expireStaleScheduledRuns(now);
   if (given.length) expired?.(given);
@@ -1007,7 +1029,10 @@ export async function runDueScheduledAgents({
   for (const agent of listScheduledAgents()) {
     const dueAt = agent.nextRunAt;
     if (!agent.enabled || dueAt == null || dueAt > now) continue;
+    if (held?.(agent)) continue;
     if (!(await claim(`${agent.id}:${dueAt}`))) continue;
+    // Not held again here: a slot is claimed once, so a held claim would
+    // never run.
     const current = getScheduledAgent(agent.id);
     if (!current?.enabled || current.nextRunAt !== dueAt) continue;
     updateScheduledAgent(agent.id, {

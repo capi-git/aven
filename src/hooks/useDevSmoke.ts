@@ -64,6 +64,7 @@ import {
   checkResearcher,
   checkTeamAccess,
   checkTeamSetup,
+  checkTeamJob,
   checkTeamTalk,
   type SmokeTeam,
 } from "../lib/devSmokeTeam";
@@ -4164,6 +4165,11 @@ export async function runDevSmoke(
     await step(
       "a message to the Lead reaches a teammate and a helper and comes back",
       () => checkTeamTalk(config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "a watch request in the team chat becomes the team's job, whose run's Publish card shows in the chat",
+      () => checkTeamJob(config, crew, () => get().motion?.showWorkspace?.()),
     );
   if (safe && crew)
     await step(

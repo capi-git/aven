@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from "react";
@@ -60,6 +61,14 @@ import {
 } from "../lib/feedFollow";
 import type { BotStatus } from "../lib/projectBots";
 import {
+  listScheduledAgents,
+  listScheduledRuns,
+  openAutomation,
+  subscribeScheduledAgents,
+  subscribeScheduledRuns,
+} from "../lib/scheduledAgents";
+import { useTeamWorkspace } from "../lib/teamWorkspace";
+import {
   latestPosts,
   postIsMember,
   teamPosts,
@@ -69,6 +78,7 @@ import {
 } from "../lib/teamThread";
 import type { BoardCard } from "../lib/workBoard";
 import { plural } from "../lib/words";
+import { AutomationReviewCard } from "./AutomationReviewCard";
 import { BatchButtons } from "./TeamBatch";
 import "./TeamChat.css";
 
@@ -190,7 +200,16 @@ export function TeamChat({
       }),
     [crew, name, fixer],
   );
-  const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
+  // The team's jobs and what their runs left for you, in the thread.
+  const agents = useSyncExternalStore(
+    subscribeScheduledAgents,
+    listScheduledAgents,
+  );
+  const runs = useSyncExternalStore(subscribeScheduledRuns, listScheduledRuns);
+  const posts = useMemo(
+    () => teamPosts(crew, name, { agents, runs }),
+    [crew, name, agents, runs],
+  );
   const [selected, setSelected] = useState<string | null>(null);
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
@@ -908,6 +927,23 @@ function PostView({
         </p>
       </li>
     );
+  if (post.kind === "job")
+    return (
+      <li className="team-job" data-team-post="job" data-team-job={post.jobId}>
+        <p className="team-job-line" title={post.name}>
+          Keeping an eye on <b>{post.name}</b>
+        </p>
+        <span className="team-job-when">{post.schedule}</span>
+        <button
+          type="button"
+          className="team-job-change"
+          onClick={() => openAutomation(post.jobId)}
+        >
+          Change
+        </button>
+      </li>
+    );
+  if (post.kind === "run") return <RunPost post={post} />;
   if (post.kind === "event")
     return (
       <li
@@ -973,6 +1009,51 @@ function PostView({
           </button>
         ) : null}
       </div>
+    </li>
+  );
+}
+
+/**
+ * What a job's run left for you: its card (a draft to publish, a page to
+ * look at), answered here as from the Inbox, or a line when it failed.
+ */
+function RunPost({ post }: { post: Extract<TeamPost, { kind: "run" }> }) {
+  const workspace = useTeamWorkspace();
+  const openRun = workspace?.openRun;
+  if (post.failed)
+    return (
+      <li
+        className="team-event"
+        data-team-post="run"
+        data-team-run={post.run.id}
+        data-needs-you
+      >
+        <i className="team-event-dot" aria-hidden />
+        {post.text} <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
+        {openRun ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="team-post-link"
+              onClick={() => openRun(post.run.id)}
+            >
+              Open run
+            </button>
+          </>
+        ) : null}
+      </li>
+    );
+  return (
+    <li className="team-run" data-team-post="run" data-team-run={post.run.id}>
+      <AutomationReviewCard
+        run={post.run}
+        showProject={false}
+        {...(workspace?.answerRunCard
+          ? { onAction: workspace.answerRunCard }
+          : {})}
+        {...(openRun ? { onOpenRun: (run) => openRun(run.id) } : {})}
+      />
     </li>
   );
 }
