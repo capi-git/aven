@@ -80,11 +80,8 @@ command, Aven notices the local address it prints (loopback only: `localhost`,
 `127.0.0.1`, `[::1]` and `*.localhost`; a server bound to `0.0.0.0` opens on
 `localhost`) and offers **Preview ready · localhost:5173 — Open beside chat**
 above the chat, or in the terminal panel's header for that panel's servers.
-Opening it reuses a tab already showing that server. **Settings → Browser →
-Open dev previews automatically** opens each new server start once without
-asking; a bare "listening on port 3000" line, often an API, is only offered.
-When the server stops, the offer turns to
-**Preview stopped**; the page stays open.
+Opening it reuses a tab already showing that server. When the server stops, the
+offer turns to **Preview stopped**; the page stays open.
 
 ## Pages you have open
 

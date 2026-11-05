@@ -28,40 +28,19 @@ const pages = ["docs", "preview"];
 describe("placeDevPreview", () => {
   it("splits a lone chat and keeps typing focus in it", () => {
     const before = resolveWorkspaceView(undefined, ["chat", "preview"], "chat");
-    for (const automatic of [true, false]) {
-      const next = placeDevPreview(
-        before,
-        "preview",
-        ["preview"],
-        "chat",
-        automatic,
-      );
-      expect(leafIds(next.layout!)).toEqual(["chat", "preview"]);
-      expect(next.focusedId).toBe("chat");
-    }
-  });
-
-  it("brings a clicked preview to the front of the browser pane", () => {
-    const next = placeDevPreview(columns(), "preview", pages, "chat", false);
+    const next = placeDevPreview(before, "preview", ["preview"], "chat");
     expect(leafIds(next.layout!)).toEqual(["chat", "preview"]);
     expect(next.focusedId).toBe("chat");
   });
 
-  it("never covers the page the user is reading when opened automatically", () => {
-    const before = columns("docs");
-    const next = placeDevPreview(before, "preview", pages, "chat", true);
-    expect(leafIds(next.layout!)).toEqual(["chat", "docs"]);
-    expect(next.focusedId).toBe("docs");
+  it("brings a clicked preview to the front of the browser pane", () => {
+    const next = placeDevPreview(columns(), "preview", pages, "chat");
+    expect(leafIds(next.layout!)).toEqual(["chat", "preview"]);
+    expect(next.focusedId).toBe("chat");
   });
 
   it("moves focus with a clicked preview that replaces the focused page", () => {
-    const next = placeDevPreview(
-      columns("docs"),
-      "preview",
-      pages,
-      "chat",
-      false,
-    );
+    const next = placeDevPreview(columns("docs"), "preview", pages, "chat");
     expect(leafIds(next.layout!)).toEqual(["chat", "preview"]);
     expect(next.focusedId).toBe("preview");
   });
