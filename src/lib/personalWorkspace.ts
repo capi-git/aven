@@ -372,14 +372,6 @@ export function saveBrowserWorkspaces(
   }
 }
 
-/** Stable, webview-label-safe identity; the window label is added by native code. */
-export function browserIdForProject(path: string): string {
-  let hash = 2166136261;
-  for (const char of path)
-    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
-  return `project-${(hash >>> 0).toString(16)}`;
-}
-
 /** A bounded native label, stable across reloads and distinct for project + tab. */
 export function browserIdForTab(project: string, tabId: string): string {
   const key = JSON.stringify([project, tabId]);
