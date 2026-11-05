@@ -302,9 +302,9 @@
     animation-delay: var(--agent-phase, 0s);
   }
 
-  /* Typing: the lit key steps along the three. */
+  /* Typing: the lit key rests on each of the three in turn. */
   .agent-mark[data-agent="working"] .agent-key {
-    animation: agent-type 900ms step-end infinite;
+    animation: agent-type 900ms ease-in-out infinite;
     animation-delay: var(--agent-phase, 0s);
   }
 
@@ -436,16 +436,35 @@
   }
 }
 
-/* Four units to the next key, 160% of the key's own width. */
+/* Four units to the next key, 160% of the key's own width. It rests on
+   each key and moves to the next in about 30ms, so it reads as typing;
+   from the last it fades, goes back unseen, and lights the first again. */
 @keyframes agent-type {
-  0% {
+  0%,
+  30% {
     transform: none;
+    opacity: 1;
   }
-  33.333% {
+  33.333%,
+  63.333% {
     transform: translateX(160%);
   }
-  66.667% {
+  66.667%,
+  93% {
     transform: translateX(320%);
+    opacity: 1;
+  }
+  96% {
+    transform: translateX(320%);
+    opacity: 0;
+  }
+  99% {
+    transform: none;
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
   }
 }
 
