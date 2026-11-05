@@ -21,7 +21,10 @@ type Saved = { words: string; brief: string };
 type Options = {
   /** Replace what's in the message box. */
   setText: (text: string) => void;
-  tidy?: (words: string) => Promise<BriefResult>;
+  tidy?: (
+    words: string,
+    options: { onText: (brief: string) => void },
+  ) => Promise<BriefResult>;
 };
 
 /**
@@ -37,6 +40,9 @@ export function useSpokenBrief({ setText, tidy = tidyIntoBrief }: Options) {
   const [tidying, setTidying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tokenRef = useRef(0);
+  // The words being tidied, to put back if the brief fails or is cancelled
+  // after it has started to replace them.
+  const tidyingWordsRef = useRef<string | null>(null);
   const setTextRef = useRef(setText);
   setTextRef.current = setText;
   const tidyRef = useRef(tidy);
@@ -48,6 +54,7 @@ export function useSpokenBrief({ setText, tidy = tidyIntoBrief }: Options) {
   /** The draft was sent or emptied: nothing is left to tidy or go back to. */
   const reset = useCallback(() => {
     tokenRef.current += 1;
+    tidyingWordsRef.current = null;
     setSpoken(false);
     setSaved(null);
     setShowing("words");
@@ -57,10 +64,14 @@ export function useSpokenBrief({ setText, tidy = tidyIntoBrief }: Options) {
 
   /**
    * Speaking again: what's in the field becomes the words, and the brief
-   * and words from before are let go.
+   * and words from before are let go. A brief still being written gives
+   * way to the words it was replacing.
    */
   const forget = useCallback(() => {
     tokenRef.current += 1;
+    const words = tidyingWordsRef.current;
+    tidyingWordsRef.current = null;
+    if (words !== null) setTextRef.current(words);
     setSaved(null);
     setShowing("words");
     setTidying(false);
@@ -69,13 +80,20 @@ export function useSpokenBrief({ setText, tidy = tidyIntoBrief }: Options) {
 
   const start = useCallback((words: string) => {
     const token = ++tokenRef.current;
+    tidyingWordsRef.current = words;
     setError(null);
     setTidying(true);
-    void tidyRef.current(words).then((result) => {
+    // The brief writes itself over the words as it arrives.
+    const onText = (brief: string) => {
+      if (tokenRef.current === token && brief) setTextRef.current(brief);
+    };
+    void tidyRef.current(words, { onText }).then((result) => {
       if (tokenRef.current !== token) return;
+      tidyingWordsRef.current = null;
       setTidying(false);
       if (!result.ok) {
         setError(result.error);
+        setTextRef.current(words);
         return;
       }
       setSaved({ words, brief: result.brief });
@@ -87,6 +105,9 @@ export function useSpokenBrief({ setText, tidy = tidyIntoBrief }: Options) {
   const cancel = useCallback(() => {
     tokenRef.current += 1;
     setTidying(false);
+    const words = tidyingWordsRef.current;
+    tidyingWordsRef.current = null;
+    if (words !== null) setTextRef.current(words);
   }, []);
 
   /** Back to the words; the brief keeps any edits made to it. */

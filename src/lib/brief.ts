@@ -1,7 +1,7 @@
 import { errorText, logError } from "./errors";
 import { probeHarnessAvailability } from "./harness/availability";
 import { pickKeeperModel, type KeeperModel } from "./memoryKeeperModel";
-import { generateTextOnly } from "./textOnlyModel";
+import { generateTextOnly, type TextOnlyOptions } from "./textOnlyModel";
 
 /**
  * "Tidy into a brief": what someone said into the message box, rewritten by
@@ -37,6 +37,14 @@ export function briefPrompt(words: string): string {
   return `What they said:\n\n"""\n${words.trim()}\n"""`;
 }
 
+/**
+ * A reply still streaming in, shown as it arrives: without an opening code
+ * fence or quotes, which `cleanBrief` takes off the finished one.
+ */
+export function partialBrief(reply: string): string {
+  return reply.replace(/^\s*(?:```[\w-]*|""")[ \t]*(?:\n|$)/, "").trimStart();
+}
+
 /** The reply without a stray code fence, quotes or blank lines around it. */
 export function cleanBrief(reply: string): string {
   let text = reply.trim();
@@ -53,6 +61,7 @@ export type BriefDeps = {
   generate: (
     model: KeeperModel,
     input: { system: string; prompt: string },
+    options: TextOnlyOptions,
   ) => Promise<string>;
 };
 
@@ -62,16 +71,23 @@ export const NATIVE_BRIEF_DEPS: BriefDeps = {
     await probeHarnessAvailability();
     return pickKeeperModel();
   },
-  generate: (model, input) => generateTextOnly(model, input),
+  generate: (model, input, options) => generateTextOnly(model, input, options),
 };
 
 export type BriefResult =
   { ok: true; brief: string; model: string } | { ok: false; error: string };
 
-/** Never throws: a refusal says what went wrong in a few words. */
+/**
+ * Never throws: a refusal says what went wrong in a few words. Someone is
+ * waiting, so the model doesn't think first, and `onText` gets the brief as
+ * it is written.
+ */
 export async function tidyIntoBrief(
   words: string,
-  deps: BriefDeps = NATIVE_BRIEF_DEPS,
+  {
+    onText,
+    deps = NATIVE_BRIEF_DEPS,
+  }: { onText?: (brief: string) => void; deps?: BriefDeps } = {},
 ): Promise<BriefResult> {
   if (!words.trim()) return { ok: false, error: "Say something first." };
   try {
@@ -79,10 +95,16 @@ export async function tidyIntoBrief(
     if (!model)
       return { ok: false, error: "Tidying needs Claude Code or Codex." };
     const brief = cleanBrief(
-      await deps.generate(model, {
-        system: BRIEF_SYSTEM_PROMPT,
-        prompt: briefPrompt(words),
-      }),
+      await deps.generate(
+        model,
+        { system: BRIEF_SYSTEM_PROMPT, prompt: briefPrompt(words) },
+        {
+          quick: true,
+          ...(onText
+            ? { onText: (text: string) => onText(partialBrief(text)) }
+            : {}),
+        },
+      ),
     );
     if (!brief) return { ok: false, error: "Couldn't tidy that. Try again." };
     return { ok: true, brief, model: model.label };

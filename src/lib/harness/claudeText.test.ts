@@ -6,6 +6,10 @@ const transport = vi.hoisted(() => ({
   /** Children whose turns wait until released. */
   held: new Set<string>(),
   release: new Map<string, () => void>(),
+  /** Claude Code 2.1 says init only after reading the first message. */
+  initOnStart: true,
+  /** Children that stream their reply in pieces first. */
+  streaming: new Set<string>(),
 }));
 
 function reply(id: string, text: string) {
@@ -23,6 +27,7 @@ vi.mock("./child", () => ({
   resolveClaudeBinary: async () => ({ path: "/fake/claude" }),
   spawnChild: async (id: string, _path: string, args: string[]) => {
     transport.spawns.push({ id, args });
+    if (!transport.initOnStart) return;
     queueMicrotask(() =>
       transport.handlers.get(id)?.(
         JSON.stringify({ type: "system", subtype: "init" }),
@@ -35,6 +40,20 @@ vi.mock("./child", () => ({
     transport.handlers.set(id, line);
   },
   writeChild: async (id: string) => {
+    if (transport.streaming.has(id)) {
+      queueMicrotask(() => {
+        const line = transport.handlers.get(id);
+        for (const text of ["Goal: ", "Add a mic."])
+          line?.(
+            JSON.stringify({
+              type: "stream_event",
+              event: { delta: { type: "text_delta", text } },
+            }),
+          );
+        reply(id, "Goal: Add a mic.");
+      });
+      return;
+    }
     if (transport.held.has(id)) {
       transport.release.set(id, () => reply(id, "Title"));
       return;
@@ -51,7 +70,13 @@ afterEach(async () => {
   transport.handlers.clear();
   transport.held.clear();
   transport.release.clear();
+  transport.initOnStart = true;
+  transport.streaming.clear();
 });
+
+function settingsOf(args: string[]): Record<string, unknown> {
+  return JSON.parse(option(args, "--settings") ?? "{}");
+}
 
 function option(args: string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -99,5 +124,68 @@ describe("Claude background text", () => {
     transport.release.get("aven-claude-text")!();
     await expect(title).resolves.toBe("Title");
     expect(new Set(transport.spawns.map((spawn) => spawn.id)).size).toBe(2);
+  });
+
+  it("sends the prompt without waiting for an init that only follows it", async () => {
+    transport.initOnStart = false;
+    vi.useFakeTimers();
+    try {
+      const title = runClaudeTextPrompt({ cwd: "/repo", prompt: "Title this" });
+      // No timer has to run out first.
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(title).resolves.toBe("## Stack\n- Rust");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers a quick call without thinking, in a process of its own", async () => {
+    transport.held.add("aven-claude-text-only");
+    const keeper = runClaudeTextPrompt({
+      cwd: "/home",
+      prompt: "Fill the memory",
+      profile: { systemPrompt: "Keeper rules", textOnly: true },
+    });
+    await vi.waitFor(() =>
+      expect(transport.release.has("aven-claude-text-only")).toBe(true),
+    );
+    // The keeper is still busy; the brief doesn't wait for it.
+    await expect(
+      runClaudeTextPrompt({
+        cwd: "/home",
+        prompt: "Tidy this",
+        profile: { systemPrompt: "Brief rules", textOnly: true, quick: true },
+      }),
+    ).resolves.toBe("## Stack\n- Rust");
+    const quick = transport.spawns.find(
+      (spawn) => spawn.id === "aven-claude-text-quick",
+    )!;
+    expect(settingsOf(quick.args)).toMatchObject({
+      alwaysThinkingEnabled: false,
+      disableAllHooks: true,
+    });
+    expect(option(quick.args, "--tools")).toBe("");
+    const keeperSpawn = transport.spawns.find(
+      (spawn) => spawn.id === "aven-claude-text-only",
+    )!;
+    expect(settingsOf(keeperSpawn.args)).not.toHaveProperty(
+      "alwaysThinkingEnabled",
+    );
+    transport.release.get("aven-claude-text-only")!();
+    await keeper;
+  });
+
+  it("passes on the text as it streams in", async () => {
+    transport.streaming.add("aven-claude-text-quick");
+    const seen: string[] = [];
+    await expect(
+      runClaudeTextPrompt({
+        cwd: "/home",
+        prompt: "Tidy this",
+        profile: { textOnly: true, quick: true },
+        onText: (text) => seen.push(text),
+      }),
+    ).resolves.toBe("Goal: Add a mic.");
+    expect(seen).toEqual(["Goal: ", "Goal: Add a mic."]);
   });
 });

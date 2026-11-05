@@ -3,6 +3,7 @@ import {
   BRIEF_SYSTEM_PROMPT,
   briefPrompt,
   cleanBrief,
+  partialBrief,
   tidyIntoBrief,
   type BriefDeps,
 } from "./brief";
@@ -41,7 +42,7 @@ function deps(
 describe("tidying spoken words into a brief", () => {
   it("asks the cheap model with the brief's rules and the words as said", async () => {
     const fake = deps(BRIEF);
-    const result = await tidyIntoBrief(RAMBLE, fake);
+    const result = await tidyIntoBrief(RAMBLE, { deps: fake });
     expect(result).toEqual({
       ok: true,
       brief: BRIEF,
@@ -65,7 +66,7 @@ describe("tidying spoken words into a brief", () => {
 
   it("says so when no provider can tidy", async () => {
     const fake = deps(BRIEF, false);
-    expect(await tidyIntoBrief(RAMBLE, fake)).toEqual({
+    expect(await tidyIntoBrief(RAMBLE, { deps: fake })).toEqual({
       ok: false,
       error: "Tidying needs Claude Code or Codex.",
     });
@@ -73,11 +74,13 @@ describe("tidying spoken words into a brief", () => {
   });
 
   it("refuses an empty reply or a failure in a few words", async () => {
-    expect(await tidyIntoBrief(RAMBLE, deps("  \n"))).toEqual({
+    expect(await tidyIntoBrief(RAMBLE, { deps: deps("  \n") })).toEqual({
       ok: false,
       error: "Couldn't tidy that. Try again.",
     });
-    expect(await tidyIntoBrief(RAMBLE, deps(new Error("Timed out.")))).toEqual({
+    expect(
+      await tidyIntoBrief(RAMBLE, { deps: deps(new Error("Timed out.")) }),
+    ).toEqual({
       ok: false,
       error: "Couldn't tidy: Timed out.",
     });
@@ -85,8 +88,40 @@ describe("tidying spoken words into a brief", () => {
 
   it("has nothing to tidy without words", async () => {
     const fake = deps(BRIEF);
-    expect((await tidyIntoBrief("   ", fake)).ok).toBe(false);
+    expect((await tidyIntoBrief("   ", { deps: fake })).ok).toBe(false);
     expect(fake.generate).not.toHaveBeenCalled();
+  });
+});
+
+describe("a brief while it's written", () => {
+  it("asks for a quick answer and passes on the brief as it arrives", async () => {
+    const fake = deps(BRIEF);
+    fake.generate.mockImplementation(
+      async (
+        _model: unknown,
+        _input: unknown,
+        options: { onText?: (text: string) => void },
+      ) => {
+        options.onText?.("```text\nGoal: Add");
+        options.onText?.("```text\n" + BRIEF);
+        return "```text\n" + BRIEF + "\n```";
+      },
+    );
+    const seen: string[] = [];
+    const result = await tidyIntoBrief(RAMBLE, {
+      deps: fake,
+      onText: (text) => seen.push(text),
+    });
+    expect(result).toMatchObject({ ok: true, brief: BRIEF });
+    expect(fake.generate.mock.calls[0][2]).toMatchObject({ quick: true });
+    expect(seen).toEqual(["Goal: Add", BRIEF]);
+  });
+
+  it("shows nothing for an opening fence on its own", () => {
+    expect(partialBrief("```")).toBe("");
+    expect(partialBrief("```markdown\n")).toBe("");
+    expect(partialBrief('"""\nGoal: x')).toBe("Goal: x");
+    expect(partialBrief("Goal: x")).toBe("Goal: x");
   });
 });
 

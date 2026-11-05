@@ -172,7 +172,9 @@ describe("speaking into the message box", () => {
     await say(RAMBLE);
     expect(briefRow()?.getAttribute("data-brief-row")).toBe("tidy");
     await click(button("Tidy into a brief"));
-    expect(native.tidy).toHaveBeenCalledWith(RAMBLE);
+    expect(native.tidy).toHaveBeenCalledWith(RAMBLE, {
+      onText: expect.any(Function),
+    });
     expect(container.textContent).toContain("Tidying into a brief…");
     // The brief will replace these words, so they can't change meanwhile.
     expect(field().readOnly).toBe(true);
@@ -189,6 +191,64 @@ describe("speaking into the message box", () => {
     expect(field().value).toBe(RAMBLE);
     await click(button("Use the brief"));
     expect(field().value).toBe(edited);
+  });
+
+  it("writes the brief into the box as it arrives, and Cancel puts the words back", async () => {
+    let write: (brief: string) => void = () => {};
+    native.tidy.mockImplementation(
+      (_words: string, options: { onText: (brief: string) => void }) => {
+        write = options.onText;
+        return new Promise<BriefResult>(() => {});
+      },
+    );
+    await render();
+    await say(RAMBLE);
+    await click(button("Tidy into a brief"));
+    await act(async () => write("Goal: Add a mic"));
+    expect(field().value).toBe("Goal: Add a mic");
+    await act(async () => write("Goal: Add a mic to the message box."));
+    expect(field().value).toBe("Goal: Add a mic to the message box.");
+    expect(field().readOnly).toBe(true);
+    await click(button("Cancel"));
+    expect(field().value).toBe(RAMBLE);
+    expect(field().readOnly).toBe(false);
+    // A late piece of the cancelled brief changes nothing.
+    await act(async () => write("Goal: late"));
+    expect(field().value).toBe(RAMBLE);
+  });
+
+  it("puts the words back when the brief fails partway", async () => {
+    native.tidy.mockImplementation(
+      async (_words: string, options: { onText: (brief: string) => void }) => {
+        options.onText("Goal: Add");
+        return { ok: false, error: "Couldn't tidy: Claude turn failed." };
+      },
+    );
+    await render();
+    await say(RAMBLE);
+    await click(button("Tidy into a brief"));
+    expect(field().value).toBe(RAMBLE);
+    expect(container.textContent).toContain(
+      "Couldn't tidy: Claude turn failed.",
+    );
+  });
+
+  it("gives the words back to the mic when it's pressed mid-brief", async () => {
+    let write: (brief: string) => void = () => {};
+    native.tidy.mockImplementation(
+      (_words: string, options: { onText: (brief: string) => void }) => {
+        write = options.onText;
+        return new Promise<BriefResult>(() => {});
+      },
+    );
+    await render();
+    await say(RAMBLE);
+    await click(button("Tidy into a brief"));
+    await act(async () => write("Goal: Add"));
+    await click(mic());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "and a shortcut", final: false });
+    expect(field().value).toBe(`${RAMBLE} and a shortcut`);
   });
 
   it("offers to tidy again once the words change", async () => {

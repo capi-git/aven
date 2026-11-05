@@ -1040,6 +1040,8 @@ function ComposerComponent({
   const dictation = useDictation({
     enabled: enabled && canSpeak,
     onStart: () => {
+      // First, so a brief still being written gives the field back.
+      brief.forget();
       const el = ref.current;
       const value = el?.value ?? "";
       const inField = !!el && document.activeElement === el;
@@ -1049,7 +1051,6 @@ function ComposerComponent({
         before: value.slice(0, from),
         after: value.slice(to),
       };
-      brief.forget();
       el?.focus();
     },
     onWords: (heard) => {
