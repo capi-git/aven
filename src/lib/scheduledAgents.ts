@@ -566,10 +566,6 @@ export function updateScheduledAgent(
   );
 }
 
-export function deleteScheduledAgent(id: string) {
-  schedules.write(schedules.read().filter((item) => item.id !== id));
-}
-
 /** Turning a schedule back on starts from now, never from a stale due time. */
 export function setScheduledAgentEnabled(
   id: string,
@@ -638,6 +634,42 @@ export function holdsChat(
   run: ScheduledRun,
 ): run is ScheduledRun & { sessionId: string } {
   return !!run.sessionId && !!run.inAutomations && !run.openedAsChat;
+}
+
+/**
+ * Delete an automation for good. The schedule goes at once, so it can't fire
+ * again. `archiveChat` then takes each chat its runs still hold, stopping one
+ * that is running, before the runs go: a run's chat must never end up among
+ * the project's chats with no run keeping it out. A run whose chat couldn't
+ * be archived stays, so deleting again can finish the job. A chat you opened
+ * as a chat stays yours.
+ */
+export async function deleteAutomation(
+  id: string,
+  archiveChat: (sessionId: string) => Promise<boolean>,
+) {
+  schedules.write(schedules.read().filter((item) => item.id !== id));
+  const stuck = new Set<string>();
+  const chats = runs
+    .read()
+    .filter((run) => run.scheduleId === id)
+    .filter(holdsChat)
+    .map((run) => run.sessionId);
+  for (const sessionId of new Set(chats)) {
+    const archived = await archiveChat(sessionId).catch((error) => {
+      logError("Archive an automation run's chat", error);
+      return false;
+    });
+    if (!archived) stuck.add(sessionId);
+  }
+  runs.write(
+    runs
+      .read()
+      .filter(
+        (run) =>
+          run.scheduleId !== id || (run.sessionId && stuck.has(run.sessionId)),
+      ),
+  );
 }
 
 /**

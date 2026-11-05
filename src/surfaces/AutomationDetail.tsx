@@ -1,4 +1,3 @@
-import { ask } from "@tauri-apps/plugin-dialog";
 import {
   useCallback,
   useContext,
@@ -27,7 +26,6 @@ import { isInboxEntryUnread, markInboxItemSeen } from "../lib/inboxSeen";
 import { LiveSessionsContext } from "../lib/liveSessions";
 import { projectName } from "../lib/paths";
 import {
-  deleteScheduledAgent,
   formatRunTime,
   holdsChat,
   scheduledRunSeenEntry,
@@ -80,28 +78,18 @@ export function AutomationDetail({
   item,
   onSelectRun,
   onEdit,
-  onDeleted,
+  onDelete,
   onRunNow,
 }: {
   item: AutomationItem;
   onSelectRun: (run: ScheduledRun) => void;
   onEdit: (agent: ScheduledAgent) => void;
-  onDeleted: () => void;
+  onDelete: () => void;
   onRunNow?: (agent: ScheduledAgent) => void;
 }) {
   const agent = item.agent;
   const [started, setStarted] = useState(false);
   const running = item.runs[0]?.status === "running";
-  const remove = async () => {
-    if (!agent) return;
-    const ok = await ask(
-      `Delete the automation “${agent.name}”? Its past runs stay here.`,
-      { title: "Aven", kind: "warning", okLabel: "Delete" },
-    );
-    if (!ok) return;
-    deleteScheduledAgent(agent.id);
-    onDeleted();
-  };
   const project = agent?.project ?? item.runs[0]?.project ?? "";
   const meta = [
     automationTiming(item),
@@ -115,47 +103,49 @@ export function AutomationDetail({
           <h1>{item.name}</h1>
           <p className="automation-detail-meta">{meta.join(" · ")}</p>
         </div>
-        {agent ? (
-          <div className="automation-detail-actions">
-            <Toggle
-              label={`Run ${agent.name} on schedule`}
-              on={agent.enabled}
-              onChange={(on) => setScheduledAgentEnabled(agent.id, on)}
-            />
-            <button
-              type="button"
-              disabled={!onRunNow || running}
-              onClick={() => {
-                updateScheduledAgent(agent.id, { lastRunAt: Date.now() });
-                onRunNow?.(agent);
-                setStarted(true);
-              }}
-              className={ACTION_GHOST}
-              aria-label={`Run ${agent.name} now`}
-            >
-              <Play className="size-3.5" strokeWidth={1.75} />
-              {running ? "Running" : started ? "Started" : "Run now"}
-            </button>
-            <button
-              type="button"
-              title="Edit"
-              aria-label={`Edit ${agent.name}`}
-              onClick={() => onEdit(agent)}
-              className={ICON_BUTTON}
-            >
-              <Pencil className="size-3.5" strokeWidth={1.75} />
-            </button>
-            <button
-              type="button"
-              title="Delete"
-              aria-label={`Delete ${agent.name}`}
-              onClick={() => void remove()}
-              className={ICON_BUTTON}
-            >
-              <Trash2 className="size-3.5" strokeWidth={1.75} />
-            </button>
-          </div>
-        ) : null}
+        <div className="automation-detail-actions">
+          {agent ? (
+            <>
+              <Toggle
+                label={`Run ${agent.name} on schedule`}
+                on={agent.enabled}
+                onChange={(on) => setScheduledAgentEnabled(agent.id, on)}
+              />
+              <button
+                type="button"
+                disabled={!onRunNow || running}
+                onClick={() => {
+                  updateScheduledAgent(agent.id, { lastRunAt: Date.now() });
+                  onRunNow?.(agent);
+                  setStarted(true);
+                }}
+                className={ACTION_GHOST}
+                aria-label={`Run ${agent.name} now`}
+              >
+                <Play className="size-3.5" strokeWidth={1.75} />
+                {running ? "Running" : started ? "Started" : "Run now"}
+              </button>
+              <button
+                type="button"
+                title="Edit"
+                aria-label={`Edit ${agent.name}`}
+                onClick={() => onEdit(agent)}
+                className={ICON_BUTTON}
+              >
+                <Pencil className="size-3.5" strokeWidth={1.75} />
+              </button>
+            </>
+          ) : null}
+          <button
+            type="button"
+            title="Delete"
+            aria-label={`Delete ${item.name}`}
+            onClick={onDelete}
+            className={ICON_BUTTON}
+          >
+            <Trash2 className="size-3.5" strokeWidth={1.75} />
+          </button>
+        </div>
       </header>
       {agent ? (
         <p className="automation-detail-prompt" title={agent.prompt}>
@@ -163,8 +153,8 @@ export function AutomationDetail({
         </p>
       ) : (
         <p className="automation-detail-prompt">
-          This automation was deleted. Its runs stay here so you can still open
-          them.
+          This automation was deleted. Its runs stayed behind, and you can still
+          open them or delete them too.
         </p>
       )}
       <section

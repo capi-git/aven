@@ -71,7 +71,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 The top row and sidebar are one see-through surface, with the work in one rounded card on it. No lines between them.
 
-Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`). The hover sidebar is a rounded card floating over the work, showing the window's own glass. Never put blur inside something that scrolls: it costs a lot of power and speed.
+Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`), nearly solid so words behind never show through, even if the blur is lost for a moment. The hover sidebar is a rounded card floating over the work, showing the window's own glass. Never put blur inside something that scrolls: it costs a lot of power and speed.
 
 ## Motion
 
