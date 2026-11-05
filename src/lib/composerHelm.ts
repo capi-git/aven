@@ -290,53 +290,9 @@ export const HELM_HOVER_CLOSE_MS = 220;
 export const OPEN_USAGE_EVENT = "aven:open-usage";
 
 /**
- * The Mark page's cursor: `sigils` cells in rows of `columns`, then one row
- * of `colours` below them. Arrows move within a row, up and down between
- * the grid and the colours (to the colour under the cell, and back), and
- * Home and End go to the first and last of them all.
- */
-export function moveMarkCursor(
-  key: string,
-  index: number,
-  sigils: number,
-  columns: number,
-  colours: number,
-): number | null {
-  const total = sigils + colours;
-  if (sigils <= 0 || colours <= 0)
-    return moveGridCursor(key, index, total, columns);
-  const at = Math.min(Math.max(index, 0), total - 1);
-  const lastRow = Math.floor((sigils - 1) / columns) * columns;
-  const toColour = (column: number) =>
-    sigils + Math.round((column / Math.max(columns - 1, 1)) * (colours - 1));
-  const toColumn = (colour: number) =>
-    Math.round((colour / Math.max(colours - 1, 1)) * (columns - 1));
-  if (key === "Home") return 0;
-  if (key === "End") return total - 1;
-  if (at < sigils) {
-    if (key === "ArrowDown" && at + columns >= sigils)
-      return toColour(at % columns);
-    if (key === "ArrowUp" && at < columns) return toColour(at % columns);
-    return moveGridCursor(key, at, sigils, columns);
-  }
-  const colour = at - sigils;
-  switch (key) {
-    case "ArrowRight":
-      return sigils + ((colour + 1) % colours);
-    case "ArrowLeft":
-      return sigils + ((colour - 1 + colours) % colours);
-    case "ArrowUp":
-      return Math.min(lastRow + toColumn(colour), sigils - 1);
-    case "ArrowDown":
-      return toColumn(colour);
-    default:
-      return null;
-  }
-}
-
-/**
- * The mark a chat outside any project shows, chosen in the helm. Kept under
- * the critter name it stands for, as before marks.
+ * The colour a chat's agent wears outside any project, chosen in the helm.
+ * Saved with the critter picked before Hopper, which is kept but no longer
+ * drawn.
  */
 export const HELM_CRITTER_KEY = "aven.helmCritter.v1";
 /** Set once the helm has said "Point at me for settings". */
@@ -345,7 +301,7 @@ export const HELM_HINT_KEY = "aven.helmHint.v1";
 export const HELM_CRITTER_EVENT = "aven:helm-critter";
 
 export type HelmCritterChoice = {
-  /** A critter's name (see `PROJECT_MASCOTS`), drawn as its project sigil. */
+  /** A critter's name (see `PROJECT_MASCOTS`), kept but no longer drawn. */
   mascot: string;
   /**
    * Its colour, a place in `MARK_TONES` (a colour picked before marks reads

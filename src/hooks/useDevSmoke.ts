@@ -18,11 +18,9 @@ import {
   waitFor,
   type DevSmokeConfig,
 } from "../lib/devSmoke";
-import {
-  animationProblem,
-  prefersReducedMotion,
-  watchOneShot,
-} from "../lib/devSmokeMotion";
+import { animationProblem, prefersReducedMotion } from "../lib/devSmokeMotion";
+import { readStack, stackProblem } from "../lib/devSmokeStack";
+import { motionReduced } from "../lib/motion";
 import {
   launchRevealProblem,
   launchRevealSummary,
@@ -43,7 +41,7 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
-  HELM_SWEEP_SELECTOR,
+  HELM_HOP_SELECTOR,
   closeHelmDialog,
   helmStateWords,
   restoringComposer,
@@ -64,6 +62,7 @@ import {
   checkResearcher,
   checkTeamAccess,
   checkTeamSetup,
+  checkTeamJob,
   checkTeamTalk,
   type SmokeTeam,
 } from "../lib/devSmokeTeam";
@@ -378,21 +377,19 @@ function homeAgentTile(path: string): HTMLElement | null {
 }
 
 /**
- * Why a project mark is not working as a working agent's should, or null:
- * in its working state, a light sweeping across its dots unless reduced
- * motion stops it.
+ * Why an agent's Hopper is not working as it should, or null: in its
+ * working state, its dot hopping up the five big steps (a mark of 24px or
+ * more) unless reduced motion keeps it still.
  */
-function workingMarkProblem(mark: Element | null): string | null {
+function workingHopperProblem(mark: HTMLElement | null): string | null {
   if (!mark) return "is missing";
-  if (mark.getAttribute("data-kind") !== "mark") return "is not a dot mark";
-  if (!mark.hasAttribute("data-active")) return "is not in its working state";
-  const sweep = mark.querySelector(
-    '.dot-mark[data-state="working"] .dot-mark-lit-d',
-  );
-  if (!sweep) return "has no sweeping dots";
+  if (mark.dataset.hopper !== "working")
+    return `is ${mark.dataset.hopper ?? "not Hopper"}, not working`;
+  const dot = mark.querySelector(".hopper-dot");
+  if (!dot) return "has no dot";
   return animationProblem(
-    getComputedStyle(sweep).animationName,
-    "dot-mark-sweep",
+    getComputedStyle(dot).animationName,
+    "hopper-hop",
     prefersReducedMotion(),
   );
 }
@@ -2855,7 +2852,7 @@ export async function runDevSmoke(
           await waitFor(
             () => {
               const helm = root.querySelector<HTMLElement>("[data-helm]");
-              const frame = helm?.querySelector(HELM_SWEEP_SELECTOR);
+              const frame = helm?.querySelector(HELM_HOP_SELECTOR);
               seen =
                 helmWorkingProblem(
                   helm ?? null,
@@ -2866,7 +2863,7 @@ export async function runDevSmoke(
               return seen === null;
             },
             5_000,
-            "the mark to sweep while the chat offers its one Stop",
+            "the mark to hop while the chat offers its one Stop",
           ).catch(() => {
             throw new Error(`While the agent worked, ${seen}`);
           });
@@ -2885,13 +2882,15 @@ export async function runDevSmoke(
       },
     );
 
-  // What moves. The project's mark in the sidebar steps while its agent
-  // works and reacts once when the turn ends; the pinned sidebar is the one
-  // drawn in this window (the floating one draws in its own).
+  // What moves. The project's Stack in the sidebar stays still while its
+  // agent works (a small dot says it is running) and when the turn ends,
+  // and fans exactly while the project is open, folding back when it
+  // closes. The pinned sidebar is the one drawn in this window (the
+  // floating one draws in its own).
   const motion = get().motion;
   if (safe && typedTask && motion)
     await step(
-      "the project's mark steps while its agent works and reacts once",
+      "the project's Stack stays still while its agent works, and fans while the project is open",
       async () => {
         if (!get().sidebarOpen) {
           pressShortcut("b");
@@ -2901,70 +2900,100 @@ export async function runDevSmoke(
             "the sidebar to pin",
           );
         }
+        const row = () => sidebarProjectRow(config.projectPath);
         const mark = () =>
-          sidebarProjectRow(config.projectPath)?.querySelector<HTMLElement>(
-            ".project-mark",
-          ) ?? null;
+          row()?.querySelector<HTMLElement>(".project-mark") ?? null;
         await waitFor(mark, 10_000, "the project's mark in the sidebar");
-        // macOS stops drawing a covered window, and a hidden window leaves
-        // reactions to windows the user can see.
+        // macOS stops drawing a covered window, and a covered window's
+        // transitions may not run.
         await waitFor(
           () => document.visibilityState !== "hidden",
           15_000,
           "Aven Dev's window to be visible (keep it uncovered during the check)",
         );
+        // The fan's easing follows Aven's own Reduce motion too, not only
+        // the system's.
+        const reduced = motionReduced();
+        const fold = () =>
+          row()?.querySelector<HTMLButtonElement>(
+            ".personal-project-disclosure",
+          ) ?? null;
+        const isOpen = () => fold()?.getAttribute("aria-expanded") === "true";
+        const runningDot = () =>
+          (row()?.querySelector(".personal-project-running")?.getClientRects()
+            .length ?? 0) > 0;
+        const logo = mark()?.dataset.kind === "logo";
+        let seen: string | null = null;
+        const settle = async (open: boolean, when: string) => {
+          if (logo) return;
+          await waitFor(
+            () => {
+              seen = stackProblem(readStack(mark()), {
+                open,
+                reducedMotion: reduced,
+              });
+              return seen === null;
+            },
+            3_000,
+            `the Stack to settle ${when}`,
+          ).catch(() => {
+            throw new Error(`${when}, the project's Stack ${seen}`);
+          });
+        };
+        const opened = isOpen();
+        await settle(opened, opened ? "With the project open" : "At rest");
+        // Fold the project the other way and back: the pages follow.
+        for (const open of [!opened, opened]) {
+          fold()?.click();
+          await waitFor(
+            () => isOpen() === open,
+            5_000,
+            `the project to ${open ? "open" : "close"}`,
+          );
+          await settle(
+            open,
+            open ? "Once the project opened" : "Once the project closed",
+          );
+        }
         const reply = await startHeldTurn(
           get,
           typedTask.id,
           "Take a moment before replying.",
         );
+        try {
+          await waitFor(
+            runningDot,
+            5_000,
+            "the project's row to show its agent running",
+          );
+          await settle(opened, "While the agent worked");
+          if (mark()?.hasAttribute("data-active"))
+            throw new Error("While the agent worked, the mark swept");
+        } finally {
+          await reply();
+        }
+        // The turn's end moves nothing on the mark, and the dot goes.
+        const quietUntil = Date.now() + 2_000;
+        while (Date.now() < quietUntil) {
+          const reaction = mark()?.dataset.reaction;
+          if (reaction)
+            throw new Error(`The mark reacted (${reaction}) as the turn ended`);
+          await settle(opened, "As the turn ended");
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
         await waitFor(
-          () => mark()?.hasAttribute("data-active"),
+          () => !runningDot(),
           5_000,
-          "the project's mark to start working",
+          "the running dot to go once the turn ended",
         );
-        const working = workingMarkProblem(mark());
-        if (working)
-          throw new Error(`While the agent worked, its mark ${working}`);
-        await reply();
-        let reacting: string | null = null;
-        const kind = await watchOneShot(
-          () => {
-            const current = mark();
-            const value = current?.dataset.reaction;
-            if (value && reacting === null) {
-              const body = current?.querySelector(
-                ".dot-mark[data-reaction] .dot-mark-art",
-              );
-              reacting = body
-                ? (animationProblem(
-                    getComputedStyle(body).animationName,
-                    `dot-mark-${value}`,
-                    prefersReducedMotion(),
-                  ) ?? "")
-                : "has no reacting mark";
-            }
-            return value;
-          },
-          {
-            what: "The mascot's reaction to the turn ending",
-            appearMs: 5_000,
-            clearMs: 3_000,
-            quietMs: 2_000,
-          },
-        );
-        if (kind !== "cheer")
-          throw new Error(`The mascot reacted with ${kind}, not cheer`);
-        if (reacting) throw new Error(`While reacting, its mark ${reacting}`);
-        if (mark()?.hasAttribute("data-active"))
-          throw new Error("The mark kept working after the turn ended");
-        return prefersReducedMotion()
-          ? "still while working and reacting (reduced motion)"
-          : "hopped while working, cheered once";
+        if (logo) return "a logo: still, with the running dot";
+        return reduced
+          ? "still while working; fanned and folded without motion (reduced motion)"
+          : "still while working; fanned and folded";
       },
     );
 
-  // Home: every project's agent with its mascot, the working one moving,
+  // Home: every project's agent as Hopper, the working one hopping,
   // Right now and today's recap; then the sidebar's New chat pressed over
   // Home leaves it for the new chat.
   if (safe && typedTask && motion)
@@ -3001,11 +3030,11 @@ export async function runDevSmoke(
       ];
       if (tiles.length === 0) throw new Error("Home shows no agents");
       const bare = tiles.filter(
-        (tile) => !tile.querySelector(".project-mark svg, .project-mark img"),
+        (tile) => !tile.querySelector(".hopper-mark .hopper-steps"),
       );
       if (bare.length)
         throw new Error(
-          `${bare.length} of ${tiles.length} agents have no mascot or logo`,
+          `${bare.length} of ${tiles.length} agents are not Hopper`,
         );
       const tile = await waitFor(
         () => {
@@ -3015,8 +3044,10 @@ export async function runDevSmoke(
         5_000,
         "the project's agent to show it is working",
       );
-      // Home's large tiles hop further than the sidebar's mark.
-      const working = workingMarkProblem(tile.querySelector(".project-mark"));
+      // Home's large tiles hop on all five steps.
+      const working = workingHopperProblem(
+        tile.querySelector<HTMLElement>(".hopper-mark"),
+      );
       if (working)
         throw new Error(`On Home, the working agent's mark ${working}`);
       const chip = await waitFor(
@@ -4164,6 +4195,11 @@ export async function runDevSmoke(
     await step(
       "a message to the Lead reaches a teammate and a helper and comes back",
       () => checkTeamTalk(config, crew),
+    );
+  if (safe && crew)
+    await step(
+      "a watch request in the team chat becomes the team's job, whose run's Publish card shows in the chat",
+      () => checkTeamJob(config, crew, () => get().motion?.showWorkspace?.()),
     );
   if (safe && crew)
     await step(

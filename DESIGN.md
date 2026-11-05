@@ -15,7 +15,7 @@ Follow them in anything you add or change. When a rule and a request disagree, f
 ## Colour
 
 - Surfaces, hovers, selections, previews, borders and shadows are neutral grey. Never wash a surface with a colour.
-- Colour appears only in small marks that mean something: status words, errors, diff `+` and `−`, provider icons, and the lit dots of project and teammate marks.
+- Colour appears only in small marks that mean something: status words, errors, diff `+` and `−`, provider icons, a project's Stack, and the bright dot of an agent's Hopper.
 - Use theme tokens (`--color-content`, `--aven-muted`, `--aven-line`, `--aven-hover`, `--aven-control-bg`). Don't add a new hard-coded colour.
 
 ## Text
@@ -49,6 +49,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A page** has a title, one short line under it, then sections. A section is a small muted heading above one card of rows.
 
+**A project's mark** is its Stack: three pages in its colour, the back two fainter. The pages fan out while the project is open in the sidebar, and otherwise the Stack stays still: it never sweeps or reacts, so a small dot at the row's end says an agent is running. A logo, when set, takes its place and stays as it is. A project picks only a colour and a logo, and its agents wear that colour.
+
 **A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
 
 **A settings row** has its label and one line on the left and its control on the right. Pick the simplest control: a switch for on and off, segments for two or three short choices, a menu for more.
@@ -62,6 +64,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 **A menu** is solid, not see-through. It lists what applies, most common first, with sentence-case labels. Group rows with one separator, and move rare choices into a page inside the menu.
 
 **An empty state** is one centred sentence saying what will appear here, in muted text. Add no illustration and no button unless the next step is obvious.
+
+**An agent** (Avos, a teammate, a bot, a chat) is drawn as Hopper: the logo's steps in grey dots with one bright dot on them. Avos, a bot and a chat wear their project's colour, a teammate its role's, and the dot turns amber when it needs you. A project's mark never stands for an agent.
 
 **Numbers** stay small. Use a few quiet tiles only in a panel's Overview. Home shows small chips, and only when the number isn't zero.
 
@@ -77,6 +81,7 @@ Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`
 
 - Respond on press. Never make someone wait for an animation.
 - Animate only `transform` and `opacity`. Motion must be interruptible, and every animation must end by itself.
+- The one exception is an agent's mark (Hopper). Its dot keeps hopping while the agent works and keeps bouncing while it needs you, because those states last until they change. At rest it breathes, and while watching it hops slowly from one grey dot to the next inside its steps, pausing on each; each agent starts at a different point, so helpers never move together. Only the one dot moves, never the steps, and it holds still while the window is hidden or resizing, and under Reduce motion.
 - Use the springs in `src/lib/motionTokens.ts` for things you can touch, with no bounce unless a flick caused it.
 - Honour Reduce motion.
 - Native browser pages can't be animated. For a motion, move a picture of the page instead, and hold only the pages that really move. Dragging an edge or divider keeps the page live, updating as it moves: a stretched picture looks wrong, even if a live page can drift a few points on a fast drag.

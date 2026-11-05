@@ -2,9 +2,10 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PROJECT_SIGILS, SIGIL_CRITTERS } from "../lib/dotSigils";
+import { SIGIL_CRITTERS } from "../lib/dotSigils";
 import { MARK_TONES } from "../lib/markTones";
 import { projectKey } from "../lib/paths";
+import { projectSigilAt } from "../lib/projectAppearance";
 import {
   TAB_GROUP_COLORS,
   loadTabGroupColors,
@@ -51,61 +52,28 @@ async function open() {
   );
 }
 
-const marks = () => [
-  ...document.body.querySelectorAll<HTMLButtonElement>(
-    '[role="radiogroup"][aria-label="Mark"] [role="radio"]',
-  ),
-];
+const preview = () =>
+  document.body.querySelector<HTMLElement>(
+    '[role="dialog"] .project-mark .stack-mark',
+  );
 
-describe("mark picker", () => {
-  it("lays every project mark out in wrapping cells, six to a row", async () => {
+describe("mark", () => {
+  it("shows the project's Stack beside its name, with no sigil to pick", async () => {
     await open();
-    const group = document.body.querySelector<HTMLElement>(
-      '[role="radiogroup"][aria-label="Mark"]',
-    )!;
-    // Equal grid cells that wrap, so none is cut at the popover's edge.
-    expect(group.classList.contains("grid")).toBe(true);
-    expect(group.classList.contains("grid-cols-6")).toBe(true);
-    expect(group.classList.contains("flex")).toBe(false);
-    // All twelve, by their names, each drawn in dots.
-    expect(PROJECT_SIGILS).toHaveLength(12);
-    expect(marks().map((button) => button.title)).toEqual(
-      PROJECT_SIGILS.map((sigil) => sigil.label),
-    );
-    expect(marks().map((button) => button.getAttribute("aria-label"))).toEqual(
-      PROJECT_SIGILS.map((sigil) => sigil.label),
-    );
-    for (const button of marks()) {
-      expect(button.querySelector(".dot-mark")).not.toBeNull();
-      // A cell takes its column's width rather than a size of its own.
-      expect(button.classList.contains("shrink-0")).toBe(false);
-      expect(button.className).not.toMatch(/\bsize-\d/);
-    }
-  });
-
-  it("marks the chosen mark and saves another under its critter name", async () => {
-    await open();
-    const checked = () =>
-      marks()
-        .filter((button) => button.getAttribute("aria-checked") === "true")
-        .map((button) => button.title);
-    expect(checked()).toHaveLength(1);
-    const other = marks().find(
-      (button) => button.getAttribute("aria-checked") !== "true",
-    )!;
-    await act(async () => other.click());
-    expect(checked()).toEqual([other.title]);
-    const key = other.dataset.markChoice!;
-    expect(Object.values(loadTabGroupMascots())).toEqual([SIGIL_CRITTERS[key]]);
-  });
-
-  it("keeps every mark reachable from the keyboard", async () => {
-    await open();
-    for (const button of marks()) {
-      expect(button.tagName).toBe("BUTTON");
-      expect(button.tabIndex).toBe(0);
-      expect(button.disabled).toBe(false);
-    }
+    expect(preview()).not.toBeNull();
+    expect(
+      document.body.querySelector('[role="radiogroup"][aria-label="Mark"]'),
+    ).toBeNull();
+    expect(document.body.querySelector("[data-mark-choice]")).toBeNull();
+    // Colour and logo stay.
+    expect(
+      document.body.querySelector('[role="radiogroup"][aria-label="Colour"]'),
+    ).not.toBeNull();
+    expect(
+      [...document.body.querySelectorAll("button")].some(
+        (button) => button.textContent === "Choose image…",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -119,11 +87,8 @@ describe("colour", () => {
     colours()
       .filter((button) => button.getAttribute("aria-checked") === "true")
       .map((button) => button.title);
-  const shownSigil = () =>
-    marks().find((button) => button.getAttribute("aria-checked") === "true")!
-      .dataset.markChoice;
 
-  it("offers Grey and the eight mark colours under the marks", async () => {
+  it("offers Grey and the eight mark colours", async () => {
     await open();
     expect(colours().map((button) => button.title)).toEqual(
       MARK_TONES.map((item) => item.label),
@@ -133,35 +98,35 @@ describe("colour", () => {
       tabGroupColor("app"),
     );
     expect(checked()).toEqual([MARK_TONES[automatic].label]);
-    // The marks are drawn in it.
-    for (const button of marks())
-      expect(button.querySelector<HTMLElement>(".dot-mark")!.dataset.tone).toBe(
-        MARK_TONES[automatic].tone,
-      );
+    // The Stack is drawn in it (Grey has no tone of its own).
+    const tone = MARK_TONES[automatic].tone;
+    expect(preview()!.dataset.tone).toBe(tone === "grey" ? undefined : tone);
   });
 
   it("shows a colour saved before marks", async () => {
     saveTabGroupColor(projectKey(PATH), 7);
     await open();
     expect(checked()).toEqual(["Teal"]);
+    expect(preview()!.dataset.tone).toBe("teal");
   });
 
-  it("saves a picked colour where colours are kept, keeping the mark", async () => {
+  it("saves a picked colour where colours are kept, keeping the sigil its agents wear", async () => {
     await open();
-    const before = shownSigil();
+    const before = projectSigilAt(PATH).key;
     const pink = colours().find((button) => button.title === "Pink")!;
     await act(async () => pink.click());
     expect(checked()).toEqual(["Pink"]);
     expect(loadTabGroupColors()).toEqual({ [projectKey(PATH)]: 5 });
-    expect(shownSigil()).toBe(before);
+    expect(preview()!.dataset.tone).toBe("pink");
+    expect(projectSigilAt(PATH).key).toBe(before);
+    expect(Object.values(loadTabGroupMascots())).toEqual([
+      SIGIL_CRITTERS[before],
+    ]);
     const grey = colours().find((button) => button.title === "Grey")!;
     await act(async () => grey.click());
     expect(checked()).toEqual(["Grey"]);
     expect(loadTabGroupColors()).toEqual({ [projectKey(PATH)]: 0 });
-    for (const button of marks())
-      expect(button.querySelector(".dot-mark")!.hasAttribute("data-tone")).toBe(
-        false,
-      );
+    expect(preview()!.hasAttribute("data-tone")).toBe(false);
   });
 });
 

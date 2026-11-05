@@ -235,6 +235,28 @@ describe("stored schedules", () => {
     expect(agents[1]!.schedule).toEqual({ kind: "interval", hours: 24 });
   });
 
+  it("keeps a job's team, and drops one it can't read", () => {
+    localStorage.setItem(
+      "aven.scheduledAgents.v1",
+      JSON.stringify([
+        agent({ id: "job", owner: { avos: "/work/site" } }),
+        { ...agent({ id: "odd" }), owner: { avos: 42 } },
+        { ...agent({ id: "blank" }), owner: { avos: "  " } },
+        { ...agent({ id: "list" }), owner: ["/work/site"] },
+      ]),
+    );
+    const agents = listScheduledAgents();
+    expect(agents.map((item) => [item.id, item.owner])).toEqual([
+      ["job", { avos: "/work/site" }],
+      ["odd", undefined],
+      ["blank", undefined],
+      ["list", undefined],
+    ]);
+    // Saved again, it is still the team's.
+    saveScheduledAgent({ ...agents[0]!, name: "Renamed" });
+    expect(getScheduledAgent("job")!.owner).toEqual({ avos: "/work/site" });
+  });
+
   it("keeps entries it can't read and writes them back as they were", () => {
     const later = {
       ...agent({ id: "later" }),
@@ -600,6 +622,28 @@ describe("due checks", () => {
     await runDueScheduledAgents({ now, claim, fire });
     expect(claim).not.toHaveBeenCalled();
     expect(fire).not.toHaveBeenCalled();
+  });
+
+  it("holds a job while its team is paused, then runs it once", async () => {
+    saveScheduledAgent(agent({ owner: { avos: "/work/site" } }));
+    const fire = vi.fn();
+    const claim = vi.fn(async () => true);
+    await runDueScheduledAgents({ now, claim, fire, held: () => true });
+    expect(claim).not.toHaveBeenCalled();
+    expect(fire).not.toHaveBeenCalled();
+    expect(getScheduledAgent("daily")!.nextRunAt).toBe(
+      local(2026, 1, 7, 9).getTime(),
+    );
+    await runDueScheduledAgents({
+      now: now + HOUR,
+      claim,
+      fire,
+      held: () => false,
+    });
+    expect(fire).toHaveBeenCalledTimes(1);
+    expect(getScheduledAgent("daily")!.nextRunAt).toBe(
+      local(2026, 1, 8, 9).getTime(),
+    );
   });
 
   it("runs only once for several missed due times", async () => {

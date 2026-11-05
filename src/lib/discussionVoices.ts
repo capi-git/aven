@@ -1,11 +1,12 @@
 /**
- * A face for each side of a discussion: a mark (one of the project sigils,
- * by the critter name it is kept under), the model's name and a short tag
- * for its part. Its provider's colour tints its bubbles, never its mark.
+ * A face for each side of a discussion: its mark (Hopper, in a colour of
+ * its own), the model's name and a short tag for its part. Its provider's
+ * colour tints its bubbles, never its mark.
  */
 import type { Discussion, DiscussionSide } from "./discussions";
 import { agentRole, type AgentRoleId } from "./agentRoles";
 import { agentFullName, agentNameIn, appName } from "./agentNames";
+import type { MarkTone } from "./markTones";
 import { PROJECT_MASCOTS } from "./projectMascots";
 import type { HarnessId } from "./session";
 
@@ -45,8 +46,10 @@ export type DiscussionVoice = {
   persona: string;
   /** The role it was brought in with, shown as a badge on its mark. */
   role?: AgentRoleId;
-  /** The critter name its mark is kept under (see `projectSigil`). */
+  /** The critter name it is known by, which picks its mark's colour. */
   mascot: string;
+  /** Its mark's colour (`voiceTone`). */
+  tone: MarkTone;
   /** CSS colour of its bubbles. */
   color: string;
 };
@@ -69,17 +72,45 @@ function hash(text: string): number {
 }
 
 /**
- * Each chat's mascot, stable for that chat. A chat whose sprite another
- * chat before it already wears steps to the next free one, so a team's
- * members all look different (while there are sprites enough).
+ * The colours agents' marks take beside each other (in a discussion, a
+ * race, a team's cards): never yellow, green or red, which say what is
+ * happening. Grey is the text colour.
+ */
+export const VOICE_TONES: readonly MarkTone[] = [
+  "blue",
+  "purple",
+  "teal",
+  "orange",
+  "pink",
+  "grey",
+];
+
+/** A mascot's mark colour: the mascots take the colours in turn. */
+export function voiceTone(mascot: string): MarkTone {
+  const index = PROJECT_MASCOTS.findIndex((item) => item.name === mascot);
+  return VOICE_TONES[Math.max(0, index) % VOICE_TONES.length];
+}
+
+/**
+ * Each chat's mascot, stable for that chat. A chat whose mascot, or whose
+ * mascot's colour, another chat before it already has steps to the next
+ * free one, so a team's members all look different (while there are
+ * colours, then mascots, enough).
  */
 export function teamMascots(sessionIds: readonly string[]): string[] {
   const count = PROJECT_MASCOTS.length;
+  const tones = VOICE_TONES.length;
   const used = new Set<number>();
+  const toned = new Set<number>();
   return sessionIds.map((id) => {
     let index = hash(id) % count;
+    const taken = (at: number) =>
+      used.has(at) || (toned.size < tones && toned.has(at % tones));
+    for (let tries = 0; tries < count && taken(index); tries++)
+      index = (index + 1) % count;
     while (used.has(index) && used.size < count) index = (index + 1) % count;
     used.add(index);
+    toned.add(index % tones);
     return PROJECT_MASCOTS[index].name;
   });
 }
@@ -131,6 +162,7 @@ export function memberVoice(
     persona: personaWith(member.stateLabel, member.agentRole),
     ...(member.agentRole ? { role: member.agentRole } : {}),
     mascot,
+    tone: voiceTone(mascot),
     color: providerVoiceColor(member.harness),
   };
 }
@@ -154,6 +186,7 @@ export function discussionVoices(
       persona: personaWith(DISCUSSION_PERSONAS[side], party.role),
       ...(party.role ? { role: party.role } : {}),
       mascot: mascots[side],
+      tone: voiceTone(mascots[side]),
       color: providerVoiceColor(party.harness),
     };
   };

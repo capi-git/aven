@@ -1,0 +1,83 @@
+/* A project's mark (StackMark.tsx): three pages in its colour, the back two
+   at 32% and 60%. While the project is open the back two turn from the
+   front page's bottom middle (32, 56), −14° and −6°, so the pages fan out;
+   otherwise nothing moves. Its colour is a mark colour token; Grey is the
+   text colour, toned down over the whole mark at once so the pages never
+   show through one another. The numbers match src/lib/stackMark.ts. */
+
+/* Its size, in a layer so a utility (size-3) or a caller's own rule wins. */
+@layer components {
+  .stack-mark {
+    width: var(--aven-mark-15);
+    height: var(--aven-mark-15);
+  }
+}
+
+.stack-mark {
+  display: inline-block;
+  flex: none;
+  color: var(--color-content);
+  line-height: 0;
+  vertical-align: middle;
+}
+
+.stack-mark:not([data-tone]) {
+  opacity: 0.6;
+}
+
+.stack-mark[data-tone="blue"] {
+  color: var(--aven-mark-blue);
+}
+.stack-mark[data-tone="red"] {
+  color: var(--aven-mark-red);
+}
+.stack-mark[data-tone="yellow"] {
+  color: var(--aven-mark-yellow);
+}
+.stack-mark[data-tone="green"] {
+  color: var(--aven-mark-green);
+}
+.stack-mark[data-tone="pink"] {
+  color: var(--aven-mark-pink);
+}
+.stack-mark[data-tone="purple"] {
+  color: var(--aven-mark-purple);
+}
+.stack-mark[data-tone="teal"] {
+  color: var(--aven-mark-teal);
+}
+.stack-mark[data-tone="orange"] {
+  color: var(--aven-mark-orange);
+}
+
+.stack-mark-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: currentColor;
+}
+
+.stack-mark-back,
+.stack-mark-middle {
+  transform-box: view-box;
+  transform-origin: 32px 56px;
+  /* Reduce motion zeroes the duration: the pages are fanned or not. */
+  transition: transform var(--aven-motion-glide) var(--aven-ease-spring);
+}
+
+.stack-mark-back {
+  opacity: 0.32;
+}
+
+.stack-mark-middle {
+  opacity: 0.6;
+}
+
+.stack-mark[data-open] .stack-mark-back {
+  transform: rotate(-14deg);
+}
+
+.stack-mark[data-open] .stack-mark-middle {
+  transform: rotate(-6deg);
+}

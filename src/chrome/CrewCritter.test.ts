@@ -40,6 +40,11 @@ async function draw(element: ReactElement) {
   await act(async () => root.render(element));
 }
 
+const states = () =>
+  [...host.querySelectorAll<HTMLElement>(".hopper-mark")].map(
+    (mark) => mark.dataset.hopper,
+  );
+
 const tones = () =>
   [...host.querySelectorAll<HTMLElement>(".dot-mark")].map(
     (mark) => mark.dataset.tone ?? "grey",
@@ -57,9 +62,10 @@ describe("crew marks", () => {
       }),
     );
     expect(tones()).toEqual(["blue", "purple", "pink", "teal"]);
-    // The working one sweeps in its colour too.
+    // Every one is Hopper; the working one hops in its colour too.
+    expect(host.querySelectorAll(".hopper-mark")).toHaveLength(4);
     expect(
-      host.querySelector<HTMLElement>('.dot-mark[data-state="working"]')
+      host.querySelector<HTMLElement>('.hopper-mark[data-hopper="working"]')
         ?.dataset.tone,
     ).toBe("blue");
     await act(async () => saveTabGroupColor(projectKey(APP), 6));
@@ -83,7 +89,7 @@ describe("crew marks", () => {
       );
   });
 
-  it("keeps a member's own mark, with a job's colour for a Tester", async () => {
+  it("keeps the colour of a mark chosen before Hopper, orange for a Tester", async () => {
     await draw(
       createElement(CrewCritter, {
         path: APP,
@@ -92,7 +98,7 @@ describe("crew marks", () => {
       }),
     );
     const mark = host.querySelector<HTMLElement>(".dot-mark")!;
-    expect(mark.dataset.sigil).toBe("tester");
+    expect(mark.classList.contains("hopper-mark")).toBe(true);
     expect(mark.dataset.tone).toBe("orange");
     // A mark you chose keeps its role's colour.
     await draw(
@@ -105,17 +111,52 @@ describe("crew marks", () => {
     expect(tones()).toEqual(["purple"]);
   });
 
-  it("draws the Fixer in its project's colour", async () => {
+  it("draws the Fixer and the Lead (Avos) in their project's colour", async () => {
     saveTabGroupColor(projectKey(APP), 4);
     await draw(createElement(CrewCritter, { path: APP, role: "fixer" }));
     expect(tones()).toEqual(["green"]);
+    await draw(createElement(CrewCritter, { path: APP, role: "lead" }));
+    expect(tones()).toEqual(["green"]);
+    await act(async () => saveTabGroupColor(projectKey(APP), 1));
+    expect(tones()).toEqual(["blue"]);
   });
 
-  it("draws a project's bot in the project's colour", async () => {
+  it("stands still unless it has a state, and works when active", async () => {
+    await draw(createElement(CrewCritter, { path: APP, role: "checker" }));
+    expect(states()).toEqual(["still"]);
+    await draw(
+      createElement(CrewCritter, { path: APP, role: "checker", active: true }),
+    );
+    expect(states()).toEqual(["working"]);
+    await draw(
+      createElement(CrewCritter, {
+        path: APP,
+        role: "checker",
+        active: true,
+        state: "needs",
+      }),
+    );
+    expect(states()).toEqual(["needs"]);
+  });
+
+  it("draws a project's bot as Hopper in the project's colour, by its word", async () => {
     saveTabGroupColor(projectKey(APP), 8);
     await draw(createElement(BotCritter, { path: APP }));
     const mark = host.querySelector<HTMLElement>(".dot-mark")!;
-    expect(mark.dataset.sigil).toBe("fixer");
+    expect(mark.classList.contains("hopper-mark")).toBe(true);
     expect(mark.dataset.tone).toBe("orange");
+    expect(states()).toEqual(["still"]);
+    for (const [status, state] of [
+      ["watching", "watching"],
+      ["working", "working"],
+      ["needs-you", "needs"],
+      ["fix-ready", "resting"],
+      ["paused", "still"],
+    ] as const) {
+      await draw(createElement(BotCritter, { path: APP, status }));
+      expect(states()).toEqual([state]);
+    }
+    await draw(createElement(BotCritter, { path: APP, active: true }));
+    expect(states()).toEqual(["working"]);
   });
 });

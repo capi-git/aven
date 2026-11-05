@@ -20,6 +20,7 @@ import {
   type CrewCard,
   crewLead,
 } from "./crews";
+import { ownedBy } from "./avosJobs";
 import { waitFor } from "./devSmoke";
 import { crewDiagnostics, type SmokeCrew } from "./devSmokeCrew";
 import { errorText } from "./errors";
@@ -28,6 +29,11 @@ import { parentPath, projectName } from "./paths";
 import { IS_MAC } from "./platform";
 import { setUpProjectGit } from "./projectGitSetup";
 import { sameProjectPath } from "./recents";
+import {
+  listScheduledAgents,
+  listScheduledRuns,
+  updateScheduledAgent,
+} from "./scheduledAgents";
 import type { Session } from "./session";
 
 /**
@@ -1220,6 +1226,155 @@ export async function checkTeamTalk(
       left?.helperRuns?.count ?? 0
     } helper run, every turn sandboxed in the team's copy`;
   } finally {
+    await tidy(project);
+  }
+}
+
+/** On a message to the Lead: the stand-in sets up a job, and its run a card. */
+export const SMOKE_JOB_WORD = "AVEN_SMOKE_JOB";
+/** The Notion page the job watches; its run's prompt carries the word too. */
+const SMOKE_JOB_SOURCE = `https://www.notion.so/aven-smoke/Articles-${SMOKE_JOB_WORD}`;
+/** The draft the stand-in's run leaves behind a Publish card. */
+const SMOKE_JOB_DRAFT = "Spring launch";
+
+/**
+ * A standing job from the team's chat: asked to watch a Notion page, the Lead
+ * sets up the team's job (no idea cards), the chat shows it with Change, the
+ * job runs in the project itself (not the team's copy) and its Publish card
+ * shows in the chat, a paused team's job doesn't run, and Change opens it.
+ */
+export async function checkTeamJob(
+  config: { projectPath: string; binDir: string },
+  team: SmokeTeam,
+  leave?: () => void,
+): Promise<string> {
+  const project = await newTeamProject(config.projectPath, "team-job");
+  try {
+    const crew = await startTeam(team, project, []);
+    if (!crewLead(crew)) throw new Error("A new team started without a Lead");
+    const board = await openBoard(project);
+    const problem = await tellTeam(
+      project,
+      `Watch this Notion page: ${SMOKE_JOB_SOURCE}. If it updates, add it to the articles on the website.`,
+      "lead",
+    );
+    if (problem) throw new Error(problem);
+    const job = await waitFor(
+      () => {
+        failOnHold(project);
+        return (
+          listScheduledAgents().find(
+            (agent) => agent.owner && ownedBy(agent, project),
+          ) ?? null
+        );
+      },
+      60_000,
+      `the Lead to set up a job (${JSON.stringify(
+        getCrew(project)
+          ?.feed.map((entry) => entry.text)
+          .slice(-4),
+      )})`,
+    );
+    if (!sameProjectPath(job.project, project))
+      throw new Error(`The job runs in ${job.project}, not the project`);
+    if (job.runtimeMode !== "auto")
+      throw new Error(`The job runs with ${job.runtimeMode}, not Auto`);
+    const ideas = Object.keys(getCrew(project)?.ideas ?? {}).length;
+    const cards = board.querySelectorAll("[data-board-card]").length;
+    if (ideas || cards)
+      throw new Error(
+        `The request also left ${ideas} ideas and ${cards} cards on the Board`,
+      );
+    const chat = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].find(
+        onScreen,
+      ) ?? null;
+    const row = await waitFor(
+      () => {
+        const found = chat()?.querySelector<HTMLElement>(
+          `[data-team-job="${CSS.escape(job.id)}"]`,
+        );
+        return onScreen(found) ? found : null;
+      },
+      10_000,
+      "the job in the team chat",
+    );
+    const said = row.textContent ?? "";
+    if (
+      !said.includes("Keeping an eye on") ||
+      !said.includes("Every 6 hours") ||
+      !said.includes("Change")
+    )
+      throw new Error(`The job reads “${said}”`);
+
+    // Due now: the next check starts it, as the hour would.
+    updateScheduledAgent(job.id, { nextRunAt: Date.now() - 1_000 });
+    window.dispatchEvent(new Event("focus"));
+    const run = await waitFor(
+      () =>
+        listScheduledRuns().find(
+          (item) =>
+            item.scheduleId === job.id && item.review?.status === "open",
+        ) ?? null,
+      60_000,
+      `the job's run to leave a card (${JSON.stringify(
+        listScheduledRuns()
+          .filter((item) => item.scheduleId === job.id)
+          .map((item) => [item.status, item.error ?? item.summary]),
+      )})`,
+    );
+    const card = await waitFor(
+      () => {
+        const found = chat()?.querySelector<HTMLElement>(
+          `[data-team-run="${CSS.escape(run.id)}"]`,
+        );
+        return onScreen(found) ? found : null;
+      },
+      10_000,
+      "the run's card in the team chat",
+    );
+    const publish = [...card.querySelectorAll("button")].some(
+      (button) => button.textContent?.trim() === "Publish",
+    );
+    if (!card.textContent?.includes(SMOKE_JOB_DRAFT) || !publish)
+      throw new Error(`The run's card reads “${card.textContent}”`);
+    const turns = (await standInTurns(team, config.binDir)) ?? [];
+    const plain = (path: string) => path.replace(/^\/private\//, "/");
+    const ran = turns.filter((turn) => turn.crew === "job-run").at(-1);
+    if (!ran || plain(String(ran.cwd)) !== plain(project))
+      throw new Error(
+        `The job ran in ${String(ran?.cwd ?? "no folder")}, not the project`,
+      );
+
+    // Paused, the team's job waits.
+    setCrewPaused(project, true);
+    updateScheduledAgent(job.id, { nextRunAt: Date.now() - 1_000 });
+    window.dispatchEvent(new Event("focus"));
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    const runs = listScheduledRuns().filter(
+      (item) => item.scheduleId === job.id,
+    );
+    if (runs.length !== 1)
+      throw new Error(`A paused team's job ran (${runs.length} runs)`);
+
+    // Change opens the job in Automations.
+    [...row.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "Change")
+      ?.click();
+    await waitFor(
+      () =>
+        onScreen(
+          document.querySelector(
+            `[data-automation-detail="${CSS.escape(job.id)}"]`,
+          ),
+        ) || null,
+      10_000,
+      "Change to open the job in Automations",
+    );
+    leave?.();
+    return "the Lead set up the team's job and no ideas; the chat showed it with Change, its run worked in the project itself and its Publish card showed in the chat, a paused team's job didn't run, and Change opened it";
+  } finally {
+    leave?.();
     await tidy(project);
   }
 }

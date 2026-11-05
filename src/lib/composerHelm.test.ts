@@ -15,7 +15,6 @@ import {
   markHelmHintSeen,
   moveGridCursor,
   moveHelmCursor,
-  moveMarkCursor,
   roomBar,
   saveHelmCritter,
   subscribeHelmCritter,
@@ -192,30 +191,14 @@ describe("the dialog's rows and keys", () => {
     expect(moveGridCursor("Tab", 1, 12, 6)).toBeNull();
   });
 
-  it("moves between the marks and the colour row under them", () => {
-    // Twelve marks six to a row (0-11), then nine colours (12-20).
-    const move = (key: string, at: number) => moveMarkCursor(key, at, 12, 6, 9);
-    expect(move("ArrowDown", 2)).toBe(8);
-    // Down from the last row: the colour under the cell, ends to ends.
-    expect(move("ArrowDown", 6)).toBe(12);
-    expect(move("ArrowDown", 11)).toBe(20);
-    expect(move("ArrowDown", 8)).toBe(15);
-    // Up from the top row wraps to the colours.
-    expect(move("ArrowUp", 0)).toBe(12);
-    // Along the colour row, wrapping within it.
-    expect(move("ArrowRight", 12)).toBe(13);
-    expect(move("ArrowRight", 20)).toBe(12);
-    expect(move("ArrowLeft", 12)).toBe(20);
-    // Up to the marks' last row, down to the first.
-    expect(move("ArrowUp", 12)).toBe(6);
-    expect(move("ArrowUp", 20)).toBe(11);
-    expect(move("ArrowDown", 20)).toBe(5);
-    // Along the marks as before.
-    expect(move("ArrowRight", 5)).toBe(6);
-    expect(move("ArrowLeft", 0)).toBe(11);
-    expect(move("Home", 17)).toBe(0);
-    expect(move("End", 3)).toBe(20);
-    expect(move("Tab", 3)).toBeNull();
+  it("moves along a single row of colours, wrapping at its ends", () => {
+    // The Colour page: nine colours in one row.
+    expect(moveGridCursor("ArrowRight", 0, 9, 9)).toBe(1);
+    expect(moveGridCursor("ArrowRight", 8, 9, 9)).toBe(0);
+    expect(moveGridCursor("ArrowLeft", 0, 9, 9)).toBe(8);
+    // Up and down stay where they are.
+    expect(moveGridCursor("ArrowDown", 4, 9, 9)).toBe(4);
+    expect(moveGridCursor("ArrowUp", 4, 9, 9)).toBe(4);
   });
 });
 

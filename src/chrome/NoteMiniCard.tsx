@@ -1,11 +1,11 @@
 import { File, X } from "./icons";
 import { ProjectLogoIcon } from "./ProjectLogoIcon";
-import { DotMark } from "./DotMark";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { noteSourceProject, type NoteCardMeta } from "../lib/notes";
 import { projectKey } from "../lib/paths";
-import { projectSigilAt, projectToneAt } from "../lib/projectAppearance";
+import { projectToneAt } from "../lib/projectAppearance";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
+import { StackMark } from "./StackMark";
 
 type Props = {
   card: NoteCardMeta;
@@ -47,8 +47,7 @@ export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
                 imageClassName="size-3.5"
               />
             ) : (
-              <DotMark
-                sigil={projectSigilAt(card.sourceCwd!)}
+              <StackMark
                 tone={projectToneAt(card.sourceCwd!)}
                 className="size-[15px] shrink-0"
               />

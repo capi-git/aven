@@ -5,14 +5,10 @@ import {
   type CrewMemberView,
   type CrewStatus,
 } from "../lib/crewView";
+import { crewHopperState } from "../lib/hopper";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { ChevronRight } from "./icons";
-import {
-  CrewCritter,
-  CrewCritters,
-  CrewStatusPill,
-  crewMarkState,
-} from "./CrewCritter";
+import { CrewCritter, CrewCritters, CrewStatusPill } from "./CrewCritter";
 import "./BotCritter.css";
 import "./CrewCritter.css";
 
@@ -178,7 +174,7 @@ export function SidebarCrewRows({
                       path={crew.path}
                       role={member.role}
                       {...(member.critter ? { critter: member.critter } : {})}
-                      state={crewMarkState(member.status, member.active)}
+                      state={crewHopperState(member.status, member.active)}
                     />
                     <span className="personal-crew-member-text">
                       <span className="personal-crew-member-name">

@@ -1,10 +1,8 @@
 import { useState } from "react";
-import { useMascotReaction } from "../hooks/useMascotReaction";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { appearanceSigil } from "../lib/dotSigils";
 import { appearanceTone } from "../lib/markTones";
 import type { ProjectAppearance } from "../lib/projectAppearance";
-import { DotMark } from "./DotMark";
+import { StackMark } from "./StackMark";
 import "./ProjectMark.css";
 
 type Props = {
@@ -12,44 +10,39 @@ type Props = {
   path?: string | null;
   /** Already-resolved appearance, when the caller has it. */
   appearance?: ProjectAppearance | null;
-  /** Sweeps a light across the mark while an agent works. Logos stay still. */
-  active?: boolean;
   /**
-   * Lets the mark react once when one of the project's turns ends. Only
-   * marks the user watches for news use it: the sidebar and Home's tiles.
+   * The project is open (expanded in the sidebar): its Stack fans out.
+   * Logos stay as they are.
    */
-  reacts?: boolean;
+  open?: boolean;
   className?: string;
 };
 
 /**
- * A project's mark: its logo when one is set, otherwise its sigil in dots.
- * Renders nothing for folders without a project identity.
+ * A project's mark: its logo when one is set, otherwise its Stack, three
+ * pages in its colour. It stands for the project, never its agents (they
+ * are Hopper), so it never moves on its own. Renders nothing for folders
+ * without a project identity.
  */
 export function ProjectMark({
   path,
   appearance: given,
-  active = false,
-  reacts = false,
+  open = false,
   className = "",
 }: Props) {
   const resolved = useProjectAppearance(given === undefined ? path : null);
   const appearance = given === undefined ? resolved : given;
-  // A logo file deleted outside Aven falls back to the sigil.
+  // A logo file deleted outside Aven falls back to the Stack.
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (!appearance) return null;
   const logo =
-    appearance?.logoSrc && appearance.logoSrc !== failedSrc
+    appearance.logoSrc && appearance.logoSrc !== failedSrc
       ? appearance.logoSrc
       : null;
-  // Logos stay still, so only a sigil watches for reactions.
-  const reaction = useMascotReaction(reacts && !logo ? appearance?.key : null);
-  if (!appearance) return null;
   return (
     <span
       className={`project-mark ${className}`}
-      data-kind={logo ? "logo" : "mark"}
-      data-active={(active && !logo && !reaction) || undefined}
-      data-reaction={reaction?.kind}
+      data-kind={logo ? "logo" : "stack"}
       aria-hidden
     >
       {logo ? (
@@ -62,13 +55,10 @@ export function ProjectMark({
           onError={() => setFailedSrc(logo)}
         />
       ) : (
-        <DotMark
-          sigil={appearanceSigil(appearance)}
+        <StackMark
           tone={appearanceTone(appearance)}
-          state={active && !reaction ? "working" : "still"}
-          reaction={reaction?.kind}
-          reactionId={reaction?.id}
-          className="project-mark-dots"
+          open={open}
+          className="project-mark-stack"
         />
       )}
     </span>

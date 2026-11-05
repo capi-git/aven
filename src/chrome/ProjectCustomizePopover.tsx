@@ -6,23 +6,12 @@ import { projectName } from "../lib/paths";
 import { projectMemoryEdited } from "../lib/projectMemory";
 import { clearProjectLogo, pickAndSetProjectLogo } from "../lib/projectLogos";
 import {
-  PROJECT_SIGILS,
-  SIGIL_CRITTERS,
-  appearanceSigil,
-} from "../lib/dotSigils";
-import {
   MARK_TONES,
-  appearanceTone,
   markToneColor,
   markToneIndex,
   saveProjectTone,
 } from "../lib/markTones";
-import {
-  clearTabGroupSettings,
-  saveTabGroupLabel,
-  saveTabGroupMascot,
-} from "../lib/tabGroups";
-import { DotMark } from "./DotMark";
+import { clearTabGroupSettings, saveTabGroupLabel } from "../lib/tabGroups";
 import { Brain, ChevronRight, ImagePlus, Trash2 } from "./icons";
 import { MemoryKeeperSwitch } from "./MemoryKeeper";
 import { Popover, type PopoverAnchor } from "./Popover";
@@ -36,10 +25,12 @@ type Props = {
 };
 
 /**
- * Name, mark, colour and logo for one project. Changes apply as they are
- * made and reach every window; Reset returns to the folder name and the
- * automatic mark and colour. Project memory opens its own editor from here,
- * so every place that customizes a project also reaches its memory.
+ * Name, colour and logo for one project; its mark is its Stack in that
+ * colour, or the logo. Changes apply as they are made and reach every
+ * window; Reset returns to the folder name and the automatic colour (and
+ * the automatic sigil its agents still wear). Project memory opens its own
+ * editor from here, so every place that customizes a project also reaches
+ * its memory.
  */
 export function ProjectCustomizePopover({ path, anchor, onClose }: Props) {
   const [editingMemory, setEditingMemory] = useState(false);
@@ -118,8 +109,6 @@ function ProjectAppearancePopover({
     appearance.colorIndex != null ||
     appearance.customColor != null ||
     appearance.logoPath != null;
-  const shown = appearanceSigil(appearance).key;
-  const tone = appearanceTone(appearance);
   const toneIndex = markToneIndex(appearance);
 
   return (
@@ -160,42 +149,10 @@ function ProjectAppearancePopover({
         />
       </div>
 
-      <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Mark</p>
-      {/* Equal cells that wrap, six to a row. Each mark is saved under the
-          critter name it stands for, as picks were before marks. */}
-      <div
-        className="grid grid-cols-6 gap-1"
-        role="radiogroup"
-        aria-label="Mark"
-      >
-        {PROJECT_SIGILS.map((sigil) => {
-          const selected = shown === sigil.key;
-          return (
-            <button
-              key={sigil.key}
-              type="button"
-              role="radio"
-              title={sigil.label}
-              aria-label={sigil.label}
-              aria-checked={selected}
-              data-mark-choice={sigil.key}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => saveTabGroupMascot(key, SIGIL_CRITTERS[sigil.key])}
-              className={`grid h-8 min-w-0 place-items-center rounded-md ${
-                selected
-                  ? "bg-content/12 ring-1 ring-content/40"
-                  : "hover:bg-content/8"
-              }`}
-            >
-              <DotMark sigil={sigil} tone={tone} className="size-5" />
-            </button>
-          );
-        })}
-      </div>
-
       <p className="mt-3 mb-1.5 text-ui-caption text-content/50">Colour</p>
       {/* The mark colours, Grey first; a project that never picked one
-          has its own, worked out from its name. */}
+          has its own, worked out from its name. The mark beside the name
+          shows it. */}
       <div
         className="grid grid-cols-9 gap-0.5"
         role="radiogroup"

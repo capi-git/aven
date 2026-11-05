@@ -1,0 +1,414 @@
+/* Hopper watching (HopperMark.css): its dot hops from one grey dot to the
+   next inside its steps, landing on each one's centre (the bright dot is
+   bigger, so it covers it) and pausing there an uneven while, as if looking
+   around. One loop visits every dot once.
+
+   Generated from HOPPER_WATCH in src/lib/hopper.ts (path, pauses and a
+   0.42s hop); HopperMark.test.ts checks every stop against it. The box
+   walks between dots, eased in and out (`hopper-watch`), while the dot
+   arcs over each hop (`hopper-watch-arc`) in step with it: one animation
+   alone could only move in straight lines between its stops.
+
+   Translations are in the box's own size (one step across), from where it
+   stands on the bottom step; the arc is in the dot's own size. */
+
+/* Five rows: 15 dots, 18.7s a loop. */
+@keyframes hopper-watch {
+  0% {
+    transform: translate(-400%, 88.4211%);
+  }
+  4.813% {
+    transform: translate(-400%, 88.4211%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  7.059% {
+    transform: translate(-300%, 88.4211%);
+  }
+  9.733% {
+    transform: translate(-300%, 88.4211%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  11.979% {
+    transform: translate(-300%, -11.5789%);
+  }
+  18.93% {
+    transform: translate(-300%, -11.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  21.176% {
+    transform: translate(-200%, -11.5789%);
+  }
+  24.385% {
+    transform: translate(-200%, -11.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  26.631% {
+    transform: translate(-200%, 88.4211%);
+  }
+  30.909% {
+    transform: translate(-200%, 88.4211%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  33.155% {
+    transform: translate(-100%, 88.4211%);
+  }
+  39.037% {
+    transform: translate(-100%, 88.4211%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  41.283% {
+    transform: translate(0%, 88.4211%);
+  }
+  43.957% {
+    transform: translate(0%, 88.4211%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  46.203% {
+    transform: translate(-100%, -11.5789%);
+  }
+  51.551% {
+    transform: translate(-100%, -11.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  53.797% {
+    transform: translate(-200%, -111.5789%);
+  }
+  57.54% {
+    transform: translate(-200%, -111.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  59.786% {
+    transform: translate(-300%, -111.5789%);
+  }
+  66.203% {
+    transform: translate(-300%, -111.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  68.449% {
+    transform: translate(-300%, -211.5789%);
+  }
+  71.658% {
+    transform: translate(-300%, -211.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  73.904% {
+    transform: translate(-400%, -311.5789%);
+  }
+  78.717% {
+    transform: translate(-400%, -311.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  80.963% {
+    transform: translate(-400%, -211.5789%);
+  }
+  83.636% {
+    transform: translate(-400%, -211.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  85.882% {
+    transform: translate(-400%, -111.5789%);
+  }
+  91.23% {
+    transform: translate(-400%, -111.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  93.476% {
+    transform: translate(-400%, -11.5789%);
+  }
+  97.754% {
+    transform: translate(-400%, -11.5789%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  100% {
+    transform: translate(-400%, 88.4211%);
+  }
+}
+@keyframes hopper-watch-arc {
+  0% {
+    transform: none;
+  }
+  4.813% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  5.936% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  7.059% {
+    transform: none;
+  }
+  9.733% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  10.856% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  11.979% {
+    transform: none;
+  }
+  18.93% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  20.053% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  21.176% {
+    transform: none;
+  }
+  24.385% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  25.508% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  26.631% {
+    transform: none;
+  }
+  30.909% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  32.032% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  33.155% {
+    transform: none;
+  }
+  39.037% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  40.16% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  41.283% {
+    transform: none;
+  }
+  43.957% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  45.08% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  46.203% {
+    transform: none;
+  }
+  51.551% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  52.674% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  53.797% {
+    transform: none;
+  }
+  57.54% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  58.663% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  59.786% {
+    transform: none;
+  }
+  66.203% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  67.326% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  68.449% {
+    transform: none;
+  }
+  71.658% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  72.781% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  73.904% {
+    transform: none;
+  }
+  78.717% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  79.84% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  80.963% {
+    transform: none;
+  }
+  83.636% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  84.759% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  85.882% {
+    transform: none;
+  }
+  91.23% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  92.353% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  93.476% {
+    transform: none;
+  }
+  97.754% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  98.877% {
+    transform: translateY(-60%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  100% {
+    transform: none;
+  }
+}
+/* Three, below 24px rows: 6 dots, 7.72s a loop. */
+@keyframes hopper-watch-small {
+  0% {
+    transform: translate(-200%, 81.25%);
+  }
+  11.658% {
+    transform: translate(-200%, 81.25%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  17.098% {
+    transform: translate(-100%, 81.25%);
+  }
+  23.575% {
+    transform: translate(-100%, 81.25%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  29.016% {
+    transform: translate(0%, 81.25%);
+  }
+  45.855% {
+    transform: translate(0%, 81.25%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  51.295% {
+    transform: translate(-100%, -18.75%);
+  }
+  59.067% {
+    transform: translate(-100%, -18.75%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  64.508% {
+    transform: translate(-200%, -118.75%);
+  }
+  74.87% {
+    transform: translate(-200%, -118.75%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  80.311% {
+    transform: translate(-200%, -18.75%);
+  }
+  94.56% {
+    transform: translate(-200%, -18.75%);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  }
+  100% {
+    transform: translate(-200%, 81.25%);
+  }
+}
+@keyframes hopper-watch-arc-small {
+  0% {
+    transform: none;
+  }
+  11.658% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  14.378% {
+    transform: translateY(-47.3%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  17.098% {
+    transform: none;
+  }
+  23.575% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  26.295% {
+    transform: translateY(-47.3%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  29.016% {
+    transform: none;
+  }
+  45.855% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  48.575% {
+    transform: translateY(-47.3%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  51.295% {
+    transform: none;
+  }
+  59.067% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  61.788% {
+    transform: translateY(-47.3%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  64.508% {
+    transform: none;
+  }
+  74.87% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  77.591% {
+    transform: translateY(-47.3%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  80.311% {
+    transform: none;
+  }
+  94.56% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0.61, 1, 0.88, 1);
+  }
+  97.28% {
+    transform: translateY(-47.3%);
+    animation-timing-function: cubic-bezier(0.12, 0, 0.39, 0);
+  }
+  100% {
+    transform: none;
+  }
+}

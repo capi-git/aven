@@ -193,10 +193,10 @@ describe("DiscussionPanelContent", () => {
       "true",
     );
     expect(
-      typing.querySelector('.dot-mark[data-state="working"]'),
+      typing.querySelector('.hopper-mark[data-hopper="working"]'),
     ).not.toBeNull();
     expect(
-      all('[data-discussion-message] .dot-mark[data-state="working"]'),
+      all('[data-discussion-message] .hopper-mark[data-hopper="working"]'),
     ).toHaveLength(0);
     expect(text("[data-discussion-cast] [role='status']")).toBe("Round 2 of 2");
   });

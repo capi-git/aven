@@ -62,7 +62,7 @@ import { Modal } from "./Modal";
 import { ProjectMark } from "./ProjectMark";
 import { TeamBuilder } from "./TeamBuilder";
 import { TeamSetup } from "./TeamSetup";
-import { MarkButton, TeammateBody, teammateSubtitle } from "./TeammatePage";
+import { MemberMark, TeammateBody, teammateSubtitle } from "./TeammatePage";
 import "./TeamCard.css";
 import "./BotSettingsSheet.css";
 import "./CrewCritter.css";
@@ -240,7 +240,7 @@ export function CrewSettingsSheet({
         />
       ),
       description: teammateSubtitle(member, project),
-      leading: <MarkButton path={path} member={member} />,
+      leading: <MemberMark path={path} member={member} />,
       above: from === "add" ? backToBuild : back,
       trailing: (
         <span className="teammate-head-actions">

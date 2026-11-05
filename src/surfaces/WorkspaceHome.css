@@ -505,7 +505,7 @@ html.has-chat-background .workspace-home::before {
   );
 }
 
-/* A resting project's mark dims. */
+/* A resting project's agent dims. */
 .workspace-home-agent[data-state="resting"] .workspace-home-agent-figure {
   background: radial-gradient(
     closest-side,
@@ -518,14 +518,10 @@ html.has-chat-background .workspace-home::before {
   opacity: 0.45;
 }
 
-.workspace-home-agent .project-mark.workspace-home-agent-mark {
+.workspace-home-agent .dot-mark.workspace-home-agent-mark {
   --dot-mark-surface: var(--aven-glass-card, var(--color-background-base));
   width: 50px;
   height: 50px;
-}
-
-.workspace-home-agent .workspace-home-agent-mark .project-mark-logo {
-  border-radius: 11px;
 }
 
 .workspace-home-agent-bubble {
@@ -826,12 +822,6 @@ html.has-chat-background .workspace-home::before {
   flex-shrink: 0;
   width: 20px;
   height: 20px;
-}
-
-.workspace-home-mark-none {
-  display: inline-grid;
-  place-items: center;
-  color: var(--aven-muted);
 }
 
 .workspace-home-outcome {

@@ -8,15 +8,16 @@ import {
   resetDiscussionStore,
   type DiscussionParty,
 } from "../lib/discussions";
+import { projectToneAt } from "../lib/projectAppearance";
 import type { DiscussionRelayMeta } from "../lib/session";
 import {
   DiscussionOpenContext,
   DiscussionRelayCard,
 } from "./DiscussionRelayCard";
 
-vi.mock("./ProjectMark", () => ({
-  ProjectMark: ({ path }: { path?: string }) =>
-    createElement("span", { "data-project-mark": path }),
+vi.mock("./HopperMark", () => ({
+  HopperMark: ({ tone }: { tone?: string | null }) =>
+    createElement("span", { "data-hopper-tone": tone ?? "grey" }),
 }));
 
 let root: Root;
@@ -65,8 +66,11 @@ it("labels the opening topic with the chat it will discuss with", async () => {
   expect(container.textContent).toBe(
     "Discussion withCodex in “Review”· 3 rounds",
   );
+  // The other chat's agent, as Hopper in its project's colour.
   expect(
-    container.querySelector('[data-project-mark="/work/api"]'),
+    container.querySelector(
+      `[data-hopper-tone="${projectToneAt("/work/api")}"]`,
+    ),
   ).not.toBeNull();
 });
 
