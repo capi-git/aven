@@ -1,5 +1,6 @@
 import "./ChatDownloadLink.css";
 import {
+  useEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -13,6 +14,7 @@ import { Popover } from "../chrome/Popover";
 import {
   chatDownload,
   downloadAgentFile,
+  keepAgentFilesOutOfGit,
   openChatDownload,
   revealChatDownload,
   subscribeChatDownloads,
@@ -86,6 +88,8 @@ export function ChatDownloadLink({
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const name = basename(path);
   const saved = download?.state === "saved" ? download : undefined;
+  // The agent made its folder with this file: Git should leave it alone.
+  useEffect(() => keepAgentFilesOutOfGit(path), [path]);
 
   const start = () => {
     setPopup(true);
