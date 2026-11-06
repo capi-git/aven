@@ -1,3 +1,4 @@
+import type { DiffMode } from "./diffMode";
 import {
   revealedFold,
   type FoldReveal,
@@ -12,6 +13,14 @@ export const UNIFIED_OVERSCAN_PX = 1200;
 
 export type DiffViewRow =
   | { type: "line"; line: UnifiedLine; stage: boolean; height: number }
+  | {
+      /** Split mode: the old side's line beside the new side's. */
+      type: "pair";
+      left: UnifiedLine | null;
+      right: UnifiedLine | null;
+      stage: boolean;
+      height: number;
+    }
   | { type: "fold"; id: string; hidden: number; height: number };
 
 export type RowWindow = {
@@ -70,6 +79,102 @@ export function flattenVisibleRows(
     }
   }
   return rows;
+}
+
+/**
+ * The rows to draw for `mode`. Split pairs each removed line with the added
+ * line after it (in order, as Rune's diff view does), shows an unchanged line
+ * on both sides, and leaves a side empty where one has more lines.
+ */
+export function diffViewRows(
+  blocks: readonly UnifiedBlock[],
+  revealFor: (foldId: string) => FoldReveal | undefined,
+  canStageHunk: boolean,
+  mode: DiffMode,
+): DiffViewRow[] {
+  const rows = flattenVisibleRows(blocks, revealFor, canStageHunk);
+  return mode === "split" ? splitRows(rows) : rows;
+}
+
+export function splitRows(rows: readonly DiffViewRow[]): DiffViewRow[] {
+  const out: DiffViewRow[] = [];
+  let index = 0;
+  while (index < rows.length) {
+    const row = rows[index];
+    if (row.type !== "line" || row.line.kind === "hunk") {
+      out.push(row);
+      index += 1;
+      continue;
+    }
+    if (row.line.kind === "context") {
+      out.push(pair(row.line, row.line, false));
+      index += 1;
+      continue;
+    }
+    const removed: Extract<DiffViewRow, { type: "line" }>[] = [];
+    const added: Extract<DiffViewRow, { type: "line" }>[] = [];
+    while (index < rows.length && lineKind(rows[index]) === "del") {
+      removed.push(rows[index] as Extract<DiffViewRow, { type: "line" }>);
+      index += 1;
+    }
+    while (index < rows.length && lineKind(rows[index]) === "add") {
+      added.push(rows[index] as Extract<DiffViewRow, { type: "line" }>);
+      index += 1;
+    }
+    const count = Math.max(removed.length, added.length);
+    for (let offset = 0; offset < count; offset += 1) {
+      const left = removed[offset];
+      const right = added[offset];
+      out.push(
+        pair(
+          left?.line ?? null,
+          right?.line ?? null,
+          !!(left?.stage || right?.stage),
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+function pair(
+  left: UnifiedLine | null,
+  right: UnifiedLine | null,
+  stage: boolean,
+): DiffViewRow {
+  return { type: "pair", left, right, stage, height: UNIFIED_LINE_PX };
+}
+
+function lineKind(row: DiffViewRow | undefined) {
+  return row?.type === "line" ? row.line.kind : null;
+}
+
+/** Whether a row shows an added or removed line. */
+export function rowChanged(row: DiffViewRow | undefined): boolean {
+  if (!row || row.type === "fold") return false;
+  if (row.type === "line")
+    return row.line.kind === "add" || row.line.kind === "del";
+  return (
+    (row.left != null && row.left.kind !== "context") ||
+    (row.right != null && row.right.kind !== "context")
+  );
+}
+
+/**
+ * Where each run of changed lines starts, from the top of the rows: the places
+ * `j` and `k` move between.
+ */
+export function changeOffsets(
+  rows: readonly DiffViewRow[],
+  layout: RowLayout = layoutRows(rows),
+): number[] {
+  const out: number[] = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    if (rowChanged(rows[index]) && !rowChanged(rows[index - 1])) {
+      out.push(layout.offsets[index]);
+    }
+  }
+  return out;
 }
 
 export function rowsHeight(rows: readonly DiffViewRow[]): number {
