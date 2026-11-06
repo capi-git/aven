@@ -110,12 +110,19 @@ describe("motion tokens", () => {
       expect(animation).not.toMatch(/infinite|\d+ms|\d+s\b/);
     }
     const keyframes = [
-      ...motionCss.matchAll(/@keyframes [a-z-]+ \{([\s\S]*?)\n\}/g),
-    ].map(([, body]) => body);
+      ...motionCss.matchAll(/@keyframes ([a-z-]+) \{([\s\S]*?)\n\}/g),
+    ]
+      .filter(([, name]) => name !== "aven-word-in")
+      .map(([, , body]) => body);
     expect(keyframes.length).toBeGreaterThan(5);
     for (const body of keyframes)
       for (const [, property] of body.matchAll(/^\s*([a-z-]+):/gm))
         expect(["opacity", "transform"]).toContain(property);
+    // The one exception, with its reason beside it: a streamed word's text
+    // colour (an opacity fade inside a line costs a layer per word).
+    expect(motionCss).toMatch(
+      /@keyframes aven-word-in \{\s*from \{\s*color: transparent;/,
+    );
     const rules = motionCss.replace(/\/\*[\s\S]*?\*\//g, "");
     expect(rules).not.toMatch(/will-change|transition/);
   });

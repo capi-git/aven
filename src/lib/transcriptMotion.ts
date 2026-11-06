@@ -1,3 +1,5 @@
+import { MOTION_EASE, motionReduced } from "./motion";
+
 /**
  * Which turns of a transcript rise in as they arrive. Only a new last turn
  * that appears while the transcript is on screen does: the turns it opened
@@ -42,4 +44,31 @@ export class TurnEntrances {
   get started(): boolean {
     return this.known !== null;
   }
+}
+
+/** A follow longer than this jumps: it is a new block, not a line. */
+export const FOLLOW_GLIDE_MAX_PX = 160;
+export const FOLLOW_GLIDE_MS = 240;
+
+/**
+ * While an agent writes and the transcript follows its end, each new line
+ * scrolls the transcript up by its height. This eases that step: the content
+ * starts where it was drawn and glides up to where the scroll put it, on the
+ * compositor (a transform added to whatever it has), so the reply's growth
+ * reads as one smooth rise. The scroll offset itself is untouched.
+ */
+export function glideFollow(content: Element | null, delta: number): boolean {
+  if (
+    !content ||
+    delta < 1 ||
+    delta > FOLLOW_GLIDE_MAX_PX ||
+    motionReduced() ||
+    typeof content.animate !== "function"
+  )
+    return false;
+  content.animate(
+    [{ transform: `translateY(${delta}px)` }, { transform: "none" }],
+    { duration: FOLLOW_GLIDE_MS, easing: MOTION_EASE.out, composite: "add" },
+  );
+  return true;
 }
