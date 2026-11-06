@@ -57,7 +57,7 @@
   flex-basis: 26px;
 }
 .ios-sim-toolbar [data-pane-drag] {
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 .ios-sim-chip,
 .ios-sim-icon,
@@ -73,7 +73,7 @@
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 65%, transparent);
   font-size: 12px;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
   transition:
     background-color 120ms ease,
     color 120ms ease;
@@ -117,7 +117,7 @@
 .ios-sim-icon:disabled,
 .ios-sim-run:disabled {
   opacity: 0.28;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .ios-sim-stage {
   position: relative;

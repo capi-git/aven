@@ -87,7 +87,7 @@
   border-radius: var(--aven-radius-sm);
   font-size: 11.5px;
   font-weight: 500;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .git-house-primary {
   background: var(--color-accent);

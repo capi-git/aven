@@ -44,6 +44,7 @@ const APPEARANCE_CONTROLS = [
   "Glass",
   "Frame",
   "Reduce motion",
+  "Dot pointer",
   "Chat background",
   "Use for all workspaces",
 ];

@@ -122,7 +122,7 @@ html.popup-glass .toolbar-panel {
   border-radius: var(--aven-radius-sm, 6px);
   background: transparent;
   color: var(--toolbar-panel-muted);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .toolbar-panel-icon-button:hover:not(:disabled) {
@@ -132,7 +132,7 @@ html.popup-glass .toolbar-panel {
 
 .toolbar-panel-icon-button:disabled {
   opacity: 0.45;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 
 .toolbar-panel-row {

@@ -48,7 +48,7 @@
 .markdown-local-image-actions button {
   color: var(--color-content);
   text-decoration: underline;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 /* A Before/After pair reads as one comparison: side by side when the
    transcript is wide enough, stacked when it is narrow. */

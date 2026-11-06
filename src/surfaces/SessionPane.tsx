@@ -77,13 +77,23 @@ import {
   type QuoteRequest,
 } from "../lib/quoteDraft";
 import { createNote, noteTitle } from "../lib/notes";
-import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
+import {
+  GRID_ARCADE_ENABLED_DEFAULT,
+  loadGridArcadeEnabled,
+  loadNotesEnabled,
+  SETTINGS,
+  subscribeGridArcadeEnabled,
+  subscribeNotesEnabled,
+} from "../lib/settings";
+import { useSetting } from "../hooks/useSetting";
+import { useMotionReduced } from "../hooks/useMotionReduced";
 import { getModelSnapshot, resolveModel, subscribeModels } from "../lib/models";
 import { sessionModelIdentity, sessionPaneLabel } from "../lib/sessionLabels";
 import { isInFlightSession } from "../lib/inFlight";
 import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
+import { NewChatInk } from "./NewChatInk";
 import { projectKey } from "../lib/paths";
 import { memoryProjectFor } from "../lib/projectMemory";
 import {
@@ -458,6 +468,24 @@ export const SessionPane = memo(function SessionPane({
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer =
     !isEmpty || inSplit || !!session.inboxAsk || !!botProject;
+  const newChatInk = useSetting(SETTINGS.newChatInk);
+  const gamesInEmptyChats = useSyncExternalStore(
+    subscribeGridArcadeEnabled,
+    loadGridArcadeEnabled,
+    () => GRID_ARCADE_ENABLED_DEFAULT,
+  );
+  const motionReduced = useMotionReduced();
+  // A plain new chat only: a chosen background or the games take its place,
+  // and the ink lives only in motion.
+  const inkActive =
+    isEmpty &&
+    newChatInk &&
+    !session.inboxAsk &&
+    !botProject &&
+    !projectBackground &&
+    !globalBackgroundPath &&
+    !gamesInEmptyChats &&
+    !motionReduced;
   const draftRef = useRef<{
     sessionId: string;
     text: string | undefined;
@@ -827,6 +855,11 @@ export const SessionPane = memo(function SessionPane({
         />
       ) : null}
       <div ref={transcriptScope} className="relative min-h-0 flex-1">
+        <NewChatInk
+          host={transcriptScope}
+          active={inkActive}
+          visible={visible}
+        />
         {isEmpty ? (
           botProject ? (
             <div className="scrollbar-none h-full min-h-0 overflow-y-auto">

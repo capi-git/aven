@@ -300,7 +300,7 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   background: var(--toolbar-panel-hover);
 }
 .agent-switch-row:disabled {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.45;
 }
 /* Access, from the shared access options: menu rows set flush in the

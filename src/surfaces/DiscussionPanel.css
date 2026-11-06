@@ -105,7 +105,7 @@
   gap: 6px;
   min-width: 0;
   margin-bottom: 10px;
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
   font-size: var(--text-ui-caption);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
 }
@@ -128,7 +128,7 @@
   height: 22px;
   border-radius: var(--aven-radius-sm);
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .discussion-float-control:hover {
   background: var(--aven-hover);
@@ -324,7 +324,7 @@ button.discussion-side:focus-visible {
   font-size: var(--text-ui-label);
   color: var(--color-content);
   white-space: nowrap;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .discussion-pill:hover {
   border-color: color-mix(in srgb, var(--color-content) 22%, transparent);
@@ -555,7 +555,7 @@ button.discussion-side:focus-visible {
   );
 }
 .discussion-jump-send:disabled {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   background: var(--aven-control-bg, var(--aven-hover));
   color: color-mix(in srgb, var(--color-content) 36%, transparent);
 }

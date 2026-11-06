@@ -69,6 +69,10 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **An empty state** is one centred sentence saying what will appear here, in muted text. Add no illustration and no button unless the next step is obvious.
 
+**A new chat** has faint grey ink behind its words that the pointer stirs: a halftone of 3px cells in the text colour, never tinted. Holding gathers it and letting go bursts it outward; left alone it fades and stops. It shows only on a plain new chat (not with a chat background, the games, or Reduce motion) and fades out with the first message.
+
+**The pointer** is a soft, see-through dot about a fingertip wide (like the iPad's) with no outline, floating on a gentle shadow that keeps it visible over white pages and images. It is one size everywhere: over something you can press or drag (a tab, a sidebar row) it is only a little brighter, and it is plain on a disabled control or while something is busy. Text fields keep the I-beam, resize edges keep their arrows, and the closed hand shows only while dragging. Pages in the browser keep their own pointer, and the Mac's pointer comes back when it is enlarged or Increase contrast is on.
+
 **An agent** (Avos, a teammate, a bot, a chat) is drawn as Bot: a little robot with a dark face, two glowing eyes and a light on its antenna. Avos, a bot and a chat wear their project's colour, a teammate its role's, and its eyes and light turn amber when it needs you. At 28 px and up it wears its role's outfit (Avos a headset, the Builder a hard hat); below 24 px it drops its bolts and outfit and draws bigger eyes. A project's mark never stands for an agent.
 
 **Numbers** stay small. Use a few quiet tiles only in a panel's Overview. Home shows small chips, and only when the number isn't zero.
