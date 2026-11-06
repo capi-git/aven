@@ -77,7 +77,7 @@
   cursor: var(--aven-cursor-pointer);
 }
 .activity-destination:disabled {
-  cursor: progress;
+  cursor: var(--aven-cursor-progress);
 }
 .activity-provider {
   display: inline-flex;

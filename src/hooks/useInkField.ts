@@ -16,11 +16,31 @@ function contentRgb(element: Element): [number, number, number] {
   return [Number(match[0]), Number(match[1]), Number(match[2])];
 }
 
+/** One round dot centred in a `tile`-pixel square: the mask for a cell. */
+function dotTile(tile: number): HTMLCanvasElement {
+  const dot = document.createElement("canvas");
+  dot.width = tile;
+  dot.height = tile;
+  const context = dot.getContext("2d");
+  if (context) {
+    context.beginPath();
+    context.arc(tile / 2, tile / 2, tile * DOT_RADIUS, 0, Math.PI * 2);
+    context.fillStyle = "#000";
+    context.fill();
+  }
+  return dot;
+}
+
+/** A cell's dot, as a share of its side: round dots with a gap between. */
+const DOT_RADIUS = 0.38;
+
 /**
  * Runs a new chat's ink (`src/lib/inkField.ts`) on `canvas`, stirred by the
- * pointer over `host`. The canvas holds one pixel per 3px cell and is scaled
- * up without smoothing, so a frame is one `putImageData` of a small buffer:
- * no layout, no style, nothing else in the window repaints.
+ * pointer over `host`. The field paints one pixel per 3px cell into a small
+ * buffer; each frame puts it on a second, off-screen canvas, stretches it
+ * onto `canvas` at the screen's resolution and cuts every cell to a round
+ * dot with a repeating mask. Three canvas calls a frame: no layout, no
+ * style, nothing else in the window repaints, and never a square pixel.
  *
  * Frames run only while the ink moves: a move or a press wakes them, and
  * they stop once the field is quiet, while `live` is false (the chat is
@@ -40,7 +60,9 @@ export function useInkField(
     const canvasElement = canvas.current;
     if (!live || !hostElement || !canvasElement) return;
     const context = canvasElement.getContext("2d");
-    if (!context) return;
+    const cells = document.createElement("canvas");
+    const cellContext = cells.getContext("2d");
+    if (!context || !cellContext) return;
     const field = (fieldRef.current ??= new InkField());
 
     let frame = 0;
@@ -49,23 +71,56 @@ export function useInkField(
     let image: ImageData | null = null;
     let pixels: Uint32Array | null = null;
     let palette: InkPalette | null = null;
+    let tile = 0;
+    let dots: CanvasPattern | null = null;
 
     const fit = () => {
       rect = hostElement.getBoundingClientRect();
       field.resize(rect.width, rect.height);
       const { cols, rows } = field.cells();
-      if (image && image.width === cols && image.height === rows) return;
+      const nextTile = Math.max(
+        INK_CELL,
+        Math.round(INK_CELL * (window.devicePixelRatio || 1)),
+      );
+      if (
+        image &&
+        image.width === cols &&
+        image.height === rows &&
+        nextTile === tile
+      )
+        return;
       if (cols === 0 || rows === 0) {
         image = null;
         pixels = null;
         return;
       }
-      canvasElement.width = cols;
-      canvasElement.height = rows;
+      tile = nextTile;
+      cells.width = cols;
+      cells.height = rows;
+      canvasElement.width = cols * tile;
+      canvasElement.height = rows * tile;
       canvasElement.style.width = `${cols * INK_CELL}px`;
       canvasElement.style.height = `${rows * INK_CELL}px`;
-      image = context.createImageData(cols, rows);
+      image = cellContext.createImageData(cols, rows);
       pixels = new Uint32Array(image.data.buffer);
+      dots = context.createPattern(dotTile(tile), "repeat");
+    };
+
+    const show = () => {
+      if (!image || !pixels || !palette) return;
+      const { width, height } = canvasElement;
+      if (field.paint(pixels, palette) === 0 || !dots) {
+        context.clearRect(0, 0, width, height);
+        return;
+      }
+      cellContext.putImageData(image, 0, 0);
+      context.globalCompositeOperation = "copy";
+      context.imageSmoothingEnabled = false;
+      context.drawImage(cells, 0, 0, width, height);
+      context.globalCompositeOperation = "destination-in";
+      context.fillStyle = dots;
+      context.fillRect(0, 0, width, height);
+      context.globalCompositeOperation = "source-over";
     };
 
     const draw = (time: number) => {
@@ -77,10 +132,7 @@ export function useInkField(
       const dt = last ? (time - last) / 1000 : 1 / 60;
       last = time;
       field.step(dt);
-      if (image && pixels && palette) {
-        field.paint(pixels, palette);
-        context.putImageData(image, 0, 0);
-      }
+      show();
       if (field.quiet()) {
         last = 0;
         return;

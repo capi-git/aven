@@ -171,7 +171,7 @@ html.theme-light .personal-shell {
 }
 .aven-tab[data-draggable="true"],
 .aven-tab[data-draggable="true"] .aven-tab-button {
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 .aven-tab[data-sortable-moving="true"],
 .aven-tab[data-sortable-moving="true"] .aven-tab-button {
@@ -959,7 +959,7 @@ html.theme-light .personal-shell {
   container-type: inline-size;
 }
 .aven-split-entry[data-draggable="true"] .aven-split-segment {
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 .aven-split-segment:hover {
   background: var(--aven-control-bg);

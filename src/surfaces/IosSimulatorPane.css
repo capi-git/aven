@@ -57,7 +57,7 @@
   flex-basis: 26px;
 }
 .ios-sim-toolbar [data-pane-drag] {
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 .ios-sim-chip,
 .ios-sim-icon,

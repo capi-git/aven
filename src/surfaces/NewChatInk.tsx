@@ -33,7 +33,9 @@ export function NewChatInk({ host, active, visible }: Props) {
 
   useInkField(host, canvas, present && active && visible);
 
-  if (!present) return null;
+  // Off screen the canvas goes, so a hidden new chat holds no drawing; the
+  // field lives on in the hook and draws again when the chat is shown.
+  if (!present || !visible) return null;
   return (
     <div
       className="new-chat-ink"

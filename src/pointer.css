@@ -1,4 +1,5 @@
-/* Aven's pointer: a soft, see-through dot over Aven's own interface.
+/* Aven's pointer: a soft, see-through dot about a fingertip wide that
+   floats on a gentle shadow, over Aven's own interface.
 
    `html[data-aven-pointer="dot"]` turns it on (src/lib/dotPointer.ts sets it
    from Settings › Appearance, and leaves it off when the Mac asks for a
@@ -8,20 +9,28 @@
 
    The dot is an image cursor, drawn by the system like any other pointer:
    nothing follows the mouse and nothing restyles per move. Rules name the
-   two tokens below instead of `default` and `pointer`, so they follow the
-   switch without the attribute on each selector:
+   tokens below instead of the system's cursors, so they follow the switch
+   without the attribute on each selector:
 
    - `--aven-cursor-default`: the resting dot (the arrow when it is off).
-   - `--aven-cursor-pointer`: a larger, brighter dot over something you can
-     press (the hand when it is off).
+   - `--aven-cursor-pointer`: the same dot, a little brighter, over
+     something you can press (the hand when it is off). Never larger, so the
+     pointer keeps one size as it crosses the sidebar, tabs and chat.
+   - `--aven-cursor-grab`: something you can press or drag, such as a tab or
+     a sidebar row. The brighter dot at rest, so the pointer doesn't flick to
+     an open hand along the tabs; the closed hand still shows while dragging.
+   - `--aven-cursor-progress`: something busy. The resting dot, since the
+     control already shows its own spinner.
 
-   Text fields keep the I-beam, and resize edges, drag handles and other
-   purposeful cursors keep theirs. A disabled control shows the resting dot.
-   Images: scripts/make-dot-pointer.py. */
+   Text fields keep the I-beam, resize edges keep their arrows, and drawing,
+   colour-picking and zoom tools keep their crosshair or magnifier. A
+   disabled control shows the resting dot. Images: scripts/make-dot-pointer.py. */
 
 :root {
   --aven-cursor-default: default;
   --aven-cursor-pointer: pointer;
+  --aven-cursor-grab: grab;
+  --aven-cursor-progress: progress;
 }
 
 html[data-aven-pointer="dot"] {
@@ -30,15 +39,29 @@ html[data-aven-pointer="dot"] {
         url("./assets/pointer/dot-dark.png") 1x,
         url("./assets/pointer/dot-dark@2x.png") 2x
       )
-      14 14,
+      16 16,
     default;
   --aven-cursor-pointer:
     -webkit-image-set(
         url("./assets/pointer/dot-press-dark.png") 1x,
         url("./assets/pointer/dot-press-dark@2x.png") 2x
       )
-      18 18,
+      16 16,
     pointer;
+  --aven-cursor-grab:
+    -webkit-image-set(
+        url("./assets/pointer/dot-press-dark.png") 1x,
+        url("./assets/pointer/dot-press-dark@2x.png") 2x
+      )
+      16 16,
+    grab;
+  --aven-cursor-progress:
+    -webkit-image-set(
+        url("./assets/pointer/dot-dark.png") 1x,
+        url("./assets/pointer/dot-dark@2x.png") 2x
+      )
+      16 16,
+    progress;
   cursor: var(--aven-cursor-default);
 }
 
@@ -48,18 +71,32 @@ html.theme-light[data-aven-pointer="dot"] {
         url("./assets/pointer/dot-light.png") 1x,
         url("./assets/pointer/dot-light@2x.png") 2x
       )
-      14 14,
+      16 16,
     default;
   --aven-cursor-pointer:
     -webkit-image-set(
         url("./assets/pointer/dot-press-light.png") 1x,
         url("./assets/pointer/dot-press-light@2x.png") 2x
       )
-      18 18,
+      16 16,
     pointer;
+  --aven-cursor-grab:
+    -webkit-image-set(
+        url("./assets/pointer/dot-press-light.png") 1x,
+        url("./assets/pointer/dot-press-light@2x.png") 2x
+      )
+      16 16,
+    grab;
+  --aven-cursor-progress:
+    -webkit-image-set(
+        url("./assets/pointer/dot-light.png") 1x,
+        url("./assets/pointer/dot-light@2x.png") 2x
+      )
+      16 16,
+    progress;
 }
 
-/* Tailwind's two everyday cursors follow the tokens too. */
+/* Tailwind's everyday cursors follow the tokens too. */
 @layer utilities {
   .cursor-default {
     cursor: var(--aven-cursor-default);
@@ -68,43 +105,54 @@ html.theme-light[data-aven-pointer="dot"] {
   .cursor-pointer {
     cursor: var(--aven-cursor-pointer);
   }
+
+  .cursor-grab {
+    cursor: var(--aven-cursor-grab);
+  }
+
+  .cursor-progress {
+    cursor: var(--aven-cursor-progress);
+  }
 }
 
-/* With no rule of their own, these would inherit the resting dot. The
-   selectors carry no specificity, so any rule Aven writes for them wins. */
-:where(html[data-aven-pointer="dot"])
-  :where(
-    button:not(:disabled),
-    a:any-link,
-    summary,
-    select:not(:disabled),
-    [role="button"]:not([aria-disabled="true"]),
-    [role="menuitem"]:not([aria-disabled="true"]),
-    [role="option"]:not([aria-disabled="true"]),
-    [role="tab"]:not([aria-disabled="true"]),
-    [role="switch"]:not([aria-disabled="true"])
-  ) {
-  cursor: var(--aven-cursor-pointer);
-}
+/* With no rule of their own, these would inherit the resting dot. In the
+   base layer, under Tailwind's utilities and every unlayered rule, so a
+   cursor Aven sets for one of them (a resize handle, a tab) always wins. */
+@layer base {
+  :where(html[data-aven-pointer="dot"])
+    :where(
+      button:not(:disabled),
+      a:any-link,
+      summary,
+      select:not(:disabled),
+      [role="button"]:not([aria-disabled="true"]),
+      [role="menuitem"]:not([aria-disabled="true"]),
+      [role="option"]:not([aria-disabled="true"]),
+      [role="tab"]:not([aria-disabled="true"]),
+      [role="switch"]:not([aria-disabled="true"])
+    ) {
+    cursor: var(--aven-cursor-pointer);
+  }
 
-:where(html[data-aven-pointer="dot"])
-  :where(
-    input:not(
-      [type="button"],
-      [type="checkbox"],
-      [type="color"],
-      [type="file"],
-      [type="image"],
-      [type="radio"],
-      [type="range"],
-      [type="reset"],
-      [type="submit"]
-    ),
-    textarea,
-    [contenteditable]:not([contenteditable="false"]),
-    .cm-content
-  ) {
-  cursor: text;
+  :where(html[data-aven-pointer="dot"])
+    :where(
+      input:not(
+        [type="button"],
+        [type="checkbox"],
+        [type="color"],
+        [type="file"],
+        [type="image"],
+        [type="radio"],
+        [type="range"],
+        [type="reset"],
+        [type="submit"]
+      ),
+      textarea,
+      [contenteditable]:not([contenteditable="false"]),
+      .cm-content
+    ) {
+    cursor: text;
+  }
 }
 
 /* Nothing to press: the resting dot, even where Aven otherwise shows the
@@ -114,14 +162,21 @@ html[data-aven-pointer="dot"]
   cursor: var(--aven-cursor-default);
 }
 
-/* The terminal's own sheet sets the arrow over its scroll area and while a
-   program reads the mouse, and the hand over links. */
+/* The terminal's own sheet sets the arrow over its scroll area and
+   scrollbar and while a program reads the mouse, and the hand over links and
+   the scrollbar's thumb. */
 html[data-aven-pointer="dot"] .xterm .xterm-viewport,
+html[data-aven-pointer="dot"] .xterm .xterm-scrollable-element > .scrollbar,
 html[data-aven-pointer="dot"] .xterm.enable-mouse-events {
   cursor: var(--aven-cursor-default);
 }
 
 html[data-aven-pointer="dot"] .xterm.xterm-cursor-pointer,
-html[data-aven-pointer="dot"] .xterm .xterm-cursor-pointer {
+html[data-aven-pointer="dot"] .xterm .xterm-cursor-pointer,
+html[data-aven-pointer="dot"]
+  .xterm
+  .xterm-scrollable-element
+  > .scrollbar
+  > .slider {
   cursor: var(--aven-cursor-pointer);
 }

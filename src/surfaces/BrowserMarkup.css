@@ -209,7 +209,7 @@
 }
 .browser-markup-send:disabled {
   opacity: 0.6;
-  cursor: progress;
+  cursor: var(--aven-cursor-progress);
 }
 .browser-markup-tool:focus-visible,
 .browser-markup-send:focus-visible {

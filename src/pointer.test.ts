@@ -25,9 +25,10 @@ describe("dot pointer sheet", () => {
     expect(read("src/main.tsx")).toContain('import "./pointer.css";');
   });
 
-  it("leaves no plain arrow or hand behind the switch", () => {
-    // Rules name the tokens, so the dot reaches them; a plain `default` or
-    // `pointer` would show the system's arrow or hand in the middle of Aven.
+  it("leaves no plain arrow, hand or busy pointer behind the switch", () => {
+    // Rules name the tokens, so the dot reaches them; a plain `default`,
+    // `pointer`, `grab` or `progress` would show the system's arrow, hand or
+    // spinner in the middle of Aven. (`grabbing`, while dragging, stays.)
     // The crash screen draws itself apart from Aven's styles on purpose.
     const apart = [
       join("src", "pointer.css"),
@@ -45,7 +46,7 @@ describe("dot pointer sheet", () => {
           .split("\n")
           .map((line, index) => ({ file, line: index + 1, text: line }))
           .filter(({ text }) =>
-            /cursor:\s*["']?(default|pointer)\b/.test(text),
+            /cursor:\s*["']?(default|pointer|grab|progress)\b/.test(text),
           ),
       );
     expect(offenders).toEqual([]);
@@ -58,10 +59,15 @@ describe("dot pointer sheet", () => {
       ),
     ];
     expect(sets.map((set) => set[1])).toEqual([
+      // Rest, press, grab, busy; dark then light.
       "dot-dark",
       "dot-press-dark",
+      "dot-press-dark",
+      "dot-dark",
       "dot-light",
       "dot-press-light",
+      "dot-press-light",
+      "dot-light",
     ]);
     for (const [, one, two, x, y, fallback] of sets) {
       expect(two).toBe(one);
@@ -72,12 +78,14 @@ describe("dot pointer sheet", () => {
       ]);
       expect([Number(x), Number(y)]).toEqual([width / 2, height / 2]);
       // The system's own pointer if an image can't be used.
-      expect(["default", "pointer"]).toContain(fallback);
+      expect(["default", "pointer", "grab", "progress"]).toContain(fallback);
     }
-    // Larger over something you can press.
-    expect(pngSize("src/assets/pointer/dot-press-dark.png")[0]).toBeGreaterThan(
-      pngSize("src/assets/pointer/dot-dark.png")[0],
-    );
+    // One size everywhere, so the pointer never jumps between the sidebar,
+    // the tabs and the chat; only its brightness changes.
+    for (const tone of ["dark", "light"])
+      expect(pngSize(`src/assets/pointer/dot-press-${tone}.png`)).toEqual(
+        pngSize(`src/assets/pointer/dot-${tone}.png`),
+      );
   });
 
   it("keeps the I-beam in text fields and the resting dot on disabled controls", () => {
@@ -89,10 +97,44 @@ describe("dot pointer sheet", () => {
     );
   });
 
-  it("leaves resize edges and drag handles their own cursors", () => {
+  it("lets any cursor Aven sets for a control win over the catch-all dots", () => {
+    // Unlayered, the catch-alls would beat Tailwind's cursor classes on a
+    // button (a resize handle would lose its arrow); in the base layer they
+    // lose to every utility and unlayered rule.
+    const base = sheet.slice(sheet.indexOf("@layer base {"));
+    expect(base).toMatch(
+      /^@layer base \{\s*:where\(html\[data-aven-pointer="dot"\]\)/,
+    );
+    const layered = base.slice(0, base.indexOf("\n}\n") + 2);
+    expect(layered).toContain("cursor: var(--aven-cursor-pointer);");
+    expect(layered).toContain("cursor: text;");
+    expect(sheet.indexOf("button:not(:disabled)")).toBeGreaterThan(
+      sheet.indexOf("@layer base {"),
+    );
+  });
+
+  it("leaves resize edges their arrows, and a drag its closed hand", () => {
     const all = files("src", ".css").map(read).join("\n");
-    for (const cursor of ["col-resize", "row-resize", "grab", "grabbing"])
+    for (const cursor of ["col-resize", "row-resize", "grabbing"])
       expect(all).toContain(`cursor: ${cursor}`);
-    expect(sheet).not.toMatch(/cursor:\s*[\w-]*(resize|grab)/);
+    expect(sheet).not.toMatch(/cursor:\s*[\w-]*(resize|grabbing)/);
+  });
+
+  it("shows the larger dot at rest on things you can drag, and the dot while busy", () => {
+    for (const tone of ["dark", "light"]) {
+      expect(sheet).toMatch(
+        new RegExp(
+          `--aven-cursor-grab:\\s*-webkit-image-set\\(\\s*url\\("\\./assets/pointer/dot-press-${tone}\\.png"\\)[^;]*grab;`,
+        ),
+      );
+      expect(sheet).toMatch(
+        new RegExp(
+          `--aven-cursor-progress:\\s*-webkit-image-set\\(\\s*url\\("\\./assets/pointer/dot-${tone}\\.png"\\)[^;]*progress;`,
+        ),
+      );
+    }
+    expect(sheet).toContain(
+      ".cursor-grab {\n    cursor: var(--aven-cursor-grab);",
+    );
   });
 });

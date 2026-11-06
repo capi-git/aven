@@ -95,6 +95,13 @@ beforeEach(() => {
           data: new Uint8ClampedArray(width * height * 4),
         }),
         putImageData,
+        createPattern: () => ({}),
+        drawImage: () => {},
+        fillRect: () => {},
+        clearRect: () => {},
+        beginPath: () => {},
+        arc: () => {},
+        fill: () => {},
       }) as unknown as CanvasRenderingContext2D,
   );
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -118,10 +125,11 @@ afterEach(() => {
 });
 
 describe("new chat ink", () => {
-  it("draws on one small canvas, a pixel per 3px cell", () => {
+  it("draws on one canvas, a round dot per 3px cell at the screen's resolution", () => {
     render({ active: true, visible: true });
     const canvas = container.querySelector("canvas")!;
-    expect([canvas.width, canvas.height]).toEqual([200, 133]);
+    // A 3px tile per cell at 1x: 200 × 133 cells.
+    expect([canvas.width, canvas.height]).toEqual([600, 399]);
     expect(canvas.style.width).toBe("600px");
     expect(canvas.style.height).toBe("399px");
     expect(ink()?.getAttribute("aria-hidden")).toBe("true");
@@ -159,6 +167,8 @@ describe("new chat ink", () => {
   it("holds still while the chat is off screen or the window hidden", () => {
     render({ active: true, visible: false });
     expect(frames.size).toBe(0);
+    // Off screen it holds no drawing at all.
+    expect(container.querySelector("canvas")).toBeNull();
     pointer("pointermove", host(), 100, 100);
     pointer("pointermove", host(), 200, 100);
     expect(frames.size).toBe(0);

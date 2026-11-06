@@ -4,7 +4,7 @@
 }
 
 .chat-download-link[aria-busy="true"] {
-  cursor: progress;
+  cursor: var(--aven-cursor-progress);
 }
 
 /* The arrow and the first word wrap together. */

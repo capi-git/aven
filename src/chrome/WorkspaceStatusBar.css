@@ -11,7 +11,7 @@
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
   font-size: var(--text-ui-caption);
   line-height: 1;
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
   user-select: none;
   -webkit-user-select: none;
   background: var(--aven-toolbar-surface, transparent);

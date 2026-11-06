@@ -1,61 +1,72 @@
 #!/usr/bin/env python3
 """Draws Aven's dot pointer images into src/assets/pointer/.
 
-Each image is a soft round dot, centred, with a faint outer ring so it still
-shows over a surface of its own colour. There are two sizes (the resting dot
-and a larger, brighter one over something you can press), each for dark and
-light appearance, at 1x and 2x. Standard library only, so the images can be
-rebuilt anywhere:
+One soft dot, the same size everywhere: a flat, see-through fill with a
+softened edge and no outline, floating on a soft shadow. The shadow is what
+keeps it visible over a surface of its own colour (a white page in dark
+mode). Over something you can press it is only a little brighter, never
+larger, so the pointer keeps one weight as it moves across Aven (like the
+iPad's pointer, a single fingertip-sized circle). Each tone for dark and
+light appearance, at 1x and 2x. Standard library only:
 
     python3 scripts/make-dot-pointer.py
 
 src/pointer.css names them, with the hotspot at the centre of the 1x size.
 """
 
+import math
 import struct
 import zlib
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "src" / "assets" / "pointer"
-SUPERSAMPLE = 8
+SUPERSAMPLE = 4
 
-# (name, canvas side, dot radius) in CSS pixels. Hotspots are side / 2.
-SIZES = [("dot", 28, 10.0), ("dot-press", 36, 13.0)]
+# Canvas side and dot radius in CSS pixels, for every image. Hotspot: SIDE / 2.
+SIDE = 32
+RADIUS = 9.0
+# How far the dot's edge melts, in CSS pixels.
+EDGE = 1.0
+# The shadow: offset down, softness (Gaussian sigma), all in CSS pixels.
+SHADOW_DROP = 1.0
+SHADOW_SIGMA = 2.4
 
-# (fill, rim, halo) as RGBA in 0..1. The rim is the dot's last pixel; the halo
-# is one pixel outside it, in the opposite tone.
+# (rgb, centre alpha, edge alpha, shadow alpha) per image. The fill is
+# nearly flat; the shadow is black in both appearances.
 TONES = {
     "dark": {
-        "dot": ((1, 1, 1, 0.3), (1, 1, 1, 0.6), (0, 0, 0, 0.22)),
-        "dot-press": ((1, 1, 1, 0.4), (1, 1, 1, 0.75), (0, 0, 0, 0.24)),
+        "dot": ((1, 1, 1), 0.4, 0.32, 0.24),
+        "dot-press": ((1, 1, 1), 0.52, 0.42, 0.26),
     },
+    # Mid grey, so it shows over white and over a dark code block alike.
     "light": {
-        "dot": ((0.24, 0.24, 0.26, 0.26), (0.24, 0.24, 0.26, 0.55), (1, 1, 1, 0.6)),
-        "dot-press": (
-            (0.24, 0.24, 0.26, 0.34),
-            (0.24, 0.24, 0.26, 0.7),
-            (1, 1, 1, 0.65),
-        ),
+        "dot": ((0.45, 0.45, 0.48), 0.5, 0.4, 0.2),
+        "dot-press": ((0.4, 0.4, 0.43), 0.62, 0.5, 0.22),
     },
 }
 
 
-def layer(distance, radius, scale, tones):
-    """The colour of one sample, or None outside the dot."""
-    fill, rim, halo = tones
-    edge = 1.0 * scale
-    if distance <= radius - edge:
-        return fill
-    if distance <= radius:
-        return rim
-    if distance <= radius + edge:
-        return halo
-    return None
+def dot_alpha(distance, scale, centre, edge):
+    radius = RADIUS * scale
+    cover = min(max((radius - distance) / (EDGE * scale) + 0.5, 0.0), 1.0)
+    if cover <= 0:
+        return 0.0
+    t = min(distance / radius, 1.0)
+    return cover * (centre - (centre - edge) * t * t)
 
 
-def draw(side, radius, scale, tones):
-    size = side * scale
-    centre = size / 2
+def shadow_alpha(distance, scale, strength):
+    # A disc blurred by a Gaussian: half the complementary error function of
+    # the distance past its edge.
+    sigma = SHADOW_SIGMA * scale
+    past = distance - (RADIUS - 0.5) * scale
+    return strength * 0.5 * math.erfc(past / (sigma * math.sqrt(2)))
+
+
+def draw(scale, tone):
+    rgb, centre, edge, shadow = tone
+    size = SIDE * scale
+    middle = size / 2
     pixels = bytearray()
     for y in range(size):
         pixels.append(0)  # PNG filter: none
@@ -63,28 +74,29 @@ def draw(side, radius, scale, tones):
             r = g = b = a = 0.0
             for sy in range(SUPERSAMPLE):
                 for sx in range(SUPERSAMPLE):
-                    px = x + (sx + 0.5) / SUPERSAMPLE - centre
-                    py = y + (sy + 0.5) / SUPERSAMPLE - centre
-                    colour = layer(
-                        (px * px + py * py) ** 0.5, radius * scale, scale, tones
+                    px = x + (sx + 0.5) / SUPERSAMPLE - middle
+                    py = y + (sy + 0.5) / SUPERSAMPLE - middle
+                    under = shadow_alpha(
+                        math.hypot(px, py - SHADOW_DROP * scale), scale, shadow
                     )
-                    if colour is None:
-                        continue
-                    r += colour[0] * colour[3]
-                    g += colour[1] * colour[3]
-                    b += colour[2] * colour[3]
-                    a += colour[3]
+                    over = dot_alpha(math.hypot(px, py), scale, centre, edge)
+                    # The dot over its shadow, premultiplied.
+                    alpha = over + under * (1 - over)
+                    r += rgb[0] * over
+                    g += rgb[1] * over
+                    b += rgb[2] * over
+                    a += alpha
             samples = SUPERSAMPLE * SUPERSAMPLE
-            alpha = a / samples
-            if alpha <= 0:
+            r, g, b, a = r / samples, g / samples, b / samples, a / samples
+            if a <= 0.002:
                 pixels.extend((0, 0, 0, 0))
                 continue
             pixels.extend(
                 (
-                    round(r / a * 255),
-                    round(g / a * 255),
-                    round(b / a * 255),
-                    round(alpha * 255),
+                    round(min(r / a, 1) * 255),
+                    round(min(g / a, 1) * 255),
+                    round(min(b / a, 1) * 255),
+                    round(a * 255),
                 )
             )
     return size, bytes(pixels)
@@ -110,12 +122,12 @@ def png(size, raw):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for tone, shapes in TONES.items():
-        for name, side, radius in SIZES:
+    for appearance, tones in TONES.items():
+        for name, tone in tones.items():
             for scale in (1, 2):
-                size, raw = draw(side, radius, scale, shapes[name])
+                size, raw = draw(scale, tone)
                 suffix = "" if scale == 1 else "@2x"
-                path = OUT / f"{name}-{tone}{suffix}.png"
+                path = OUT / f"{name}-{appearance}{suffix}.png"
                 path.write_bytes(png(size, raw))
                 print(f"{path.relative_to(OUT.parent.parent.parent)} {size}x{size}")
 

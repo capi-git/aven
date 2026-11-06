@@ -1,7 +1,7 @@
 .prompt-outline {
   touch-action: none;
   user-select: none;
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 
 .prompt-outline[data-dragging="true"],
@@ -10,7 +10,7 @@
 }
 
 .prompt-outline button {
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 
 .prompt-outline-scrollbar {
