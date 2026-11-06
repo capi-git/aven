@@ -14,6 +14,7 @@ const {
   downloadAgentFile,
   isAgentMadeFile,
   openChatDownload,
+  keepAgentFilesOutOfGit,
   resetChatDownloadsForTests,
 } = downloads;
 
@@ -46,6 +47,31 @@ describe("chat downloads", () => {
     expect(agentFilesInstructions("C:\\p\\.aven\\files")).toContain(
       "(<C:\\p\\.aven\\files\\Report.pdf>)",
     );
+    // Aven makes no folder up front: the agent makes it with its first
+    // file, with an ignore file so Git leaves it alone.
+    expect(note).toContain("If that folder isn't there yet, make it");
+    expect(note).toContain("a .gitignore file in it that holds just *");
+  });
+
+  it("checks a handed-over file's folder for its ignore file, once per project", () => {
+    keepAgentFilesOutOfGit("/p/.aven/files/Report.pdf");
+    expect(core.invoke).not.toHaveBeenCalled();
+
+    core.tauri = true;
+    core.invoke.mockResolvedValue("/p/.aven/files");
+    keepAgentFilesOutOfGit("/p/.aven/files/Report.pdf");
+    keepAgentFilesOutOfGit("/p/.aven/files/charts/a.png");
+    expect(core.invoke).toHaveBeenCalledTimes(1);
+    expect(core.invoke).toHaveBeenCalledWith("agent_files_folder", {
+      cwd: "/p",
+    });
+    keepAgentFilesOutOfGit("C:\\q\\.aven\\files\\t.csv");
+    expect(core.invoke).toHaveBeenLastCalledWith("agent_files_folder", {
+      cwd: "C:/q",
+    });
+    // A file elsewhere isn't one an agent handed over.
+    keepAgentFilesOutOfGit("/p/src/App.tsx");
+    expect(core.invoke).toHaveBeenCalledTimes(2);
   });
 
   it("asks the app for the folder only inside the desktop app", async () => {

@@ -255,6 +255,15 @@ export function crewAgentsFor(role: CrewRole): readonly CrewAgent[] {
  */
 export const MOCKUP_DIR = "aven-mockups";
 
+/**
+ * Aven's own hidden folder in a project or a copy: files an agent made for
+ * you to download (`.aven/files`, see chatDownloads.ts) and an automation's
+ * records. Git ignores it and Apply never brings it into your files (see
+ * `PROTECTED_FIX_PATHS`), so a helper's write checks don't count it as a
+ * change; the Designer's rules still keep it out.
+ */
+export const AVEN_DIR = ".aven";
+
 /** Whether a role may change the project's own files in the copy. */
 export function crewRoleWritesCopy(role: CrewRole): boolean {
   return CREW_ROLE_INFO[role].edits && role !== "designer";
@@ -2494,13 +2503,22 @@ export function inScope(path: string, scope: readonly string[]): boolean {
   });
 }
 
-/** The changed paths outside a member's scope (none when it has none). */
+/**
+ * The changed paths outside a member's scope (none when it has none).
+ * Aven's own folder (`AVEN_DIR`) is never one: it isn't a change to apply.
+ */
 export function outsideScope(
   paths: readonly string[],
   scope: readonly string[] | undefined,
 ): string[] {
   if (!scope?.length) return [];
-  return paths.filter((path) => !inScope(path, scope));
+  return paths.filter((path) => !inScope(path, scope) && !inAvenDir(path));
+}
+
+/** A path inside the copy's top-level `AVEN_DIR`, or that folder itself. */
+function inAvenDir(path: string): boolean {
+  const relative = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  return relative === AVEN_DIR || relative.startsWith(`${AVEN_DIR}/`);
 }
 
 export function crewMember(

@@ -76,6 +76,7 @@ import {
   CREW_ROLE_INFO,
   crewRoleUsesBrowser,
   crewRoleUsesWeb,
+  AVEN_DIR,
   MOCKUP_DIR,
   activeCrews,
   bumpToday,
@@ -2938,6 +2939,8 @@ export class CrewRunner {
       );
     // New top-level entries Git can't see (ignored ones, `.env`, a folder of
     // its own): strays too, and gone at once, since no diff would show them.
+    // Aven's own folder isn't one (see `AVEN_DIR`): the Designer's rules
+    // keep it out, and what Aven keeps there stays.
     const before = new Set(
       (crew.copy?.entries ?? []).map((entry) => basename(entry)),
     );
@@ -2959,7 +2962,10 @@ export class CrewRunner {
       .map((entry) => basename(entry))
       .filter(
         (entry) =>
-          !before.has(entry) && entry !== MOCKUP_DIR && entry !== ".git",
+          !before.has(entry) &&
+          entry !== MOCKUP_DIR &&
+          entry !== AVEN_DIR &&
+          entry !== ".git",
       );
     if (unseen.length)
       await this.deps.mockups?.clear(copy, unseen).catch((error) => {

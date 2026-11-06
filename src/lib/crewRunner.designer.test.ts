@@ -652,6 +652,28 @@ describe("a screen for the Designer", () => {
     h.runner.stop();
   });
 
+  it("keeps its mock-up when Aven's own hidden folder appears in the copy, and leaves that folder", async () => {
+    const h = harness({
+      designer: () => {
+        // A download an agent handed over in the copy: Aven's folder, which
+        // Git ignores and Apply never brings in.
+        h.setEntries(["src", ".aven"]);
+        return { text: fence(target.file), wrote: { [target.file]: GOOD } };
+      },
+    });
+    onTeam();
+    const idea = (await addFeatureIdea(PATH, { title: "Timer" }))!;
+    target.file = `aven-mockups/${mockupFileName(idea.id)}`;
+    await askDesigner(PATH, idea, NOON);
+    h.runner.start();
+    await h.advance(MINUTE + 5_000);
+    expect(card(idea.id).stuck).toBeUndefined();
+    expect(card(idea.id)).toMatchObject({ stage: "ready" });
+    expect(h.mockups.save).toHaveBeenCalled();
+    expect(h.mockups.clear).not.toHaveBeenCalledWith(COPY, [".aven"]);
+    h.runner.stop();
+  });
+
   it("names a stray file once, though the diff and the listing both show it", async () => {
     const h = harness({
       designer: () => {

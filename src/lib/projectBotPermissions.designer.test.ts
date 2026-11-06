@@ -80,6 +80,29 @@ describe("the Designer's rules", () => {
     expect(ask).toEqual([]);
   });
 
+  it("keeps it out of Aven's own hidden folder, there or not, by rule and by sandbox", () => {
+    // Its turn isn't checked against that folder after, so it's kept out before.
+    const { deny = [] } = crewPermissionRules(crew, "designer");
+    expect(deny).toContain(`Edit(/${COPY}/.aven)`);
+    expect(deny).toContain(`Edit(/${COPY}/.aven/**)`);
+    expect(
+      crewSandbox(crew, "designer", undefined).filesystem?.denyWrite,
+    ).toContain(`${COPY}/.aven`);
+    // Listed once when the copy already has it.
+    const listed = {
+      ...crew,
+      copy: {
+        ...crew.copy!,
+        entries: [...crew.copy!.entries!, `${COPY}/.aven`],
+      },
+    };
+    expect(
+      crewPermissionRules(listed, "designer").deny?.filter(
+        (rule) => rule === `Edit(/${COPY}/.aven/**)`,
+      ),
+    ).toHaveLength(1);
+  });
+
   it("never reads the web or gets Aven's browser, whatever Access says", () => {
     for (const web of ["none", "builders", "everyone"] as const) {
       const rules = crewPermissionRules(
