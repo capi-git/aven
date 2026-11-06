@@ -32,6 +32,13 @@ import {
   type ReactProfile,
 } from "../lib/devPerfReact";
 import { pressPoint, smokeMouse } from "../lib/devSmokeLoneTab";
+import {
+  checkMotion,
+  recordMotion,
+  TAB_COPY,
+  type MotionCheckResult,
+  type MotionRecorder,
+} from "../lib/devPerfMotion";
 import { readLaunchReveal } from "../lib/devSmokeReveal";
 import { errorText } from "../lib/errors";
 import { resolveClaudeBinary } from "../lib/harness/child";
@@ -115,6 +122,9 @@ type Measure = {
   ) => Promise<number>;
 };
 
+/** How long a motion check keeps recording after its last move (ms). */
+const MOTION_SETTLE_MS = 1_200;
+
 function pressShortcut(key: string, shift = false) {
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -196,6 +206,7 @@ export async function runDevPerf(
   const streamChunks = settings.streamChunks ?? 500;
   const steps: SmokeStep[] = [];
   const scenarios: ScenarioResult[] = [];
+  const motion: MotionCheckResult[] = [];
   const restyle: ({ name: string } & Awaited<
     ReturnType<typeof analyzeRestyle>
   >)[] = [];
@@ -821,6 +832,111 @@ export async function runDevPerf(
         await pause(1_000);
       });
     }
+    // The motion check (after Rune's motion audit): a few of the moves
+    // above again, every keyed element's box recorded each frame, and what
+    // a person would notice listed (devPerfMotion.ts, motionAudit.ts). It
+    // runs apart from the timed scenarios, so its sampling is in no figure.
+    if (
+      !settings.only?.length ||
+      settings.only.some((part) => part.includes("motion"))
+    ) {
+      const check = async (
+        name: string,
+        body: (recorder: MotionRecorder) => Promise<void>,
+      ) => {
+        const recorder = recordMotion(name);
+        let error: string | undefined;
+        try {
+          // A few frames at rest first, so whatever the move changes was seen.
+          await pause(250);
+          await body(recorder);
+          await pause(MOTION_SETTLE_MS);
+        } catch (caught) {
+          error = errorText(caught);
+        }
+        const result = checkMotion(recorder.stop());
+        motion.push(error ? { ...result, error } : result);
+      };
+      pressShortcut("1");
+      await pause(600);
+      await check("sidebar show and hide", async (recorder) => {
+        for (let index = 0; index < 2; index += 1) {
+          recorder.input({ label: index ? "show the sidebar" : "hide it" });
+          pressShortcut("b");
+          await pause(700);
+        }
+      });
+      await check("Settings open and close", async (recorder) => {
+        const settingsShown = () =>
+          document.querySelector("[data-app-settings]");
+        // Settings takes the place of the workspace in a cut.
+        recorder.input({ label: "open Settings", expect: ["instant"] });
+        pressShortcut(",");
+        await waitFor(settingsShown, 5_000, "Settings");
+        await pause(600);
+        recorder.input({ label: "close Settings", expect: ["instant"] });
+        pressShortcut("w");
+        await waitFor(() => !settingsShown(), 5_000, "Settings to close");
+      });
+      await check("dragging a tab along the strip", async (recorder) => {
+        const slots = stripSlots();
+        const first = slots[0];
+        const last = slots[slots.length - 1];
+        if (!first || !last || first === last)
+          throw new Error("No tabs to drag");
+        const from = pressPoint(first);
+        const to = pressPoint(last);
+        recorder.input({ label: "lift a tab" });
+        await smokeMouse("down", from, { settle: false });
+        await smokeMouse(
+          "drag",
+          { x: from.x + 8, y: from.y + 2 },
+          { settle: false },
+        );
+        // Let the lift settle, then the copy should ride the pointer.
+        await pause(400);
+        const pointer: { t: number; x: number; y: number }[] = [];
+        recorder.input({
+          label: "drag it along the strip",
+          expect: ["follow"],
+          element: TAB_COPY,
+          pointer,
+        });
+        const steps = 60;
+        for (let step = 1; step <= steps; step += 1) {
+          const at = {
+            x: from.x + 8 + (to.x - from.x - 8) * (step / steps),
+            y: from.y + 2,
+          };
+          pointer.push({ t: recorder.now(), ...at });
+          await smokeMouse("drag", at, { settle: false });
+          await pause(refreshMs);
+        }
+        recorder.input({
+          label: "let go",
+          allow: {
+            kinds: ["overshoot"],
+            reason:
+              "let go while moving, the copy lands with the throw's overshoot (TAB_SPRING.flick)",
+          },
+        });
+        await smokeMouse("up", to, { settle: false });
+      });
+      await check("closing a tab", async (recorder) => {
+        const active = document.querySelector<HTMLElement>(
+          ".aven-tab-strip [data-motion-slot][data-active='true']",
+        );
+        const id = active?.dataset.motionSlot;
+        if (!id) throw new Error("No tab in front");
+        recorder.input({
+          label: "close the tab in front",
+          expect: ["leaves"],
+          element: `tab:${id}`,
+        });
+        pressShortcut("w");
+        await pause(400);
+      });
+    }
   } catch (error) {
     steps.push({
       name: "speed test setup",
@@ -830,6 +946,12 @@ export async function runDevPerf(
   }
 
   await finishDevSmoke(steps, {
-    perf: { refreshMs: round(refreshMs, 2), startup, scenarios, restyle },
+    perf: {
+      refreshMs: round(refreshMs, 2),
+      startup,
+      scenarios,
+      restyle,
+      motion,
+    },
   });
 }

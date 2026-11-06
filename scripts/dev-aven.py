@@ -773,6 +773,27 @@ def print_long_frames(scenarios, sources):
             print(f'  {frame["ms"]:g} ms; forced layout {sum(call["ms"] for call in inside):.0f} ms: {named}')
 
 
+def print_motion(checks):
+    """The motion check's findings per move (src/lib/motionAudit.ts)."""
+    if not checks:
+        return
+    total = sum(len(check.get('findings') or []) for check in checks)
+    print(f'Motion check: {total} finding{"" if total == 1 else "s"} in {len(checks)} moves '
+          '(pop-in/out, jumps, overshoot, jiggle, stalls, cut exits, never settling, expectations)')
+    for check in checks:
+        findings = check.get('findings') or []
+        kinds = {}
+        for finding in findings:
+            kinds[finding['kind']] = kinds.get(finding['kind'], 0) + 1
+        summary = ', '.join(f'{kind} {count}' for kind, count in sorted(kinds.items())) or 'nothing'
+        print(f'  {check["name"]} ({check.get("frames", 0)} frames): {summary}'
+              + (f'  ERROR: {check["error"]}' if check.get('error') else ''))
+        for finding in findings[:6]:
+            print(f'      {finding["kind"]:16} {finding["element"][:40]:40} frame {finding["at"]}: {finding["detail"]}')
+        if len(findings) > 6:
+            print(f'      … and {len(findings) - 6} more in the saved result')
+
+
 def report_perf(root, launched_at, compare):
     try:
         result = json.loads((root / 'result.json').read_text())
@@ -826,6 +847,7 @@ def report_perf(root, launched_at, compare):
               + (f'  (window hidden {item["hiddenMs"] / 1000:.0f} s: timings unreliable)' if item.get('hiddenMs', 0) > 250 else '')
               + (f'  ERROR: {item["error"]}' if item.get('error') else ''))
     print_over_limits(report.get('scenarios', []))
+    print_motion(report.get('motion') or [])
     for item in report.get('restyle') or []:
         print(f'Restyle analysis, {item["name"]}: {item["changes"]} attribute changes, '
               f'{item["nodesAdded"]} nodes added, {item["nodesRemoved"]} removed')
