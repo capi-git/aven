@@ -16,7 +16,7 @@
   border-radius: 50%;
   background: transparent;
   color: var(--helm-muted);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .helm-mic:hover {
   background: var(--aven-hover);
@@ -68,7 +68,7 @@
   font: inherit;
   font-size: var(--text-ui-body);
   font-weight: 500;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .composer-speech-close {
   width: 24px;

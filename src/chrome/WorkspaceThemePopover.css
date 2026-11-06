@@ -234,7 +234,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .workspace-color-entry input[type="color"]::-webkit-color-swatch-wrapper {
   padding: 0;

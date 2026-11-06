@@ -586,7 +586,7 @@
   margin-top: 24px;
 }
 .settings-other-providers > summary {
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
   padding: 10px 4px;
   color: var(--settings-muted);
   font-size: var(--text-ui-body);

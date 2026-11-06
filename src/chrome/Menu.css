@@ -57,7 +57,7 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 
 /* Pointing at a row, the arrow keys' row and a row whose submenu is open

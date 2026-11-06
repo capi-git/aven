@@ -1,0 +1,127 @@
+/* Aven's pointer: a soft, see-through dot over Aven's own interface.
+
+   `html[data-aven-pointer="dot"]` turns it on (src/lib/dotPointer.ts sets it
+   from Settings › Appearance, and leaves it off when the Mac asks for a
+   bigger pointer or more contrast). Every window, panel and pop-out loads
+   this sheet; pages in the in-app browser are native views and keep their
+   own pointer.
+
+   The dot is an image cursor, drawn by the system like any other pointer:
+   nothing follows the mouse and nothing restyles per move. Rules name the
+   two tokens below instead of `default` and `pointer`, so they follow the
+   switch without the attribute on each selector:
+
+   - `--aven-cursor-default`: the resting dot (the arrow when it is off).
+   - `--aven-cursor-pointer`: a larger, brighter dot over something you can
+     press (the hand when it is off).
+
+   Text fields keep the I-beam, and resize edges, drag handles and other
+   purposeful cursors keep theirs. A disabled control shows the resting dot.
+   Images: scripts/make-dot-pointer.py. */
+
+:root {
+  --aven-cursor-default: default;
+  --aven-cursor-pointer: pointer;
+}
+
+html[data-aven-pointer="dot"] {
+  --aven-cursor-default:
+    -webkit-image-set(
+        url("./assets/pointer/dot-dark.png") 1x,
+        url("./assets/pointer/dot-dark@2x.png") 2x
+      )
+      14 14,
+    default;
+  --aven-cursor-pointer:
+    -webkit-image-set(
+        url("./assets/pointer/dot-press-dark.png") 1x,
+        url("./assets/pointer/dot-press-dark@2x.png") 2x
+      )
+      18 18,
+    pointer;
+  cursor: var(--aven-cursor-default);
+}
+
+html.theme-light[data-aven-pointer="dot"] {
+  --aven-cursor-default:
+    -webkit-image-set(
+        url("./assets/pointer/dot-light.png") 1x,
+        url("./assets/pointer/dot-light@2x.png") 2x
+      )
+      14 14,
+    default;
+  --aven-cursor-pointer:
+    -webkit-image-set(
+        url("./assets/pointer/dot-press-light.png") 1x,
+        url("./assets/pointer/dot-press-light@2x.png") 2x
+      )
+      18 18,
+    pointer;
+}
+
+/* Tailwind's two everyday cursors follow the tokens too. */
+@layer utilities {
+  .cursor-default {
+    cursor: var(--aven-cursor-default);
+  }
+
+  .cursor-pointer {
+    cursor: var(--aven-cursor-pointer);
+  }
+}
+
+/* With no rule of their own, these would inherit the resting dot. The
+   selectors carry no specificity, so any rule Aven writes for them wins. */
+:where(html[data-aven-pointer="dot"])
+  :where(
+    button:not(:disabled),
+    a:any-link,
+    summary,
+    select:not(:disabled),
+    [role="button"]:not([aria-disabled="true"]),
+    [role="menuitem"]:not([aria-disabled="true"]),
+    [role="option"]:not([aria-disabled="true"]),
+    [role="tab"]:not([aria-disabled="true"]),
+    [role="switch"]:not([aria-disabled="true"])
+  ) {
+  cursor: var(--aven-cursor-pointer);
+}
+
+:where(html[data-aven-pointer="dot"])
+  :where(
+    input:not(
+      [type="button"],
+      [type="checkbox"],
+      [type="color"],
+      [type="file"],
+      [type="image"],
+      [type="radio"],
+      [type="range"],
+      [type="reset"],
+      [type="submit"]
+    ),
+    textarea,
+    [contenteditable]:not([contenteditable="false"]),
+    .cm-content
+  ) {
+  cursor: text;
+}
+
+/* Nothing to press: the resting dot, even where Aven otherwise shows the
+   no-entry sign. */
+html[data-aven-pointer="dot"]
+  :is(:disabled, [aria-disabled="true"], .cursor-not-allowed) {
+  cursor: var(--aven-cursor-default);
+}
+
+/* The terminal's own sheet sets the arrow over its scroll area and while a
+   program reads the mouse, and the hand over links. */
+html[data-aven-pointer="dot"] .xterm .xterm-viewport,
+html[data-aven-pointer="dot"] .xterm.enable-mouse-events {
+  cursor: var(--aven-cursor-default);
+}
+
+html[data-aven-pointer="dot"] .xterm.xterm-cursor-pointer,
+html[data-aven-pointer="dot"] .xterm .xterm-cursor-pointer {
+  cursor: var(--aven-cursor-pointer);
+}

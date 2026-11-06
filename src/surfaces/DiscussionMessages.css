@@ -71,7 +71,7 @@
   line-height: 1;
   color: color-mix(in srgb, var(--discussion-voice) 70%, var(--color-content));
   background: color-mix(in srgb, var(--discussion-voice) 12%, transparent);
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 
 .discussion-bubble {

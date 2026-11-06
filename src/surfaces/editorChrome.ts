@@ -50,7 +50,7 @@ function editorThemeStyles(dark: boolean) {
       },
       ".cm-foldGutter .cm-gutterElement": {
         padding: "0 2px",
-        cursor: "pointer",
+        cursor: "var(--aven-cursor-pointer)",
         color: "color-mix(in srgb, var(--color-content) 45%, transparent)",
       },
       ".cm-foldPlaceholder": {

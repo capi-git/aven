@@ -66,7 +66,7 @@ button.discussion-link {
   padding: 0;
   background: none;
   pointer-events: auto;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 button.discussion-link::before {
   content: "";

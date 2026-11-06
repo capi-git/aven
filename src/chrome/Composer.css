@@ -231,7 +231,7 @@ html.theme-light .personal-shell .personal-composer {
   color: var(--color-content);
   font: inherit;
   font-weight: 500;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .personal-composer-avos-chip:hover {
   background: var(--aven-hover);
@@ -247,7 +247,7 @@ html.theme-light .personal-shell .personal-composer {
   background: transparent;
   color: var(--color-content);
   font: inherit;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .personal-composer-avos-open:hover {
   text-decoration: underline;

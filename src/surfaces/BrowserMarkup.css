@@ -31,7 +31,7 @@
   cursor: crosshair;
 }
 .browser-markup-ink[data-tool="select"] {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .browser-markup-ink[data-tool="text"] {
   cursor: text;
@@ -118,7 +118,7 @@
   border-radius: 7px;
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 75%, transparent);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .browser-markup-tool:hover:not(:disabled) {
   background: var(--aven-hover);
@@ -131,7 +131,7 @@
 }
 .browser-markup-tool:disabled {
   opacity: 0.35;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .browser-markup-divider {
   flex: 0 0 1px;
@@ -198,7 +198,7 @@
   font-size: var(--text-ui-caption);
   font-weight: 600;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .browser-markup-send:hover:not(:disabled) {
   background: color-mix(

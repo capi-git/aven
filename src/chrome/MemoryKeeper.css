@@ -93,7 +93,7 @@
   background: var(--aven-hover);
 }
 .memory-keeper-switch:disabled {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.5;
 }
 

@@ -22,14 +22,14 @@
   padding: 3px 12px;
   color: inherit;
   font: inherit;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .activity-actions button:hover:not(:disabled) {
   background: var(--toolbar-panel-hover);
 }
 .activity-actions button:disabled {
   opacity: 0.45;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .activity-list {
   flex: 1 1 auto;
@@ -74,7 +74,7 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .activity-destination:disabled {
   cursor: progress;
@@ -130,7 +130,7 @@
   border: 0;
   border-radius: var(--aven-radius-sm);
   background: none;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .activity-read span {
   height: 5px;

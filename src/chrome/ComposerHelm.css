@@ -82,7 +82,7 @@
   border: 0;
   border-radius: var(--aven-radius-md);
   background: transparent;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .composer-helm .dot-mark.helm-critter {
   --dot-mark-surface: var(
@@ -147,7 +147,7 @@
   border-radius: 50%;
   background: var(--color-content);
   color: var(--color-background-base);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .helm-plane:hover {
   background: var(--aven-inverse-hover);
@@ -228,7 +228,7 @@
   border: 0;
   background: var(--aven-fill-tertiary, var(--aven-fill));
   color: var(--helm-ink);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .helm-say-button {
   height: 24px;
@@ -362,13 +362,13 @@
   font-size: 13px;
   text-align: left;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .helm-row[data-active] {
   background: var(--helm-row-active);
 }
 .helm-row[aria-disabled="true"] {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .helm-row:focus-visible {
   outline-offset: -2px;
@@ -536,7 +536,7 @@
   border: 0;
   border-radius: var(--aven-radius-md);
   background: transparent;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .helm-colour-cell[data-active] {
   background: var(--helm-row-active);

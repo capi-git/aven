@@ -51,7 +51,7 @@
   color: var(--color-content);
   font: inherit;
   text-align: start;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 /* Room for the tools, so a long name never runs under them. */
 button.browser-bookmark-face {
@@ -113,7 +113,7 @@ button.browser-bookmark-face {
   border-radius: var(--aven-radius-sm);
   background: transparent;
   color: var(--aven-muted);
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .browser-bookmark-tools button:hover {
   background: var(--aven-control-bg);

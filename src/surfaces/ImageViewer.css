@@ -98,7 +98,7 @@ html.image-viewer-open #root {
   color: var(--image-viewer-text);
   font-size: var(--text-ui-label);
   white-space: nowrap;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .image-viewer-action:hover {
   background: var(--image-viewer-hover);
@@ -170,7 +170,7 @@ html.image-viewer-open #root {
   background: var(--image-viewer-surface);
   color: var(--image-viewer-text);
   translate: 0 -50%;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .image-viewer-nav:hover {
   background: color-mix(

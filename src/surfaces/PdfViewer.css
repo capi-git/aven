@@ -25,7 +25,7 @@
   min-height: 27px;
   padding: 3px 5px;
   border-radius: 7px;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .pdf-viewer-toolbar button:hover,
 .pdf-viewer-message button:hover,
@@ -34,7 +34,7 @@
 }
 .pdf-viewer-toolbar button:disabled {
   opacity: 0.35;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .pdf-viewer-toolbar button:focus-visible,
 .pdf-viewer-message button:focus-visible,

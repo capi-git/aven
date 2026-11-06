@@ -55,6 +55,10 @@ import {
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
 import { WindowControls } from "../chrome/WindowControls";
 import { useSetting } from "../hooks/useSetting";
+import {
+  currentDotPointerBlock,
+  subscribeDotPointerBlock,
+} from "../lib/dotPointer";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import {
@@ -697,6 +701,8 @@ function PreferencesPage({
           onChange={onGridArcadeEnabled}
         />
       </Row>
+      {/* The games take the ink's place, so its switch shows only without them. */}
+      {gridArcadeEnabled ? null : <NewChatInkRow />}
     </SettingsGroup>
   );
 
@@ -1313,6 +1319,7 @@ function AppearancePage({
           />
         </Row>
         <ReduceMotionRow />
+        <DotPointerRow />
       </SettingsGroup>
       <SettingsGroup
         title="Chat background"
@@ -1342,6 +1349,45 @@ function AppearancePage({
         </SecondaryButton>
       </div>
     </>
+  );
+}
+
+function NewChatInkRow() {
+  const on = useSetting(SETTINGS.newChatInk);
+  return (
+    <Row {...SETTINGS.newChatInk.row}>
+      <Toggle
+        label={SETTINGS.newChatInk.label}
+        on={on}
+        onChange={SETTINGS.newChatInk.save}
+      />
+    </Row>
+  );
+}
+
+/** A device preference, like Reduce motion; Restore defaults leaves it. */
+function DotPointerRow() {
+  const on = useSetting(SETTINGS.dotPointer);
+  const blocked = useSyncExternalStore(
+    subscribeDotPointerBlock,
+    currentDotPointerBlock,
+    () => null,
+  );
+  return (
+    <Row
+      {...SETTINGS.dotPointer.row}
+      description={
+        on && blocked
+          ? SETTINGS.dotPointer.disabledDescription
+          : SETTINGS.dotPointer.row.description
+      }
+    >
+      <Toggle
+        label={SETTINGS.dotPointer.label}
+        on={on}
+        onChange={SETTINGS.dotPointer.save}
+      />
+    </Row>
   );
 }
 

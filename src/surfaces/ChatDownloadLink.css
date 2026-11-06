@@ -1,6 +1,6 @@
 /* A file an agent made: a blue link (the chat's link colour) that downloads. */
 .chat-download-link {
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .chat-download-link[aria-busy="true"] {
@@ -81,7 +81,7 @@
   color: var(--color-content);
   font: inherit;
   font-size: var(--text-ui-body);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .chat-download-actions button:hover {

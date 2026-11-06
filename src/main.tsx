@@ -13,10 +13,12 @@ import { watchWindowResize } from "./lib/windowResizeFlag";
 import { loadDevSmoke } from "./lib/devSmoke";
 import { revealWindow } from "./lib/windowReveal";
 import { initMotionPreference } from "./lib/motion";
+import { initDotPointer } from "./lib/dotPointer";
 import "./index.css";
 import "./personal-shell.css";
 import "./macos-theme.css";
 import "./motion.css";
+import "./pointer.css";
 
 // Shell webviews use DOM drops so WebKit resolves file promises and targets.
 // Keep an unhandled file drop from navigating away from Aven.
@@ -26,18 +28,22 @@ window.addEventListener("drop", preventFileDropNavigation);
 if (!IS_MAC) void import("./frost-pause.css");
 const stopWatchingWindowResize = IS_MAC ? () => {} : watchWindowResize();
 let stopWatchingMotion: (() => void) | undefined;
+let stopWatchingPointer: (() => void) | undefined;
 /**
- * Every window, panel and pop-out follows one reduced-motion switch. Read
- * after the real-app check has swapped storage, like the other settings.
+ * Every window, panel and pop-out follows one reduced-motion switch and one
+ * pointer switch. Read after the real-app check has swapped storage, like
+ * the other settings.
  */
 function watchMotion() {
   stopWatchingMotion ??= initMotionPreference();
+  stopWatchingPointer ??= initDotPointer();
 }
 import.meta.hot?.dispose(() => {
   window.removeEventListener("dragover", preventFileDropNavigation);
   window.removeEventListener("drop", preventFileDropNavigation);
   stopWatchingWindowResize();
   stopWatchingMotion?.();
+  stopWatchingPointer?.();
 });
 
 const rootOptions = {

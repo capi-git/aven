@@ -166,7 +166,7 @@
 }
 
 .team-roster-tool:disabled {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.45;
 }
 
@@ -755,7 +755,7 @@
   padding: 6px 8px;
   border-radius: var(--aven-radius-row);
   font-size: 13px;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 
 .team-mention-option[aria-selected="true"] {

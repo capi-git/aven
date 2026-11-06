@@ -283,7 +283,7 @@ button.team-card-member-open:hover {
   background: var(--aven-control-hover, var(--aven-hover));
 }
 .team-card-button:disabled {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.45;
 }
 .team-card-button[data-variant="primary"] {
