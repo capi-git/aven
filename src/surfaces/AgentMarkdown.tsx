@@ -64,6 +64,8 @@ import { isNoteImagePath } from "../lib/noteImages";
 import { InboxMedia } from "./InboxMedia";
 import { LocalMarkdownImage } from "./LocalMarkdownImage";
 import { CrewFenceCard } from "./CrewFenceCard";
+import { ChatDownloadLink } from "./ChatDownloadLink";
+import { isAgentMadeFile } from "../lib/chatDownloads";
 import { isCrewFence } from "../lib/crewFences";
 import { AUTOMATION_FENCE } from "../lib/chatAutomation";
 import { ChatAutomationCard } from "./ChatAutomationCard";
@@ -352,6 +354,10 @@ function MarkdownLink({
   if (allowRemoteMedia && href && isInboxMediaUrl(href)) {
     return <InboxMedia src={href} alt={label} cwd={cwd} />;
   }
+  // A file the agent made for the user downloads, as on a web page.
+  if (file && isAgentMadeFile(file.path)) {
+    return <ChatDownloadLink path={file.path}>{children}</ChatDownloadLink>;
+  }
 
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.defaultPrevented) return;
@@ -416,8 +422,13 @@ function MarkdownCode({
   const block = Object.prototype.hasOwnProperty.call(props, "data-block");
   const text = block ? "" : textContent(children);
   const fileName = block ? undefined : inlineFileName(text);
-  const { open, fileMenu } = useFileReference(fileName ? text : undefined);
+  const { file, open, fileMenu } = useFileReference(
+    fileName ? text : undefined,
+  );
   const { cwd } = useContext(FileOpenContext);
+  if (!block && file && isAgentMadeFile(file.path)) {
+    return <ChatDownloadLink path={file.path}>{children}</ChatDownloadLink>;
+  }
   if (!block) {
     return (
       <>

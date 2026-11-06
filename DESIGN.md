@@ -15,7 +15,7 @@ Follow them in anything you add or change. When a rule and a request disagree, f
 ## Colour
 
 - Surfaces, hovers, selections, previews, borders and shadows are neutral grey. Never wash a surface with a colour.
-- Colour appears only in small marks that mean something: status words, errors, diff `+` and `−`, provider icons, a project's Stack, and an agent's Bot.
+- Colour appears only in small marks that mean something: status words, errors, links, diff `+` and `−`, provider icons, a project's Stack, and an agent's Bot.
 - Use theme tokens (`--color-content`, `--aven-muted`, `--aven-line`, `--aven-hover`, `--aven-control-bg`). Don't add a new hard-coded colour.
 
 ## Text
@@ -54,6 +54,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 **A project's Avos** is the first row under the project: its Bot in the project's colour, "Avos" at weight 500, and on the right only "Needs you" in amber or "Working". Every project has one; the first time you open it is meeting it, in its chat.
 
 **A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
+
+**A file an agent made for you** is a link in the chat's link blue, with a small arrow before its name. The agent keeps it in the project's hidden `.aven/files` folder, which Git leaves alone. Clicking the link saves a copy to Downloads as a browser does, keeping both when the name is taken; a small popup under the link names the copy, says Downloaded, and offers Open and Show in Finder, and the arrow becomes a check. A link to any other file opens it in Aven.
 
 **A settings row** has its label and one line on the left and its control on the right. Pick the simplest control: a switch for on and off, segments for two or three short choices, a menu for more.
 
