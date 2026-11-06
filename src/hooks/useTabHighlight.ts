@@ -15,6 +15,12 @@ import {
 /** Marks the element whose box the highlight takes: one per tab. */
 export const TAB_TRACK_ID_ATTRIBUTE = "data-tab-track-id";
 
+/**
+ * Marks space that moves the tabs after it without a render, such as a
+ * closed tab's space collapsing: the highlight follows as it changes.
+ */
+export const TAB_TRACK_SPACE_ATTRIBUTE = "data-tab-track-space";
+
 function trackSlot(strip: HTMLElement, id: string): HTMLElement | null {
   for (const slot of strip.querySelectorAll<HTMLElement>(
     `[${TAB_TRACK_ID_ATTRIBUTE}]`,
@@ -58,6 +64,7 @@ export function useTabHighlight(
     glideFrom,
   }: {
     enabled: boolean;
+    /** Changes whenever tabs or the space between them come or go. */
     layoutKey: string;
     /**
      * After a drop or a split coming apart, the box on screen the tab in
@@ -193,13 +200,17 @@ export function useTabHighlight(
   useLayoutEffect(place, [place, frontId, enabled, layoutKey]);
 
   // Layout that changes without a render: the window resizing, a tab
-  // growing in or a closed one's space collapsing.
+  // growing in or a closed one's space collapsing. A strip whose width does
+  // not follow its tabs (the window's own row) only moves the tab in front
+  // as that space shrinks, so the space is watched too.
   useLayoutEffect(() => {
     const root = strip.current;
     if (!root || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => place());
     observer.observe(root);
-    for (const slot of root.querySelectorAll(`[${TAB_TRACK_ID_ATTRIBUTE}]`))
+    for (const slot of root.querySelectorAll(
+      `[${TAB_TRACK_ID_ATTRIBUTE}], [${TAB_TRACK_SPACE_ATTRIBUTE}]`,
+    ))
       observer.observe(slot);
     return () => observer.disconnect();
   }, [strip, place, layoutKey]);

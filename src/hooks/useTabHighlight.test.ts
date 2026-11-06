@@ -3,7 +3,11 @@ import { act, createElement, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TAB_SLIDE_EASE, TAB_SLIDE_MS } from "../lib/tabTrack";
-import { TAB_TRACK_ID_ATTRIBUTE, useTabHighlight } from "./useTabHighlight";
+import {
+  TAB_TRACK_ID_ATTRIBUTE,
+  TAB_TRACK_SPACE_ATTRIBUTE,
+  useTabHighlight,
+} from "./useTabHighlight";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -16,6 +20,7 @@ function Strip({
   front,
   enabled = true,
   glideFrom,
+  space,
 }: {
   ids: string[];
   front: string | null;
@@ -23,20 +28,30 @@ function Strip({
   glideFrom?: (
     id: string,
   ) => { left: number; width: number; velocity?: number } | null;
+  /** A closed tab's space, collapsing after this tab. */
+  space?: string;
 }) {
   const strip = useRef<HTMLDivElement | null>(null);
   const highlight = useTabHighlight(strip, front, {
     enabled,
-    layoutKey: ids.join("\n"),
+    layoutKey: [...ids, ...(space ? ["space"] : [])].join("\n"),
     glideFrom,
   });
   return createElement(
     "div",
     { ref: strip, "data-strip": true },
     createElement("span", { ref: highlight, "data-highlight": true }),
-    ...ids.map((id) =>
+    ...ids.flatMap((id) => [
       createElement("div", { key: id, [TAB_TRACK_ID_ATTRIBUTE]: id }, id),
-    ),
+      ...(space === id
+        ? [
+            createElement("div", {
+              key: "space",
+              [TAB_TRACK_SPACE_ATTRIBUTE]: "",
+            }),
+          ]
+        : []),
+    ]),
   );
 }
 
@@ -187,6 +202,38 @@ describe("the sliding tab highlight", () => {
     await render({ ids: ["a", "b", "c", "d"], front: "b" });
     expect(highlight().style.transform).toBe("translateX(150px)");
     expect(highlight().style.width).toBe("150px");
+    expect(animate).not.toHaveBeenCalled();
+  });
+
+  it("follows the tab in front while a closed tab's space collapses", async () => {
+    // The window's own row keeps its width as a tab before the front one
+    // closes: only the collapsing space moves the front tab.
+    const observed: Element[] = [];
+    let report = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          report = callback;
+        }
+        observe(element: Element) {
+          observed.push(element);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    await render({ ids: ["a", "b", "c"], front: "c" });
+    expect(highlight().style.transform).toBe("translateX(404px)");
+    await render({ ids: ["a", "c"], front: "c", space: "a" });
+    const space = container.querySelector(`[${TAB_TRACK_SPACE_ATTRIBUTE}]`);
+    expect(observed).toContain(space);
+    boxes.c = { left: 400, width: 200 };
+    act(() => report());
+    expect(highlight().style.transform).toBe("translateX(300px)");
+    boxes.c = { left: 302, width: 200 };
+    act(() => report());
+    expect(highlight().style.transform).toBe("translateX(202px)");
     expect(animate).not.toHaveBeenCalled();
   });
 
