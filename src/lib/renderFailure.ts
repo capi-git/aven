@@ -28,7 +28,7 @@ export function showRenderFailure(
   reload.type = "button";
   reload.textContent = "Reload interface";
   reload.style.cssText =
-    "all:revert;box-sizing:border-box;padding:9px 14px;border:1px solid #656571;border-radius:8px;background:#303038;color:#fff;font:inherit;cursor:pointer;outline-offset:3px;";
+    "all:revert;box-sizing:border-box;padding:9px 14px;border:1px solid #656571;border-radius:8px;background:#303038;color:#fff;font:inherit;cursor:var(--aven-cursor-pointer,pointer);outline-offset:3px;";
   reload.addEventListener("click", () =>
     document.defaultView?.location.reload(),
   );
@@ -37,7 +37,7 @@ export function showRenderFailure(
   details.style.cssText = "margin-top:22px;color:#b9b9c2;";
   const summary = document.createElement("summary");
   summary.textContent = "Error details";
-  summary.style.cssText = "cursor:pointer;";
+  summary.style.cssText = "cursor:var(--aven-cursor-pointer,pointer);";
   const report = document.createElement("pre");
   let message: string;
   try {

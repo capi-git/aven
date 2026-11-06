@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -29,11 +29,7 @@ describe("dot pointer sheet", () => {
     // Rules name the tokens, so the dot reaches them; a plain `default`,
     // `pointer`, `grab` or `progress` would show the system's arrow, hand or
     // spinner in the middle of Aven. (`grabbing`, while dragging, stays.)
-    // The crash screen draws itself apart from Aven's styles on purpose.
-    const apart = [
-      join("src", "pointer.css"),
-      join("src", "lib", "renderFailure.ts"),
-    ];
+    const apart = [join("src", "pointer.css")];
     const offenders = [
       ...files("src", ".css"),
       ...files("src", ".ts"),
@@ -95,6 +91,78 @@ describe("dot pointer sheet", () => {
     expect(sheet).toMatch(
       /:is\(:disabled, \[aria-disabled="true"\], \.cursor-not-allowed\)\s*\{\s*cursor: var\(--aven-cursor-default\);/,
     );
+  });
+
+  it("turns WebKit's arrow on labels, check boxes and form buttons into dots", () => {
+    // WebKit's own sheet gives a label the arrow (and everything in it
+    // inherits that), and check boxes, sliders and form buttons the arrow.
+    const base = sheet.slice(sheet.indexOf("@layer base {"));
+    const label = base.indexOf(":where(label) {");
+    const pressable = base.indexOf("button:not(:disabled)");
+    expect(label).toBeGreaterThan(-1);
+    // First, so the brighter dot below wins on a label around a check box.
+    expect(label).toBeLessThan(pressable);
+    expect(base.slice(label, base.indexOf("}", label))).toContain(
+      "cursor: var(--aven-cursor-default);",
+    );
+    const list = base.slice(pressable, base.indexOf("{", pressable));
+    for (const type of [
+      "button",
+      "checkbox",
+      "color",
+      "file",
+      "radio",
+      "range",
+      "reset",
+      "submit",
+    ])
+      expect(list).toContain(`[type="${type}"]`);
+    expect(list).toContain(
+      'label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled))',
+    );
+    // A disabled control's own `:disabled { cursor: not-allowed }`, loaded
+    // after this sheet, must not outrank the resting dot.
+    expect(sheet).toMatch(
+      /html:root\[data-aven-pointer="dot"\]\s*:is\(:disabled,/,
+    );
+  });
+
+  it("turns every hand the code editor sets into the brighter dot", () => {
+    // CodeMirror adds these styles at run time. An update that adds another
+    // hand fails here: add its selector to the sheet's editor rule.
+    const packages = readdirSync("node_modules/@codemirror").filter((name) =>
+      existsSync(`node_modules/@codemirror/${name}/dist/index.js`),
+    );
+    const hands = Object.fromEntries(
+      packages
+        .map((name) => [
+          name,
+          (
+            read(`node_modules/@codemirror/${name}/dist/index.js`).match(
+              /cursor:\s*"pointer"/g,
+            ) ?? []
+          ).length,
+        ])
+        .filter(([, count]) => count),
+    );
+    expect(hands).toEqual({ autocomplete: 2, language: 2, lint: 1, merge: 3 });
+    const editor = sheet.slice(
+      sheet.indexOf('html:root[data-aven-pointer="dot"]\n  :is(\n    .cm-'),
+    );
+    for (const selector of [
+      ".cm-tooltip.cm-tooltip-autocomplete > ul > li",
+      ".cm-tooltip.cm-tooltip-autocomplete > ul > completion-section",
+      "ul.cm-completionListIncompleteTop::before",
+      "ul.cm-completionListIncompleteBottom::after",
+      ".cm-foldPlaceholder",
+      ".cm-foldGutter span",
+      ".cm-diagnosticAction",
+      ".cm-merge-revert button",
+      ".cm-deletedChunk .cm-chunkButtons button",
+      ".cm-collapsedLines",
+    ])
+      expect(editor).toContain(selector);
+    expect(editor).toContain("cursor: var(--aven-cursor-pointer);");
   });
 
   it("lets any cursor Aven sets for a control win over the catch-all dots", () => {
