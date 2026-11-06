@@ -1,4 +1,5 @@
 import { CircleAlert } from "./icons";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ApprovalDecision } from "../lib/harness";
 import type { PendingApprovalNotice } from "../lib/approvalToast";
@@ -15,6 +16,8 @@ type Notice = PendingApprovalNotice & { session: Session };
 
 type Props = {
   notices: Notice[];
+  /** Other notices in the same column, below these (Avos needing you). */
+  extra?: ReactNode;
   onFocusSession: (sessionId: string) => void;
   onApproval: (
     sessionId: string,
@@ -23,8 +26,13 @@ type Props = {
   ) => void;
 };
 
-export function ApprovalToasts({ notices, onFocusSession, onApproval }: Props) {
-  if (notices.length === 0) return null;
+export function ApprovalToasts({
+  notices,
+  extra,
+  onFocusSession,
+  onApproval,
+}: Props) {
+  if (notices.length === 0 && !extra) return null;
 
   return createPortal(
     <div
@@ -40,6 +48,7 @@ export function ApprovalToasts({ notices, onFocusSession, onApproval }: Props) {
           onApproval={onApproval}
         />
       ))}
+      {extra}
     </div>,
     document.body,
   );

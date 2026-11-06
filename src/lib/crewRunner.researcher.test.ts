@@ -320,7 +320,7 @@ describe("a question for the Researcher", () => {
       title: "How do others do it?",
     }))!;
     expect(await askResearcher(PATH, idea, NOON)).toBe(
-      "Add a Researcher to the team first.",
+      "Add a Researcher as a helper first.",
     );
     onTeam();
     expect(await askResearcher(PATH, idea, NOON)).toBeNull();
@@ -596,7 +596,7 @@ describe("a question for the Researcher", () => {
       stage: "stuck",
       stuck: {
         reason: "failed",
-        text: "Aven couldn't read the team's copy after Lens's turn, so its findings weren't used",
+        text: "Aven couldn't read Avos's copy after Lens's turn, so its findings weren't used",
       },
     });
     h.runner.stop();

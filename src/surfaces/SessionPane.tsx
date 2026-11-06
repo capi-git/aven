@@ -11,7 +11,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Composer } from "../chrome/Composer";
+import { Composer, type ComposerAvos } from "../chrome/Composer";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
 import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
@@ -146,6 +146,13 @@ type Props = {
     attachments: Attachment[],
     agents: PaletteAgent[],
   ) => Promise<boolean>;
+  /**
+   * @Avos from this chat: the message goes to its project's Avos with a link
+   * back here. Resolves with why it couldn't, or null.
+   */
+  onTellAvos?: (sessionId: string, text: string) => Promise<string | null>;
+  /** Show a project's Avos. */
+  onOpenAvos?: (path: string) => void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
@@ -220,6 +227,8 @@ export const SessionPane = memo(function SessionPane({
   onRuntimeModeChange,
   onSubmit,
   onRace,
+  onTellAvos,
+  onOpenAvos,
   onStop,
   onCompactContext,
   onDeleteQueuedMessage,
@@ -678,8 +687,28 @@ export const SessionPane = memo(function SessionPane({
       onOpenDiff,
     ],
   );
+  // @Avos: a chat in a project can hand a message to its Avos. A bot's or
+  // a helper's own chat, and an Inbox ask, can't.
+  const avosProject =
+    onTellAvos &&
+    !botProject &&
+    !session.inboxAsk &&
+    looksLikeProject(session.cwd)
+      ? session.cwd
+      : null;
+  const avos = useMemo<ComposerAvos | undefined>(
+    () =>
+      avosProject && onTellAvos
+        ? {
+            send: (text) => onTellAvos(sessionId, text),
+            open: () => onOpenAvos?.(avosProject),
+          }
+        : undefined,
+    [avosProject, onTellAvos, onOpenAvos, sessionId],
+  );
   const composer = (
     <Composer
+      {...(avos ? { avos } : {})}
       key={session.id}
       enabled={visible}
       focused={focused && composerFocused}

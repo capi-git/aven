@@ -166,7 +166,7 @@ export function absolutePathRule(folder: string): string {
 
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
-  "Everything stays in the team's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access. Teammates don't use connections.";
+  "Everything stays in Avos's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access. Teammates don't use connections.";
 
 /** Who Access reaches, in one line; the roles it doesn't follow. */
 export const TEAM_ACCESS_SCOPE_LINE =
@@ -712,24 +712,54 @@ export function crewChatPermissions(
   // The Designer writes its one file: not read-only for the app, but every
   // other path is refused by its rules and sandbox.
   const readOnly = !CREW_ROLE_INFO[role].edits;
+  // Avos reads your own folder until the project has a copy (one without
+  // Git never does): read-only, offline, and kept from writing anything
+  // there by its sandbox as well as its rules.
+  const inYourFolder = !crew.copy && role === "lead";
   const refuse = found.retired
     ? "This chat's teammate was removed, so it didn't start."
     : !crew.on
-      ? "This team is off, so its chat didn't start. Turn the team on to use it."
-      : !crew.copy
-        ? "The team's copy isn't ready yet, so its chat didn't start. Wait a moment, then send again."
+      ? "Avos is off, so this chat didn't start. Open Avos to wake it."
+      : !crew.copy && !inYourFolder
+        ? "The project's copy isn't ready yet, so this chat didn't start. Wait a moment, then send again."
         : undefined;
   const offline = crew.planning === found.member.id;
   return {
     mode: "auto",
     rules: crewPermissionRules(crew, role, offline),
-    sandbox: crewSandbox(crew, role, undefined, offline),
+    sandbox: inYourFolder
+      ? avosFolderSandbox(crew)
+      : crewSandbox(crew, role, undefined, offline),
     noEscalation: true,
     userSettingsOnly: true,
     noMcp: true,
-    ...(crew.copy ? { workFolder: crew.copy.path } : {}),
-    ...(readOnly ? { readOnly: true } : {}),
+    ...(crew.copy
+      ? { workFolder: crew.copy.path }
+      : inYourFolder
+        ? { workFolder: crew.path }
+        : {}),
+    ...(readOnly || inYourFolder ? { readOnly: true } : {}),
     ...(refuse ? { refuse } : {}),
+  };
+}
+
+/**
+ * Avos's sandbox in your own folder, before there's a copy: it may write
+ * nothing in the project, reaches no host, and reads none of your keys.
+ */
+export function avosFolderSandbox(
+  crew: Pick<Crew, "path">,
+): ClaudeSandboxSettings {
+  const sandbox = botSandbox({ copy: undefined }, null);
+  const folder = slash(crew.path).replace(/\/+$/, "");
+  return {
+    ...sandbox,
+    network: { ...sandbox.network, allowedDomains: [] },
+    filesystem: {
+      ...sandbox.filesystem,
+      denyWrite: [...(sandbox.filesystem?.denyWrite ?? []), folder],
+      denyRead: [...(sandbox.filesystem?.denyRead ?? []), ...NEVER_READ_PATHS],
+    },
   };
 }
 

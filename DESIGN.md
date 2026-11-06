@@ -51,6 +51,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A project's mark** is its Stack: three pages in its colour, the back two fainter. The pages fan out while the project is open in the sidebar, and otherwise the Stack stays still: it never sweeps or reacts, so a small dot at the row's end says an agent is running. A logo, when set, takes its place and stays as it is. A project picks only a colour and a logo, and its agents wear that colour.
 
+**A project's Avos** is the first row under the project: its Bot in the project's colour, "Avos" at weight 500, and on the right only "Needs you" in amber or "Working". Every project has one; the first time you open it is meeting it, in its chat.
+
 **A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
 
 **A settings row** has its label and one line on the left and its control on the right. Pick the simplest control: a switch for on and off, segments for two or three short choices, a menu for more.
@@ -96,16 +98,16 @@ An input's first visible response and any frame in motion stay within 33 ms. The
 - Say what a person gets, not how it works. A refusal says what to do next.
 - Use one word for one thing:
 
-| Say                          | Not                     |
-| ---------------------------- | ----------------------- |
-| Chat                         | Session, thread         |
-| Team, Teammates              | Crew, Monos, sub-agents |
-| Copy                         | Worktree                |
-| Provider                     | Harness                 |
-| Instructions                 | Soul                    |
-| Schedule                     | Habits                  |
-| Keyboard shortcuts           | Keybindings             |
-| Full access, Auto, Ask first | Permission mode names   |
+| Say                          | Not                                |
+| ---------------------------- | ---------------------------------- |
+| Chat                         | Session, thread                    |
+| Avos, Helpers                | Team, Teammates, Lead, Crew, Monos |
+| Copy                         | Worktree                           |
+| Provider                     | Harness                            |
+| Instructions                 | Soul                               |
+| Schedule                     | Habits                             |
+| Keyboard shortcuts           | Keybindings                        |
+| Full access, Auto, Ask first | Permission mode names              |
 
 ## Before you finish
 

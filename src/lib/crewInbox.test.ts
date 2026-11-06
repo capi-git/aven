@@ -69,10 +69,10 @@ describe("crew cards in the Inbox", () => {
   it("gives each state fixed buttons, never words a bot wrote", () => {
     expect(CREW_INBOX_ACTIONS.ready.map((action) => action.label)).toEqual([
       "Apply",
-      "Open board",
+      "Open Avos",
     ]);
     expect(CREW_INBOX_ACTIONS.stuck.map((action) => action.label)).toEqual([
-      "Open board",
+      "Open Avos",
       "Done",
     ]);
     // A bot's verdict can't change a card's title into a button.
@@ -106,7 +106,7 @@ describe("crew cards in the Inbox", () => {
     expect(openCrewInboxItems({ k: crew })).toEqual([]);
   });
 
-  it("shows the cards on the team's branch as one batch to apply", () => {
+  it("shows the cards on Avos's branch as one batch to apply", () => {
     let crew: Crew = {
       ...newCrew("/Users/me/aven-site"),
       stack: { base: "a".repeat(40) },
@@ -129,7 +129,7 @@ describe("crew cards in the Inbox", () => {
       key: "crew:k:batch",
       card: { id: "b" },
       review: {
-        title: "2 cards ready on the team's branch",
+        title: "2 cards ready on Avos's branch",
         postedAt: 9,
       },
     });

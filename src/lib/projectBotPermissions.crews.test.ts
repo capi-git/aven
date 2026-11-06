@@ -336,7 +336,7 @@ describe("crew chats launch with their rules from any window", () => {
     expect(sessionPermissions("someone-else")).toBeUndefined();
     // Off: still its rules, and refused outright.
     updateCrew(PROJECT, (current) => ({ ...current, on: false }));
-    expect(sessionPermissions("c-chat")?.refuse).toMatch(/team is off/);
+    expect(sessionPermissions("c-chat")?.refuse).toMatch(/Avos is off/);
     expect(sessionPermissions("c-chat")?.readOnly).toBe(true);
     stop();
   });
@@ -546,7 +546,7 @@ describe("a team's or bot's chat stays on its own app", () => {
     );
     updateCrew(PROJECT, (current) => ({ ...current, on: false }));
     expect(teammateChatRefusal(chat("b-chat", "claude"))).toMatch(
-      /team is off/,
+      /Avos is off/,
     );
     // An ordinary chat is never held back.
     expect(

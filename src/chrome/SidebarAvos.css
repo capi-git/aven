@@ -1,0 +1,18 @@
+/* A project's Avos, the first row under it: its Bot in the 16px lead column
+   where chats keep their marks, its name a touch brighter than a chat's, and
+   its note in amber only when it needs you. */
+.personal-shell .personal-navigation .personal-avos-row .personal-task-title {
+  color: var(--color-content);
+  font-weight: 500;
+}
+.personal-avos-row .dot-mark.personal-avos-mark {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+.personal-shell
+  .personal-navigation
+  .personal-avos-row[data-avos-note="needs-you"]
+  > .personal-avos-note {
+  color: var(--aven-needs-you);
+}

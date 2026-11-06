@@ -121,6 +121,10 @@ import {
   type SurfaceGroup,
 } from "../lib/surfaceGroups";
 import { BotCritter } from "./BotCritter";
+import { CrewCritter } from "./CrewCritter";
+import { avosGlance } from "../lib/avos";
+import { crewMemberName, useCrew } from "../lib/crews";
+import { botsAvailable } from "../lib/projectBots";
 import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
 import { playMotion } from "../lib/motion";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
@@ -165,6 +169,8 @@ export type Tab = {
   sessionIds?: string[];
   /** The tab is a project's board. */
   board?: boolean;
+  /** The board is the project's Avos: it wears Avos's Bot. */
+  avos?: boolean;
   dirty?: boolean;
   terminal?: boolean;
 };
@@ -281,7 +287,7 @@ export type TitleBarProps = {
   ) => void;
   onUnsplit?: () => void;
   onNewBrowser?: () => void;
-  /** Open (or bring forward) the current project's board. */
+  /** Open (or bring forward) the current project's Avos. */
   onOpenBoard?: () => void;
   /** Open the project's iPhone simulator beside the chat. */
   onOpenIphone?: () => void;
@@ -527,6 +533,12 @@ function PinnedIdentity({
   sigil?: DotSigil;
 }) {
   const appearance = useProjectAppearance(tab.projectPath);
+  if (tab.avos && tab.projectPath)
+    return (
+      <span className="personal-title-tab-identity">
+        <AvosTabMark path={tab.projectPath} className="aven-tab-pinned-mark" />
+      </span>
+    );
   if (!sigil || tab.botPath || !tab.harnesses.length)
     return <TabIdentity tab={tab} active={active} />;
   return (
@@ -538,6 +550,17 @@ function PinnedIdentity({
         className="aven-tab-pinned-mark"
       />
     </span>
+  );
+}
+
+/** A project's Avos on its tab: its Bot, amber while it needs you. */
+function AvosTabMark({ path, className }: { path: string; className: string }) {
+  const crew = useCrew(path);
+  const state = avosGlance(path, crew, {
+    name: (who) => (crew ? crewMemberName(crew, who) : who),
+  }).state;
+  return (
+    <CrewCritter path={path} role="lead" state={state} className={className} />
   );
 }
 
@@ -566,6 +589,11 @@ export function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
           harnesses={tab.harnesses}
           busyHarnesses={tab.busyHarnesses}
           dimmed={!active}
+        />
+      ) : tab.avos && tab.projectPath ? (
+        <AvosTabMark
+          path={tab.projectPath}
+          className="personal-title-tab-avos"
         />
       ) : tab.board ? (
         <Kanban
@@ -4432,14 +4460,21 @@ function TitleBarComponent({
             {onOpenBoard && !titleRow ? (
               <button
                 type="button"
-                aria-label="Open board"
-                title="Open this project's board"
+                aria-label="Open Avos"
+                title="Open this project's Avos"
                 data-tauri-drag-region="false"
                 data-tour="board"
                 className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
                 onClick={onOpenBoard}
               >
-                <Kanban className="size-3.5" strokeWidth={1.75} />
+                {looksLikeProject(cwd) && botsAvailable() ? (
+                  <AvosTabMark
+                    path={cwd}
+                    className="personal-title-board-avos"
+                  />
+                ) : (
+                  <Kanban className="size-3.5" strokeWidth={1.75} />
+                )}
               </button>
             ) : null}
             {onOpenIphone && !titleRow ? (

@@ -288,14 +288,14 @@ describe("adding and removing members", () => {
         { id: "fixer", role: "fixer" },
       ],
     });
-    expect(removeCrewMember(PATH, "checker")).toBe("A team needs a Checker.");
+    expect(removeCrewMember(PATH, "checker")).toBe("Avos needs a Checker.");
     expect(removeCrewMember(PATH, "builder-2")).toBe(
       "It's working on a card. Stop the card first.",
     );
     expect(removeCrewMember(PATH, "fixer")).toMatch(/project's bot/);
     expect(removeCrewMember(PATH, "builder")).toBeNull();
     // Now the last Builder: it stays either way.
-    expect(removeCrewMember(PATH, "builder-2")).toBe("A team needs a Builder.");
+    expect(removeCrewMember(PATH, "builder-2")).toBe("Avos needs a Builder.");
   });
 });
 
@@ -479,7 +479,7 @@ describe("a card's own Builder, Checker, model, effort and rounds", () => {
       maxRounds: 2,
     });
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "You gave the team “Hero” for Juno",
+      "You gave Avos “Hero” for Juno",
     );
     await giveCardToCrew(PATH, { id: "c2", title: "Plain" }, NOW);
     const plain = crewCard(getCrew(PATH)!, "c2")!;

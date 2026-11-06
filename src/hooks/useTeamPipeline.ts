@@ -109,7 +109,10 @@ export function useTeamPipeline(input: {
 
 /** Whether a conflict says to update the branch onto your files (old words too). */
 export function offersRestack(conflict: string | undefined): boolean {
-  return !!conflict && /Update the (?:crew|team)'s branch/.test(conflict);
+  return (
+    !!conflict &&
+    /Update (?:the crew's|the team's|Avos's) branch/.test(conflict)
+  );
 }
 
 /**

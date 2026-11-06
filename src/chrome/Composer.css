@@ -216,3 +216,40 @@ html.theme-light .personal-shell .personal-composer {
     box-shadow: none;
   }
 }
+
+/* @Avos: the message goes to the project's Avos, with a link back here. */
+.personal-composer-avos-chip {
+  display: inline-flex;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.personal-composer-avos-chip:hover {
+  background: var(--aven-hover);
+}
+.dot-mark.personal-composer-avos-mark {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+.personal-composer-avos-open {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  cursor: pointer;
+}
+.personal-composer-avos-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

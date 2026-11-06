@@ -152,7 +152,7 @@ afterEach(() => {
   setFeatureCardBackend(null);
 });
 
-describe("the batch on the team's branch", () => {
+describe("the batch on Avos's branch", () => {
   it("lists the stacked cards in order, from where the batch starts", async () => {
     const [timer, settings] = await crewWithBatch();
     const batch = crewBatch(getCrew(PATH))!;
@@ -242,7 +242,7 @@ describe("the batch on the team's branch", () => {
     const ids = await crewWithBatch();
     host.range.mockResolvedValue(range(["a.ts", "b.ts"], "h-now"));
     expect(await applyCrewBatch(PATH, { to: C2, hash: "h-seen" }, NOW)).toBe(
-      "The team's branch changed since you looked. Review it again.",
+      "Avos's branch changed since you looked. Review it again.",
     );
     expect(host.applyRange).not.toHaveBeenCalled();
     expect(crewCard(getCrew(PATH)!, ids[0])!.stage).toBe("ready");
@@ -269,7 +269,7 @@ describe("the batch on the team's branch", () => {
     );
     const why = await applyCrewBatch(PATH, { to: C2, hash: "h" }, NOW);
     expect(why).toBe(
-      "Your files changed where the team worked, so nothing was applied. Update the team's branch onto your files, then Apply again.",
+      "Your files changed where Avos worked, so nothing was applied. Update Avos's branch onto your files, then Apply again.",
     );
     const crew = getCrew(PATH)!;
     expect(crew.stack?.conflict).toBe(why);
@@ -408,12 +408,10 @@ describe("updating the branch onto your files", () => {
     const [timer] = await crewWithBatch();
     // As the host sends it (RESTACK_CONFLICT in project_bots.rs).
     host.restack.mockRejectedValue(
-      "Your files changed where the team worked (card 1 of 2): error: patch failed: a.ts:1",
+      "Your files changed where Avos worked (card 1 of 2): error: patch failed: a.ts:1",
     );
     const why = await restackCrew(PATH, NOW);
-    expect(why).toContain(
-      "Your files changed where the team worked (card 1 of 2)",
-    );
+    expect(why).toContain("Your files changed where Avos worked (card 1 of 2)");
     expect(why).toContain("Nothing was lost");
     const crew = getCrew(PATH)!;
     expect(crew.stack).toMatchObject({ base: BASE, conflict: why });
@@ -445,7 +443,7 @@ describe("updating the branch onto your files", () => {
       },
     ]);
     expect(await restackCrew(PATH, NOW)).toBe(
-      "“Haptics” builds on top of the team's branch. Finish it or throw it away first.",
+      "“Haptics” builds on top of Avos's branch. Finish it or throw it away first.",
     );
     expect(host.restack).not.toHaveBeenCalled();
   });
@@ -457,7 +455,7 @@ describe("updating the branch onto your files", () => {
       job: { owner: "other", since: NOW, heartbeat: NOW },
     }));
     expect(await restackCrew(PATH, NOW)).toBe(
-      "The team is at work in its copy. Try again once its turn ends.",
+      "Avos is at work in its copy. Try again once its turn ends.",
     );
     expect(
       await dropStackedCard(
@@ -466,13 +464,13 @@ describe("updating the branch onto your files", () => {
         "ideas",
         NOW,
       ),
-    ).toBe("The team is at work in its copy. Try again once its turn ends.");
+    ).toBe("Avos is at work in its copy. Try again once its turn ends.");
     expect(host.restack).not.toHaveBeenCalled();
     expect(host.discard).not.toHaveBeenCalled();
   });
 });
 
-describe("the team's copy is held while the branch moves", () => {
+describe("Avos's copy is held while the branch moves", () => {
   it("holds the team's job for a whole restack, so nothing starts in the copy", async () => {
     await crewWithBatch();
     host.restack.mockImplementation(async () => {
@@ -517,7 +515,7 @@ describe("the team's copy is held while the branch moves", () => {
     // The lease is written for an off team as well: a second move waits.
     expect(jobIsLive(getCrew(PATH)!.job, NOW)).toBe(true);
     expect(await restackCrew(PATH, NOW)).toBe(
-      "The team is at work in its copy. Try again once its turn ends.",
+      "Avos is at work in its copy. Try again once its turn ends.",
     );
     expect(host.restack).not.toHaveBeenCalled();
     finish();
@@ -536,7 +534,7 @@ describe("taking a card off the branch", () => {
       ...crew,
       stack: {
         base: BASE,
-        conflict: "Your files changed where the team worked",
+        conflict: "Your files changed where Avos worked",
       },
     }));
     expect(await discardCrewCard(PATH, settings, "ideas", NOW)).toBeNull();
@@ -556,7 +554,7 @@ describe("taking a card off the branch", () => {
   it("never takes a card off from under another", async () => {
     const [timer] = await crewWithBatch();
     expect(await dropStackedCard(PATH, timer, "ideas", NOW)).toBe(
-      "Only the last card on the team's branch can come off it.",
+      "Only the last card on Avos's branch can come off it.",
     );
     expect(host.discard).not.toHaveBeenCalled();
   });

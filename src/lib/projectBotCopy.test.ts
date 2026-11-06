@@ -44,7 +44,7 @@ it("knows the host's restack refusal, in its words today and before teams", () =
   // The words the host sends (project_bots.rs), as it builds the refusal.
   const rust = readFileSync("src-tauri/src/project_bots.rs", "utf8");
   const sent = /const RESTACK_CONFLICT: &str = "([^"]+)";/.exec(rust)?.[1];
-  expect(sent).toBe("Your files changed where the team worked");
+  expect(sent).toBe("Your files changed where Avos worked");
   expect(isRestackConflict(new Error(`${sent} (card 1 of 2): a.ts`))).toBe(
     true,
   );

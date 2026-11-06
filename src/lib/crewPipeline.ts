@@ -32,7 +32,7 @@ export type PipelineBoardCard = {
   crew?: CrewBoardInfo;
 };
 
-/** Something ready for you that isn't on the team's branch. */
+/** Something ready for you that isn't on Avos's branch. */
 export type PipelineRow = {
   id: string;
   title: string;
@@ -45,7 +45,7 @@ export type PipelineRow = {
 };
 
 export type PipelineBatch = {
-  /** "3 cards ready on the team's branch". */
+  /** "3 cards ready on Avos's branch". */
   title: string;
   /** Their names, and what they changed. */
   status: string;
@@ -125,7 +125,7 @@ export function crewPipeline(input: {
     (card) => card.column === "idea" && card.crew?.label === "Next",
   );
 
-  // Ready for you: the batch on the team's branch, as one row. Its checks
+  // Ready for you: the batch on Avos's branch, as one row. Its checks
   // are what every card on it had: a card a restack replayed wasn't checked
   // again, and one Security didn't review makes the batch only "checked".
   const replayed = !!batchOf?.cards.some((card) => card.stacked?.replayed);
@@ -136,7 +136,7 @@ export function crewPipeline(input: {
     );
   const batch: PipelineBatch | null = batchOf
     ? {
-        title: `${plural(batchOf.cards.length, "card")} ready on the team's branch`,
+        title: `${plural(batchOf.cards.length, "card")} ready on Avos's branch`,
         status: [
           batchOf.cards.map((card) => card.title).join(" · "),
           input.batchFiles != null ? plural(input.batchFiles, "file") : "",
@@ -267,7 +267,7 @@ export function crewPipeline(input: {
       ? `${plural(ideas, "idea")} ${ideas === 1 ? "waits" : "wait"} for you to press Build it.`
       : held.length
         ? "Today's Scout ideas are used up. The next one builds tomorrow."
-        : "Nothing to build. Add an idea and the team builds it.";
+        : "Nothing to build. Add an idea and Avos builds it.";
   }
   sentence = (
     capped && sentence.startsWith(`${capped} cards wait`)

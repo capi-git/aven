@@ -161,11 +161,9 @@ import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import type { ChatStatusWord } from "../lib/chatStatus";
 import { ChatStatusPill } from "./ChatStatusPill";
 import { BotCritter, BotStatusPill } from "./BotCritter";
-import {
-  SidebarCrewRows,
-  type SidebarCrew,
-  type SidebarCrewAction,
-} from "./SidebarCrews";
+import { type SidebarCrew } from "./SidebarCrews";
+import { SidebarAvosRow } from "./SidebarAvos";
+import type { AvosGlance } from "../lib/avos";
 import {
   botsAvailable,
   DEFAULT_BOT_NAME,
@@ -301,18 +299,19 @@ export type SidebarProps = {
   /** Give a project a bot with its defaults and open its chat. */
   onAddBot?: (path: string) => void;
   /**
-   * Crews that are on, one row each in the Crews section; each unfolds into
-   * its bots. A project whose only bot is its Fixer shows as a bot row.
+   * Crews that are on: their helpers' chats aren't the project's chats, and
+   * a project's bot that is its Avos's Fixer has no row of its own.
    */
   crews?: readonly SidebarCrew[];
-  /** Open a crew: its project's Board with the crew on it. */
-  onOpenCrew?: (path: string) => void;
-  /** Open one crew member's chat. */
-  onOpenCrewMember?: (path: string, who: string) => void;
-  /** A crew's right-click menu. */
-  onCrewAction?: (path: string, action: SidebarCrewAction) => void;
-  /** Turn a project's crew on (New crew). */
-  onAddCrew?: (path: string) => void;
+  /**
+   * Each project's Avos, shown as the first row under the project: its Bot,
+   * and a note when it needs you or is working.
+   */
+  avos?: readonly AvosGlance[];
+  /** Open a project's Avos (the first time, meeting it). */
+  onOpenAvos?: (path: string) => void;
+  /** The project whose Avos screen is in front. */
+  activeAvosPath?: string | null;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
@@ -373,6 +372,7 @@ export type SidebarBot = {
 
 const NO_BOTS: readonly SidebarBot[] = [];
 const NO_CREWS: readonly SidebarCrew[] = [];
+const NO_AVOS: readonly AvosGlance[] = [];
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
 const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
 const NO_TEAMS: readonly SidebarTeam[] = [];
@@ -468,10 +468,9 @@ function SidebarComponent({
   onBotSettings,
   onAddBot,
   crews = NO_CREWS,
-  onOpenCrew,
-  onOpenCrewMember,
-  onCrewAction,
-  onAddCrew,
+  avos = NO_AVOS,
+  onOpenAvos,
+  activeAvosPath,
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
   chatStatus = NO_CHAT_STATUS,
@@ -1534,11 +1533,11 @@ function SidebarComponent({
 
   // Bots need Claude Code's sandbox: where it can't run, none is offered.
   const addBot = botsAvailable() ? onAddBot : undefined;
-  // New crew: the section's +. Without crews wired in, it adds a bot as before.
-  const addCrew = botsAvailable() ? onAddCrew : undefined;
-  const addToSection = addCrew ?? addBot;
-  // Crews and bots of this profile's projects, in their own section below
-  // the projects. A project with a crew on shows its Fixer inside the crew.
+  // Every project has its Avos, so with Avos wired in there's nothing to
+  // add here: the Bots section only lists bots that work on their own.
+  const addToSection = onOpenAvos ? undefined : addBot;
+  // Bots of this profile's projects, in their own section below the
+  // projects. A project with its Avos on shows its Fixer inside its Avos.
   const profileCrews = crews.filter((crew) =>
     projects.some((project) => sameProjectPath(project.path, crew.path)),
   );
@@ -1562,11 +1561,7 @@ function SidebarComponent({
     const request = ++botPickerRequest.current;
     const candidates = projects
       .map((project) => project.path)
-      .filter((path) =>
-        addCrew
-          ? !crews.some((crew) => sameProjectPath(crew.path, path))
-          : !bots.some((bot) => sameProjectPath(bot.path, path)),
-      );
+      .filter((path) => !bots.some((bot) => sameProjectPath(bot.path, path)));
     void botProjectStates(candidates).then((states) => {
       if (request !== botPickerRequest.current) return;
       const listed = candidates.flatMap((path, index): BotPickerProject[] => {
@@ -1578,12 +1573,8 @@ function SidebarComponent({
       const empty = !projects.length
         ? "Add a project first"
         : !candidates.length
-          ? addCrew
-            ? "Every project has a team"
-            : "Every project has a bot"
-          : addCrew
-            ? "No project here can have a team"
-            : "No project here can have a bot";
+          ? "Every project has a bot"
+          : "No project here can have a bot";
       closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
@@ -1626,6 +1617,18 @@ function SidebarComponent({
     />
   );
 
+  /** A project's Avos row: the first row under it, before its chats. */
+  const avosRow = (path: string) => {
+    if (!onOpenAvos) return null;
+    const glance = avos.find((item) => sameProjectPath(item.path, path));
+    return glance ? (
+      <SidebarAvosRow
+        avos={glance}
+        active={!!activeAvosPath && sameProjectPath(activeAvosPath, path)}
+        onOpen={onOpenAvos}
+      />
+    ) : null;
+  };
   const currentProjectTasks = (
     <div id="personal-project-tasks" className="personal-project-tasks">
       {inProject && tasksExpanded && taskSearchOpen ? (
@@ -1638,6 +1641,7 @@ function SidebarComponent({
       ) : null}
       {tasksExpanded ? (
         <>
+          {inProject && !standaloneActive ? avosRow(cwd) : null}
           {!cwd || cwd === "~" ? (
             <p className="personal-tasks-empty">
               Open a project to see its chats.
@@ -2289,6 +2293,7 @@ function SidebarComponent({
                         currentProjectTasks
                       ) : expanded ? (
                         <div className="personal-project-tasks">
+                          {avosRow(project.path)}
                           {!historyLoaded ? (
                             historyError ? (
                               <button
@@ -2414,19 +2419,17 @@ function SidebarComponent({
                     Add a project to {activeProfile.name}.
                   </p>
                 ) : null}
-                {profileBots.length ||
-                profileCrews.length ||
-                (addToSection && projects.length) ? (
+                {profileBots.length || (addToSection && projects.length) ? (
                   <section
                     className="personal-bots-group"
-                    aria-label={onAddCrew ? "Teams" : "Bots"}
+                    aria-label="Bots"
                     data-sidebar-bots=""
                   >
                     <div className="personal-projects-heading">
-                      <span>{onAddCrew ? "Teams" : "Bots"}</span>
+                      <span>Bots</span>
                       {addToSection ? (
                         <SessionsHeaderButton
-                          label={addCrew ? "New team" : "New bot"}
+                          label="New bot"
                           open={!!botPicker}
                           hasPopup
                           onClick={(event) =>
@@ -2438,17 +2441,8 @@ function SidebarComponent({
                       ) : null}
                     </div>
                     <div className="personal-project-tasks">
-                      <SidebarCrewRows
-                        crews={profileCrews}
-                        activeSessionId={activeSessionId}
-                        onOpenCrew={onOpenCrew}
-                        onOpenMember={onOpenCrewMember}
-                        onAction={onCrewAction}
-                      />
                       {profileBots.map(botRow)}
-                      {!profileBots.length &&
-                      !profileCrews.length &&
-                      addToSection ? (
+                      {!profileBots.length && addToSection ? (
                         <button
                           type="button"
                           className="personal-view-project-tasks"
@@ -2456,7 +2450,7 @@ function SidebarComponent({
                             openBotPicker(event.currentTarget)
                           }
                         >
-                          {addCrew ? "Add a team" : "Add a bot"}
+                          Add a bot
                         </button>
                       ) : null}
                     </div>
@@ -2542,8 +2536,8 @@ function SidebarComponent({
         <BotPicker
           x={botPicker.x}
           y={botPicker.y}
-          label={addCrew ? "Add a team to" : "Add a bot to"}
-          kind={addCrew ? "team" : "bot"}
+          label="Add a bot to"
+          kind="bot"
           projects={botPicker.projects}
           empty={botPicker.empty}
           onBusyChange={(busy) => {
@@ -2635,6 +2629,7 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "liveAgents",
   "discussions",
   "bots",
+  "avos",
   "teams",
   "workConflicts",
   "standaloneSessions",

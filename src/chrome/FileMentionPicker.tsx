@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from "react";
 import type { RankedFile } from "../lib/fileIndex";
 import { isNoteMentionPath } from "../lib/notes";
@@ -20,6 +21,11 @@ type Props = {
   includeNotes?: boolean;
   onActive: (index: number) => void;
   onPick: (file: RankedFile) => void;
+  /**
+   * The project's Avos, the first row (index 0, the files after it): picked,
+   * the message goes to Avos.
+   */
+  avos?: { mark: ReactNode; onPick: () => void };
 };
 
 /** Memoized: the composer re-renders for every keystroke and draft change. */
@@ -31,7 +37,9 @@ export const FileMentionPicker = memo(function FileMentionPicker({
   includeNotes = false,
   onActive,
   onPick,
+  avos,
 }: Props) {
+  const offset = avos ? 1 : 0;
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
   const pointer = useRef({ x: Number.NaN, y: Number.NaN, allow: false });
@@ -65,7 +73,7 @@ export const FileMentionPicker = memo(function FileMentionPicker({
 
   return (
     <div data-mention-picker className="aven-glass-overlay overflow-hidden">
-      {files.length === 0 ? (
+      {files.length === 0 && !avos ? (
         <p className="aven-menu aven-menu-note">
           {loading
             ? "Indexing files…"
@@ -85,7 +93,34 @@ export const FileMentionPicker = memo(function FileMentionPicker({
           onMouseMove={onListMouseMove}
           className="aven-menu max-h-[min(240px,40vh)] overflow-y-auto overscroll-none"
         >
-          {files.map((file, index) => {
+          {avos ? (
+            <button
+              ref={active === 0 ? activeRef : undefined}
+              type="button"
+              role="option"
+              aria-selected={active === 0}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => onRowEnter(0)}
+              onClick={avos.onPick}
+              data-active={active === 0}
+              data-mention-avos
+              className="aven-menu-item"
+            >
+              <span aria-hidden="true" className="aven-menu-icon">
+                {avos.mark}
+              </span>
+              <span
+                className={`aven-menu-label ${active === 0 ? "text-mention" : ""}`}
+              >
+                Avos
+              </span>
+              <span className="aven-menu-shortcut">
+                Looks after this project
+              </span>
+            </button>
+          ) : null}
+          {files.map((file, fileIndex) => {
+            const index = fileIndex + offset;
             const highlighted = index === active;
             const note = isNoteMentionPath(file.path);
             const slash = file.relative.lastIndexOf("/");

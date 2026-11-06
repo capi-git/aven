@@ -275,6 +275,18 @@ export type CrewRunnerDeps = {
   };
   /** A member's name (by its id, or a role for its first): its own, or its critter's. */
   name: (crew: Crew, who: string) => string;
+  /** Why a chat refused a message just now, in words, when known. */
+  whyNotSent?: (sessionId: string) => string | undefined;
+  /**
+   * Avos brings in the helpers building needs (a Builder and a Checker)
+   * before its first card builds. None here: such a card waits.
+   */
+  bringInBuilders?: (path: string) => void;
+  /**
+   * Why the project can't build in a copy now (no Git), said once in Avos's
+   * chat with Set up Git; null when it can.
+   */
+  buildingProblem?: (path: string) => Promise<string | null>;
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
   /**
@@ -779,7 +791,9 @@ export class CrewRunner {
     )
       return;
     try {
-      if (!crew.copy) {
+      // Avos reads your folder until there's a copy (a project without Git
+      // has none): only a helper that works in the copy waits for one.
+      if (!crew.copy && member.role !== "lead") {
         const prepared = await this.prepareCopy(path, false);
         if (!prepared) return;
         crew = prepared.crew;
@@ -878,7 +892,11 @@ export class CrewRunner {
         onSettled: (outcome) =>
           void this.afterTalk(path, talkId, turnId, chat.id, outcome),
       });
-      if (!sent) throw new Error(`Couldn't send ${toName} a message.`);
+      if (!sent)
+        throw new Error(
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${toName} a message.`,
+        );
       const carrying = this.talking.get(talkId);
       if (carrying)
         carrying.timer = this.deps.setTimer(() => {
@@ -1146,7 +1164,7 @@ export class CrewRunner {
               at: now,
               kind: "note",
               who: "aven",
-              text: `${who} asked for ${botLine(ask.to, 60)}, who isn't on this team.`,
+              text: `${who} asked for ${botLine(ask.to, 60)}, who isn't one of Avos's helpers.`,
             });
       }
       return next;
@@ -1222,12 +1240,36 @@ export class CrewRunner {
     } catch (error) {
       logError("Crew board", error);
     }
-    const idea = cards ? nextIdeaToBuild(crew, cards, now) : null;
+    // Avos with no Builder yet builds only what it took down from your own
+    // words: ideas already on the Board wait for you to say Build it.
+    const builds = crew.members.some(
+      (member) => member.role === "builder" && memberOn(member),
+    );
+    const idea = cards
+      ? nextIdeaToBuild(
+          crew,
+          builds ? cards : cards.filter((card) => !!crew.ideas?.[card.id]),
+          now,
+        )
+      : null;
     if (idea) {
       if (waiting) return this.hold(crew, crewReviewGate(waiting));
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
       this.clearHold(crew);
+      if (!builds) {
+        // No Git: it says so, with Set up Git, and the idea waits for you.
+        const problem = await this.deps.buildingProblem?.(path);
+        if (problem || !this.deps.bringInBuilders) {
+          updateCrew(path, (current) =>
+            current.notNow?.includes(idea.id)
+              ? current
+              : { ...current, notNow: [...(current.notNow ?? []), idea.id] },
+          );
+          return;
+        }
+        this.deps.bringInBuilders(path);
+      }
       return this.autoStart(path, idea);
     }
     // Idle with a goal: is it met, and what's the next card towards it.
@@ -1434,7 +1476,7 @@ export class CrewRunner {
         ...(at ? [at] : []),
       );
     } catch (error) {
-      throw new Error(`Couldn't make the team's copy: ${botCopyError(error)}`);
+      throw new Error(`Couldn't make Avos's copy: ${botCopyError(error)}`);
     }
     const sources = await this.deps.copy
       .sources(copy.path)
@@ -1471,9 +1513,7 @@ export class CrewRunner {
       };
     } catch (error) {
       logError("Crew copy sync", error);
-      throw new Error(
-        `Couldn't update the team's copy: ${botCopyError(error)}`,
-      );
+      throw new Error(`Couldn't update Avos's copy: ${botCopyError(error)}`);
     }
   }
 
@@ -1485,7 +1525,7 @@ export class CrewRunner {
         at: now,
         kind: "hold",
         who: "aven",
-        text: `Aven removed ${files.join(", ")} from the team's copy: settings there could run commands as you.`,
+        text: `Aven removed ${files.join(", ")} from Avos's copy: settings there could run commands as you.`,
       }),
     );
   }
@@ -1658,7 +1698,7 @@ export class CrewRunner {
       const planted = await this.deps.copy.planted(crew.copy!.path, true);
       if (planted.length)
         throw new Error(
-          `Aven found ${planted.join(", ")} in the team's copy and removed ${
+          `Aven found ${planted.join(", ")} in Avos's copy and removed ${
             planted.length === 1 ? "it" : "them"
           }: settings there could run commands as you. Look over the card before you try again.`,
         );
@@ -1804,7 +1844,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
         );
       turn.sentAt = this.deps.now();
       const started = card;
@@ -2109,7 +2150,7 @@ export class CrewRunner {
           !diff && crew.copy && card.base
             ? turnFailed(card, {
                 role,
-                error: "Aven couldn't read what changed in the team's copy",
+                error: "Aven couldn't read what changed in Avos's copy",
                 now,
                 name: names.builder,
               })
@@ -2251,7 +2292,7 @@ export class CrewRunner {
       }
       return turnFailed(card, {
         role,
-        error: `its work couldn't be stacked on the team's branch: ${errorText(error)}`,
+        error: `its work couldn't be stacked on Avos's branch: ${errorText(error)}`,
         now,
         name: this.deps.name(crew, memberId),
       });
@@ -2499,7 +2540,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
         );
       turn.sentAt = this.deps.now();
       updateCrew(path, (current) =>
@@ -2636,7 +2678,7 @@ export class CrewRunner {
       const planted = await this.deps.copy.planted(crew.copy!.path, true);
       if (planted.length)
         throw new Error(
-          `Aven found ${planted.join(", ")} in the team's copy and removed ${
+          `Aven found ${planted.join(", ")} in Avos's copy and removed ${
             planted.length === 1 ? "it" : "them"
           }: settings there could run commands as you. Look over the card before you try again.`,
         );
@@ -2711,7 +2753,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, memberId)} the card.`,
         );
       turn.sentAt = this.deps.now();
       const started = card;
@@ -2795,7 +2838,7 @@ export class CrewRunner {
    * is all it wrote and Aven accepts it, is kept in Aven's own data and the
    * card is Mock-up, in Ready for you. The copy's folder is emptied and the
    * copy put back to the card's base, so nothing of it reaches the next
-   * card or the team's branch. A turn that wrote elsewhere holds the copy
+   * card or Avos's branch. A turn that wrote elsewhere holds the copy
    * and stops with why; one that failed, was stopped, ran too long or left
    * nothing Aven can keep stops too.
    */
@@ -2879,7 +2922,7 @@ export class CrewRunner {
     if (!diff || !copy)
       return afterMockup(card, {
         mockup: null,
-        problem: "Aven couldn't read the team's copy after its turn",
+        problem: "Aven couldn't read Avos's copy after its turn",
         now,
         name,
       });
@@ -2908,7 +2951,7 @@ export class CrewRunner {
     if (!after)
       return afterMockup(card, {
         mockup: null,
-        problem: "Aven couldn't list the team's copy after its turn",
+        problem: "Aven couldn't list Avos's copy after its turn",
         now,
         name,
       });
@@ -3212,7 +3255,8 @@ export class CrewRunner {
       });
       if (!sent)
         throw new Error(
-          `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
+          this.deps.whyNotSent?.(chat.id) ??
+            `Couldn't send ${this.deps.name(crew, turn.memberId)} its turn.`,
         );
       turn.sentAt = this.deps.now();
       updateCrew(path, (current) =>
@@ -3277,7 +3321,7 @@ export class CrewRunner {
       if (!diff)
         return this.stopGoal(
           crew,
-          `Aven couldn't check the team's copy after ${who}'s planning, so the team stopped. Look over the copy, then Keep going to try again.`,
+          `Aven couldn't check Avos's copy after ${who}'s planning, so Avos stopped. Look over the copy, then Keep going to try again.`,
           now,
         );
       if (diff.files.length) {
@@ -3289,7 +3333,7 @@ export class CrewRunner {
             at: now,
             kind: "hold",
             who: "aven",
-            text: `Aven undid what ${who} changed in the team's copy while planning: planning only reads.`,
+            text: `Aven undid what ${who} changed in Avos's copy while planning: planning only reads.`,
           }),
         );
       }
@@ -3309,7 +3353,7 @@ export class CrewRunner {
       return this.stopGoal(
         crew,
         turn.timedOut
-          ? `${who}'s planning ran past ${crew.limits.turnMinutes} minutes, so the team stopped. Keep going to try again.`
+          ? `${who}'s planning ran past ${crew.limits.turnMinutes} minutes, so Avos stopped. Keep going to try again.`
           : `${who}'s planning didn't finish${outcome?.error ? `: ${outcome.error}` : ""}. Keep going to try again.`,
         now,
       );
@@ -3318,7 +3362,7 @@ export class CrewRunner {
     if (!answer)
       return this.stopGoal(
         crew,
-        `${who}'s planning ended without an answer, so the team stopped. Keep going to try again.`,
+        `${who}'s planning ended without an answer, so Avos stopped. Keep going to try again.`,
         now,
       );
     if (answer.met)
@@ -3326,7 +3370,7 @@ export class CrewRunner {
     if (!answer.next.length)
       return this.stopGoal(
         crew,
-        `Nothing left to plan for the goal${answer.summary ? `: ${answer.summary.replace(/[.!]+$/, "")}` : ""}. The team stops here.`,
+        `Nothing left to plan for the goal${answer.summary ? `: ${answer.summary.replace(/[.!]+$/, "")}` : ""}. Avos stops here.`,
         now,
       );
     // A card you threw away is never planned again.
@@ -3336,7 +3380,7 @@ export class CrewRunner {
         crew,
         `${who} planned only cards you threw away (${answer.next
           .map((task) => task.title)
-          .join(" · ")}), so the team stopped. Keep going to plan again.`,
+          .join(" · ")}), so Avos stopped. Keep going to plan again.`,
         now,
       );
     answer.next = fresh;
@@ -3355,7 +3399,7 @@ export class CrewRunner {
     if (!added.length)
       return this.stopGoal(
         crew,
-        `Aven couldn't add the card ${who} planned for the goal to the Board, so the team stopped. Keep going to try again.`,
+        `Aven couldn't add the card ${who} planned for the goal to the Board, so Avos stopped. Keep going to try again.`,
         now,
       );
     updateCrew(path, (current) => {

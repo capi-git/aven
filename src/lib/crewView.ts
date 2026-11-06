@@ -625,7 +625,7 @@ export function crewBoardInfo(
           ...base,
           needsYou: true,
           line: card.stuck.text,
-          // One that stepped aside has no chat to open: the team's copy has
+          // One that stepped aside has no chat to open: Avos's copy has
           // moved on to other work. It's answered on the card.
           ...(cardSteppedAside(card) || card.holder === "researcher"
             ? {}

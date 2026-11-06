@@ -206,7 +206,7 @@ export function afterResearch(
   const who = input.name ?? NAME("researcher");
   const next: CrewCard = { ...card, turn: undefined, updatedAt: now };
   if (input.unreadable) {
-    const text = `Aven couldn't read the team's copy after ${who}'s turn, so its findings weren't used`;
+    const text = `Aven couldn't read Avos's copy after ${who}'s turn, so its findings weren't used`;
     return {
       card: stuck(next, "failed", text, now),
       event: { kind: "stuck", reason: "failed", text },

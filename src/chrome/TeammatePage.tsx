@@ -58,13 +58,13 @@ import "./TeammatePage.css";
 /** Models shown before Older models. */
 const RECENT_MODELS = 4;
 
-/** "A Builder on Pom's team · changes files only in the team's copy". */
+/** "A Builder on Pom's team · changes files only in Avos's copy". */
 export function teammateSubtitle(member: CrewMember, project: string): string {
   const role = CREW_ROLE_INFO[member.role].label;
   const article = /^[AEIOU]/.test(role) ? "An" : "A";
   return `${article} ${role} on ${project}'s team · ${
     CREW_ROLE_INFO[member.role].edits
-      ? "changes files only in the team's copy"
+      ? "changes files only in Avos's copy"
       : "only reads"
   }`;
 }
@@ -223,7 +223,7 @@ function InstructionsField({
         id={id}
         className="aven-field teammate-input teammate-text"
         aria-label="Instructions"
-        title="Your words for this teammate, read at every turn. They add to the team's rules and never replace them."
+        title="Your words for this helper, read at every turn. They add to Avos's rules and never replace them."
         rows={4}
         maxLength={CREW_INSTRUCTIONS_MAX}
         placeholder={
@@ -614,7 +614,7 @@ function WhenItWorks({
         />
         <div
           className="teammate-row"
-          title="Only while the team has nothing else to do"
+          title="Only while Avos has nothing else to do"
         >
           <span>Ideas a day</span>
           <NumberPick
@@ -689,7 +689,7 @@ function WhenItWorks({
       <div className="teammate-field-label">
         <b>When it works</b>
         {member.role === "scout" ? (
-          <span>Only while the team has nothing else to do</span>
+          <span>Only while Avos has nothing else to do</span>
         ) : null}
       </div>
       {body}
@@ -744,7 +744,7 @@ function RemoveMember({
       <div className="crew-settings-remove" data-confirming>
         <p className="bot-sheet-question">Remove {name}?</p>
         <p className="bot-sheet-note">
-          Its cards go by the team's rules. Its chat stays in your history and
+          Its cards go by Avos's rules. Its chat stays in your history and
           doesn't run again.
         </p>
         {problem ? (
@@ -781,9 +781,7 @@ function RemoveMember({
       className="crew-settings-remove-link"
       disabled={last}
       title={
-        last
-          ? `A team needs a ${CREW_ROLE_INFO[member.role].label}.`
-          : undefined
+        last ? `Avos needs a ${CREW_ROLE_INFO[member.role].label}.` : undefined
       }
       onClick={() => setConfirming(true)}
     >

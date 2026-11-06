@@ -1,177 +1,74 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Session } from "../lib/session";
+import { ensureAvos, getCrew, resetCrewsCache } from "../lib/crews";
+import { memoryStorage } from "../lib/devSmoke";
 
 vi.mock("../lib/harness/child", () => ({ resolveClaudeBinary: vi.fn() }));
 vi.mock("../lib/floatingSidebar", () => ({
   nativeFloatingSidebar: { send: vi.fn(), listen: vi.fn() },
 }));
 
-import { SMOKE_REPLY } from "../lib/devSmoke";
-import { BOARD_EDIT_FILE, checkBoard } from "./useDevSmoke";
+import { checkBoard } from "./useDevSmoke";
 
 const PROJECT = "/tmp/check/project";
 
 type Flaws = {
-  /** The card stays under Building after the turn ends. */
-  noReview?: boolean;
-  /** The card's button leaves the board on screen. */
-  boardStays?: boolean;
-  /** Cmd+W leaves the board tab open. */
-  boardKept?: boolean;
-  /** Add on the outside line puts nothing on the board. */
-  addFails?: boolean;
+  /** Open Avos shows the old Board's columns. */
+  board?: boolean;
+  /** The line about chats outside the board shows above it. */
+  outside?: boolean;
+  /** Cmd+W leaves it open. */
+  kept?: boolean;
 };
 
 let listening = new AbortController();
 
-/** The workspace as far as the board check reads and drives it. */
+/** The workspace as far as the check reads and drives it. */
 function app(flaws: Flaws = {}) {
-  // The board's tab, and whether it is the one on screen.
-  let boardTab = false;
-  let boardOpen = false;
-  let outsideOpen = false;
-  let focused = "";
-  const linked = new Set<string>();
   listening = new AbortController();
+  const button = document.createElement("button");
+  button.setAttribute("aria-label", "Open Avos");
+  document.body.append(button);
+  let screen: HTMLElement | null = null;
+  button.addEventListener("click", () => {
+    ensureAvos(PROJECT);
+    screen = document.createElement("div");
+    screen.dataset.workBoard = PROJECT;
+    screen.innerHTML = `<div data-avos-meet>Hi, I'm Avos.</div>${
+      flaws.board ? '<section data-board-column="idea">Ideas</section>' : ""
+    }${flaws.outside ? "<div data-board-outside>1 chat</div>" : ""}`;
+    document.body.append(screen);
+  });
   window.addEventListener(
     "keydown",
     (event) => {
       if (event.key !== "w" || !(event.metaKey || event.ctrlKey)) return;
-      if (boardOpen && !flaws.boardKept) {
-        boardTab = false;
-        boardOpen = false;
-        draw();
-      }
+      if (!flaws.kept) screen?.remove();
     },
     { signal: listening.signal },
   );
-  const state = {
-    sessions: [] as Session[],
-    floatingSidebarLabel: null,
-    expectFloatingSidebar: false,
-    newProjectTask: vi.fn((path: string) => {
-      const id = `task-${state.sessions.length + 1}`;
-      state.sessions = [
-        ...state.sessions,
-        { id, harness: "claude", cwd: path, busy: false, blocks: [] },
-      ] as unknown as Session[];
-      focused = id;
-      draw();
-    }),
-    submit: vi.fn((id: string, text: string) => {
-      const hold = /AVEN_SMOKE_HOLD (\d+)/.exec(text);
-      update(id, { busy: true });
-      setTimeout(
-        () =>
-          update(id, {
-            busy: false,
-            blocks: [{ id: "r", role: "assistant", text: SMOKE_REPLY }],
-          } as Partial<Session>),
-        hold ? Number(hold[1]) : 0,
-      );
-    }),
-  };
-  function update(id: string, patch: Partial<Session>) {
-    state.sessions = state.sessions.map((session) =>
-      session.id === id ? { ...session, ...patch } : session,
-    );
-    draw();
-  }
-  function card(session: Session) {
-    const column = session.busy || flaws.noReview ? "building" : "review";
-    const line =
-      column === "review" ? `${BOARD_EDIT_FILE} · +1 −0` : "Thinking";
-    const buttons =
-      column === "review"
-        ? '<button class="work-board-action">Review</button><button class="work-board-action">Ship it</button>'
-        : "";
-    return [
-      column,
-      `<article data-board-card="card-${session.id}" data-board-chats="${session.id}"><button class="work-board-card-open">Chat</button><span>${line}</span>${buttons}</article>`,
-    ] as const;
-  }
-  function outside() {
-    const loose = state.sessions.filter(
-      (session) => session.busy && !linked.has(session.id),
-    );
-    if (!loose.length) return "";
-    const rows = outsideOpen
-      ? loose
-          .map(
-            (session) =>
-              `<li data-outside-chat="${session.id}"><button class="work-board-action">Add</button></li>`,
-          )
-          .join("")
-      : "";
-    return `<div data-board-outside><button class="work-board-outside-toggle">${loose.length} chat working outside the board</button><button class="work-board-outside-add">Add it</button><ul>${rows}</ul></div>`;
-  }
-  function draw() {
-    const cards = state.sessions
-      .filter((session) => linked.has(session.id))
-      .map(card);
-    const columns = ["idea", "building", "review", "shipped"]
-      .map(
-        (id) =>
-          `<section data-board-column="${id}">${cards
-            .filter(([column]) => column === id)
-            .map(([, html]) => html)
-            .join("")}</section>`,
-      )
-      .join("");
-    document.body.innerHTML = `
-      <div class="personal-titlebar"><button aria-label="Open board"></button></div>
-      ${boardTab ? `<div data-work-board="${PROJECT}"${boardOpen ? "" : " data-hidden"}>${outside()}${columns}</div>` : ""}
-      ${boardOpen ? "" : `<div data-session-drop="${focused}"></div>`}`;
-    document
-      .querySelector('button[aria-label="Open board"]')!
-      .addEventListener("click", () => {
-        boardTab = true;
-        boardOpen = true;
-        draw();
-      });
-    document
-      .querySelector(".work-board-outside-toggle")
-      ?.addEventListener("click", () => {
-        outsideOpen = !outsideOpen;
-        draw();
-      });
-    document
-      .querySelectorAll<HTMLElement>("[data-outside-chat]")
-      .forEach((row) =>
-        row.querySelector("button")!.addEventListener("click", () => {
-          if (!flaws.addFails) linked.add(row.dataset.outsideChat!);
-          draw();
-        }),
-      );
-    document
-      .querySelectorAll<HTMLButtonElement>(".work-board-card-open")
-      .forEach((button) =>
-        button.addEventListener("click", () => {
-          boardOpen = !!flaws.boardStays;
-          draw();
-        }),
-      );
-  }
-  draw();
-  return state;
+  return { motion: { showWorkspace: vi.fn() } };
 }
 
-describe("the real-app check's board step", () => {
+describe("Open Avos in the real-app check", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.stubGlobal("localStorage", memoryStorage());
+    resetCrewsCache();
+    // happy-dom lays nothing out: anything in the document is on screen.
     vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (
       this: Element,
     ) {
-      return (
-        this.closest("[data-hidden]") ? [] : [new DOMRect(0, 0, 10, 10)]
-      ) as never;
+      return (this.isConnected
+        ? [{ width: 1, height: 1 }]
+        : []) as unknown as DOMRectList;
     });
   });
   afterEach(() => {
     listening.abort();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
@@ -182,46 +79,33 @@ describe("the real-app check's board step", () => {
       (error: Error) => ({ error: error.message }),
     );
     await vi.runAllTimersAsync();
-    return { state, outcome: await result };
+    return result;
   };
 
-  it("passes when the added card moves from Building to Review and opens the chat", async () => {
-    const { state, outcome } = await run();
-    expect(outcome).toEqual({
-      detail: `four columns; added from the line for chats outside the board, the card moved from Building to Review with ${BOARD_EDIT_FILE} and offered Review, Ship it; pressing it opened the chat; Cmd+W closed the board`,
+  it("passes when it meets the project's Avos, with no Board, and Cmd+W closes it", async () => {
+    expect(await run()).toEqual({
+      detail:
+        "Open Avos opened the project's Avos on meeting it, with no Board columns and no line about chats outside the board; Cmd+W closed it",
     });
-    // The turn edits the file through the stand-in, held while the board opens.
-    expect(state.submit.mock.calls[0]?.[1]).toContain(
-      `AVEN_SMOKE_EDIT ${BOARD_EDIT_FILE}`,
-    );
+    // What it saved is forgotten, for the crew steps after.
+    expect(getCrew(PROJECT)).toBeUndefined();
   });
 
-  it("fails when the card never reaches Review", async () => {
-    const { outcome } = await run({ noReview: true });
-    expect(outcome).toEqual({
-      error: "Timed out waiting for the chat's card to move to Review",
+  it("fails when the old Board's columns show", async () => {
+    expect(await run({ board: true })).toEqual({
+      error: "The old Board's columns showed",
     });
   });
 
-  it("fails when adding the chat from the outside line gives it no card", async () => {
-    const { outcome } = await run({ addFails: true });
-    expect(outcome).toEqual({
-      error: "Timed out waiting for the chat's card under Building",
+  it("fails when the line about chats outside the board shows", async () => {
+    expect(await run({ outside: true })).toEqual({
+      error: "The line about chats outside the board showed",
     });
   });
 
-  it("fails when the board is left open", async () => {
-    const { outcome } = await run({ boardKept: true });
-    expect(outcome).toEqual({
-      error: "Timed out waiting for Cmd+W to close the board",
-    });
-  });
-
-  it("fails when pressing the card does not open the chat", async () => {
-    const { outcome } = await run({ boardStays: true });
-    expect(outcome).toEqual({
-      error:
-        "Timed out waiting for the card to open its chat (chat not on screen, focused unknown, board on screen in undefined)",
+  it("fails when Cmd+W leaves it open", async () => {
+    expect(await run({ kept: true })).toEqual({
+      error: "Timed out waiting for Cmd+W to close Avos",
     });
   });
 });

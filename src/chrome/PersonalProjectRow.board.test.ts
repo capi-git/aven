@@ -54,7 +54,7 @@ const render = (onOpenBoard?: () => void) =>
     ),
   );
 
-it("opens the project's board from its menu, with no icon of its own on the row", async () => {
+it("opens the project's Avos from its menu, with no icon of its own on the row", async () => {
   const onOpenBoard = vi.fn();
   await render(onOpenBoard);
   // The row's hover actions are fold, New chat and ···; the board is in ···
@@ -67,7 +67,7 @@ it("opens the project's board from its menu, with no icon of its own on the row"
   );
   const item = [
     ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-  ].find((entry) => entry.textContent?.includes("Open board"))!;
+  ].find((entry) => entry.textContent?.includes("Open Avos"))!;
   expect(item).toBeTruthy();
   await act(async () => item.click());
   expect(onOpenBoard).toHaveBeenCalledTimes(1);

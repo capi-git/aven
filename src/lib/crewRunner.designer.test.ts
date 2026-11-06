@@ -332,7 +332,7 @@ describe("a screen for the Designer", () => {
     const idea = (await addFeatureIdea(PATH, { title: "Timer screen" }))!;
     target.file = `aven-mockups/${mockupFileName(idea.id)}`;
     expect(await askDesigner(PATH, idea, NOON)).toBe(
-      "Add a Designer to the team first.",
+      "Add a Designer as a helper first.",
     );
     onTeam();
     expect(await askDesigner(PATH, idea, NOON)).toBeNull();
@@ -489,7 +489,7 @@ describe("a screen for the Designer", () => {
     h.runner.start();
     await h.advance(MINUTE + 5_000);
     expect(card(idea.id).stuck?.text).toBe(
-      "Brush's mock-up wasn't kept: Aven couldn't list the team's copy after its turn",
+      "Brush's mock-up wasn't kept: Aven couldn't list Avos's copy after its turn",
     );
     expect(h.mockups.save).not.toHaveBeenCalled();
     expect(h.files).toEqual({});

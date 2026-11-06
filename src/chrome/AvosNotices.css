@@ -1,0 +1,46 @@
+/* A "needs you" notice from a project's Avos: its Bot, its line, and what
+   to do about it, in the notice column's glass. */
+.avos-notice .dot-mark.avos-notice-mark {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.avos-notice-close {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+  margin: -2px -6px 0 0;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--aven-muted);
+  cursor: pointer;
+}
+.avos-notice-close:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+/* What needs you: the buttons under the line for one thing; for several,
+   one row each (its line, then its buttons), under the project's name. */
+.avos-notice-items {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px 12px;
+  list-style: none;
+}
+.avos-notice-items[data-many] {
+  padding-left: 46px;
+}
+.avos-notice-items > li {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.avos-notice-items[data-many] > li > span {
+  margin-right: 4px;
+}
