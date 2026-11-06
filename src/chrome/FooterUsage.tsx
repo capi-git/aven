@@ -1,6 +1,5 @@
 import { visibleInterval } from "../lib/visibleInterval";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMotionOnChange } from "../hooks/useMotionOnChange";
 import { useProviderUsage } from "../hooks/useProviderUsage";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { OPEN_USAGE_EVENT } from "../lib/composerHelm";
@@ -28,6 +27,7 @@ import type { ProviderUsageForecast } from "../lib/usageHistory";
 import { useUsagePanelTheme, type UsagePanelSnapshot } from "../lib/usagePanel";
 import { Popover } from "./Popover";
 import { ProviderMarks } from "./ProviderMarks";
+import { RollingText } from "./RollingText";
 import { RefreshCw } from "./icons";
 import { UsagePanelContent } from "./UsagePanel";
 import "./FooterUsage.css";
@@ -89,12 +89,11 @@ function UsageMeter({
 }
 
 /** A reading that rolls into its new value when it changes. */
-function UsagePercent({ children }: { children: string }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  useMotionOnChange(ref, children);
+/** A reading whose changed digits roll, up as `value` rises. */
+function UsagePercent({ text, value }: { text: string; value?: number }) {
   return (
-    <span ref={ref} className="footer-usage-percent">
-      {children}
+    <span className="footer-usage-percent">
+      <RollingText text={text} value={value} />
     </span>
   );
 }
@@ -208,7 +207,10 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
           >
             <span className="footer-usage-muted">Context</span>
             <UsageMeter fill={contextShare} />
-            <UsagePercent>{contextLabel}</UsagePercent>
+            <UsagePercent
+              text={contextLabel}
+              value={contextShare ?? taskContext?.used}
+            />
           </span>
         ) : null}
         {accounts.map((account) => {
@@ -230,8 +232,9 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
                     fill={usageMeterFill(closest)}
                     warning={warning}
                   />
-                  <UsagePercent>
-                    {usageReadings(account)
+                  <UsagePercent
+                    value={closest.window.usedPercent}
+                    text={usageReadings(account)
                       .map(({ window }) =>
                         [
                           formatUsagePercent(window.usedPercent),
@@ -241,7 +244,7 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
                         ].join(" "),
                       )
                       .join(" · ")}
-                  </UsagePercent>
+                  />
                 </>
               ) : (
                 <span className="footer-usage-muted">

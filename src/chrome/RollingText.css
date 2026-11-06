@@ -1,0 +1,62 @@
+/* A label whose changed characters roll (useRollingText). At rest it is a
+   plain run of text; only while it rolls does it clip, softly, so characters
+   rolling in or out fade at its edges. The padding that holds the fade is
+   taken back out by negative margins, so nothing around it moves. */
+.rolling-text {
+  position: relative;
+  display: inline-block;
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+}
+
+.rolling-text-glyph {
+  display: inline-block;
+}
+
+.rolling-text-leaving {
+  position: absolute;
+  top: 0;
+  pointer-events: none;
+}
+
+.rolling-text[data-rolling] {
+  padding: 0.2em 0.3em;
+  margin: -0.2em -0.3em;
+  overflow: clip;
+  -webkit-mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 0.3em,
+      #000 calc(100% - 0.3em),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 0.2em,
+      #000 calc(100% - 0.2em),
+      transparent
+    );
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 0.3em,
+      #000 calc(100% - 0.3em),
+      transparent
+    ),
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 0.2em,
+      #000 calc(100% - 0.2em),
+      transparent
+    );
+  mask-composite: intersect;
+}
+
+.rolling-text[data-rolling] > .rolling-text-leaving {
+  top: 0.2em;
+}

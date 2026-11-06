@@ -17,6 +17,7 @@ import {
 import type { UsagePanelSnapshot } from "../lib/usagePanel";
 import { ProviderMarks } from "./ProviderMarks";
 import { RefreshCw } from "./icons";
+import { RollingText } from "./RollingText";
 import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
 import "./UsagePanel.css";
 
@@ -300,16 +301,27 @@ export function UsagePanelContent({
                   "—"
                 ) : (
                   <>
-                    <strong>{used}%</strong> used
+                    <strong>
+                      <RollingText text={`${used}%`} value={used} />
+                    </strong>{" "}
+                    used
                   </>
                 )}
               </span>
             </div>
             <UsedBar label="This chat's context" used={used} />
             <div className="usage-panel-detail">
-              {formatTokens(context.used)}
-              {hasCapacity && ` of ${formatTokens(context.window!)}`} tokens
-              {!hasCapacity && " used · capacity unavailable"}
+              <RollingText
+                text={formatTokens(context.used)}
+                value={context.used}
+              />
+              {/* In an element of its own, so it glides as the count's
+                  width changes. */}
+              <span>
+                {hasCapacity
+                  ? ` of ${formatTokens(context.window!)} tokens`
+                  : " tokens used · capacity unavailable"}
+              </span>
             </div>
           </section>
         ) : null}
@@ -330,7 +342,10 @@ export function UsagePanelContent({
       {cost != null && (
         <footer className="usage-panel-footer">
           <span title="What the provider reports this chat has cost">
-            Chat cost <strong>${cost.toFixed(2)}</strong>
+            Chat cost{" "}
+            <strong>
+              <RollingText text={"$" + cost.toFixed(2)} value={cost} />
+            </strong>
           </span>
         </footer>
       )}

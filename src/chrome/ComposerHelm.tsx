@@ -88,6 +88,7 @@ import {
 import { useModelPickerHotkey } from "./ModelPicker";
 import { Popover } from "./Popover";
 import "./ComposerHelm.css";
+import { RollingText } from "./RollingText";
 
 /** A mode the message box can be put in (the old + menu's toggles). */
 export type HelmMode = {
@@ -714,7 +715,10 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
                   : undefined
               }
             >
-              {room?.percentLeft}% left
+              <RollingText
+                text={`${room?.percentLeft ?? 0}% left`}
+                value={room?.percentLeft}
+              />
             </span>
           </>
         );
