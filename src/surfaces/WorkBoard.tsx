@@ -656,6 +656,7 @@ export const WorkBoardView = memo(function WorkBoardView({
           name={crewName}
           problems={crewProblems}
           onCrewAction={crewAction}
+          onDeleteCard={setDeleting}
         />
       ) : (
         <div className="work-board-columns">{sections()}</div>
@@ -727,7 +728,9 @@ export const WorkBoardView = memo(function WorkBoardView({
         <ConfirmDialog
           title="Delete this card?"
           body={[
-            `“${deleting.title}” leaves the board.`,
+            crew
+              ? `“${deleting.title}” is deleted.`
+              : `“${deleting.title}” leaves the board.`,
             crewDeleteNote(storedCrew, deleting.id),
             "Its chats stay in the sidebar.",
           ]

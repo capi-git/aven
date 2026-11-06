@@ -1578,6 +1578,54 @@ describe("This week, in place of the Board", () => {
     expect(container.querySelector("[data-team-chat]")).not.toBeNull();
   });
 
+  it("offers Build it, Not now and Delete on a waiting idea, and keeps the set-aside ones behind one line", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...withCard(crew, crewCardFor(boards[3], "ready")),
+      ideas: { [boards[0].id]: { at: NOW - 60_000, size: "large" } },
+      notNow: [boards[1].id],
+    }));
+    const needs = () =>
+      container.querySelector<HTMLElement>('[data-avos-week-section="needs"]')!;
+    const idea = needs().querySelector<HTMLElement>(
+      `[data-avos-need="idea:${boards[0].id}"]`,
+    )!;
+    expect(
+      [...idea.querySelectorAll("button")].map((item) => item.textContent),
+    ).toEqual(["Build it", "Not now", "Delete"]);
+    await act(async () => button(idea, "Not now")!.click());
+    expect(actions.notNowIdea).toHaveBeenCalledWith(PROJECT, boards[0].id);
+    // Delete asks first.
+    await act(async () => button(idea, "Delete")!.click());
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-confirm-dialog="Delete this card?"]',
+    )!;
+    expect(dialog.textContent).toContain("“Pricing page” is deleted.");
+    // The idea set aside earlier waits behind one quiet line.
+    expect(
+      needs().querySelector(`[data-avos-need="idea:${boards[1].id}"]`),
+    ).toBeNull();
+    const aside = needs().querySelector<HTMLButtonElement>(
+      "[data-avos-set-aside]",
+    )!;
+    expect(aside.textContent).toBe("1 set aside");
+    await act(async () => aside.click());
+    const kept = needs().querySelector<HTMLElement>(
+      `[data-avos-need="idea:${boards[1].id}"]`,
+    )!;
+    expect(
+      [...kept.querySelectorAll("button")].map((item) => item.textContent),
+    ).toEqual(["Build it", "Delete"]);
+    // Ready work you don't want can be thrown away, after asking.
+    const ready = needs().querySelector<HTMLElement>(
+      `[data-avos-need="ready:${boards[3].id}"]`,
+    );
+    expect(ready).not.toBeNull();
+    await act(async () => button(ready!, "Throw away")!.click());
+    expect(
+      document.querySelector('[data-confirm-dialog="Throw this card away?"]'),
+    ).not.toBeNull();
+  });
+
   it("asks the Researcher from the chat's box while Avos has one", async () => {
     await setUp(() => (crew) => ({
       ...crew,

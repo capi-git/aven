@@ -107,6 +107,7 @@ export function TeamScreen({
   name,
   problems,
   onCrewAction,
+  onDeleteCard,
 }: {
   project: string;
   crew: Crew;
@@ -120,6 +121,8 @@ export function TeamScreen({
   name: (who: string) => string;
   problems: Readonly<Record<string, string>>;
   onCrewAction: (card: BoardCard, id: CrewBoardActionId) => void;
+  /** Delete a card, after asking (the Board's own question). */
+  onDeleteCard?: (card: BoardCard) => void;
 }) {
   const cards = useMemo(
     () => [
@@ -218,10 +221,12 @@ export function TeamScreen({
   // you. Ready changes as one line with Review and Apply all, other ready
   // work with its buttons, a card waiting on your answer, ideas waiting for
   // Build it, and what Avos's jobs left for you.
-  const act = (cardId: string, id: CrewBoardActionId) => {
+  const act = (cardId: string, id: CrewBoardActionId | "delete") => {
     if (id === "answer") return setAnswering(cardId);
     const card = cards.find((item) => item.id === cardId);
-    if (card) onCrewAction(card, id);
+    if (!card) return;
+    if (id === "delete") onDeleteCard?.(card);
+    else onCrewAction(card, id);
   };
   const stuck = useMemo(
     () => (crew.on ? crew.cards.filter((card) => card.stage === "stuck") : []),
@@ -243,7 +248,10 @@ export function TeamScreen({
           text: row.title,
           title: row.status,
           cardId: row.id,
-          actions: row.actions,
+          // Work you don't want goes, after asking.
+          actions: row.actions.some((action) => action.id === "throw-away")
+            ? row.actions
+            : [...row.actions, { id: "throw-away", label: "Throw away" }],
         });
     for (const card of stuck)
       rows.push({
@@ -257,20 +265,24 @@ export function TeamScreen({
       const give = card.crew?.actions.find((action) => action.id === "give");
       if (!give || card.crew?.later) continue;
       const from = card.crew?.line?.split(" · ")[0];
+      // Set aside with Not now: it waits behind the "set aside" line.
+      const aside = !!crew.notNow?.includes(card.id);
       rows.push({
         id: `idea:${card.id}`,
         text: `${from?.startsWith("From ") ? from : "Idea"}: ${card.title}`,
         ...(card.crew?.line ? { title: card.crew.line } : {}),
         cardId: card.id,
-        actions: [give],
+        actions: aside ? [give] : [give, { id: "not-now", label: "Not now" }],
+        deletable: true,
         idea: true,
+        ...(aside ? { aside: true as const } : {}),
       });
     }
     for (const row of week.needs)
       if (row.open?.kind === "run")
         rows.push({ id: row.id, text: row.text, open: row });
     return rows;
-  }, [view.batch, view.ready, stuck, columns.idea, week.needs]);
+  }, [view.batch, view.ready, stuck, columns.idea, week.needs, crew.notNow]);
   const answeringCard = answering
     ? crew.cards.find((card) => card.id === answering && card.stage === "stuck")
     : undefined;
@@ -666,6 +678,10 @@ type NeedsRow = {
   actions?: readonly CrewBoardAction[];
   /** An idea waiting for Build it. */
   idea?: true;
+  /** Set aside with Not now: shown only when you ask for them. */
+  aside?: true;
+  /** It can be deleted (after asking). */
+  deletable?: true;
   /** A job's run: opens where its card waits. */
   open?: AvosWeekRow;
 };
@@ -694,7 +710,7 @@ function AvosWeekPanel({
   range: BatchRange | null;
   problems: Readonly<Record<string, string>>;
   onReview: () => void;
-  onAct: (cardId: string, id: CrewBoardActionId) => void;
+  onAct: (cardId: string, id: CrewBoardActionId | "delete") => void;
   /** The goal Avos keeps building towards, and where it stands. */
   goal?: PipelineGoal;
   members: readonly CrewMemberView[];
@@ -702,16 +718,20 @@ function AvosWeekPanel({
   onHelper: (id: string) => void;
 }) {
   const helpers = members.filter((member) => member.role !== "lead");
+  const waiting = needs.filter((row) => !row.aside);
   const empty =
     !goal &&
     !needs.length &&
     SECTIONS.every(
       (section) => section.key === "needs" || !week[section.key].length,
     );
-  const ideas = needs.filter((row) => row.idea);
+  const [showAside, setShowAside] = useState(false);
+  const ideas = needs.filter((row) => row.idea && !row.aside);
+  const aside = needs.filter((row) => row.aside);
   const shownNeeds = [
     ...needs.filter((row) => !row.idea),
     ...ideas.slice(0, IDEAS_SHOWN),
+    ...(showAside ? aside : []),
   ];
   const moreIdeas = ideas.length - Math.min(ideas.length, IDEAS_SHOWN);
   return (
@@ -725,7 +745,9 @@ function AvosWeekPanel({
               className="avos-week-section"
               data-avos-week-section={section.key}
             >
-              <h3 data-needs-you>{section.title}</h3>
+              <h3 data-needs-you={waiting.length ? true : undefined}>
+                {section.title}
+              </h3>
               {shownNeeds.map((row) => (
                 <div
                   key={row.id}
@@ -767,6 +789,16 @@ function AvosWeekPanel({
                           {action.label}
                         </TeamCardButton>
                       ))}
+                      {row.deletable ? (
+                        <TeamCardButton
+                          size="compact"
+                          variant="ghost"
+                          data-avos-delete
+                          onClick={() => onAct(row.cardId!, "delete")}
+                        >
+                          Delete
+                        </TeamCardButton>
+                      ) : null}
                     </span>
                   ) : null}
                   {row.cardId && problems[row.cardId] ? (
@@ -781,6 +813,19 @@ function AvosWeekPanel({
                   {plural(moreIdeas, "more idea")}{" "}
                   {moreIdeas === 1 ? "waits" : "wait"} for you
                 </p>
+              ) : null}
+              {aside.length ? (
+                <button
+                  type="button"
+                  className="avos-week-more avos-week-aside"
+                  aria-expanded={showAside}
+                  data-avos-set-aside
+                  onClick={() => setShowAside((shown) => !shown)}
+                >
+                  {showAside
+                    ? "Hide what's set aside"
+                    : `${aside.length} set aside`}
+                </button>
               ) : null}
             </section>
           ) : null

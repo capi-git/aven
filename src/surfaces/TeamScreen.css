@@ -653,3 +653,16 @@ button.avos-week-row:hover {
 .team-notes-forget:hover {
   color: var(--color-content);
 }
+
+/* "N set aside": a quiet line that shows the ideas you said Not now to. */
+button.avos-week-aside {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.avos-week-aside:hover {
+  color: var(--color-content);
+}
