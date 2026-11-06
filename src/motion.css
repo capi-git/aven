@@ -82,6 +82,32 @@
   }
 }
 
+/* A streamed word fades in on its turn (src/lib/wordReveal.ts sets each
+   word's delay). Backwards fill: unseen before its turn, nothing held after.
+   The one fade here that isn't opacity: opacity on a word inside a line
+   gives each word a layer of its own, which the speed test measured at
+   nearly twice the CPU while an agent streams. Its text colour fading from
+   clear repaints only the word. */
+@keyframes aven-word-in {
+  from {
+    color: transparent;
+  }
+}
+
+.agent-markdown [data-reveal] {
+  animation: aven-word-in calc(var(--aven-motion-fast) * 1.5)
+    var(--aven-ease-out) var(--reveal-delay) backwards;
+}
+
+/* What you send flies from the message box into its bubble above
+   everything else (src/lib/sendFlight.ts). */
+.send-flight-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
 /* A finished turn: an underline sweeps across, then fades. */
 @keyframes aven-sweep {
   0% {

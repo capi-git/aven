@@ -6,8 +6,18 @@ import type { Block } from "../lib/session";
 import { MOTION_ATTRIBUTE, MOTION_ROOT_ATTRIBUTE } from "../lib/motion";
 
 vi.mock("./AgentMarkdown", () => ({
-  AgentMarkdown: ({ text }: { text: string }) =>
-    createElement("div", null, text),
+  AgentMarkdown: ({
+    text,
+    revealWords,
+  }: {
+    text: string;
+    revealWords?: boolean;
+  }) =>
+    createElement(
+      "div",
+      { "data-reveal-words": revealWords ? "true" : undefined },
+      text,
+    ),
 }));
 
 import { AgentTranscript } from "./AgentTranscript";
@@ -94,7 +104,7 @@ describe("sending a message", () => {
     );
   });
 
-  it("fades the reply in as it starts, once", async () => {
+  it("fades a streamed reply in by its words, not as a whole", async () => {
     await render(earlier);
     await render([...earlier, sent], true);
     const reply: Block = {
@@ -105,12 +115,33 @@ describe("sending a message", () => {
     };
     await render([...earlier, sent, reply], true);
     const element = response("Here")!;
+    expect(element.hasAttribute(MOTION_ATTRIBUTE)).toBe(false);
+    expect(element.querySelector("[data-reveal-words]")).not.toBeNull();
+  });
+
+  it("fades a reply that arrives whole in once", async () => {
+    await render(earlier);
+    await render([...earlier, sent], true);
+    const reply: Block = { id: "answer-2", role: "assistant", text: "Here" };
+    await render([...earlier, sent, reply], true);
+    const element = response("Here")!;
     expect(element.getAttribute(MOTION_ATTRIBUTE)).toBe("fade");
     element.dispatchEvent(new Event("animationend"));
     expect(element.hasAttribute(MOTION_ATTRIBUTE)).toBe(false);
-    // Streaming more text does not start it again.
     await render([...earlier, sent, { ...reply, text: "Here it is" }], true);
     expect(response("Here it is")!.hasAttribute(MOTION_ATTRIBUTE)).toBe(false);
+  });
+
+  it("opens a chat whose agent is writing with nothing fading", async () => {
+    const reply: Block = {
+      id: "answer-2",
+      role: "assistant",
+      text: "Half way",
+      streaming: true,
+    };
+    await render([...earlier, sent, reply], true);
+    // The words already there show at once (AgentMarkdown.wordReveal.test).
+    expect(container.querySelector(`[${MOTION_ATTRIBUTE}]`)).toBeNull();
   });
 
   it("shows a turn that arrived while the tab was hidden in place", async () => {

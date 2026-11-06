@@ -56,6 +56,13 @@ import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
 import { useFileReferences } from "../hooks/useFileReferences";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
+import { motionReduced } from "../lib/motion";
+import {
+  rehypeRevealWords,
+  REVEAL_OPTIONS,
+  revealContent,
+  WordReveal,
+} from "../lib/wordReveal";
 import { useRewrapAnchor } from "../hooks/useRewrapAnchor";
 import { copyText } from "../lib/clipboard";
 import { openImageGroupAt } from "../lib/imageViewer";
@@ -691,18 +698,42 @@ export const MARKDOWN_COMPONENTS = {
  */
 const MarkdownBlock = memo(function MarkdownBlock({
   dir,
+  reveal,
   ...props
-}: BlockProps) {
+}: BlockProps & { reveal?: WordReveal | null }) {
+  // Only the block still being written splits its words into fading spans.
+  const { rehypePlugins, content, index } = props;
+  if (reveal) revealContent(content, reveal, index);
+  useEffect(
+    () => (reveal ? revealContent(content, reveal, index) : undefined),
+    [content, reveal, index],
+  );
+  const plugins = reveal ? revealPlugins(rehypePlugins) : rehypePlugins;
   return (
     <div dir={dir} className="agent-markdown-block">
-      <Block {...props} />
+      <Block {...props} rehypePlugins={plugins} />
     </div>
   );
 });
 
+const withReveal = new WeakMap<PluggableList, PluggableList>();
+/** The message's plugins and the word reveal, one list for every block. */
+function revealPlugins(plugins: PluggableList | undefined): PluggableList {
+  const base = plugins ?? [];
+  let list = withReveal.get(base);
+  if (!list) {
+    list = [...base, [rehypeRevealWords, REVEAL_OPTIONS]];
+    withReveal.set(base, list);
+  }
+  return list;
+}
+
 type RenderedBlocks = StreamingBlocks & {
   /** The last block is a code fence that is still being written. */
   openFence: boolean;
+  /** The words still fading in, while the message streams or settles. */
+  reveal?: WordReveal | null;
+  streaming?: boolean;
 };
 
 const RenderedBlocksContext = createContext<RenderedBlocks>({
@@ -719,18 +750,41 @@ const RenderedBlocksContext = createContext<RenderedBlocks>({
  * AgentMarkdown's context, so only the blocks that changed render again.
  */
 function StreamedBlocks(props: BlockProps) {
-  const { blocks, directions, openFence } = useContext(RenderedBlocksContext);
+  const { blocks, directions, openFence, reveal, streaming } = useContext(
+    RenderedBlocksContext,
+  );
   const last = blocks.length - 1;
-  return blocks.map((content, index) => (
-    <MarkdownBlock
-      key={index}
-      {...props}
-      content={content}
-      dir={directions[index]}
-      index={index}
-      isIncomplete={openFence && index === last}
-    />
-  ));
+  const now = performance.now();
+  reveal?.adopt(blocks.length);
+  // The block being written, a block new in this draw, and a block whose
+  // last words are still fading in: the rest are plain text. A code block
+  // never splits, so its highlighting is never drawn twice.
+  return blocks.map((content, index) => {
+    const revealing =
+      !!reveal &&
+      !isFencedBlock(content) &&
+      ((streaming && index === last) ||
+        !reveal.knows(index) ||
+        reveal.pending(index, now));
+    return (
+      <MarkdownBlock
+        // Streamdown keeps a paragraph's output while its text holds
+        // still, so a block whose words have all faded in draws afresh.
+        key={revealing ? `${index}:words` : index}
+        {...props}
+        content={content}
+        dir={directions[index]}
+        index={index}
+        isIncomplete={openFence && index === last}
+        reveal={revealing ? reveal : null}
+      />
+    );
+  });
+}
+
+/** A fenced code, math or diagram block: drawn whole, never word by word. */
+function isFencedBlock(content: string): boolean {
+  return /^\s*(?:```|~~~|\$\$)/.test(content);
 }
 
 const asOneBlock = (markdown: string) => [markdown];
@@ -752,9 +806,37 @@ function placeholderFor(plugins: PluggableList): string {
   return placeholder;
 }
 
+/**
+ * The message's word reveal while `on` (it streams in a chat on screen), and
+ * for as long after as its last words take to fade in; then none, so its
+ * blocks draw as plain text again. Turned on after the message first drew
+ * (a chat opened while its agent writes), the words already there show at
+ * once.
+ */
+function useWordReveal(on: boolean): WordReveal | null {
+  const first = useRef(true);
+  const [reveal, setReveal] = useState<WordReveal | null>(null);
+  let current = reveal;
+  if (on && !current && !motionReduced()) {
+    current = new WordReveal(first.current);
+    setReveal(current);
+  }
+  useEffect(() => {
+    first.current = false;
+  }, []);
+  useEffect(() => {
+    if (on || !reveal) return;
+    const wait = Math.max(0, reveal.settlesAt - performance.now());
+    const id = setTimeout(() => setReveal(null), wait + 32);
+    return () => clearTimeout(id);
+  }, [on, reveal]);
+  return current;
+}
+
 export const AgentMarkdown = memo(function AgentMarkdown({
   text,
   streaming,
+  revealWords,
   className,
   cwd,
   onOpenFile,
@@ -763,6 +845,11 @@ export const AgentMarkdown = memo(function AgentMarkdown({
 }: {
   text: string;
   streaming?: boolean;
+  /**
+   * Fade streamed words in as they arrive: the live reply of a chat on
+   * screen. Words that were already there when it turned on show at once.
+   */
+  revealWords?: boolean;
   className?: string;
   cwd?: string;
   onOpenFile?: OpenFileFn;
@@ -783,6 +870,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   // One splitter per message: while it streams, finished blocks are kept and
   // only its end is split again.
   const [splitBlocks] = useState(createStreamingBlockSplitter);
+  const reveal = useWordReveal(!!revealWords && !!streaming);
   const rendered = useMemo<RenderedBlocks>(() => {
     const split = splitBlocks(completeStreamingMarkdown(text), {
       streaming: !!streaming,
@@ -793,8 +881,10 @@ export const AgentMarkdown = memo(function AgentMarkdown({
       ...split,
       openFence:
         !!streaming && last !== undefined && hasIncompleteCodeFence(last),
+      reveal,
+      streaming: !!streaming,
     };
-  }, [splitBlocks, text, streaming, remoteMedia]);
+  }, [splitBlocks, text, streaming, remoteMedia, reveal]);
   return (
     <RemoteMediaContext.Provider value={remoteMedia}>
       <FileOpenContext.Provider value={fileOpen}>

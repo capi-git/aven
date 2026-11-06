@@ -189,6 +189,7 @@ import { resizeComposer } from "../lib/composerResize";
 import { useTurnNoteHint } from "../lib/turnNotes";
 import { useDictation } from "../hooks/useDictation";
 import { useSpokenBrief } from "../hooks/useSpokenBrief";
+import { takeOffSentText } from "../lib/sendFlight";
 import {
   canDictate,
   isDictationHotkey,
@@ -1832,6 +1833,8 @@ function ComposerComponent({
     if (accepted === false) return;
     rememberUsedSkills(skillsUsedIn(value));
     if (!ref.current) return;
+    // The words fly from here into the message they become (sendFlight.ts).
+    takeOffSentText(highlightRef.current, value);
     clearField();
     setPlanSelected(false);
     setOrchestrationSelected(false);

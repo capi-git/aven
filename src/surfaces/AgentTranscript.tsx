@@ -96,8 +96,9 @@ import {
   useChatFileReferences,
 } from "../hooks/useFileReferences";
 import { useMotionOnAttach } from "../hooks/useMotionOnAttach";
+import { useSendFlight } from "../hooks/useSendFlight";
 import type { MotionName } from "../lib/motion";
-import { TurnEntrances } from "../lib/transcriptMotion";
+import { glideFollow, TurnEntrances } from "../lib/transcriptMotion";
 import {
   followsAfterScroll,
   isAtEnd,
@@ -259,6 +260,8 @@ function AgentTranscriptComponent({
   const scroller = useRef<HTMLDivElement>(null);
   const scrollbarDragging = useRef(false);
   const stickToBottom = useRef(true);
+  const busyRef = useRef(!!busy);
+  busyRef.current = !!busy;
   const showJumpRef = useRef(false);
   // The offset as of the last scroll this component saw or wrote. Comparing
   // against it tells the reader moving apart from content growing under them.
@@ -423,8 +426,13 @@ function AgentTranscriptComponent({
       const moved = syncPinned(el);
       // A gesture whose direction is not known yet may already be scrolling
       // off the main thread. Pinning now would snap it back to the end.
-      if (stickToBottom.current && performance.now() >= wheelHold.current)
+      if (stickToBottom.current && performance.now() >= wheelHold.current) {
+        const before = el.scrollTop;
         pinTranscript(el);
+        // While an agent writes, each new line eases up rather than jumping.
+        if (busyRef.current)
+          glideFollow(el.firstElementChild, el.scrollTop - before);
+      }
       return moved;
     },
     [pinTranscript, syncPinned],
@@ -1692,8 +1700,11 @@ const TranscriptBlock = memo(function TranscriptBlock({
   planHarness?: HarnessId;
   planModel?: string;
 }) {
+  // A reply that arrives streaming fades in word by word (wordReveal.ts)
+  // instead of as a whole.
+  const revealWords = motion === "fade" && !!block.streaming;
   const replyRef = useMotionOnAttach<HTMLDivElement>(
-    block.role === "user" ? undefined : motion,
+    block.role === "user" || revealWords ? undefined : motion,
   );
   if (block.role === "user") {
     if (block.botWake)
@@ -1827,6 +1838,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
         <AgentMarkdown
           text={text}
           streaming={block.streaming}
+          revealWords={motion === "fade"}
           cwd={cwd}
           onOpenFile={onOpenFile}
         />
@@ -1852,7 +1864,6 @@ function UserMessageBlock({
   const [overflows, setOverflows] = useState(false);
   const [singleLine, setSingleLine] = useState(false);
   const textRef = useRef<HTMLPreElement>(null);
-  const bubbleRef = useMotionOnAttach<HTMLDivElement>(motion);
   const card = block.secondOpinion;
   const note = block.noteCard;
   const relay = block.discussion;
@@ -1862,6 +1873,8 @@ function UserMessageBlock({
       : visibleUserPrompt(
           relay?.added ? withAdded(block.text, relay) : block.text,
         );
+  // What you just sent flies in from the message box (sendFlight.ts).
+  const bubbleRef = useSendFlight<HTMLDivElement>(motion, text);
   const chat = layout === "chat";
   const textOnly =
     Boolean(text) && !block.attachments?.length && !card && !note && !relay;
