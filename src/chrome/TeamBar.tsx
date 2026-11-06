@@ -99,19 +99,6 @@ export function teamBarStop(
 }
 
 /**
- * Whether this chat's own Stop (the one by its run status) would stop what
- * the bar's Stop already does, so only the bar's is shown.
- */
-export function teamBarOwnsStop(
-  team: TeamRun | null | undefined,
-  sessionId: string,
-): boolean {
-  if (!team) return false;
-  const stop = teamBarStop(team, sessionId);
-  return stop === "discussion" || stop === "run";
-}
-
-/**
  * Whether the message box gives its Stop to the bar: only for a lead, whose
  * own Stop would stop the run as Stop run does. A discussion chat keeps the
  * box's Stop, which interrupts its agent at once, beside the bar's Stop

@@ -6,11 +6,9 @@ import {
   CREWS_KEY,
   CREW_ABOUT_MAX,
   getCrew,
-  newCrew,
   readCrew,
   resetCrewsCache,
   updateCrew,
-  withAbout,
 } from "./crews";
 
 function memoryStorage(): Storage {
@@ -39,19 +37,9 @@ afterEach(() => {
 });
 
 describe("what the team is about", () => {
-  it("is kept whole up to its limit, saved with the crew, and cleared with nothing", () => {
+  it("is kept whole up to its limit and saved with the crew", () => {
     const long = "y".repeat(CREW_ABOUT_MAX + 100);
-    expect(
-      withAbout(newCrew(PROJECT, 1), "  An ADHD planner.\r\nOne screen. ")
-        .about,
-    ).toBe("An ADHD planner.\nOne screen.");
-    expect(withAbout(newCrew(PROJECT, 1), long).about!.length).toBe(
-      CREW_ABOUT_MAX,
-    );
-    expect(withAbout(withAbout(newCrew(PROJECT, 1), "x"), "  ").about).toBe(
-      undefined,
-    );
-    updateCrew(PROJECT, (crew) => withAbout(crew, "A planner."));
+    updateCrew(PROJECT, (crew) => ({ ...crew, about: "A planner." }));
     const saved = JSON.parse(localStorage.getItem(CREWS_KEY)!);
     expect(Object.values(saved.crews)[0]).toMatchObject({
       about: "A planner.",

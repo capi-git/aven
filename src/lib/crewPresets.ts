@@ -122,29 +122,3 @@ export const CREW_PRESETS: readonly CrewPreset[] = [
     instructions: SECURITY_INSTRUCTIONS,
   },
 ];
-
-/**
- * Suggested teams to start from: each is ready-made teammates by their
- * keys above. Every team has a Builder and a Checker, so each one can
- * build and check a card as it starts.
- */
-export type CrewTeamPreset = {
-  key: string;
-  title: string;
-  /** Its teammates, as `CREW_PRESETS` keys. */
-  members: readonly string[];
-};
-
-export const CREW_TEAM_PRESETS: readonly CrewTeamPreset[] = [
-  {
-    key: "ship",
-    title: "Ship features",
-    members: ["builder", "checker", "security"],
-  },
-  {
-    key: "polish",
-    title: "Polish",
-    members: ["designer", "tester", "checker"],
-  },
-  { key: "small", title: "Start small", members: ["builder", "checker"] },
-];

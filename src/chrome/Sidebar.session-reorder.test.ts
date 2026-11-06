@@ -17,9 +17,6 @@ vi.mock("./TitleBar", () => ({
   DevModeSlot: () => null,
   TabVisitNav: () => null,
 }));
-vi.mock("./WorkspaceThemePopover", () => ({
-  WorkspaceThemePopover: () => null,
-}));
 vi.mock("./PersonalWorkspaceSwitcher", () => ({
   PersonalWorkspaceSwitcher: () => null,
   WorkspaceProfileIcon: () => null,
@@ -81,11 +78,6 @@ describe("Sidebar folder session dragging", () => {
       onSelectSession: vi.fn(),
       onSessionNavigationOrder: vi.fn(),
       onPlaceSessionOnPane: vi.fn(),
-      onOpenFile: vi.fn(),
-      tab: "sessions",
-      onTabChange: vi.fn(),
-      filesSearchOpen: false,
-      onFilesSearchOpenChange: vi.fn(),
     };
     container = document.createElement("div");
     document.body.append(container);

@@ -13,10 +13,6 @@ vi.mock("./useComposerSkills", () => ({
   useComposerSkills: () => ({ skills: [] }),
 }));
 vi.mock("../hooks/useTabGroupLogos", () => ({ useTabGroupLogos: () => ({}) }));
-vi.mock("./AgentPill", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./AgentPill")>()),
-  AgentPill: () => null,
-}));
 vi.mock("./ComposerRunner", () => ({ ComposerRunner: () => null }));
 
 const attachment: Attachment = {

@@ -9,7 +9,7 @@ vi.mock("../lib/projectGitSetup", async (original) => ({
   setUpProjectGit: gitSetup.setUpProjectGit,
 }));
 
-const { BotGitSetupSheet, BotPicker } = await import("./BotPicker");
+const { BotGitSetupSheet } = await import("./BotPicker");
 
 let host: HTMLDivElement;
 let root: Root;
@@ -123,19 +123,13 @@ it("offers a first save to a repository with nothing saved, and shows a refusal 
   quiet.mockRestore();
 });
 
-it("a picker closed while Git is being set up adds no bot afterwards", async () => {
+it("a sheet closed while Git is being set up adds no bot afterwards", async () => {
   const onAdd = vi.fn();
   const setup = pending();
   await act(async () =>
     root.render(
-      createElement(BotPicker, {
-        x: 10,
-        y: 10,
-        projects: [
-          { path: "/work/app", label: "app", state: "ready" },
-          { path: "/work/notes", label: "notes", state: "no-git" },
-        ],
-        empty: "",
+      createElement(BotGitSetupSheet, {
+        project: { path: "/work/notes", label: "notes", state: "no-git" },
         onAdd,
         onClose: vi.fn(),
       }),
@@ -147,26 +141,6 @@ it("a picker closed while Git is being set up adds no bot afterwards", async () 
     setup.finish({ started: true, wroteIgnore: false, files: 1 }),
   );
   expect(onAdd).not.toHaveBeenCalled();
-});
-
-it("says why nothing is listed", async () => {
-  await act(async () =>
-    root.render(
-      createElement(BotPicker, {
-        x: 10,
-        y: 10,
-        projects: [],
-        empty: "Every project has a bot",
-        onAdd: vi.fn(),
-        onClose: vi.fn(),
-      }),
-    ),
-  );
-  const picker = document.querySelector<HTMLElement>(
-    '[role="dialog"][aria-label="Add a bot to"]',
-  )!;
-  expect(picker.textContent).toBe("Every project has a bot");
-  expect(picker.querySelector(".bot-picker-note")).toBeNull();
 });
 
 it("asked by Avos, says Avos, and goes on to Avos once Git is set up", async () => {

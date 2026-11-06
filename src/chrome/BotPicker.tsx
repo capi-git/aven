@@ -8,10 +8,7 @@ import {
   setUpProjectGit,
   type GitSetupNeed,
 } from "../lib/projectGitSetup";
-import { useUsagePanelTheme } from "../lib/usagePanel";
 import { Modal } from "./Modal";
-import { Popover } from "./Popover";
-import { ToolbarPanel } from "./ToolbarPanel";
 import "./Menu.css";
 import "./WorkspaceMenuPanel.css";
 import "./TeamCard.css";
@@ -28,8 +25,6 @@ type NeedsGit = BotPickerProject & { state: GitSetupNeed };
 
 const needsGit = (project: BotPickerProject): project is NeedsGit =>
   project.state !== "ready";
-
-export const BOT_PICKER_WIDTH = 300;
 
 type ListProps = {
   projects: readonly BotPickerProject[];
@@ -208,56 +203,6 @@ function BotGitSetupRow({
         </p>
       ) : null}
     </div>
-  );
-}
-
-/** New bot: the picker under the button that opened it. */
-export function BotPicker({
-  x,
-  y,
-  onClose,
-  onBusyChange,
-  label = "Add a bot to",
-  ...list
-}: ListProps & {
-  x: number;
-  y: number;
-  onClose: () => void;
-  /** What the picker adds, for screen readers: "Add a crew to". */
-  label?: string;
-}) {
-  const theme = useUsagePanelTheme(true);
-  // Setting up Git can't be stopped halfway, so the picker stays until the
-  // row is done.
-  const busy = useRef(false);
-  return (
-    <Popover
-      autoFocus
-      initialFocus="button:not(:disabled)"
-      tabIndex={-1}
-      anchor={{ x, y }}
-      width={BOT_PICKER_WIDTH}
-      panel
-      role="dialog"
-      aria-label={label}
-      onDismiss={() => {
-        if (!busy.current) onClose();
-      }}
-      onContextMenu={(event) => event.preventDefault()}
-    >
-      <ToolbarPanel
-        theme={theme}
-        className="workspace-menu-panel workspace-menu-panel-compact bot-picker"
-      >
-        <BotPickerList
-          {...list}
-          onBusyChange={(on) => {
-            busy.current = on;
-            onBusyChange?.(on);
-          }}
-        />
-      </ToolbarPanel>
-    </Popover>
   );
 }
 

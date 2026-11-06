@@ -52,110 +52,12 @@
 .workspace-status-controls::-webkit-scrollbar {
   display: none;
 }
-.workspace-status-pill,
-.workspace-status-access > div > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 22px;
-  min-height: 22px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--aven-radius-sm);
-  color: color-mix(in srgb, var(--color-content) 75%, transparent);
-  background: transparent;
-  font: inherit;
-  font-size: var(--text-ui-caption);
-  white-space: nowrap;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition:
-    background-color 120ms ease,
-    color 120ms ease;
-}
-.workspace-status-access > div > button {
-  max-width: 162px;
-  min-width: 24px;
-  padding-inline: 5px;
-  gap: 4px;
-}
-.workspace-status-access [data-mode="full-access"] > svg,
-.workspace-status-access [data-mode="auto"] > svg {
-  color: inherit;
-}
-.workspace-status-pill:not(:disabled):hover,
-.workspace-status-access > div > button:hover {
-  background: color-mix(in srgb, var(--color-content) 8%, transparent);
-  color: var(--color-content);
-}
-.workspace-status-pill:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
+
 .workspace-status-bar button:focus-visible {
   outline: 2px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: 1px;
 }
-.workspace-status-popover {
-  padding: 6px;
-  font-size: var(--text-ui-label);
-  color: var(--color-content);
-  overflow-y: auto;
-}
-.workspace-status-popover-heading {
-  margin: 0;
-  padding: 8px 10px;
-  font-weight: 600;
-}
-.workspace-status-empty {
-  margin: 0;
-  padding: 7px 8px;
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
-  line-height: 1.5;
-}
-.workspace-status-usage {
-  padding: 0;
-  line-height: 1.5;
-}
-.workspace-status-usage .workspace-status-popover-heading {
-  padding: 0 0 5px;
-}
-.workspace-status-usage p {
-  margin: 2px 0;
-  overflow-wrap: anywhere;
-}
-.workspace-status-usage small {
-  color: color-mix(in srgb, var(--color-content) 65%, transparent);
-}
-.workspace-status-provider {
-  margin-top: 10px;
-  padding-top: 9px;
-}
-.workspace-status-provider strong {
-  font-size: var(--text-ui-caption);
-  font-weight: 500;
-}
-.workspace-status-provider p {
-  color: color-mix(in srgb, var(--color-content) 60%, transparent);
-}
-.workspace-status-usage-refresh {
-  margin-top: 10px;
-  padding: 7px 12px;
-  border-radius: var(--aven-radius-sm);
-  border: 0;
-  background: var(
-    --aven-control-bg,
-    color-mix(in srgb, var(--color-content) 6%, transparent)
-  );
-  box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
-  color: inherit;
-  cursor: pointer;
-}
-.workspace-status-usage-refresh:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
+
 @media (max-width: 760px) {
   .workspace-status-bar {
     gap: 5px;
@@ -163,9 +65,6 @@
   }
   .workspace-status-controls {
     gap: 3px;
-  }
-  .workspace-status-access > div > button {
-    max-width: 115px;
   }
 }
 
@@ -347,8 +246,7 @@
 
 /* The shell owns title-bar height and traffic-light clearance. Buttons on
    the platter nest inside its corner; the rest take the control corner. */
-.personal-shell .workspace-status-bar .workspace-status-pill,
-.personal-shell .workspace-status-bar .workspace-status-access > div > button,
+
 .personal-shell .workspace-status-bar .workspace-status-layout button {
   border-radius: var(--aven-radius-sm);
 }
@@ -356,8 +254,7 @@
 .personal-shell .workspace-status-bar .workspace-status-history button {
   border-radius: var(--aven-radius-thumb);
 }
-.workspace-status-pill[aria-expanded="true"],
-.workspace-status-access > div > button[aria-expanded="true"],
+
 .workspace-status-navigation button[aria-pressed="true"],
 .workspace-status-history button[aria-pressed="true"],
 .workspace-status-layout button[aria-pressed="true"] {
@@ -367,17 +264,6 @@
   );
   box-shadow: var(--aven-control-shadow, 0 1px 2px rgb(0 0 0 / 10%));
   color: var(--color-content);
-}
-.workspace-status-usage-refresh:hover:enabled {
-  background: color-mix(
-    in srgb,
-    var(--color-content) 10%,
-    var(--aven-control-bg, var(--color-background-base))
-  );
-}
-.workspace-status-popover button:focus-visible {
-  outline: 2px solid var(--aven-focus-ring, var(--color-accent));
-  outline-offset: -2px;
 }
 
 /* A sidebar owns its navigation width, including the space left by traffic
@@ -435,13 +321,6 @@
 @container workspace-navigation (max-width: 125px) {
   .workspace-status-navigation .workspace-navigation-secondary {
     display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .workspace-status-pill,
-  .workspace-status-access > div > button {
-    transition: none;
   }
 }
 

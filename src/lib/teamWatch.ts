@@ -397,13 +397,6 @@ export function memberNames(members: readonly Pick<TeamMember, "label">[]) {
   return listText(members.map((member) => member.label));
 }
 
-/** The member the team waits on now: the one replying or working. */
-export function activeMembers(team: Pick<TeamRun, "members">): string[] {
-  return team.members
-    .filter((member) => member.state === "working")
-    .map((member) => member.sessionId);
-}
-
 /**
  * A pill's two parts: where the team stands ("Round 2 of 4", "1 of 2
  * done", "2 working · 1 queued") and what is happening ("Codex is

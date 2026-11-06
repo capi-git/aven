@@ -52,7 +52,6 @@ import {
   runningSummary,
   STALLED_AFTER_MS,
   TeamBar,
-  teamBarOwnsStop,
   teamBarTakesBoxStop,
   WRAP_UP_REQUEST,
 } from "./TeamBar";
@@ -655,12 +654,6 @@ describe("one Stop for one thing", () => {
       { session: (id) => live.session(id), activity: [] },
     );
     const of = (kind: string) => teams.find((team) => team.kind === kind)!;
-    // The run status's Stop gives way to the bar's for a discussion or a lead.
-    expect(teamBarOwnsStop(of("discuss"), "b")).toBe(true);
-    expect(teamBarOwnsStop(of("orchestrate"), "lead")).toBe(true);
-    // A race lane keeps its own Stop; the race's chat has nothing of its own.
-    expect(teamBarOwnsStop(of("race"), "l0")).toBe(false);
-    expect(teamBarOwnsStop(of("race"), "chat")).toBe(false);
     // The message box gives its Stop only to Stop run: in a discussion it
     // still interrupts the chat's agent in one step.
     expect(teamBarTakesBoxStop(of("orchestrate"), "lead")).toBe(true);

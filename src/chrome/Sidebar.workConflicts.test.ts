@@ -11,9 +11,6 @@ vi.mock("./TitleBar", () => ({
   DevModeSlot: () => null,
   TabVisitNav: () => null,
 }));
-vi.mock("./WorkspaceThemePopover", () => ({
-  WorkspaceThemePopover: () => null,
-}));
 vi.mock("./PersonalWorkspaceSwitcher", () => ({
   PersonalWorkspaceSwitcher: () => null,
   WorkspaceProfileIcon: () => null,
@@ -60,11 +57,6 @@ beforeEach(() => {
     status: "idle",
     pending: false,
     onSelectSession: vi.fn(),
-    onOpenFile: vi.fn(),
-    tab: "sessions",
-    onTabChange: vi.fn(),
-    filesSearchOpen: false,
-    onFilesSearchOpenChange: vi.fn(),
   };
   container = document.createElement("div");
   document.body.append(container);

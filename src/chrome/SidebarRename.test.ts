@@ -72,8 +72,6 @@ beforeEach(() => {
     activeSessionId: "session-1",
     status: "idle",
     pending: false,
-    tab: "sessions",
-    filesSearchOpen: false,
     onSelectSession: vi.fn(),
     onRenameSession: vi.fn((id: string, title: string) => {
       props = {
@@ -86,9 +84,6 @@ beforeEach(() => {
       };
       render();
     }),
-    onOpenFile: vi.fn(),
-    onTabChange: vi.fn(),
-    onFilesSearchOpenChange: vi.fn(),
   };
   container = document.createElement("div");
   document.body.append(container);

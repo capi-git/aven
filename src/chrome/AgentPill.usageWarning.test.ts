@@ -1,5 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ComponentProps } from "react";
+import {
+  act,
+  createElement,
+  useRef,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderRateLimits } from "../lib/rateLimits";
@@ -14,7 +21,7 @@ vi.mock("../lib/harness/registry", async (importOriginal) => ({
   refreshHarnessCatalogs: vi.fn(async () => {}),
 }));
 
-const { AgentPill } = await import("./AgentPill");
+const { AgentPanel, useAgentSummary } = await import("./AgentPill");
 const { CLAUDE_OPUS_5_5_MODEL, resetHarnessModelOverlays, setHarnessModels } =
   await import("../lib/models");
 const { recordUsage, resetUsageForecasts, USAGE_WARNINGS_SEEN_KEY } =
@@ -23,11 +30,58 @@ const { recordUsage, resetUsageForecasts, USAGE_WARNINGS_SEEN_KEY } =
 const NOW = new Date("2026-10-15T12:00:00Z").getTime();
 const MINUTE = 60_000;
 
+type HostProps = Omit<
+  ComponentProps<typeof AgentPanel>,
+  "anchor" | "onDismiss"
+> & {
+  /** Hands focus back to the message field. */
+  onClose?: () => void;
+};
+
+/**
+ * What opens the agent panel in the message box (its helm's Model row), as
+ * far as these tests need: a button that toggles it, named and marked as
+ * the panel's summary says, and a dismiss that hands the keyboard back.
+ */
+function PanelHost({ onClose, ...props }: HostProps) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+  const { description, usageWarning } = useAgentSummary(props);
+  return createElement(
+    "div",
+    { ref: anchor },
+    createElement(
+      "button",
+      {
+        type: "button",
+        "data-agent-pill": "",
+        "aria-label": description,
+        "aria-expanded": open,
+        onMouseDown: (event: MouseEvent) => event.preventDefault(),
+        onClick: () => setOpen((shown) => !shown),
+      },
+      usageWarning?.unseen
+        ? createElement("span", { className: "agent-pill-usage" })
+        : null,
+    ),
+    open
+      ? createElement(AgentPanel, {
+          ...props,
+          anchor,
+          onDismiss: (restore: boolean) => {
+            setOpen(false);
+            if (restore) onClose?.();
+          },
+        })
+      : null,
+  );
+}
+
 let root: Root;
 let host: HTMLDivElement;
 let composer: HTMLTextAreaElement;
 let storage: Map<string, string>;
-let props: ComponentProps<typeof AgentPill>;
+let props: HostProps;
 
 function usage(
   provider: "claude" | "codex",
@@ -96,7 +150,6 @@ beforeEach(() => {
     runtimeMode: "supervised",
     showAccess: true,
     busy: false,
-    hotkeys: true,
     onModelChange: vi.fn(),
     onModelSettingsChange: vi.fn(),
     onRuntimeModeChange: vi.fn(),
@@ -117,7 +170,7 @@ afterEach(async () => {
 });
 
 async function render() {
-  await act(async () => root.render(createElement(AgentPill, props)));
+  await act(async () => root.render(createElement(PanelHost, props)));
 }
 const pill = () => host.querySelector<HTMLButtonElement>("[data-agent-pill]")!;
 const dot = () => pill().querySelector(".agent-pill-usage");
@@ -133,7 +186,7 @@ async function toggle() {
   await act(async () => pill().click());
 }
 
-describe("the agent pill's usage warning", () => {
+describe("the agent panel's usage warning", () => {
   it("stays out of the way without a warning", async () => {
     recordUsage(usage("claude", 0, 60));
     await render();

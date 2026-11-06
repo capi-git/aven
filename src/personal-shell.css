@@ -514,9 +514,7 @@ html.has-native-glass.glass-body:not(.theme-light)
   /* A wider hover target for throwing the pointer at the window edge. */
   width: 10px;
 }
-.personal-panel-edge-right {
-  right: 0;
-}
+
 /* Hovering the edge reveals the panel itself, as in Arc; the strip stays
    invisible. Keyboard focus still draws its outline. */
 .personal-panel-edge:focus-visible {
@@ -553,23 +551,11 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   place-items: center;
   padding: 32px;
 }
-.personal-home-sidebar-toggle {
-  position: absolute;
-  top: 8px;
-  left: 9px;
-  width: 26px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  color: var(--personal-muted);
-}
+
 .personal-profile-home > div {
   width: min(100%, 380px);
 }
-.personal-home-eyebrow {
-  color: var(--personal-muted);
-  font-size: var(--text-ui-caption);
-}
+
 .personal-profile-home h1 {
   font-size: 22px;
   letter-spacing: -0.5px;
@@ -580,39 +566,7 @@ html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar {
   font-size: var(--text-ui-label);
   color: var(--personal-muted);
 }
-.personal-home-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 30px;
-  margin-top: 20px;
-  padding: 0 14px;
-  border: 1px solid var(--aven-control-edge, transparent);
-  border-radius: var(--aven-radius-sm);
-  background: var(--aven-control-bg);
-  box-shadow: var(--aven-control-shadow);
-  font-size: var(--text-ui-label);
-}
-.personal-home-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.personal-home-primary {
-  color: var(--personal-accent);
-}
-.personal-home-add:disabled {
-  opacity: 0.5;
-}
-.personal-home-project {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 14px;
-  padding: 5px 0;
-  font-size: var(--text-ui-caption);
-  color: var(--personal-muted);
-}
+
 /* The light shell follows the pale frame / white workspace reference.
    These are static surfaces; no extra backdrop filters or animation layers. */
 html.theme-light .personal-shell .personal-main.body-glass {
@@ -638,10 +592,7 @@ html.theme-light.is-mac
   .workspace-status-bar {
   padding-left: 88px;
 }
-html.theme-light .personal-shell .workspace-status-pill,
-html.theme-light .personal-shell .workspace-status-access > div > button {
-  color: color-mix(in srgb, var(--color-content) 75%, transparent);
-}
+
 html.theme-light .personal-shell .workspace-footer {
   height: 38px;
   max-height: 38px;
@@ -674,40 +625,14 @@ html.theme-light .personal-shell [role="treeitem"] > .text-red-400 {
   position: relative;
   padding-top: 40px;
 }
-.personal-shell:not([data-unified-toolbar]) .workspace-status-bar,
-html.theme-light
-  .personal-shell:not([data-unified-toolbar])
-  .workspace-status-bar,
-html.is-mac
-  .personal-shell:not([data-unified-toolbar])[data-sidebar-pinned="false"]
-  .workspace-status-bar,
-html.theme-light.is-mac
-  .personal-shell:not([data-unified-toolbar])[data-sidebar-pinned="false"]
-  .workspace-status-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 48;
-  height: 40px;
-  min-height: 40px;
-  padding: 5px 12px;
-  gap: 8px;
-  font-size: var(--text-ui-caption);
-}
+
 html.is-mac .personal-shell[data-sidebar-pinned="false"] .workspace-status-bar,
 html.theme-light.is-mac
   .personal-shell[data-sidebar-pinned="false"]
   .workspace-status-bar {
   padding-left: 88px;
 }
-.personal-shell .workspace-status-pill,
-.personal-shell .workspace-status-access > div > button {
-  height: 26px;
-  min-height: 26px;
-  border-radius: var(--aven-radius-sm);
-  font-size: var(--text-ui-caption);
-}
+
 .personal-shell .personal-navigation .personal-sidebar-windowbar {
   height: 40px;
   min-height: 40px;

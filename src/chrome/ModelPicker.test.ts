@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-/** What the picker looked like in the commit that first showed it. */
+/** What the model list looked like in the commit that first showed it. */
 const firstFrame = vi.hoisted(() => ({
   tab: null as string | null,
   highlighted: [] as string[],
@@ -45,9 +45,41 @@ vi.mock("./Popover", async (importOriginal) => {
 });
 
 const scrolled: string[] = [];
-const { ModelPicker } = await import("./ModelPicker");
+const { AgentPanel } = await import("./AgentPill");
 const { modelsFor } = await import("../lib/models");
 const { HARNESS_TITLE } = await import("../lib/session");
+
+/**
+ * Opens the model list as the message box does, in the agent panel: the
+ * list's provider tab, highlight and scroll are its own.
+ */
+function Opener({ model }: { model: string }) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+  return createElement(
+    "div",
+    { ref: anchor },
+    createElement("button", {
+      type: "button",
+      "aria-haspopup": "dialog",
+      onClick: () => setOpen(true),
+    }),
+    open
+      ? createElement(AgentPanel, {
+          anchor,
+          harness: "claude",
+          model,
+          modelSettings: {},
+          runtimeMode: "supervised",
+          showAccess: false,
+          busy: false,
+          onModelChange: vi.fn(),
+          onRuntimeModeChange: vi.fn(),
+          onDismiss: () => setOpen(false),
+        })
+      : null,
+  );
+}
 
 let root: Root;
 let host: HTMLDivElement;
@@ -84,13 +116,7 @@ it("opens on the chat's provider with the current model highlighted and in view"
   expect(claude.length).toBeGreaterThan(1);
   const current = claude[claude.length - 1];
   await act(async () =>
-    root.render(
-      createElement(ModelPicker, {
-        harness: "claude",
-        model: current.id,
-        onChange: vi.fn(),
-      }),
-    ),
+    root.render(createElement(Opener, { model: current.id })),
   );
   // Another picker remembered a provider tab after this one mounted.
   storage.set("monocode.modelPickerTab", "claude");
@@ -109,13 +135,7 @@ it("never paints the first row highlighted before moving to the current model", 
   const claude = modelsFor("claude");
   const current = claude[claude.length - 1];
   await act(async () =>
-    root.render(
-      createElement(ModelPicker, {
-        harness: "claude",
-        model: current.id,
-        onChange: vi.fn(),
-      }),
-    ),
+    root.render(createElement(Opener, { model: current.id })),
   );
   await act(async () =>
     host.querySelector<HTMLButtonElement>("button[aria-haspopup]")!.click(),
@@ -132,13 +152,7 @@ it("opens on the chat's own provider, not the tab another chat left", async () =
   const claude = modelsFor("claude");
   const current = claude[claude.length - 1];
   await act(async () =>
-    root.render(
-      createElement(ModelPicker, {
-        harness: "claude",
-        model: current.id,
-        onChange: vi.fn(),
-      }),
-    ),
+    root.render(createElement(Opener, { model: current.id })),
   );
   await act(async () =>
     host.querySelector<HTMLButtonElement>("button[aria-haspopup]")!.click(),
@@ -158,13 +172,7 @@ it("opens on Favorites when it was left there and holds the chat's model", async
   storage.set("monocode.modelPickerTab", "favorites");
   storage.set("monocode.favoriteModels", JSON.stringify([current.id]));
   await act(async () =>
-    root.render(
-      createElement(ModelPicker, {
-        harness: "claude",
-        model: current.id,
-        onChange: vi.fn(),
-      }),
-    ),
+    root.render(createElement(Opener, { model: current.id })),
   );
   await act(async () =>
     host.querySelector<HTMLButtonElement>("button[aria-haspopup]")!.click(),

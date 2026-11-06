@@ -31,15 +31,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import type { SidebarTabId } from "../lib/appearance";
 import type { HoverRevealHandlers } from "../hooks/useHoverRevealPanel";
 import { DeleteWorkspaceDialog } from "./DeleteWorkspaceDialog";
 import { WorkspaceProfileMenu } from "./WorkspaceProfileMenu";
-import {
-  basename,
-  type GitFileDiffKind,
-  type GitHistoryCommit,
-} from "../lib/fs";
+import { basename } from "../lib/fs";
 import { IS_MAC, MOD } from "../lib/platform";
 import { resolveModel } from "../lib/models";
 import { HARNESS_TITLE, sessionDisplayTitle } from "../lib/session";
@@ -94,7 +89,6 @@ import {
   saveSessionSidebarFilters,
   type SessionSidebarFilters,
 } from "../lib/sessionFilters";
-import type { HarnessId } from "../lib/session";
 import type { LiveAgent } from "../lib/liveAgents";
 import { projectStatusFor, type ProjectStatusMap } from "../lib/projectStatus";
 import type { SessionSummary } from "../lib/sessionStore";
@@ -169,13 +163,6 @@ import {
   DEFAULT_BOT_NAME,
   type BotStatus,
 } from "../lib/projectBots";
-import { botProjectStates } from "../lib/projectBotCopy";
-import {
-  BOT_PICKER_WIDTH,
-  BotPicker,
-  type BotPickerProject,
-} from "./BotPicker";
-import { projectAppearance } from "../lib/projectAppearance";
 import { useAutomationChatIds } from "../hooks/useAutomationChats";
 import "./PersonalNavigation.css";
 
@@ -185,12 +172,8 @@ const DEFAULT_WIDTH = 256;
 
 let rememberedWidth = DEFAULT_WIDTH;
 
-type SidebarTab = SidebarTabId;
-
 export type SidebarProps = {
   cwd: string;
-  /** Working copy for Changes / explorer git. Falls back to `cwd`. */
-  gitCwd?: string;
   open: boolean;
   floating?: boolean;
   /** Window navigation that moves and compacts with this panel. */
@@ -241,28 +224,10 @@ export type SidebarProps = {
   onPinSessions?: (sessionIds: readonly string[], pinned: boolean) => void;
   onDeleteSession?: (sessionId: string) => void;
   onDeleteSessions?: (sessionIds: readonly string[]) => void;
-  onOpenFile: (path: string) => void;
-  onOpenTerminal?: (cwd: string) => void;
-  onFileMoved?: (from: string, to: string) => void;
-  onFileDeleted?: (path: string) => void;
-  tab: SidebarTab;
-  onTabChange: (tab: SidebarTab) => void;
-  filesSearchOpen: boolean;
-  onFilesSearchOpenChange: (open: boolean) => void;
-  onOpenFilesSearch?: () => void;
-  searchFocusToken?: number;
   canGoBack?: boolean;
   canGoForward?: boolean;
   onGoBack?: () => void;
   onGoForward?: () => void;
-  onOpenDiff?: (path: string, kind?: GitFileDiffKind) => void;
-  onOpenAllChanges?: (kind?: GitFileDiffKind) => void;
-  onOpenCommit?: (commit: GitHistoryCommit) => void;
-  selectedDiffPath?: string;
-  selectedDiffKind?: GitFileDiffKind;
-  selectedCommitSha?: string;
-  textHarness?: HarnessId;
-  onShowSourceControl?: () => void;
   recents?: RecentProject[];
   profiles?: readonly WorkspaceProfile[];
   profilePreviews?: Readonly<Record<string, WorkspaceProfilePreviewData>>;
@@ -299,8 +264,6 @@ export type SidebarProps = {
   onOpenBot?: (path: string) => void;
   /** Turn a project's bot on, or change its settings. */
   onBotSettings?: (path: string) => void;
-  /** Give a project a bot with its defaults and open its chat. */
-  onAddBot?: (path: string) => void;
   /**
    * Crews that are on: their helpers' chats aren't the project's chats, and
    * a project's bot that is its Avos's Fixer has no row of its own.
@@ -330,14 +293,12 @@ export type SidebarProps = {
   standaloneActive?: boolean;
   standaloneSessions?: readonly SessionSummary[];
   onOpenStandalone?: () => void;
-  onNewTerminal?: () => void;
   onSearch?: () => void;
   onOpenInbox?: () => void;
   onOpenAutomations?: () => void;
   onOpenNotes?: () => void;
   /** The workspace's row opens its Home. */
   onOpenHome?: () => void;
-  onGoToFile?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   automationsActive?: boolean;
@@ -349,7 +310,6 @@ export type SidebarProps = {
   inboxCount?: number;
   notesEnabled?: boolean;
   onToggleProjectRail?: () => void;
-  projectRailOpen?: boolean;
   unseenFinishedIds?: Set<string>;
   settingsOpen?: boolean;
   settingsSection?: SettingsSectionId;
@@ -469,7 +429,6 @@ function SidebarComponent({
   bots = NO_BOTS,
   onOpenBot,
   onBotSettings,
-  onAddBot,
   crews = NO_CREWS,
   avos = NO_AVOS,
   onOpenAvos,
@@ -693,16 +652,6 @@ function SidebarComponent({
   const [filterMenu, setFilterMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
-  /** The New bot picker: the projects that can have a bot, or could with Git. */
-  const [botPicker, setBotPicker] = useState<{
-    x: number;
-    y: number;
-    projects: BotPickerProject[];
-    empty: string;
-  } | null>(null);
-  const botPickerRequest = useRef(0);
-  // A row is setting up Git: scrolling the sidebar leaves the picker open.
-  const botPickerBusy = useRef(false);
   const loadMoreRef = useRef<HTMLLIElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const requestedSearchFocus = useRef<string | null>(null);
@@ -964,17 +913,16 @@ function SidebarComponent({
   }, [open, documentVisible]);
 
   useEffect(() => {
-    if (!sessionMenu && !folderMenu && !filterMenu && !botPicker) return;
+    if (!sessionMenu && !folderMenu && !filterMenu) return;
     const onScroll = () => {
       closeSessionMenu();
       setFolderMenu(null);
       setFilterMenu(null);
-      if (!botPickerBusy.current) setBotPicker(null);
     };
     const scrollParent = sessionsScrollRef.current ?? window;
     scrollParent.addEventListener("scroll", onScroll, true);
     return () => scrollParent.removeEventListener("scroll", onScroll, true);
-  }, [sessionMenu, folderMenu, filterMenu, botPicker]);
+  }, [sessionMenu, folderMenu, filterMenu]);
 
   useEffect(() => {
     if (selectedSessionIds.size === 0) return;
@@ -1542,11 +1490,6 @@ function SidebarComponent({
     });
   };
 
-  // Bots need Claude Code's sandbox: where it can't run, none is offered.
-  const addBot = botsAvailable() ? onAddBot : undefined;
-  // Every project has its Avos, so with Avos wired in there's nothing to
-  // add here: the Bots section only lists bots that work on their own.
-  const addToSection = onOpenAvos ? undefined : addBot;
   // Bots of this profile's projects, in their own section below the
   // projects. A project with its Avos on shows its Fixer inside its Avos.
   const profileCrews = crews.filter((crew) =>
@@ -1557,51 +1500,6 @@ function SidebarComponent({
       projects.some((project) => sameProjectPath(project.path, bot.path)) &&
       !profileCrews.some((crew) => sameProjectPath(crew.path, bot.path)),
   );
-  /**
-   * New bot: this profile's projects without a bot. Those ready for one come
-   * first; below them, the ones that need Git, which the picker sets up.
-   */
-  const openBotPicker = (target: HTMLElement) => {
-    if (botPicker) {
-      if (botPickerBusy.current) return;
-      botPickerRequest.current += 1;
-      setBotPicker(null);
-      return;
-    }
-    const rect = target.getBoundingClientRect();
-    const request = ++botPickerRequest.current;
-    const candidates = projects
-      .map((project) => project.path)
-      .filter((path) => !bots.some((bot) => sameProjectPath(bot.path, path)));
-    void botProjectStates(candidates).then((states) => {
-      if (request !== botPickerRequest.current) return;
-      const listed = candidates.flatMap((path, index): BotPickerProject[] => {
-        const state = states[index];
-        return state && state !== "unavailable"
-          ? [{ path, label: projectAppearance(path).label, state }]
-          : [];
-      });
-      const empty = !projects.length
-        ? "Add a project first"
-        : !candidates.length
-          ? "Every project has a bot"
-          : "No project here can have a bot";
-      closeSessionMenu();
-      setFolderMenu(null);
-      setFilterMenu(null);
-      botPickerBusy.current = false;
-      setBotPicker({
-        x: Math.max(4, rect.right - BOT_PICKER_WIDTH),
-        y: rect.bottom + 2,
-        projects: [
-          ...listed.filter((project) => project.state === "ready"),
-          ...listed.filter((project) => project.state !== "ready"),
-        ],
-        empty,
-      });
-    });
-  };
-
   const sessionSearchInput = (
     <input
       ref={searchInputRef}
@@ -2430,7 +2328,7 @@ function SidebarComponent({
                     Add a project to {activeProfile.name}.
                   </p>
                 ) : null}
-                {profileBots.length || (addToSection && projects.length) ? (
+                {profileBots.length ? (
                   <section
                     className="personal-bots-group"
                     aria-label="Bots"
@@ -2438,32 +2336,9 @@ function SidebarComponent({
                   >
                     <div className="personal-projects-heading">
                       <span>Bots</span>
-                      {addToSection ? (
-                        <SessionsHeaderButton
-                          label="New bot"
-                          open={!!botPicker}
-                          hasPopup
-                          onClick={(event) =>
-                            openBotPicker(event.currentTarget)
-                          }
-                        >
-                          <Plus className="size-3" />
-                        </SessionsHeaderButton>
-                      ) : null}
                     </div>
                     <div className="personal-project-tasks">
                       {profileBots.map(botRow)}
-                      {!profileBots.length && addToSection ? (
-                        <button
-                          type="button"
-                          className="personal-view-project-tasks"
-                          onClick={(event) =>
-                            openBotPicker(event.currentTarget)
-                          }
-                        >
-                          Add a bot
-                        </button>
-                      ) : null}
                     </div>
                   </section>
                 ) : null}
@@ -2541,28 +2416,6 @@ function SidebarComponent({
           }
           onPick={onFolderMenuPick}
           onClose={() => setFolderMenu(null)}
-        />
-      ) : null}
-      {botPicker && addToSection ? (
-        <BotPicker
-          x={botPicker.x}
-          y={botPicker.y}
-          label="Add a bot to"
-          kind="bot"
-          projects={botPicker.projects}
-          empty={botPicker.empty}
-          onBusyChange={(busy) => {
-            botPickerBusy.current = busy;
-          }}
-          onAdd={(path) => {
-            botPickerBusy.current = false;
-            setBotPicker(null);
-            addToSection(path);
-          }}
-          onClose={() => {
-            botPickerBusy.current = false;
-            setBotPicker(null);
-          }}
         />
       ) : null}
       {filterMenu ? (

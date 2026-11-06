@@ -79,13 +79,7 @@ import { MEMBER_SIGIL_CHOICES, isSigilKey } from "./dotSigils";
 import { isMascotName } from "./projectMascots";
 import { isHarnessAvailable } from "./harness/availability";
 import { pickerModelsFor, preferredModelId } from "./models";
-import {
-  CREW_PRESETS,
-  CREW_TEAM_PRESETS,
-  SECURITY_INSTRUCTIONS,
-  type CrewPreset,
-  type CrewTeamPreset,
-} from "./crewPresets";
+import { CREW_PRESETS, type CrewPreset } from "./crewPresets";
 import { errorText, logError } from "./errors";
 import {
   FEATURE_TITLE_MAX,
@@ -2427,112 +2421,6 @@ export function memberIsPreset(
   );
 }
 
-/**
- * A team that has never started: never turned on, and no cards. Only then
- * can a suggested team replace who is in it.
- */
-export function teamUnstarted(crew: Crew): boolean {
-  return !crew.on && !crew.onAt && !crew.cards.length;
-}
-
-/** Whether the team is exactly a suggested team (its Fixer aside). */
-export function teamIsPreset(crew: Crew, team: CrewTeamPreset): boolean {
-  const presets = team.members
-    .map((key) => CREW_PRESETS.find((preset) => preset.key === key))
-    .filter((preset): preset is CrewPreset => !!preset);
-  const members = crew.members.filter((member) => member.role !== "fixer");
-  return (
-    members.length === presets.length &&
-    presets.every((preset) =>
-      members.some((member) => memberIsPreset(member, preset)),
-    ) &&
-    members.every((member) =>
-      presets.some((preset) => memberIsPreset(member, preset)),
-    )
-  );
-}
-
-/**
- * Start from a suggested team: before the team has ever started, it becomes
- * that team's teammates (the Fixer stays: it is the project's bot).
- * Teammates already in it keep their settings; the rest leave. Each new
- * one gets its role's usual app and model. Resolves with why it couldn't,
- * or null.
- */
-/**
- * Whether you changed a teammate from how it joined: its name, job,
- * instructions, paths, effort, its app or model (other than its role's
- * usual), or switched it off. A suggested team never drops such a one.
- */
-export function teammateEdited(
-  member: CrewMember,
-  models: CrewModels,
-): boolean {
-  if (member.role === "fixer") return false;
-  const preset = CREW_PRESETS.find(
-    (item) => item.key === (member.preset ?? member.role),
-  );
-  const usual = crewModelFor(models, member.role);
-  const sameList = (a?: readonly string[], b?: readonly string[]) =>
-    (a ?? []).join("\n") === (b ?? []).join("\n");
-  return (
-    !!member.name ||
-    !!member.effort ||
-    !!member.paused ||
-    (member.instructions !== undefined &&
-      member.instructions !== preset?.instructions &&
-      !(
-        member.role === "security" &&
-        member.instructions === SECURITY_INSTRUCTIONS
-      )) ||
-    !sameList(member.scope, preset?.scope) ||
-    (member.label !== undefined && member.label !== preset?.label) ||
-    (member.job !== undefined && member.job !== preset?.job) ||
-    (member.harness !== undefined && member.harness !== usual.harness) ||
-    (member.model !== undefined && member.model !== usual.model)
-  );
-}
-
-export function startTeamFrom(
-  path: string,
-  key: string,
-  models: CrewModels = crewModelsHere(),
-): string | null {
-  const team = CREW_TEAM_PRESETS.find((item) => item.key === key);
-  const crew = getCrew(path);
-  if (!team || !crew) return "That team isn't available.";
-  if (!teamUnstarted(crew))
-    return "Add or remove helpers one at a time once Avos has started.";
-  const presets = team.members
-    .map((member) => CREW_PRESETS.find((preset) => preset.key === member))
-    .filter((preset): preset is CrewPreset => !!preset);
-  const kept: string[] = [];
-  updateCrew(path, (current) => {
-    let next = current;
-    // Who stays: the Fixer, each teammate the team has as it is, and any
-    // you changed (its settings are yours: never thrown away by a pick).
-    for (const member of current.members) {
-      if (
-        member.role === "fixer" ||
-        presets.some((preset) => memberIsPreset(member, preset))
-      )
-        continue;
-      if (teammateEdited(member, models))
-        kept.push(crewMemberName(current, member.id));
-      else next = withoutMember(next, member.id);
-    }
-    for (const preset of presets) {
-      if (next.members.some((member) => memberIsPreset(member, preset)))
-        continue;
-      next = withPreset(next, preset, crewModelFor(models, preset.role));
-    }
-    return next;
-  });
-  return kept.length
-    ? `Kept ${kept.join(" and ")}: you changed ${kept.length === 1 ? "its" : "their"} settings. Remove ${kept.length === 1 ? "it" : "them"} from ${kept.length === 1 ? "its" : "each"} page if you don't need ${kept.length === 1 ? "it" : "them"}.`
-    : null;
-}
-
 /** A ready-made teammate added to the team (no checks: the callers make them). */
 function withPreset(
   crew: Crew,
@@ -2908,11 +2796,6 @@ export function useCrewWorkspace(): CrewWorkspace | null {
   );
 }
 
-/** The card that holds the copy, so a button can say what waits. */
-export function crewCardHolding(crew: Crew): CrewCard | undefined {
-  return cardInCopy(crew);
-}
-
 // ---------------------------------------------------------------------------
 // Tell the crew… from elsewhere (the sidebar): the crew's Board opens with
 // the cursor in its Feed's box.
@@ -2939,11 +2822,6 @@ export function takeCrewTellTo(): string | null {
   const to = tellTo;
   tellTo = null;
   return to;
-}
-
-/** Whether Tell the team… waits for this team's box (without taking it). */
-export function crewTellWaiting(path: string): boolean {
-  return tellFor !== null && tellFor === tellKey(path);
 }
 
 /** The team's box takes a request for its team, once: true when there was one. */

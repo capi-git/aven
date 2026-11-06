@@ -59,7 +59,6 @@ describe("in-flow glass cards on macOS", () => {
       ".automation-example-card",
       ".personal-activity-phase",
       ".browser-toolbar",
-      ".settings-toolbar",
       ".workspace-inspector-header",
     ])
       expect(rule).toContain(surface);

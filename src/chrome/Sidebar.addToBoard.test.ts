@@ -64,12 +64,7 @@ beforeEach(() => {
     activeSessionId: "one",
     status: "idle",
     pending: false,
-    tab: "sessions",
-    filesSearchOpen: false,
     onSelectSession: vi.fn(),
-    onOpenFile: vi.fn(),
-    onTabChange: vi.fn(),
-    onFilesSearchOpenChange: vi.fn(),
   };
   container = document.createElement("div");
   document.body.append(container);

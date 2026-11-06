@@ -62,11 +62,9 @@ let externalSelectSection: (section: SettingsSectionId) => void;
 
 function ControlledSettings({
   initial = "general",
-  showToolbar,
   besideRail = false,
 }: {
   initial?: SettingsSectionId;
-  showToolbar?: boolean;
   besideRail?: boolean;
 }) {
   const [section, setSection] = useState(initial);
@@ -83,7 +81,6 @@ function ControlledSettings({
     cwd: "/fixture/project",
     sessions: [],
     besideRail,
-    showToolbar,
     onClose,
     onOpenSession: noop,
     onArchiveSession: noop,
@@ -283,29 +280,13 @@ describe("settings navigation", () => {
     }
   });
 
-  it("retains its own toolbar and close action when no host supplies one", async () => {
-    await mount("appearance");
-    const toolbar = container.querySelector(".settings-toolbar")!;
-    expect(toolbar).not.toBeNull();
-    expect(
-      toolbar.querySelector(".settings-breadcrumb")?.textContent,
-    ).toContain("Appearance");
-    await click(
-      toolbar.querySelector<HTMLButtonElement>(
-        'button[aria-label="Close settings"]',
-      )!,
-    );
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
   it.each([false, true])(
-    "omits the hosted toolbar while preserving settings navigation and Escape with besideRail=%s",
+    "has no toolbar of its own, keeping settings navigation and Escape with besideRail=%s",
     async (besideRail) => {
       await act(async () =>
         root.render(
           createElement(ControlledSettings, {
             initial: "general",
-            showToolbar: false,
             besideRail,
           }),
         ),

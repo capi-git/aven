@@ -13,9 +13,6 @@ vi.mock("./TitleBar", () => ({
   DevModeSlot: () => null,
   TabVisitNav: () => null,
 }));
-vi.mock("./WorkspaceThemePopover", () => ({
-  WorkspaceThemePopover: () => null,
-}));
 vi.mock("./PersonalWorkspaceSwitcher", () => ({
   PersonalWorkspaceSwitcher: ({
     profiles,
@@ -274,11 +271,6 @@ beforeEach(async () => {
     onSelectProject: selectProject,
     onExpandProject: expandProject,
     onNewStandalone: newSession,
-    onOpenFile: vi.fn(),
-    tab: "sessions",
-    onTabChange: vi.fn(),
-    filesSearchOpen: false,
-    onFilesSearchOpenChange: vi.fn(),
     profiles,
     activeProfileId: "personal",
     onSelectProfile: selectProfile,
