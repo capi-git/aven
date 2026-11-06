@@ -187,6 +187,15 @@ import { composerFit } from "../lib/composerFit";
 import { bestDiscussionAgent } from "../lib/discussionPartner";
 import { resizeComposer } from "../lib/composerResize";
 import { useTurnNoteHint } from "../lib/turnNotes";
+import { useDictation } from "../hooks/useDictation";
+import { useSpokenBrief } from "../hooks/useSpokenBrief";
+import {
+  canDictate,
+  isDictationHotkey,
+  openDictationSettings,
+  spliceSpoken,
+} from "../lib/dictation";
+import { BriefRow, DictationNotice, MicButton } from "./ComposerSpeech";
 
 /** Handing a message to the project's Avos from this chat (see `avos`). */
 export type ComposerAvos = {
@@ -1050,6 +1059,75 @@ function ComposerComponent({
     syncHasValue(ref.current?.value ?? "", attachmentsRef.current);
   }, [inboxCard, noteCard, handoffCard, syncHasValue]);
 
+  /** Put `text` in the field as if typed, with the caret at `caret`. */
+  const writeField = useCallback(
+    (text: string, caret = text.length) => {
+      const el = ref.current;
+      if (!el) return;
+      el.value = text;
+      resizeComposer(el);
+      updateDraft(text);
+      syncHasValue(text, attachmentsRef.current);
+      el.setSelectionRange(caret, caret);
+    },
+    [syncHasValue, updateDraft],
+  );
+
+  // Speaking: the words heard so far replace what was selected when
+  // listening started (or go at the end), and can be tidied into a brief.
+  const [canSpeak] = useState(canDictate);
+  const brief = useSpokenBrief({ setText: writeField });
+  const spokenBaseRef = useRef<{ before: string; after: string } | null>(null);
+  const dictation = useDictation({
+    enabled: enabled && canSpeak,
+    onStart: () => {
+      // First, so a brief still being written gives the field back.
+      brief.forget();
+      const el = ref.current;
+      const value = el?.value ?? "";
+      const inField = !!el && document.activeElement === el;
+      const from = inField ? el.selectionStart : value.length;
+      const to = inField ? el.selectionEnd : value.length;
+      spokenBaseRef.current = {
+        before: value.slice(0, from),
+        after: value.slice(to),
+      };
+      el?.focus();
+    },
+    onWords: (heard) => {
+      const base = spokenBaseRef.current;
+      if (!base) return;
+      const spoken = spliceSpoken(base.before, heard, base.after);
+      writeField(spoken.text, spoken.caret);
+      if (heard.trim()) brief.markSpoken();
+    },
+  });
+  const toggleDictation = dictation.toggle;
+  useEffect(() => {
+    if (!focused || !enabled || !canSpeak) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (isImeComposition(event) || !isDictationHotkey(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggleDictation();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [canSpeak, enabled, focused, toggleDictation]);
+  const resetBrief = brief.reset;
+  // Sent or emptied: nothing is left to tidy or go back to.
+  useEffect(() => {
+    if (!draft.trim()) resetBrief();
+  }, [draft, resetBrief]);
+  const micButton = useMemo(
+    () =>
+      canSpeak ? (
+        <MicButton state={dictation.state} onToggle={toggleDictation} />
+      ) : null,
+    [canSpeak, dictation.state, toggleDictation],
+  );
+  const briefAction = dictation.active ? null : brief.action(draft);
+
   const addAttachments = useCallback(
     (incoming: Attachment[]) => {
       if (!harnessSupportsAttachments(harness) || incoming.length === 0) return;
@@ -1621,6 +1699,8 @@ function ComposerComponent({
   };
 
   const submit = (value: string) => {
+    // Sending takes the words as they are in the field.
+    dictation.cancel();
     if (toAvos && avos) {
       const words = value.trim();
       if (!words) return;
@@ -1786,6 +1866,13 @@ function ComposerComponent({
     ) {
       e.preventDefault();
       setToAvos(false);
+      return;
+    }
+
+    // Escape stops listening, keeping what was heard.
+    if (e.key === "Escape" && dictation.active) {
+      e.preventDefault();
+      dictation.stop();
       return;
     }
 
@@ -2449,6 +2536,37 @@ function ComposerComponent({
             />
           ) : null}
 
+          {dictation.problem ? (
+            <DictationNotice
+              problem={dictation.problem}
+              onOpenSettings={() => {
+                const page = dictation.problem?.settings;
+                if (page) void openDictationSettings(page).catch(() => {});
+              }}
+              onDismiss={dictation.dismissProblem}
+            />
+          ) : null}
+
+          {briefAction ? (
+            <BriefRow
+              action={briefAction}
+              error={brief.error}
+              onTidy={() => brief.start(ref.current?.value ?? draft)}
+              onCancel={() => {
+                brief.cancel();
+                ref.current?.focus();
+              }}
+              onShowWords={() => {
+                brief.showWords(ref.current?.value ?? draft);
+                ref.current?.focus();
+              }}
+              onShowBrief={() => {
+                brief.showBrief();
+                ref.current?.focus();
+              }}
+            />
+          ) : null}
+
           <div className="relative">
             <div
               ref={highlightRef}
@@ -2470,31 +2588,35 @@ function ComposerComponent({
               rows={1}
               spellCheck={false}
               defaultValue={mountDraft}
+              // The brief replaces these words when it arrives.
+              readOnly={brief.tidying}
               placeholder={
-                placeholder && !jumpInId && !discussActive
-                  ? placeholder
-                  : jumpInId
-                    ? "Add something for both of them…"
-                    : discussActive
-                      ? "What should they discuss?"
-                      : inboxCard
-                        ? "Add a note, or send to start…"
-                        : noteCard
-                          ? "Add a message, or send…"
-                          : handoffCard
-                            ? "Add context, or send to continue…"
-                            : busy
-                              ? "Send now, or queue a follow-up…"
-                              : noteHint
-                                ? `${noteHint}. Say what's next…`
-                                : composerHint(
-                                    hasNativeCommands(harness),
-                                    looksLikeProject(cwd)
-                                      ? "files"
-                                      : notesEnabled
-                                        ? "notes"
-                                        : null,
-                                  )
+                dictation.active
+                  ? "Listening…"
+                  : placeholder && !jumpInId && !discussActive
+                    ? placeholder
+                    : jumpInId
+                      ? "Add something for both of them…"
+                      : discussActive
+                        ? "What should they discuss?"
+                        : inboxCard
+                          ? "Add a note, or send to start…"
+                          : noteCard
+                            ? "Add a message, or send…"
+                            : handoffCard
+                              ? "Add context, or send to continue…"
+                              : busy
+                                ? "Send now, or queue a follow-up…"
+                                : noteHint
+                                  ? `${noteHint}. Say what's next…`
+                                  : composerHint(
+                                      hasNativeCommands(harness),
+                                      looksLikeProject(cwd)
+                                        ? "files"
+                                        : notesEnabled
+                                          ? "notes"
+                                          : null,
+                                    )
               }
               aria-label="Message"
               title="/ for commands, @ for references"
@@ -2523,6 +2645,10 @@ function ComposerComponent({
               onSelect={(e) => syncTokensFromTextarea(e.currentTarget)}
               onInput={(e) => {
                 const el = e.currentTarget;
+                // Typing takes over: the microphone lets go, keeping
+                // everything already in the field.
+                dictation.cancel();
+                brief.clearError();
                 setCommandNotice(null);
                 resizeComposer(el);
                 updateDraft(el.value);
@@ -2571,6 +2697,7 @@ function ComposerComponent({
         recentSkills={hasValue || busy ? NO_SKILLS : recentSkillChips}
         onPickSkill={pickRecentSkill}
         hasValue={hasValue}
+        mic={micButton}
         sendLabel={actionLabel}
         onSend={sendFromHelm}
         stopInBar={stopInBar}

@@ -28,6 +28,9 @@ HELPERS = [('', ''), (' (Alerts)', '.alerts'), (' (GPU)', '.gpu'), (' (Plugin)',
 # helper (a utility process), so it carries them too.
 CAPTURE_ENTITLEMENTS = ('com.apple.security.device.audio-input', 'com.apple.security.device.camera')
 CAPTURE_HELPER_SUFFIX = ''
+# macOS terminates a process that asks for one of these without saying why.
+# Speech recognition turns the message box's microphone into words.
+CAPTURE_PURPOSES = ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription', 'NSSpeechRecognitionUsageDescription')
 MACHO_MAGICS = {b'\xcf\xfa\xed\xfe', b'\xfe\xed\xfa\xcf', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca', b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
 
 def require(ok, message):
@@ -130,7 +133,7 @@ def package(app, product_name, bundle_id, identity, log, env, keychain=None):
             'Host app is missing a nonempty NSBluetoothAlwaysUsageDescription; rebuild it from src-tauri/Info.plist before Chromium packaging')
     # The capture entitlements let macOS ask; it terminates a process that asks
     # without saying why.
-    for key in ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription'):
+    for key in CAPTURE_PURPOSES:
         description = info.get(key)
         require(isinstance(description, str) and description.strip(),
                 'Host app is missing a nonempty ' + key + '; rebuild it from src-tauri/Info.plist before Chromium packaging')

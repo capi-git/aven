@@ -13,7 +13,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Aven lets websites use your camera only when you approve their request.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Aven lets websites use your microphone only when you approve their request.</string>
+	<string>Aven listens when you press the microphone in the message box, and lets websites use it only when you approve their request.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Aven turns what you say into words on this Mac when you press the microphone in the message box.</string>
 	<key>NSLocationUsageDescription</key>
 	<string>Aven lets websites use your location only when you approve their request.</string>
 	<key>NSLocalNetworkUsageDescription</key>

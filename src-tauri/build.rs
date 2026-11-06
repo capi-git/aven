@@ -39,13 +39,27 @@ fn main() {
             .flag("-Wno-unused-parameter")
             .flag("-mmacosx-version-min=13.0")
             .compile("aven_ios_simulator");
+        // Speaking into the message box: on-device speech recognition.
+        println!("cargo:rerun-if-changed=macos/dictation.m");
+        println!("cargo:rerun-if-changed=macos/dictation.h");
+        cc::Build::new()
+            .file("macos/dictation.m")
+            .flag("-fobjc-arc")
+            .flag("-fmodules")
+            .flag("-Wall")
+            .flag("-Wextra")
+            .flag("-Wno-unused-parameter")
+            .flag("-mmacosx-version-min=13.0")
+            .compile("aven_dictation");
         for framework in [
             "AppKit",
+            "AVFoundation",
             "CoreImage",
             "Foundation",
             "ImageIO",
             "IOSurface",
             "QuartzCore",
+            "Speech",
         ] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
