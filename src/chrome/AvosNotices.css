@@ -23,3 +23,24 @@
   background: var(--aven-hover);
   color: var(--color-content);
 }
+/* What needs you: the buttons under the line for one thing; for several,
+   one row each (its line, then its buttons), under the project's name. */
+.avos-notice-items {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 14px 12px;
+  list-style: none;
+}
+.avos-notice-items[data-many] {
+  padding-left: 46px;
+}
+.avos-notice-items > li {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.avos-notice-items[data-many] > li > span {
+  margin-right: 4px;
+}

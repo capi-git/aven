@@ -276,8 +276,45 @@ export type AvosNotice = {
   runId?: string;
 };
 
-/** Notices kept on screen at once, the newest. */
+/** Projects with a notice on screen at once: those with the newest. */
 export const AVOS_NOTICES_SHOWN = 3;
+
+/**
+ * The notices on screen once new ones arrive: each joins its project's
+ * card, and only the projects with the newest stay (AVOS_NOTICES_SHOWN).
+ */
+export function withAvosNotices(
+  current: readonly AvosNotice[],
+  fresh: readonly AvosNotice[],
+): AvosNotice[] {
+  const all = [...current, ...fresh];
+  const latest: string[] = [];
+  for (const notice of [...all].reverse())
+    if (!latest.some((path) => sameProjectPath(path, notice.path)))
+      latest.push(notice.path);
+  const shown = latest.slice(0, AVOS_NOTICES_SHOWN);
+  return all.filter((notice) =>
+    shown.some((path) => sameProjectPath(path, notice.path)),
+  );
+}
+
+/**
+ * One card per project, where its first notice arrived, so something new
+ * updates its card ("2 things need you") rather than stacking another.
+ */
+export function avosNoticeCards(
+  notices: readonly AvosNotice[],
+): { path: string; notices: AvosNotice[] }[] {
+  const cards: { path: string; notices: AvosNotice[] }[] = [];
+  for (const notice of notices) {
+    const card = cards.find((entry) =>
+      sameProjectPath(entry.path, notice.path),
+    );
+    if (card) card.notices.push(notice);
+    else cards.push({ path: notice.path, notices: [notice] });
+  }
+  return cards;
+}
 
 /**
  * Which "needs you" items deserve a notice now: those that weren't there

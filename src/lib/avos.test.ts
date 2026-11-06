@@ -4,7 +4,11 @@ import {
   avosGlance,
   avosLine,
   avosMet,
+  avosNoticeCards,
   avosNoticesFor,
+  AVOS_NOTICES_SHOWN,
+  withAvosNotices,
+  type AvosNotice,
   avosUnmet,
   avosWeek,
 } from "./avos";
@@ -467,5 +471,64 @@ describe("a needs-you notice", () => {
     expect(
       avosNoticesFor([{ path: PATH, rows: [run] }], seen, `${PATH}/`).notices,
     ).toEqual([]);
+  });
+
+  const notice = (path: string, id: string): AvosNotice => ({
+    id: `${path}\n${id}`,
+    path,
+    text: id,
+  });
+
+  it("puts something new for a project on its card instead of another", () => {
+    const shown = withAvosNotices(
+      [notice(PATH, "a"), notice("/work/other", "b")],
+      [notice(`${PATH}/`, "c")],
+    );
+    expect(avosNoticeCards(shown)).toEqual([
+      { path: PATH, notices: [notice(PATH, "a"), notice(`${PATH}/`, "c")] },
+      { path: "/work/other", notices: [notice("/work/other", "b")] },
+    ]);
+  });
+
+  it("keeps the projects with the newest on screen", () => {
+    const shown = withAvosNotices(
+      [notice("/w/1", "a"), notice("/w/2", "b"), notice("/w/3", "c")],
+      [notice("/w/4", "d"), notice("/w/2", "e")],
+    );
+    expect(AVOS_NOTICES_SHOWN).toBe(3);
+    expect(avosNoticeCards(shown).map((card) => card.path)).toEqual([
+      "/w/2",
+      "/w/3",
+      "/w/4",
+    ]);
+  });
+
+  it("brings a closed card back only with something new, and only that", () => {
+    const first = avosNoticesFor([{ path: PATH, rows: [] }], null, null);
+    const shown = avosNoticesFor(
+      [{ path: PATH, rows: [ready, run] }],
+      first.seen,
+      null,
+    );
+    expect(shown.notices).toHaveLength(2);
+    // Closed: the same two never come back.
+    const again = avosNoticesFor(
+      [{ path: PATH, rows: [ready, run] }],
+      shown.seen,
+      null,
+    );
+    expect(again.notices).toEqual([]);
+    const later = {
+      id: "stuck:c1",
+      text: "Avos needs your answer",
+      open: { kind: "review" as const },
+    };
+    expect(
+      avosNoticesFor(
+        [{ path: PATH, rows: [ready, run, later] }],
+        again.seen,
+        null,
+      ).notices.map((item) => item.id),
+    ).toEqual([`${PATH}\nstuck:c1`]);
   });
 });

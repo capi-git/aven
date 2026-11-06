@@ -918,10 +918,11 @@ import { crewRunsLine } from "./lib/crewLimits";
 import { crewMemberViews, crewStatus } from "./lib/crewView";
 import {
   AVOS,
-  AVOS_NOTICES_SHOWN,
   avosGlance,
   avosMet,
+  avosNoticeCards,
   avosNoticesFor,
+  withAvosNotices,
   avosWeek,
   type AvosGlance,
   type AvosNotice,
@@ -11704,7 +11705,7 @@ export default function App({
           seen.has(notice.id) &&
           !(activeAvosPath && sameProjectPath(activeAvosPath, notice.path)),
       );
-      const next = [...kept, ...notices].slice(-AVOS_NOTICES_SHOWN);
+      const next = withAvosNotices(kept, notices);
       return next.length === current.length &&
         next.every((notice, index) => notice === current[index])
         ? current
@@ -11718,6 +11719,13 @@ export default function App({
     profiles.profileProjects,
     activeAvosPath,
   ]);
+  // The job runs the notices are about, for their Publish or Approve.
+  const avosNoticeRuns = useMemo(() => {
+    const ids = new Set(avosNotices.flatMap((notice) => notice.runId ?? []));
+    const runs = new Map<string, (typeof scheduledRuns)[number]>();
+    for (const run of scheduledRuns) if (ids.has(run.id)) runs.set(run.id, run);
+    return runs;
+  }, [avosNotices, scheduledRuns]);
   /**
    * Open a project's Avos: every project has one, saved the first time it's
    * opened (never up front). The first open is meeting it, in its chat.
@@ -13390,18 +13398,12 @@ export default function App({
             <ApprovalToasts
               {...(avosNotices.length
                 ? {
-                    extra: avosNotices.map((notice) => (
+                    extra: avosNoticeCards(avosNotices).map((card) => (
                       <AvosNoticeCard
-                        key={notice.id}
-                        notice={notice}
-                        {...(() => {
-                          const run = notice.runId
-                            ? scheduledRuns.find(
-                                (item) => item.id === notice.runId,
-                              )
-                            : undefined;
-                          return run ? { run } : {};
-                        })()}
+                        key={card.path}
+                        path={card.path}
+                        notices={card.notices}
+                        runs={avosNoticeRuns}
                         onOpen={(item) => {
                           if (item.open?.kind === "review")
                             requestCrewReview(item.path);
@@ -13410,9 +13412,9 @@ export default function App({
                         onAnswer={(run) =>
                           void automationReviewActionRef.current(run)
                         }
-                        onDismiss={(id) =>
+                        onDismiss={(ids) =>
                           setAvosNotices((current) =>
-                            current.filter((item) => item.id !== id),
+                            current.filter((item) => !ids.includes(item.id)),
                           )
                         }
                       />
