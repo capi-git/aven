@@ -901,6 +901,41 @@ function designerProblem(crew: Crew): string | null {
     : NO_DESIGNER;
 }
 
+/** How the Researcher came to look into a question Avos passed it. */
+export type ResearcherBroughtIn = "added" | "on";
+
+/**
+ * The Researcher, there and on for a question Avos passes it from your
+ * message (Avos itself has no web): added as the ready-made Researcher when
+ * the team has none, or turned back on. Its web follows Access, as any
+ * Researcher's does. Resolves with how it came (null when it was on), or
+ * what you need to do first.
+ */
+export function bringInResearcher(
+  path: string,
+): { broughtIn: ResearcherBroughtIn | null } | { problem: string } {
+  const crew = getCrew(path);
+  if (!crew?.on) return { problem: AVOS_ASLEEP };
+  if (cardResearcher(crew)) return { broughtIn: null };
+  const off = crew.members.find((member) => member.role === "researcher");
+  if (off) {
+    const problem = updateCrewMember(path, off.id, { paused: false });
+    return problem ? { problem } : { broughtIn: "on" };
+  }
+  const added = addCrewPreset(
+    path,
+    "researcher",
+    crewModelFor(crewModelsHere(), "researcher"),
+  );
+  if (!("error" in added)) return { broughtIn: "added" };
+  return {
+    problem:
+      added.error === HELPERS_FULL
+        ? "Avos needs the Researcher to look into that, but it has 8 helpers already. Remove one in Settings, then ask again."
+        : added.error,
+  };
+}
+
 /**
  * A new question for the Researcher ("Research: …") or screen for the
  * Designer ("Design: …"), typed in the Add an idea box or set up with the
@@ -919,6 +954,8 @@ export async function addQuestionCard(
     whileOff?: boolean;
     /** Whose words it is: yours, or a setup suggestion (quoted as data). */
     from?: "you" | "setup";
+    /** Avos brought the Researcher in for it (see `bringInResearcher`). */
+    broughtIn?: ResearcherBroughtIn;
   } = {},
 ): Promise<{ card: FeatureCard | null; problem: string | null }> {
   const crew = getCrew(path);
@@ -963,6 +1000,7 @@ export async function addQuestionCard(
       current,
       member?.id ?? (kind === "research" ? "researcher" : "designer"),
     );
+    const them = member?.name ? who : `the ${who}`;
     return withFeed(current, {
       at: now,
       kind: "note",
@@ -970,9 +1008,13 @@ export async function addQuestionCard(
       cardId: id,
       title: clean,
       text:
-        kind === "research"
-          ? `You asked ${who} “${clean}”`
-          : `You asked ${who} to mock up “${clean}”`,
+        kind === "mockup"
+          ? `You asked ${who} to mock up “${clean}”`
+          : options.broughtIn === "added"
+            ? `Avos brought in ${them} to look into “${clean}”`
+            : options.broughtIn === "on"
+              ? `Avos turned ${them} back on to look into “${clean}”`
+              : `You asked ${who} “${clean}”`,
     });
   });
   return { card, problem: null };
@@ -2217,6 +2259,8 @@ export function crewScopeList(
   return { scope: [...seen] };
 }
 
+const HELPERS_FULL = "Avos has at most 8 helpers.";
+
 /**
  * A mark none of the crew wears yet: `own` (its role's, or a custom
  * member's) when free, else the first free one.
@@ -2264,7 +2308,7 @@ export function addCrewMember(
       }.`,
     };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "Avos has at most 8 helpers." };
+    return { error: HELPERS_FULL };
   const harness =
     input.harness &&
     crewAgentAllowed(input.harness) &&
@@ -2464,7 +2508,7 @@ export function addCrewPreset(
   if (presetInCrew(crew, preset))
     return { error: "It's helping Avos already." };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "Avos has at most 8 helpers." };
+    return { error: HELPERS_FULL };
   if (
     (preset.role === "scout" ||
       preset.role === "lead" ||

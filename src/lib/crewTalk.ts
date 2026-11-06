@@ -56,7 +56,10 @@ export type TalkReply = {
   remember?: string;
   /** What the project works towards now: the Lead's, from your message. */
   goal?: string;
-  /** A question for the Researcher, as its own card: the Lead's, from you. */
+  /**
+   * A question for the Researcher, as its own card: the Lead's, from you.
+   * The Researcher is brought in for it when the team has none on.
+   */
   research?: string;
   /** A screen for the Designer to mock up, as its own card: likewise. */
   mockup?: string;
@@ -209,8 +212,8 @@ function howToAnswer(input: {
   mayStartHelpers?: boolean;
   mayAddJob?: boolean;
   mayKeep?: boolean;
-  /** The Researcher and the Designer this team has on now. */
-  helpersOn?: { research: boolean; mockup: boolean };
+  /** The Designer this team has on now. */
+  helpersOn?: { mockup: boolean };
 }): string {
   const fields = [
     `"line": "One line for the team chat, under ${TALK_LINE_MAX} characters."`,
@@ -232,9 +235,7 @@ function howToAnswer(input: {
       ? [
           `"remember": "A rule every helper follows from now on."`,
           `"goal": "What the project works towards now."`,
-          ...(input.helpersOn?.research
-            ? [`"research": "A question for the Researcher to look into."`]
-            : []),
+          `"research": "A question for the Researcher, with any link."`,
           ...(input.helpersOn?.mockup
             ? [`"mockup": "A screen for the Designer to mock up."`]
             : []),
@@ -263,11 +264,9 @@ function howToAnswer(input: {
           ...(input.mayKeep
             ? [
                 'When the user tells you something to always or never do from now on ("always use pnpm", "don\'t touch the API"), put it under remember, in their words. When they set or change what the project is working towards, put it under goal. Say in your answer what you saved.',
-                ...(input.helpersOn?.research
-                  ? [
-                      "When they want something looked into (the web, other apps, how others do it), put the question under research: the Researcher looks into it, and its findings come back to the user.",
-                    ]
-                  : []),
+                // Avos has no web (a page could steer it): a link goes to
+                // the Researcher, whom Aven brings in when the team has none.
+                "You have no web. When the user shares a link, or wants a website, an app or anything online looked at (or how others do it), put the question, with its link, under research: the Researcher reads it, and its findings come back to the user here. Say in your answer that the Researcher is reading it. Never ask the user for screenshots or a list of its features instead.",
                 ...(input.helpersOn?.mockup
                   ? [
                       "When they want a screen designed or mocked up, put it under mockup: the Designer makes a mock-up the user can build from.",
@@ -307,10 +306,13 @@ export function talkMessage(input: {
   mayStartHelpers?: boolean;
   /** The Lead may set up a job: your own message asks for one. */
   mayAddJob?: boolean;
-  /** The Lead may save a rule or change the goal: your own message. */
+  /**
+   * The Lead may save a rule, change the goal or pass a question to the
+   * Researcher: your own message.
+   */
   mayKeep?: boolean;
-  /** The Researcher and the Designer this team has on now. */
-  helpersOn?: { research: boolean; mockup: boolean };
+  /** The Designer this team has on now. */
+  helpersOn?: { mockup: boolean };
   brief?: string;
   /** Its instructions and notes, as any turn carries them. */
   guidance?: string;

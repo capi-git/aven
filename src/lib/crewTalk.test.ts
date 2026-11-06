@@ -61,19 +61,25 @@ describe("what Avos's reply can keep", () => {
     expect(brief()).not.toContain('"remember"');
   });
 
-  it("offers the Researcher and the Designer only while Avos has them", () => {
-    const both = brief({
-      mayKeep: true,
-      helpersOn: { research: true, mockup: true },
-    });
-    expect(both).toContain('"research"');
-    expect(both).toContain('"mockup"');
-    const none = brief({
-      mayKeep: true,
-      helpersOn: { research: false, mockup: false },
-    });
-    expect(none).not.toContain('"research"');
-    expect(none).not.toContain('"mockup"');
+  it("offers the Designer only while Avos has it", () => {
+    expect(brief({ mayKeep: true, helpersOn: { mockup: true } })).toContain(
+      '"mockup"',
+    );
+    expect(
+      brief({ mayKeep: true, helpersOn: { mockup: false } }),
+    ).not.toContain('"mockup"');
+  });
+
+  it("always offers the Researcher for a link, even with none on", () => {
+    // Avos has no web: a link goes to the Researcher, never back to you as
+    // a request for screenshots.
+    const yours = brief({ mayKeep: true, helpersOn: { mockup: false } });
+    expect(yours).toContain('"research"');
+    expect(yours).toContain("You have no web");
+    expect(yours).toContain("the Researcher is reading it");
+    expect(yours).toContain("Never ask the user for screenshots");
+    // Only from your own message.
+    expect(brief()).not.toContain('"research"');
   });
 
   it("asks for a short answer, and never mentions a Board", () => {
