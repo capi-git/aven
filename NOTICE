@@ -46,9 +46,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Portions of Aven are adapted from Rune (https://github.com/anomalyco/rune), each
-marked where it is used (such as word changes in src/lib/diffWords.ts), under
-the MIT License:
+Portions of Aven are adapted from Rune (https://github.com/anomalyco/rune),
+each marked in its source where it is used, under the MIT License:
 
 MIT License
 
