@@ -33,8 +33,8 @@ use objc2::{
     define_class, msg_send, sel, AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly,
 };
 use objc2_app_kit::{
-    NSApplication, NSColor, NSMenu, NSMenuItem, NSRequestUserAttentionType,
-    NSTitlebarSeparatorStyle, NSWindow,
+    NSApplication, NSColor, NSFloatingWindowLevel, NSMenu, NSMenuItem, NSRequestUserAttentionType,
+    NSTitlebarSeparatorStyle, NSWindow, NSWindowOcclusionState,
 };
 use objc2_foundation::NSString;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -160,6 +160,64 @@ pub fn set_concealed(window: &Window, concealed: bool) -> bool {
     let was_concealed = ns_window.alphaValue() < 0.01;
     ns_window.setAlphaValue(if concealed { 0.0 } else { 1.0 });
     was_concealed
+}
+
+/// Put a window above every app's windows now, for Aven Dev's real-app check.
+/// Tao only queues its always-on-top level, and an app that isn't active
+/// orders its windows in behind the active app's, so a window shown at launch
+/// would otherwise start out covered and WebKit would draw its first frame
+/// for a hidden page.
+pub fn float_to_front(window: &Window) {
+    if MainThreadMarker::new().is_none() {
+        let raised = window.clone();
+        let _ = window.run_on_main_thread(move || float_to_front(&raised));
+        return;
+    }
+    let Some(ns_window) = ns_window(window) else {
+        return;
+    };
+    ns_window.setLevel(NSFloatingWindowLevel);
+    // A window not shown yet stays so: it is ordered in when it shows itself.
+    if ns_window.isVisible() {
+        ns_window.orderFrontRegardless();
+    }
+}
+
+/// How AppKit sees a window right now, for Aven Dev's real-app check: whether
+/// any of it is on screen, its level, Space, key state and opacity.
+pub fn describe_window(window: &Window) -> String {
+    let Some(ns_window) = ns_window(window) else {
+        return "no window".into();
+    };
+    let shown = if !ns_window.isVisible() {
+        "off screen"
+    } else if ns_window
+        .occlusionState()
+        .contains(NSWindowOcclusionState::Visible)
+    {
+        "on screen"
+    } else {
+        "covered"
+    };
+    let active = MainThreadMarker::new()
+        .map(|mtm| NSApplication::sharedApplication(mtm).isActive())
+        .unwrap_or(false);
+    format!(
+        "{shown}, level {}, {}, {}, app {}, alpha {:.2}",
+        ns_window.level(),
+        if ns_window.isOnActiveSpace() {
+            "this Space"
+        } else {
+            "another Space"
+        },
+        if ns_window.isKeyWindow() {
+            "key"
+        } else {
+            "not key"
+        },
+        if active { "active" } else { "inactive" },
+        ns_window.alphaValue(),
+    )
 }
 
 pub fn set_visible(window: &Window, visible: bool) {

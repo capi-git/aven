@@ -60,6 +60,9 @@ pub(crate) fn keep_window_up(window: &tauri::Window) {
     }
     let _ = window.set_always_on_top(true);
     let _ = window.set_visible_on_all_workspaces(true);
+    // Raised and in front now, not once tao's queued level change runs, so
+    // even the first frame is drawn for a visible page.
+    crate::macos::float_to_front(window);
 }
 
 /// Whether Aven runs in one of Aven Dev's throwaway profiles (the real-app
