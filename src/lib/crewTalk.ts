@@ -259,7 +259,7 @@ function howToAnswer(input: {
       : []),
     ...(input.isLead
       ? [
-          "When the user asks for something built, put it under cards: it shows in This week, where the team builds and checks it. Large work waits for the user. You never change files yourself. There is no Board: don't mention one.",
+          "When the user asks for something built, put it under cards: your helpers build and check it, and it comes back to the user here in the chat when it's ready. Large work waits for the user. You never change files yourself. There is no Board or This week: don't mention one.",
           ...(input.mayKeep
             ? [
                 'When the user tells you something to always or never do from now on ("always use pnpm", "don\'t touch the API"), put it under remember, in their words. When they set or change what the project is working towards, put it under goal. Say in your answer what you saved.',

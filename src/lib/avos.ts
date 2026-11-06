@@ -164,7 +164,7 @@ export function avosGlance(
   return { path, note: null, state: "watching", line };
 }
 
-/** One line in Avos's This week list, and what pressing it does. */
+/** One line in Avos's week, and what pressing it does. */
 export type AvosWeekRow = {
   id: string;
   text: string;
@@ -192,10 +192,10 @@ const WEEK = 7 * 24 * 60 * 60_000;
 const DONE_SHOWN = 5;
 
 /**
- * The This week list beside Avos's chat. Needs you: a card waiting on your
- * answer, finished work to look at, and what its jobs left for you. Doing
- * now: what Avos and its helpers are at. Keeping
- * an eye on: its jobs. Done: work you applied in the last seven days.
+ * Avos's week. Needs you: a card waiting on your answer, finished work to
+ * look at, and what its jobs left for you (the notices and badges count
+ * these). Doing now: what Avos and its helpers are at. Keeping an eye on:
+ * its jobs, in its profile. Done: work you applied in the last seven days.
  */
 export function avosWeek(
   crew: Crew,
@@ -277,7 +277,7 @@ export function avosWeek(
 export type AvosNeeds = { path: string; rows: AvosWeekRow[] };
 
 /**
- * What each met Avos waits on you for: its This week Needs you rows, for
+ * What each met Avos waits on you for: its week's Needs you rows, for
  * every project that has any. The notices, the Dock badge, Home's Needs you
  * and the Inbox's pointer all count these, each thing once.
  */
@@ -314,8 +314,8 @@ export function avosInboxLine(count: number): string {
 
 /**
  * Whether a run belongs to a project's Avos: its job is Avos's and that
- * Avos is there. Its card then lives in Avos alone (This week, its chat and
- * one notice), never also in the Inbox or Activity. A job whose Avos is gone
+ * Avos is there. Its card then lives in Avos alone (its chat and one
+ * notice), never also in the Inbox or Activity. A job whose Avos is gone
  * runs as an ordinary automation, and is shown like one.
  */
 export function avosOwnsRun(
@@ -366,7 +366,7 @@ export function giveChatToAvosText(title: string, lastAsk?: string): string {
 
 /** A "needs you" notice from one project's Avos, with what it offers. */
 export type AvosNotice = {
-  /** The project and the This week row it's about: shown once. */
+  /** The project and the row of its week it's about: shown once. */
   id: string;
   path: string;
   text: string;
@@ -445,7 +445,7 @@ export function avosNoticesFor(
   return { notices, seen: next };
 }
 
-/** A helper's one word, in This week and Sub agents. */
+/** A helper's one word, in Avos's profile. */
 export function helperWord(
   member: Pick<CrewMemberView, "status" | "active">,
 ): "Needs you" | "Working" | "Paused" | "Resting" {
