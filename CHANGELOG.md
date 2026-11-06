@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [0.1.171] - 2026-11-06
+
+### Added
+
+- **Avos, each project's always-on helper.** Every project's sidebar list starts with an Avos row. Open it to meet Avos and talk to it like a person: it takes on work through the week, keeps an eye on things and brings in helpers when work needs them. Its screen has Chat, Changes, Notes and Sub agents, with **This week** beside the chat: what needs you, what it's doing, what it's watching and what's done. Teams made before keep working, with their Lead as their Avos.
+- **Ask Avos to watch something** ("keep an eye on this page") and it sets up a job it owns, shown as a card in its chat, instead of idea cards.
+- **Avos tells you when it needs you.** The Dock badge counts it, Home gets a row for it, and a Mac notification arrives while Aven is in the background.
+- **Speak into the message box.** The microphone after Send (⇧⌘M) types your words as you say them. Recognition stays on your Mac. Once you've said a few sentences, **Tidy into a brief** rewrites them as Goal, Details and Done when, and **Back to my words** swaps back.
+- **Bookmark browser pages in a project.** The star at the end of the address field saves the page, and a blank tab lists the project's bookmarks.
+- **Files an agent makes become download links** in its reply. Clicking one saves a copy to Downloads and offers **Open** and **Show in Finder**. Programs and scripts are only shown in Finder.
+- **See code changes side by side.** A button in a diff's header puts the old file beside the new one, the words that changed inside a line are marked, and with the diff focused **j**/**k** move between changes and **]**/**[** between files.
+- **A dot pointer.** Over Aven's own windows the arrow becomes a soft grey dot. Text fields keep the I-beam, and pages in the in-app browser keep their own pointer. Turn it off in Settings › Appearance › **Dot pointer**.
+- **Ink in new chats.** Moving the pointer over a new chat stirs faint grey ink that drifts and fades. Holding gathers it, letting go bursts it outward, and it fades with the first message. Turn it off in Settings › General › **Ink in new chats**.
+
+### Changed
+
+- **Agents are drawn as Bot,** a little robot whose eyes and light show whether it's resting, watching, working or needs you, and helpers wear their job. **Projects are drawn as a Stack** of pages in the project's colour, fanned out while the project is open. Project logos are unchanged.
+- **A working agent shows as a dot grid** in the message box instead of the "Writing a reply" pill. The dots show what it's doing, pointing at them makes them the Stop button, and the time shows only when you point at it.
+- **Pinned tabs are quiet marks:** smaller, with no plate until you point at or open one.
+- **Token, cost and context numbers roll** only the digits that change, up as they rise and down as they fall.
+- **What you send flies into the chat,** and an agent's new words fade in as they arrive.
+- **Long names fade out** instead of ending in "…", file paths keep both ends, and lists fade at an edge only while there's more past it.
+
+### Fixed
+
+- **The tab in front stays in view** in the top row, clear of the scroll arrows, when many tabs are open.
+- **Pinned marks sit centred** in their tiles again.
+- **Closing a tab no longer leaves its highlight behind** when the tab you closed sat before the one you were on.
+
 ## [0.1.170] - 2026-11-05
 
 ### Added
