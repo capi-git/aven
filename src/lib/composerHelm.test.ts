@@ -8,8 +8,11 @@ import {
   helmClock,
   helmCritterSnapshot,
   helmHintDue,
+  HELM_WORK_DOTS,
   helmPose,
   helmRows,
+  helmWork,
+  helmWorkWords,
   HELM_CRITTER_KEY,
   loadHelmCritter,
   markHelmHintSeen,
@@ -20,7 +23,7 @@ import {
   subscribeHelmCritter,
   turnChangedFiles,
 } from "./composerHelm";
-import type { Block } from "./session";
+import type { Block, Session } from "./session";
 
 let storage: Map<string, string>;
 
@@ -47,6 +50,18 @@ describe("the critter's pose", () => {
     expect(
       helmPose({ busy: true, hasValue: true, open: true, outcome: "error" }),
     ).toBe("running");
+  });
+
+  it("bounces for you while its turn waits on an approval or an answer", () => {
+    expect(
+      helmPose({
+        busy: true,
+        hasValue: true,
+        open: true,
+        outcome: null,
+        needsYou: true,
+      }),
+    ).toBe("needs");
   });
 
   it("sparkles when done and sweats on an error, which outlasts hovering", () => {
@@ -231,5 +246,135 @@ describe("what the helm remembers", () => {
     expect(helmHintDue()).toBe(true);
     markHelmHintSeen();
     expect(helmHintDue()).toBe(false);
+  });
+});
+
+describe("the work dots", () => {
+  const session = (blocks: Block[], extra: Partial<Session> = {}): Session =>
+    ({
+      id: "s",
+      title: "Task",
+      cwd: "/repo",
+      harness: "codex",
+      model: "codex:gpt",
+      modelSettings: {},
+      runtimeMode: "full-access",
+      busy: true,
+      blocks: [
+        { id: "u", role: "user", text: "Go", startedAt: 1000 },
+        ...blocks,
+      ],
+      ...extra,
+    }) as Session;
+  const working = { kind: "working", label: "Working" } as const;
+
+  it("draws what the turn's latest block does", () => {
+    expect(helmWork(session([]), working)).toBe("think");
+    expect(
+      helmWork(session([{ id: "r", role: "reasoning", text: "…" }]), working),
+    ).toBe("think");
+    expect(
+      helmWork(session([{ id: "a", role: "assistant", text: "Hi" }]), working),
+    ).toBe("write");
+    expect(
+      helmWork(session([{ id: "p", role: "plan", text: "1." }]), working),
+    ).toBe("write");
+    expect(
+      helmWork(
+        session([{ id: "t", role: "tool", text: "npm test", streaming: true }]),
+        working,
+      ),
+    ).toBe("tool");
+  });
+
+  it("looks past a message that steers the turn, but not past its start", () => {
+    const steered = session([
+      { id: "a", role: "assistant", text: "Hi" },
+      { id: "steer", role: "user", text: "Also this" },
+    ]);
+    expect(helmWork(steered, working)).toBe("write");
+    const earlier = session([{ id: "a", role: "assistant", text: "Hi" }]);
+    earlier.blocks.push({
+      id: "next",
+      role: "user",
+      text: "Next",
+      startedAt: 5,
+    });
+    expect(helmWork(earlier, working)).toBe("think");
+  });
+
+  it("puts waiting for you, then what holds the turn up, before its blocks", () => {
+    const busy = session([{ id: "a", role: "assistant", text: "Hi" }]);
+    const asking = session([
+      { id: "ok", role: "tool", text: "Command", approval: { requestId: 1 } },
+    ]);
+    expect(helmWork(asking, working)).toBe("needs");
+    for (const holdUp of ["retrying", "usage-limit", "starting"] as const)
+      expect(helmWork(busy, { ...working, holdUp })).toBe("held");
+    expect(helmWork(busy, { ...working, holdUp: "command" })).toBe("tool");
+    expect(helmWork(busy, { ...working, holdUp: "helpers" })).toBe("tool");
+    expect(helmWork(busy, { kind: "waiting", label: "Agents waiting" })).toBe(
+      "tool",
+    );
+  });
+
+  it("says a few words, keeping the whole line for the tooltip", () => {
+    const status = {
+      kind: "working",
+      label: "Working",
+      detail: "Writing a reply",
+      doing: "Writing a reply",
+    } as const;
+    expect(helmWorkWords(status, "write", "row")).toEqual({
+      text: "Writing",
+      hint: "Writing a reply",
+      loud: false,
+    });
+    expect(
+      helmWorkWords(
+        { ...status, doing: "Edit app.js", detail: "Edit app.js" },
+        "tool",
+        "row",
+      ),
+    ).toEqual({ text: "Edit app.js", loud: false });
+    expect(helmWorkWords(status, "write", "attention").text).toBe("Working");
+    expect(
+      helmWorkWords(
+        {
+          kind: "waiting",
+          label: "Needs you",
+          detail: "Answer the question below",
+        },
+        "needs",
+        "row",
+      ),
+    ).toEqual({
+      text: "Needs you",
+      hint: "Needs you · Answer the question below",
+      loud: true,
+    });
+    expect(
+      helmWorkWords(
+        {
+          kind: "working",
+          label: "Usage limit reached",
+          detail: "Resets 3:00 PM",
+          holdUp: "usage-limit",
+        },
+        "held",
+        "row",
+      ),
+    ).toEqual({ text: "Usage limit reached · Resets 3:00 PM", loud: true });
+    expect(helmWorkWords(status, "stopping", "row").text).toBe("Stopping");
+  });
+
+  it("draws each pattern from the 5×5 grid", () => {
+    const dots = (path: string) => path.split("M").length - 1;
+    expect(HELM_WORK_DOTS.rings.map(dots)).toEqual([1, 8, 16]);
+    expect(HELM_WORK_DOTS.lines).toHaveLength(13);
+    expect(HELM_WORK_DOTS.diagonals).toHaveLength(9);
+    expect(dots(HELM_WORK_DOTS.bang)).toBe(4);
+    expect(dots(HELM_WORK_DOTS.stop)).toBe(9);
+    expect(dots(HELM_WORK_DOTS.grid)).toBe(25);
   });
 });

@@ -6,20 +6,29 @@
  * and the two small choices it remembers (the mark for chats outside a
  * project, and the one-time hint).
  */
+import {
+  DOT_GRID,
+  dotsPath,
+  GRID_DIAGONAL_PATHS,
+  GRID_PATH,
+  litCells,
+} from "./dotSigils";
 import { isEditTool } from "./harness/preview";
-import type { Block } from "./session";
+import { sessionIsWaitingForInput, type Block, type Session } from "./session";
+import type { SessionRunStatus } from "./sessionRunStatus";
 
 /**
  * What the mark is doing:
  * - `rest`: still, nothing typed and nothing running.
  * - `typing`: breathing slowly while you write.
  * - `hover`: the same, while its menu is open.
- * - `running`: a light sweeping across it while the agent works.
+ * - `running`: typing while the agent works.
+ * - `needs`: bouncing, amber, while the turn waits for you.
  * - `done`: its dots reshaped into a tick as a turn finishes, then rest.
  * - `error`: a cross while something needs fixing.
  */
 export type HelmPose =
-  "rest" | "typing" | "hover" | "running" | "done" | "error";
+  "rest" | "typing" | "hover" | "running" | "needs" | "done" | "error";
 
 /** What the speech bubble beside the mark says, if anything. */
 export type HelmOutcome = "done" | "stopped" | "error" | null;
@@ -29,18 +38,151 @@ export function helmPose({
   hasValue,
   open,
   outcome,
+  needsYou = false,
 }: {
   busy: boolean;
   hasValue: boolean;
   open: boolean;
   outcome: HelmOutcome;
+  /** The running turn waits for an approval or an answer. */
+  needsYou?: boolean;
 }): HelmPose {
+  if (needsYou) return "needs";
   if (busy) return "running";
   if (outcome === "error") return "error";
   if (open) return "hover";
   if (outcome === "done") return "done";
   return hasValue ? "typing" : "rest";
 }
+
+/**
+ * What the dots beside the mark draw while a turn runs:
+ * - `think`: a ripple from the middle, while it thinks or has done nothing
+ *   yet.
+ * - `write`: lines filling in, while it writes its reply or a plan.
+ * - `tool`: a light sweeping corner to corner, while a tool, a long
+ *   command or its helper agents work.
+ * - `held`: the whole grid breathing slowly, while a retry, the usage limit
+ *   or a slow start holds the turn up.
+ * - `needs`: an amber "!", while it waits for an approval or an answer.
+ * - `stopping`: the dots going out, once Stop is pressed.
+ */
+export type HelmWork =
+  "think" | "write" | "tool" | "held" | "needs" | "stopping";
+
+/**
+ * What a running turn does, for its dots: the run status's hold-up first,
+ * then the turn's latest block. A message sent while it works steers the
+ * turn without starting a new one, so the blocks before it still count.
+ */
+export function helmWork(
+  session: Session,
+  status: Pick<SessionRunStatus, "kind" | "holdUp" | "label">,
+): Exclude<HelmWork, "stopping"> {
+  if (sessionIsWaitingForInput(session)) return "needs";
+  if (
+    status.holdUp === "retrying" ||
+    status.holdUp === "usage-limit" ||
+    status.holdUp === "starting"
+  )
+    return "held";
+  // A long command, or helper agents the reply waits on.
+  if (status.holdUp) return "tool";
+  // The chat's helpers work on with the turn over, or their state is lost.
+  if (status.kind === "waiting")
+    return status.label === "Agents waiting" ? "tool" : "held";
+  for (let index = session.blocks.length - 1; index >= 0; index--) {
+    const block = session.blocks[index];
+    if (block.role === "user") {
+      if (block.startedAt !== undefined || block.turnModel) break;
+      continue;
+    }
+    if (block.role === "reasoning") return "think";
+    if (block.role === "assistant" || block.role === "plan") return "write";
+    if (
+      block.role === "tool" ||
+      block.role === "approval" ||
+      block.role === "handoff"
+    )
+      return "tool";
+  }
+  return "think";
+}
+
+/** The bubble's shorter words for the run status's common ones. */
+const SHORT_WORDS: Readonly<Record<string, string>> = {
+  "Writing a reply": "Writing",
+};
+
+/**
+ * What a running turn's bubble says beside its dots: a few words for the
+ * work ("Thinking", "Writing", "Edit app.js"), "Needs you" when it waits,
+ * or what holds it up. `hint` is the whole line, for the tooltip, when the
+ * words leave some out. `loud` words stay in a narrow box, where the dots
+ * otherwise say it alone: waiting for you, and a hold-up that stops the
+ * work (a retry, the usage limit, a slow start).
+ */
+export function helmWorkWords(
+  status: Pick<
+    SessionRunStatus,
+    "kind" | "label" | "detail" | "doing" | "holdUp"
+  >,
+  work: HelmWork,
+  placement: "row" | "attention",
+): { text: string; hint?: string; loud: boolean } {
+  if (work === "stopping") return { text: "Stopping", loud: false };
+  if (work === "needs")
+    return {
+      text: "Needs you",
+      ...(status.detail ? { hint: `Needs you · ${status.detail}` } : {}),
+      loud: true,
+    };
+  // What holds the turn up, or the helpers it waits on, says it all.
+  if (status.holdUp || status.kind === "waiting")
+    return {
+      text: [status.label, status.detail].filter(Boolean).join(" · "),
+      loud: work === "held",
+    };
+  if (placement === "attention") return { text: status.label, loud: false };
+  const doing = status.doing ?? status.label;
+  const short = SHORT_WORDS[doing];
+  return short
+    ? { text: short, hint: doing, loud: false }
+    : { text: doing, loud: false };
+}
+
+/**
+ * The work dots' patterns, over the marks' 100-unit grid (`dotSigils`):
+ * the faint grid under them; its rings from the middle out (the ripple, and
+ * the dots going out); the lines it writes, a dot at a time, as the
+ * Scribe's mark draws them; its diagonals (the sweep); the "!"; and the
+ * middle nine, lit as Stop while it is pointed at.
+ */
+export const HELM_WORK_DOTS = (() => {
+  const every: [number, number][] = [];
+  for (let y = 0; y < DOT_GRID; y++)
+    for (let x = 0; x < DOT_GRID; x++) every.push([y, x]);
+  const middle = (DOT_GRID - 1) / 2;
+  const ring = ([y, x]: [number, number]) =>
+    Math.max(Math.abs(y - middle), Math.abs(x - middle));
+  return {
+    grid: GRID_PATH,
+    rings: [0, 1, 2].map((k) =>
+      dotsPath(every.filter((cell) => ring(cell) === k)),
+    ),
+    lines: litCells(["11111", "00000", "11111", "00000", "11100"]).map((cell) =>
+      dotsPath([cell]),
+    ),
+    diagonals: GRID_DIAGONAL_PATHS,
+    bang: dotsPath([
+      [0, 2],
+      [1, 2],
+      [2, 2],
+      [4, 2],
+    ]),
+    stop: dotsPath(every.filter((cell) => ring(cell) <= 1)),
+  } as const;
+})();
 
 /** How many recently used skills the dialog's Skills page offers. */
 export const HELM_RECENT_SKILLS = 4;

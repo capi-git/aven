@@ -1,9 +1,11 @@
 import {
   createContext,
+  memo,
   useContext,
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useWakeAt } from "../hooks/useWakeAt";
@@ -12,10 +14,15 @@ import {
   doneWords,
   HELM_DONE_MS,
   HELM_STOPPED_MS,
+  HELM_WORK_DOTS,
   helmClock,
+  helmWork,
+  helmWorkWords,
   turnChangedFiles,
   type HelmOutcome,
+  type HelmWork,
 } from "../lib/composerHelm";
+import { DOT_VIEW_BOX } from "../lib/dotSigils";
 import type { Session } from "../lib/session";
 import { sessionAgentSummary } from "../lib/sessionAgents";
 import {
@@ -54,7 +61,14 @@ export type HelmFix = { label: string; run: () => void; detail?: string };
 export type HelmSay =
   | {
       kind: "running";
+      /** A few words: "Thinking", "Writing", "Edit app.js", "Needs you". */
       text: string;
+      /** The whole line, when `text` leaves some of it out. */
+      hint?: string;
+      /** What the dots draw. */
+      work: Exclude<HelmWork, "stopping">;
+      /** Words that stay in a narrow box (`helmWorkWords`). */
+      loud: boolean;
       startedAt?: number;
       queued: number;
       agents: number;
@@ -122,12 +136,15 @@ export function useHelmSay(
   };
   const live = ended && Date.now() < ended.until ? ended : null;
 
-  if (!status) {
+  // A status comes only with the run it is of.
+  if (!status || !run) {
     return {
       say: busy
         ? {
             kind: "running",
             text: "Working…",
+            work: "think",
+            loud: false,
             queued: 0,
             agents: 0,
             waiting: false,
@@ -137,26 +154,23 @@ export function useHelmSay(
       dismiss,
     };
   }
-  const queued = run?.session.queuedMessages?.length ?? 0;
-  const agents = run?.session.liveAgents?.length ?? 0;
+  const queued = run.session.queuedMessages?.length ?? 0;
+  const agents = run.session.liveAgents?.length ?? 0;
   if (
     busy ||
     status.kind === "working" ||
     (status.kind === "waiting" && status.canStop)
   ) {
     const waiting = status.kind === "waiting";
+    const work = helmWork(run.session, status);
     // A hold-up (a retry, the usage limit, a long command) says what holds
     // the turn and its countdown, as the Working row did.
-    const text =
-      waiting || status.holdUp
-        ? [status.label, status.detail].filter(Boolean).join(" · ")
-        : run?.placement === "attention"
-          ? status.label
-          : (status.doing ?? status.label);
+    const words = helmWorkWords(status, work, run.placement);
     return {
       say: {
         kind: "running",
-        text,
+        ...words,
+        work,
         startedAt: status.startedAt,
         queued,
         agents,
@@ -298,6 +312,122 @@ function Queued({ count }: { count: number }) {
 }
 
 /**
+ * The dots beside the mark: a 5×5 grid drawing what the turn does
+ * (`HelmWork`). Pointed at, the middle nine light as Stop over the rest.
+ * Each pattern is a few paths whose opacity moves; nothing runs in script.
+ */
+const WorkDots = memo(function WorkDots({
+  work,
+  stop,
+}: {
+  work: HelmWork;
+  /** The dots are the Stop button. */
+  stop: boolean;
+}) {
+  const lit = (kind: string, paths: readonly string[]) =>
+    paths.map((d, index) => (
+      <path
+        key={`${work}-${index}`}
+        className={`helm-work-lit ${kind}`}
+        d={d}
+        style={{ "--i": index } as CSSProperties}
+      />
+    ));
+  return (
+    <svg
+      className="helm-work-dots"
+      viewBox={DOT_VIEW_BOX}
+      aria-hidden
+      focusable="false"
+    >
+      <g className="helm-work-art">
+        <path className="helm-work-grid" d={HELM_WORK_DOTS.grid} />
+        {work === "think"
+          ? lit("helm-work-ripple", HELM_WORK_DOTS.rings)
+          : null}
+        {work === "write" ? lit("helm-work-line", HELM_WORK_DOTS.lines) : null}
+        {work === "tool"
+          ? lit("helm-work-sweep", HELM_WORK_DOTS.diagonals)
+          : null}
+        {work === "held" ? lit("helm-work-held", [HELM_WORK_DOTS.grid]) : null}
+        {work === "needs" ? (
+          <path className="helm-work-bang" d={HELM_WORK_DOTS.bang} />
+        ) : null}
+        {/* From the outside in. */}
+        {work === "stopping"
+          ? lit("helm-work-out", [...HELM_WORK_DOTS.rings].reverse())
+          : null}
+      </g>
+      {stop ? (
+        <path className="helm-work-stop-dots" d={HELM_WORK_DOTS.stop} />
+      ) : null}
+    </svg>
+  );
+});
+
+/**
+ * A running turn in the bubble: how long it has run (shown when pointed
+ * at), the dots, which are its one Stop, and a few words. Pressing Stop
+ * says "Stopping" until the turn ends.
+ */
+function RunningSay({
+  say,
+  run,
+  canStop,
+  onStop,
+}: {
+  say: Extract<HelmSay, { kind: "running" }>;
+  run: HelmRun | null;
+  canStop: boolean;
+  onStop?: () => void;
+}) {
+  const [stopping, setStopping] = useState(false);
+  const work: HelmWork = stopping ? "stopping" : say.work;
+  const text = stopping ? "Stopping" : say.text;
+  return (
+    <div
+      className="helm-say"
+      data-helm-say={say.waiting ? "waiting" : "running"}
+      data-work={work}
+    >
+      <RunClock startedAt={say.startedAt} />
+      {canStop ? (
+        <button
+          type="button"
+          className="helm-work"
+          aria-label="Stop"
+          title="Stop"
+          data-helm-stop
+          onClick={() => {
+            setStopping(true);
+            if (run) run.onStop(run.session.id);
+            else onStop?.();
+          }}
+        >
+          <WorkDots work={work} stop />
+        </button>
+      ) : (
+        <span className="helm-work">
+          <WorkDots work={work} stop={false} />
+        </span>
+      )}
+      <span
+        className="helm-say-text"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        title={stopping ? undefined : (say.hint ?? say.text)}
+        data-loud={(!stopping && say.loud) || undefined}
+      >
+        {text}
+      </span>
+      {say.queued ? <Queued count={say.queued} /> : null}
+      {run && say.agents ? <AgentsButton session={run.session} /> : null}
+    </div>
+  );
+}
+
+/**
  * The critter's speech bubble: what the agent is doing and for how long,
  * with the one Stop; then how it went; or what went wrong and its fix.
  */
@@ -328,45 +458,16 @@ export function HelmBubble({
       </div>
     );
   }
-  if (say.kind === "running") {
-    const canStop = !stopInBar;
+  if (say.kind === "running")
     return (
-      <div
-        className="helm-say"
-        data-helm-say={say.waiting ? "waiting" : "running"}
-      >
-        <span className="helm-say-dots" aria-hidden>
-          <i />
-          <i />
-          <i />
-        </span>
-        <span
-          className="helm-say-text"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          title={say.text}
-        >
-          {say.text}
-        </span>
-        <RunClock key={say.startedAt ?? "untimed"} startedAt={say.startedAt} />
-        {say.queued ? <Queued count={say.queued} /> : null}
-        {run && say.agents ? <AgentsButton session={run.session} /> : null}
-        {canStop ? (
-          <button
-            type="button"
-            className="helm-stop"
-            aria-label="Stop"
-            title="Stop"
-            data-helm-stop
-            onClick={() => (run ? run.onStop(run.session.id) : onStop?.())}
-          >
-            <i aria-hidden />
-          </button>
-        ) : null}
-      </div>
+      <RunningSay
+        key={say.startedAt ?? "untimed"}
+        say={say}
+        run={run}
+        canStop={!stopInBar}
+        onStop={onStop}
+      />
     );
-  }
   // The chat's subagents stay one press away after the turn, too: a
   // failure's details say to open them.
   const agents =

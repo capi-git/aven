@@ -106,6 +106,60 @@ describe("the critter's speech bubble", () => {
     expect(stop).toHaveBeenCalledWith("session");
   });
 
+  it.each([
+    ["reasoning", "think", "Thinking", "Thinking", ".helm-work-ripple", 3],
+    ["assistant", "write", "Writing", "Writing a reply", ".helm-work-line", 13],
+  ] as const)(
+    "draws a %s block's work in the dots, in a few words",
+    async (role, work, text, hint, pattern, paths) => {
+      session.blocks.push({ id: "b", role, text: "…", streaming: true });
+      await render();
+      expect(bubble()?.dataset.work).toBe(work);
+      const words = host.querySelector<HTMLElement>('[role="status"]')!;
+      expect(words.textContent).toBe(text);
+      expect(words.title).toBe(hint);
+      expect(words.hasAttribute("data-loud")).toBe(false);
+      expect(host.querySelectorAll(pattern)).toHaveLength(paths);
+    },
+  );
+
+  it("makes the dots the one Stop, which says Stopping until the turn ends", async () => {
+    session.blocks.push({ id: "a", role: "assistant", text: "Hi" });
+    await render();
+    const stopButton = host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Stop"]',
+    )!;
+    expect(stopButton.querySelector(".helm-work-dots")).not.toBeNull();
+    // The middle nine, lit as Stop while it is pointed at.
+    expect(stopButton.querySelector(".helm-work-stop-dots")).not.toBeNull();
+    await act(async () => stopButton.click());
+    expect(stop).toHaveBeenCalledWith("session");
+    expect(bubble()?.dataset.work).toBe("stopping");
+    expect(host.querySelector('[role="status"]')?.textContent).toBe("Stopping");
+    expect(host.querySelectorAll(".helm-work-out")).toHaveLength(3);
+    // A new turn starts afresh.
+    session = {
+      ...session,
+      blocks: [{ id: "next", role: "user", text: "Again", startedAt: 9000 }],
+    };
+    await render();
+    expect(bubble()?.dataset.work).toBe("think");
+  });
+
+  it("keeps what holds the turn up in words a narrow box still shows", async () => {
+    session = {
+      ...session,
+      waitingOn: {
+        retry: { attempt: 1, retryAt: 13_000, reason: "connection" },
+      },
+    };
+    await render();
+    expect(bubble()?.dataset.work).toBe("held");
+    expect(
+      host.querySelector('[role="status"]')?.hasAttribute("data-loud"),
+    ).toBe(true);
+  });
+
   it("keeps changes accessible without announcing the clock every second", async () => {
     await render();
     expect(
@@ -120,6 +174,9 @@ describe("the critter's speech bubble", () => {
     await render({ stopInBar: true, placement: "attention" });
     expect(bubble()?.textContent).toContain("Working");
     expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
+    // The dots still say what it does; nothing in them stops it.
+    expect(host.querySelector(".helm-work-dots")).not.toBeNull();
+    expect(host.querySelector(".helm-work-stop-dots")).toBeNull();
   });
 
   it("says it needs you while an approval waits, then works on", async () => {
@@ -131,7 +188,12 @@ describe("the critter's speech bubble", () => {
     });
     await render();
     expect(bubble()?.dataset.helmSay).toBe("waiting");
-    expect(bubble()?.textContent).toContain("Needs you · Approval needed");
+    expect(bubble()?.dataset.work).toBe("needs");
+    const words = host.querySelector<HTMLElement>('[role="status"]')!;
+    expect(words.textContent).toBe("Needs you");
+    expect(words.title).toBe("Needs you · Approval needed");
+    expect(words.hasAttribute("data-loud")).toBe(true);
+    expect(host.querySelector(".helm-work-bang")).not.toBeNull();
     expect(host.querySelector('[aria-label="Stop"]')).not.toBeNull();
     session = {
       ...session,
