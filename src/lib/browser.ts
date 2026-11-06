@@ -279,6 +279,15 @@ export function browserSearchUrl(query: string): string {
 }
 
 /** User-entered omnibox text; strict URL validation still owns the native boundary. */
+/** "example.com" for a page's address; the address itself without a host. */
+export function readableHost(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "") || url;
+  } catch {
+    return url;
+  }
+}
+
 export function resolveBrowserAddress(value: string): string {
   const input = value.trim();
   if (!input) throw new Error("Enter a search or web address.");

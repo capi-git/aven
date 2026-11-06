@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   memory: vi.fn(),
   cards: vi.fn(),
   iphone: vi.fn(),
+  bookmarks: vi.fn(),
 }));
+vi.mock("./browserBookmarks", () => ({ clearBookmarks: mocks.bookmarks }));
 vi.mock("./sessionStore", () => ({ listProjectSessionIds: mocks.list }));
 vi.mock("./projectLogos", () => ({ clearProjectLogo: mocks.logo }));
 vi.mock("./chatBackground", () => ({
@@ -83,6 +85,7 @@ describe("project data removal", () => {
     expect(mocks.tabs).toHaveBeenCalledOnce();
     expect(mocks.memory).toHaveBeenCalledExactlyOnceWith("/project");
     expect(mocks.cards).toHaveBeenCalledExactlyOnceWith("/project");
+    expect(mocks.bookmarks).toHaveBeenCalledExactlyOnceWith("/project");
   });
 
   it("stops after cancellation and reports any completed deletions", async () => {
@@ -95,6 +98,7 @@ describe("project data removal", () => {
     );
     expect(mocks.logo).not.toHaveBeenCalled();
     expect(mocks.tabs).not.toHaveBeenCalled();
+    expect(mocks.bookmarks).not.toHaveBeenCalled();
   });
 
   it("counts and deletes closed workers captured before their lead is removed", async () => {

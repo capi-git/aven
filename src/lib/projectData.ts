@@ -1,3 +1,4 @@
+import { clearBookmarks } from "./browserBookmarks";
 import { isProjectView, type FilePaneTab, type WorkspaceTab } from "./layout";
 import { projectKey } from "./paths";
 import { clearProjectLogo } from "./projectLogos";
@@ -130,6 +131,7 @@ export async function removeProjectData(
     options.assertWorkspaceReady();
     clearProjectChatBackgroundSetting(key);
     clearTabGroupSettings(key);
+    clearBookmarks(normalized);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     const progress = removed
