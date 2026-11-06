@@ -1,4 +1,5 @@
 import { useChromeProps } from "../hooks/useChromeProps";
+import { FadeText } from "./FadeText";
 import { BrowserTabIcon } from "./BrowserTabIcon";
 import {
   ChevronDown,
@@ -791,9 +792,9 @@ function TitleTabItem({
             <span className="flex min-w-0 items-center gap-1">
               {/* Keep the task name on one line; model details remain in the
                   tooltip and the composer's model picker. */}
-              <span className="personal-title-tab-label aven-tab-label min-w-0 truncate">
+              <FadeText className="personal-title-tab-label aven-tab-label">
                 {headline}
-              </span>
+              </FadeText>
               {visible && !active ? (
                 <span className="personal-title-tab-visible" aria-hidden />
               ) : null}
@@ -1062,7 +1063,7 @@ function SplitSegment({
       ) : (
         <BrowserTabIcon favicon={segment.page?.favicon} />
       )}
-      <span className="aven-split-label">{label}</span>
+      <FadeText className="aven-split-label">{label}</FadeText>
       {segment.tab?.needsInput ? (
         <span
           className="personal-title-tab-needs-you"
@@ -1515,9 +1516,9 @@ function BrowserTitleTabItem({
           className="personal-title-tab-button personal-title-browser-button aven-tab-button flex min-w-0 flex-1 items-center"
         >
           {deck ? null : <BrowserTabIcon favicon={favicon} />}
-          <span className="personal-title-tab-label aven-tab-label min-w-0 truncate">
+          <FadeText className="personal-title-tab-label aven-tab-label">
             {label}
-          </span>
+          </FadeText>
           {visible && !active ? (
             <span className="personal-title-tab-visible" aria-hidden />
           ) : null}
@@ -1717,7 +1718,9 @@ function TabGroupLabel({
             }}
           >
             {group.name ? (
-              <span className="personal-tab-group-chip-name">{group.name}</span>
+              <FadeText className="personal-tab-group-chip-name">
+                {group.name}
+              </FadeText>
             ) : null}
             {group.collapsed ? (
               <span className="personal-tab-group-chip-count">{count}</span>
