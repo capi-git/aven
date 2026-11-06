@@ -392,7 +392,6 @@ import {
 } from "./lib/workspaceProfiles";
 import { loadRunScripts, saveRunScripts } from "./lib/workspaceActions";
 import { useProjectBranches } from "./hooks/useProjectBranches";
-import { type SidebarTabId } from "./lib/appearance";
 import { IS_MAC } from "./lib/platform";
 import {
   applyUiScale,
@@ -2304,12 +2303,9 @@ export default function App({
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
   const [inspector, setInspector] = useState(loadPersonalInspector);
-  const [sidebarTab, setSidebarTabValue] = useState<SidebarTabId>("sessions");
-  // Existing file/search actions route into the independent right panel.
-  const setSidebarTab = useCallback((tab: SidebarTabId) => {
-    if (tab === "files" || tab === "changes") {
-      setInspector((previous) => ({ ...previous, open: true, tab }));
-    } else setSidebarTabValue(tab);
+  // File, search and change actions open the side panel on their tab.
+  const showInspectorTab = useCallback((tab: "files" | "changes") => {
+    setInspector((previous) => ({ ...previous, open: true, tab }));
   }, []);
   const onInspectorTab = useCallback((tab: "files" | "changes") => {
     setInspector((previous) => ({ ...previous, tab }));
@@ -4139,7 +4135,6 @@ export default function App({
     (item: InboxItem) => {
       // The Inbox may have been opened over Home; show the new chat.
       showWorkspace();
-      setSidebarTab("sessions");
       const cwd = item.projectPath || sidebarCwd;
       const session = {
         ...newDefaultSession(cwd),
@@ -4160,7 +4155,6 @@ export default function App({
       if (!card.id) return;
       // Notes may have been opened over Home; show the new chat.
       showWorkspace();
-      setSidebarTab("sessions");
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
           ? card.sourceCwd
@@ -5279,7 +5273,7 @@ export default function App({
           : undefined;
         if (resolved) rememberOpenedFile(diffCwd, resolved);
         if (session && openReviewInOtherPaneRef.current(session, resolved)) {
-          setSidebarTab("changes");
+          showInspectorTab("changes");
           setComposerFocused(false);
           return;
         }
@@ -5309,7 +5303,7 @@ export default function App({
             );
           }),
         );
-        setSidebarTab("changes");
+        showInspectorTab("changes");
         setComposerFocused(false);
       })();
     },
@@ -5359,7 +5353,7 @@ export default function App({
 
   const onShowSourceControl = useCallback(() => {
     closeUtilityViews();
-    setSidebarTab("changes");
+    showInspectorTab("changes");
   }, []);
 
   const onToggleChanges = useCallback(() => {
@@ -9852,7 +9846,7 @@ export default function App({
 
   const onFindInProject = useCallback(() => {
     closeUtilityViews();
-    setSidebarTab("files");
+    showInspectorTab("files");
     setFilesSearchOpen(true);
     setSearchFocusToken((token) => token + 1);
   }, []);
@@ -9883,10 +9877,6 @@ export default function App({
 
   const onRailBack = onVisitBack;
   const onRailForward = onVisitForward;
-
-  useEffect(() => {
-    if (sidebarTab === "inbox") setSidebarTab("sessions");
-  }, [sidebarTab]);
 
   useEffect(() => {
     if (!dockVisible) setProjectTerminalFocused(false);
@@ -11248,7 +11238,7 @@ export default function App({
         // Ship it lives in the side panel's Changes for the project.
         onSelectProject(target);
         showWorkspace();
-        setSidebarTab("changes");
+        showInspectorTab("changes");
       }
     },
     [
@@ -11256,7 +11246,7 @@ export default function App({
       onSelectProject,
       openSettings,
       pickProject,
-      setSidebarTab,
+      showInspectorTab,
       showWorkspace,
       startProjectChat,
     ],
@@ -11859,7 +11849,6 @@ export default function App({
     "open" | "floating" | "hoverHandlers"
   > = {
     cwd: profileHome ? "~" : sidebarCwd,
-    gitCwd: profileHome ? "~" : gitCwd,
     profiles: profiles.profiles,
     profilePreviews,
     activeProfileId: profiles.activeProfileId,
@@ -11878,18 +11867,6 @@ export default function App({
     projectHistoryErrors: profileHistoryErrors,
     onSelectProjectSession: (_path, id) => void onSelectHistorySession(id),
     onNewProjectTask,
-    tab: sidebarTab,
-    onTabChange: (tab) => {
-      setSidebarTab(tab);
-      setSearchViewOpen(false);
-      setInboxViewOpen(false);
-      setAutomationsViewOpen(false);
-      setNotesViewOpen(false);
-    },
-    filesSearchOpen,
-    onFilesSearchOpenChange: setFilesSearchOpen,
-    onOpenFilesSearch: onFindInProject,
-    searchFocusToken,
     sessions: profileHome
       ? []
       : standaloneActive
@@ -11914,24 +11891,10 @@ export default function App({
     onAddToBoard,
     onDeleteSession: onDeleteHistorySession,
     onDeleteSessions: onDeleteHistorySessions,
-    onOpenFile,
-    onOpenTerminal,
-    onFileMoved,
-    onFileDeleted,
     canGoBack: tabVisitNav.canBack,
     canGoForward: tabVisitNav.canForward,
     onGoBack: onRailBack,
     onGoForward: onRailForward,
-    onOpenDiff: onOpenWorkingTreeDiff,
-    onOpenAllChanges,
-    onOpenCommit,
-    onShowSourceControl: onToggleChanges,
-    selectedDiffPath: activeTab
-      ? selectedChangePath(activeTab, gitCwd)
-      : undefined,
-    selectedDiffKind: activeTab ? selectedChangeKind(activeTab) : undefined,
-    selectedCommitSha: activeTab ? selectedCommitSha(activeTab) : undefined,
-    textHarness: pickTextHarness(active?.harness),
     recents: profiles.profileProjects,
     projectStatus,
     liveAgents,
@@ -11939,7 +11902,6 @@ export default function App({
     bots: sidebarBots,
     onOpenBot,
     onBotSettings: onBotAction,
-    onAddBot,
     crews: sidebarCrews,
     avos: avosGlances,
     onOpenAvos,
@@ -11961,12 +11923,10 @@ export default function App({
       ? () => onSelectProject(standaloneCwd)
       : undefined,
     openSessions: profileHome ? [] : openProjectSessions,
-    onNewTerminal,
     onSearch: onOpenSearch,
     onOpenInbox,
     onOpenAutomations,
     onOpenNotes: notesEnabled ? onOpenNotes : undefined,
-    onGoToFile,
     searchActive: searchViewOpen,
     inboxActive: inboxViewOpen,
     automationsActive: automationsViewOpen,
@@ -11977,7 +11937,6 @@ export default function App({
     automationsUnread,
     inboxCount,
     notesEnabled,
-    projectRailOpen,
     onToggleProjectRail,
     unseenFinishedIds,
     settingsOpen,
@@ -13235,14 +13194,12 @@ export default function App({
                     {settingsOpen ? (
                       <LazyViewSlot label="Settings">
                         <SettingsView
-                          showToolbar={false}
                           section={settingsSection}
                           onSelectSection={onSelectSettingsSection}
                           workspaceName={profiles.activeProfile.name}
                           cwd={sidebarCwd}
                           sessions={sidebarHistory}
                           besideRail={sidebarOpen}
-                          onToggleSidebar={onToggleSidebar}
                           onClose={onCloseSettings}
                           onOpenSession={onOpenArchivedSession}
                           onArchiveSession={onArchiveHistorySession}

@@ -3,7 +3,7 @@ import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsView } from "./SettingsView";
-import { ModelPicker } from "../chrome/ModelPicker";
+import { ModelChooser, useCurrentModel } from "../chrome/ModelPicker";
 import { BuildTargetButton } from "../chrome/SecondOpinionButton";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
 import { loadProviderToolAutoUpdates } from "../lib/providerToolUpdates";
@@ -64,6 +64,26 @@ function Settings() {
 
 const opus = "claude:opus-5";
 const sonnet = "claude:sonnet-5";
+
+/** The model a chat on `model` shows in its message box, by name. */
+function CurrentModel({ model }: { model: string }) {
+  const current = useCurrentModel("claude", model);
+  return createElement("span", { "data-current-model": "" }, current.name);
+}
+
+/** The agent panel's model list, as a chat on `model` opens it. */
+function models(model: string, onPick: () => void, key = 0) {
+  return createElement(
+    Fragment,
+    { key },
+    createElement(CurrentModel, { model }),
+    createElement(ModelChooser, { harness: "claude", model, onPick }),
+  );
+}
+
+const modelList = () =>
+  document.querySelector('[role="listbox"][aria-label="Models"]')!
+    .textContent ?? "";
 
 describe("provider and model controls", () => {
   let container: HTMLDivElement;
@@ -243,11 +263,7 @@ describe("provider and model controls", () => {
           Fragment,
           null,
           createElement(Settings),
-          createElement(ModelPicker, {
-            harness: "claude",
-            model: opus,
-            onChange,
-          }),
+          models(opus, onChange),
         ),
       ),
     );
@@ -276,18 +292,25 @@ describe("provider and model controls", () => {
       ),
     );
     expect(control("Show Sonnet 5 in Claude Code").disabled).toBe(true);
-    await click("Claude Code Opus 5");
-    const choices = document.querySelector(
-      '[role="listbox"][aria-label="Models"]',
-    )!;
-    expect(choices.textContent).toContain("Sonnet 5");
-    expect(choices.textContent).not.toContain("Opus 5");
+    // The chat stays on Opus 5; the list it opens no longer offers it.
+    await act(async () =>
+      root.render(
+        createElement(
+          Fragment,
+          null,
+          createElement(Settings),
+          models(opus, onChange, 1),
+        ),
+      ),
+    );
+    expect(modelList()).toContain("Sonnet 5");
+    expect(modelList()).not.toContain("Opus 5");
     expect(onChange).not.toHaveBeenCalled();
-    expect(control("Claude Code Opus 5")).not.toBeNull();
+    expect(document.querySelector("[data-current-model]")?.textContent).toBe(
+      "Opus 5",
+    );
     await click("Claude Code");
-    expect(
-      document.querySelector('[role="listbox"]')!.textContent,
-    ).not.toContain("Opus 5");
+    expect(modelList()).not.toContain("Opus 5");
   });
 
   it("restores individual model choices on Show all without enabling their provider", async () => {
@@ -374,11 +397,7 @@ describe("provider and model controls", () => {
           Fragment,
           null,
           createElement(Settings),
-          createElement(ModelPicker, {
-            harness: "claude",
-            model: liveSonnet.id,
-            onChange,
-          }),
+          models(liveSonnet.id, onChange),
         ),
       ),
     );
@@ -387,20 +406,22 @@ describe("provider and model controls", () => {
       control("Show Sonnet 5 in Claude Code").getAttribute("aria-checked"),
     ).toBe("false");
     expect(defaultSessionChoice().model).toBe(liveOpus.id);
-    await click("Claude Code Sonnet 5");
-    expect(
-      document.querySelector('[role="listbox"]')!.textContent,
-    ).not.toContain("Sonnet 5");
-    expect(document.querySelector('[role="listbox"]')!.textContent).toContain(
-      "Opus 5",
-    );
-    await click("Claude Code Sonnet 5");
+    expect(modelList()).not.toContain("Sonnet 5");
+    expect(modelList()).toContain("Opus 5");
     await click("Show Sonnet 5 in Claude Code");
     expect(loadHiddenPickerModels()).toEqual([]);
-    await click("Claude Code Sonnet 5");
-    expect(document.querySelector('[role="listbox"]')!.textContent).toContain(
-      "Sonnet 5",
+    // Opened again, the list offers it once more.
+    await act(async () =>
+      root.render(
+        createElement(
+          Fragment,
+          null,
+          createElement(Settings),
+          models(liveSonnet.id, onChange, 1),
+        ),
+      ),
     );
+    expect(modelList()).toContain("Sonnet 5");
     expect(onChange).not.toHaveBeenCalled();
   });
 });

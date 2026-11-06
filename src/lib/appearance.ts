@@ -7,11 +7,8 @@ const THEME_HUE_KEY = "monocode.themeHue";
 const THEME_SATURATION_KEY = "monocode.themeSaturation";
 const OPACITY_KEY = "monocode.sidebarOpacity";
 const BLUR_KEY = "monocode.sidebarBlur";
-const PROJECT_RAIL_OPEN_KEY = "monocode.projectRailOpen";
 const BODY_KEY = "monocode.bodyGlass";
 const SCHEME_KEY = "monocode.colorScheme";
-const SIDEBAR_TAB_ORDER_KEY = "monocode.sidebarTabOrder";
-const PROJECT_RAIL_WIDTH_KEY = "monocode.projectRailWidth";
 const TRANSCRIPT_LAYOUT_KEY = "monocode.transcriptLayout";
 const TRANSCRIPT_ANCHOR_KEY = "monocode.transcriptAnchor";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
@@ -155,15 +152,6 @@ export const TRANSCRIPT_ANCHOR_CHANGE_EVENT = "monocode:transcriptanchorchange";
 /** Fired on `window` whenever the transcript layout flips (detail: TranscriptLayout). */
 export const TRANSCRIPT_LAYOUT_CHANGE_EVENT = "monocode:transcriptlayoutchange";
 
-export type SidebarTabId = "files" | "sessions" | "changes" | "inbox";
-
-const DEFAULT_SIDEBAR_TAB_ORDER: SidebarTabId[] = [
-  "sessions",
-  "inbox",
-  "files",
-  "changes",
-];
-
 export const THEME_HUE_MIN = 0;
 export const THEME_HUE_MAX = 360;
 export const THEME_HUE_DEFAULT = 207;
@@ -188,10 +176,6 @@ export const SIDEBAR_BLUR_MIN = 0;
 export const SIDEBAR_BLUR_MAX = 64;
 export const SIDEBAR_BLUR_DEFAULT = 16;
 const LEGACY_SIDEBAR_BLUR_DEFAULT = 0;
-
-export const PROJECT_RAIL_WIDTH_MIN = 180;
-export const PROJECT_RAIL_WIDTH_MAX = 360;
-export const PROJECT_RAIL_WIDTH_DEFAULT = 200;
 
 export const BODY_GLASS_DEFAULT = true;
 const LEGACY_BODY_GLASS_DEFAULT = false;
@@ -271,13 +255,6 @@ export function loadThemeHue(): number {
   );
 }
 
-export function saveThemeHue(value: number) {
-  writeNumber(
-    THEME_HUE_KEY,
-    Math.round(clamp(value, THEME_HUE_MIN, THEME_HUE_MAX)),
-  );
-}
-
 export function loadThemeSaturation(): number {
   return Math.round(
     clamp(
@@ -288,13 +265,6 @@ export function loadThemeSaturation(): number {
       THEME_SATURATION_MIN,
       THEME_SATURATION_MAX,
     ),
-  );
-}
-
-export function saveThemeSaturation(value: number) {
-  writeNumber(
-    THEME_SATURATION_KEY,
-    Math.round(clamp(value, THEME_SATURATION_MIN, THEME_SATURATION_MAX)),
   );
 }
 
@@ -531,14 +501,6 @@ export function loadThemePreference(): ThemePreference {
       : THEME_PREFERENCE_DEFAULT;
   } catch {
     return THEME_PREFERENCE_DEFAULT;
-  }
-}
-
-export function saveThemePreference(value: ThemePreference) {
-  try {
-    localStorage.setItem(SCHEME_KEY, value);
-  } catch {
-    // private mode / quota
   }
 }
 
@@ -785,13 +747,6 @@ export function loadSidebarOpacity(): number {
   );
 }
 
-export function saveSidebarOpacity(value: number) {
-  writeNumber(
-    OPACITY_KEY,
-    clamp(value, SIDEBAR_OPACITY_MIN, SIDEBAR_OPACITY_MAX),
-  );
-}
-
 export function applySidebarOpacity(value: number) {
   const next = HAS_NATIVE_GLASS
     ? clamp(value, SIDEBAR_OPACITY_MIN, SIDEBAR_OPACITY_MAX)
@@ -821,13 +776,6 @@ export function loadSidebarBlur(): number {
   );
 }
 
-export function saveSidebarBlur(value: number) {
-  writeNumber(
-    BLUR_KEY,
-    Math.round(clamp(value, SIDEBAR_BLUR_MIN, SIDEBAR_BLUR_MAX)),
-  );
-}
-
 export function applySidebarBlur(value: number) {
   const next = Math.round(clamp(value, SIDEBAR_BLUR_MIN, SIDEBAR_BLUR_MAX));
   if (HAS_NATIVE_GLASS && appliedNativeBlur !== next) {
@@ -848,10 +796,6 @@ export function loadBodyGlass(): boolean {
       ? LEGACY_BODY_GLASS_DEFAULT
       : BODY_GLASS_DEFAULT)
   );
-}
-
-export function saveBodyGlass(value: boolean) {
-  writeFlag(BODY_KEY, value);
 }
 
 export function applyBodyGlass(value: boolean) {
@@ -989,66 +933,6 @@ export function applyChatBackgroundScope(value: ChatBackgroundScope) {
     value === "empty",
   );
   return value;
-}
-
-function isSidebarTabId(value: unknown): value is SidebarTabId {
-  return (
-    value === "files" ||
-    value === "sessions" ||
-    value === "changes" ||
-    value === "inbox"
-  );
-}
-
-export function loadProjectRailOpen(): boolean {
-  return readFlag(PROJECT_RAIL_OPEN_KEY) ?? true;
-}
-
-export function saveProjectRailOpen(value: boolean) {
-  writeFlag(PROJECT_RAIL_OPEN_KEY, value);
-}
-
-export function loadSidebarTabOrder(): SidebarTabId[] {
-  try {
-    const raw = localStorage.getItem(SIDEBAR_TAB_ORDER_KEY);
-    if (!raw) return [...DEFAULT_SIDEBAR_TAB_ORDER];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [...DEFAULT_SIDEBAR_TAB_ORDER];
-    const next = parsed.filter(isSidebarTabId);
-    for (const id of DEFAULT_SIDEBAR_TAB_ORDER) {
-      if (!next.includes(id)) next.push(id);
-    }
-    return next.length === DEFAULT_SIDEBAR_TAB_ORDER.length
-      ? next
-      : [...DEFAULT_SIDEBAR_TAB_ORDER];
-  } catch {
-    return [...DEFAULT_SIDEBAR_TAB_ORDER];
-  }
-}
-
-export function saveSidebarTabOrder(order: SidebarTabId[]) {
-  try {
-    localStorage.setItem(SIDEBAR_TAB_ORDER_KEY, JSON.stringify(order));
-  } catch {
-    // private mode / quota
-  }
-}
-
-export function loadProjectRailWidth(): number {
-  return Math.round(
-    clamp(
-      readNumber(PROJECT_RAIL_WIDTH_KEY) ?? PROJECT_RAIL_WIDTH_DEFAULT,
-      PROJECT_RAIL_WIDTH_MIN,
-      PROJECT_RAIL_WIDTH_MAX,
-    ),
-  );
-}
-
-export function saveProjectRailWidth(value: number) {
-  writeNumber(
-    PROJECT_RAIL_WIDTH_KEY,
-    Math.round(clamp(value, PROJECT_RAIL_WIDTH_MIN, PROJECT_RAIL_WIDTH_MAX)),
-  );
 }
 
 function isTranscriptLayout(value: unknown): value is TranscriptLayout {

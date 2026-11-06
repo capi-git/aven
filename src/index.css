@@ -461,13 +461,6 @@ input,
   pointer-events: none;
 }
 
-.composer-toolbar {
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-}
-
 html.theme-light [data-composer-box] {
   background: var(--color-background-base);
   box-shadow:
@@ -516,7 +509,6 @@ html.theme-light [data-composer-box] {
   );
 }
 
-.composer-toolbar::-webkit-scrollbar,
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
@@ -546,23 +538,6 @@ header[data-tauri-drag-region] button {
   display: block;
   width: 100%;
   height: 100%;
-}
-
-.sidebar-opacity-slider {
-  appearance: none;
-  height: 4px;
-  border-radius: var(--aven-radius-capsule);
-  background: color-mix(in srgb, var(--color-content) 15%, transparent);
-  outline: none;
-}
-
-.sidebar-opacity-slider::-webkit-slider-thumb {
-  appearance: none;
-  width: 12px;
-  height: 12px;
-  border-radius: var(--aven-radius-capsule);
-  background: var(--color-content);
-  cursor: var(--aven-cursor-pointer);
 }
 
 .agent-markdown [data-streamdown="code-block"],
@@ -1359,79 +1334,6 @@ html.theme-light .popover-backdrop {
 
 /* Popover, menu and dialog motion lives in motion.css with the other
    shared durations and curves. */
-
-/* Status-bar mark for a running terminal: three orange bars that light
-   one after another. */
-.terminal-live {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 10px;
-}
-
-.terminal-live-bar {
-  display: block;
-  width: 4px;
-  height: 8px;
-  border-radius: 0;
-  background: #e39b4a;
-  opacity: 0.4;
-}
-
-.terminal-live-bar:nth-child(1) {
-  animation: terminal-live-bar-1 3.2s linear infinite;
-}
-
-.terminal-live-bar:nth-child(2) {
-  animation: terminal-live-bar-2 3.2s linear infinite;
-}
-
-.terminal-live-bar:nth-child(3) {
-  animation: terminal-live-bar-3 3.2s linear infinite;
-}
-
-@keyframes terminal-live-bar-1 {
-  0%,
-  24.99%,
-  100% {
-    opacity: 0.4;
-  }
-  25%,
-  99.99% {
-    opacity: 0.85;
-  }
-}
-
-@keyframes terminal-live-bar-2 {
-  0%,
-  49.99%,
-  100% {
-    opacity: 0.4;
-  }
-  50%,
-  99.99% {
-    opacity: 0.85;
-  }
-}
-
-@keyframes terminal-live-bar-3 {
-  0%,
-  74.99%,
-  100% {
-    opacity: 0.4;
-  }
-  75%,
-  99.99% {
-    opacity: 0.85;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .terminal-live-bar {
-    animation: none;
-    opacity: 0.7;
-  }
-}
 
 [data-session-review-shell] + [data-message-queue] [data-message-queue-card] {
   border-top-left-radius: 0;

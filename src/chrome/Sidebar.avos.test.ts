@@ -11,9 +11,6 @@ vi.mock("./TitleBar", () => ({
   DevModeSlot: () => null,
   TabVisitNav: () => null,
 }));
-vi.mock("./WorkspaceThemePopover", () => ({
-  WorkspaceThemePopover: () => null,
-}));
 vi.mock("./PersonalWorkspaceSwitcher", () => ({
   PersonalWorkspaceSwitcher: () => null,
   WorkspaceProfileIcon: () => null,
@@ -163,11 +160,6 @@ beforeEach(() => {
     status: "idle",
     pending: false,
     onSelectSession: vi.fn(),
-    onOpenFile: vi.fn(),
-    tab: "sessions",
-    onTabChange: vi.fn(),
-    filesSearchOpen: false,
-    onFilesSearchOpenChange: vi.fn(),
   };
   container = document.createElement("div");
   document.body.append(container);
@@ -249,7 +241,6 @@ it("has no Teams section: only bots that work on their own, and nothing to add",
         bots: [puffin],
         avos: [glance()],
         onOpenAvos: vi.fn(),
-        onAddBot: vi.fn(),
       }),
     ),
   );

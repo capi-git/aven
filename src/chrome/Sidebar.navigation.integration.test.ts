@@ -43,11 +43,6 @@ const props: SidebarProps = {
   status: "idle",
   pending: false,
   onSelectSession: noop,
-  onOpenFile: noop,
-  tab: "sessions",
-  onTabChange: noop,
-  filesSearchOpen: false,
-  onFilesSearchOpenChange: noop,
   onSelectProfile: noop,
 };
 

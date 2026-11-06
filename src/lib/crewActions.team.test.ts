@@ -6,14 +6,9 @@ import {
   TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
   installCrewWorkspace,
-  pickCrewModels,
-  startTeamFrom,
-  teamIsPreset,
-  teamUnstarted,
   tellTeam,
   tellTeammate,
 } from "./crewActions";
-import { CREW_TEAM_PRESETS } from "./crewPresets";
 import {
   activeCrews,
   CREW_GOAL_MAX,
@@ -40,12 +35,6 @@ vi.mock("./fs", () => ({ notifyGitChanged: vi.fn() }));
 
 const PATH = "/Users/me/pom";
 const NOON = new Date(2026, 10, 1, 12).getTime();
-const MODELS = pickCrewModels({
-  codex: true,
-  claudeModels: ["claude:opus-5.5", "claude:sonnet-5"],
-  preferredClaude: "claude:opus-5.5",
-  preferredCodex: "codex:gpt-5.6",
-});
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", memoryStorage());
@@ -215,37 +204,7 @@ describe("writing to one teammate", () => {
   });
 });
 
-describe("starting from a suggested team", () => {
-  it("only before the team has ever started; its Checker stays as it is", () => {
-    ensureCrewSaved(PATH);
-    updateCrew(PATH, (crew) => ({
-      ...crew,
-      members: crew.members.map((member) =>
-        member.role === "checker"
-          ? { ...member, instructions: "Run the e2e tests." }
-          : member,
-      ),
-    }));
-    const crew = getCrew(PATH)!;
-    expect(teamUnstarted(crew)).toBe(true);
-    const [ship, polish] = CREW_TEAM_PRESETS;
-    expect(teamIsPreset(crew, ship!)).toBe(true);
-    expect(startTeamFrom(PATH, "polish", MODELS)).toBeNull();
-    const next = getCrew(PATH)!;
-    expect(teamIsPreset(next, polish!)).toBe(true);
-    expect(
-      next.members.find((member) => member.role === "checker")?.instructions,
-    ).toBe("Run the e2e tests.");
-    // Each new one on its role's usual app: a Builder on Claude.
-    expect(
-      next.members.find((member) => member.preset === "designer"),
-    ).toMatchObject({ harness: "claude", model: "claude:opus-5.5" });
-    on();
-    expect(startTeamFrom(PATH, "ship", MODELS)).toBe(
-      "Add or remove helpers one at a time once Avos has started.",
-    );
-  });
-
+describe("before Avos starts", () => {
   it("saves a project's team before it is built, off, with its usual teammates", () => {
     expect(getCrew(PATH)).toBeUndefined();
     ensureCrewSaved(PATH);
@@ -313,25 +272,5 @@ describe("a teammate's own chat", () => {
         "builder",
       ),
     ).toBe(true);
-  });
-});
-
-describe("a suggested team, once you've changed a teammate", () => {
-  it("keeps that teammate and says so", () => {
-    ensureCrewSaved(PATH);
-    updateCrew(PATH, (crew) => ({
-      ...crew,
-      members: crew.members.map((member) =>
-        member.id === "security" ? { ...member, model: "codex:gpt-9" } : member,
-      ),
-    }));
-    expect(startTeamFrom(PATH, "polish", MODELS)).toBe(
-      "Kept Security: you changed its settings. Remove it from its page if you don't need it.",
-    );
-    const roles = getCrew(PATH)!.members.map(
-      (member) => member.preset ?? member.id,
-    );
-    // The plain Builder (never changed) left; Security stayed.
-    expect(roles.sort()).toEqual(["checker", "designer", "security", "tester"]);
   });
 });

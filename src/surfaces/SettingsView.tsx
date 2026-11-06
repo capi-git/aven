@@ -5,8 +5,6 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
-  X,
-  ChevronRight,
 } from "../chrome/icons";
 import {
   useCallback,
@@ -41,7 +39,6 @@ import {
 import "./SettingsView.css";
 import { saveAutosave } from "../lib/settings";
 import { HarnessIcon } from "../chrome/HarnessIcon";
-import { OverlayNav } from "../chrome/TitleBar";
 import {
   IS_PERSONAL_BUILD,
   PERSONAL_UPDATE_DESCRIPTION,
@@ -53,7 +50,6 @@ import {
   subscribeDefaultRuntimeMode,
 } from "../lib/runtimeMode";
 import { RemoveProjectDialog } from "../chrome/RemoveProjectDialog";
-import { WindowControls } from "../chrome/WindowControls";
 import { useSetting } from "../hooks/useSetting";
 import {
   currentDotPointerBlock,
@@ -243,9 +239,6 @@ type Props = {
   cwd: string;
   sessions: SessionSummary[];
   besideRail?: boolean;
-  /** False when the workspace window bar provides Settings navigation. */
-  showToolbar?: boolean;
-  onToggleSidebar?: () => void;
   onClose: () => void;
   onOpenSession: (sessionId: string) => void;
   onArchiveSession: (sessionId: string, archived: boolean) => void;
@@ -264,8 +257,6 @@ export function SettingsView({
   cwd,
   sessions,
   besideRail = false,
-  showToolbar = true,
-  onToggleSidebar,
   onClose,
   onOpenSession,
   onArchiveSession,
@@ -370,27 +361,6 @@ export function SettingsView({
       data-app-settings
       className="settings-view"
     >
-      {showToolbar ? (
-        <div className="settings-toolbar" data-tauri-drag-region="deep">
-          {IS_MAC && !besideRail ? <div className="w-[78px] shrink-0" /> : null}
-          <OverlayNav onBack={onClose} onToggleSidebar={onToggleSidebar} />
-          <div className="settings-breadcrumb">
-            <span>Settings</span>
-            <ChevronRight aria-hidden className="size-3" />
-            <span>{settingsSectionLabel(section)}</span>
-          </div>
-          <button
-            type="button"
-            className="settings-close"
-            aria-label="Close settings"
-            onClick={onClose}
-            data-tauri-drag-region="false"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
-          {IS_MAC ? null : <WindowControls />}
-        </div>
-      ) : null}
       <div className="settings-layout" data-embedded-nav={!besideRail}>
         {!besideRail ? (
           <aside

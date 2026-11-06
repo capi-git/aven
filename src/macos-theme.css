@@ -468,8 +468,7 @@ textarea {
     .team-card-button:not([data-variant]),
     .workspace-home-actions button:not(.workspace-home-new),
     .git-clean-action,
-    .personal-profile-new,
-    .personal-home-add
+    .personal-profile-new
   ):active:not(:disabled) {
   background: var(--aven-control-pressed);
 }
@@ -582,7 +581,6 @@ html:not(.theme-light)
     .personal-activity-phase,
     [data-streamdown="code-block"],
     [data-streamdown="table-wrapper"],
-    .settings-toolbar,
     .workspace-inspector-header,
     .workspace-footer,
     .browser-toolbar,
@@ -657,7 +655,6 @@ html.is-mac:not(.theme-light)
     .personal-activity-phase,
     [data-streamdown="code-block"],
     [data-streamdown="table-wrapper"],
-    .settings-toolbar,
     .workspace-inspector-header,
     .browser-toolbar,
     .browser-downloads,
@@ -719,9 +716,7 @@ html:not(.theme-light)
   :is(
     .popover-backdrop,
     .modal-panel[role="dialog"],
-    .workspace-action-dialog,
-    .settings-search-results,
-    .workspace-theme-popover
+    .workspace-action-dialog
   ) {
   background: var(--aven-popup);
 }
@@ -940,8 +935,6 @@ html:not(.theme-light) :is(.popover-backdrop, .aven-popover-panel-backdrop) {
       .aven-sheet,
       .modal-panel[role="dialog"],
       .workspace-action-dialog,
-      .settings-search-results,
-      .workspace-theme-popover,
       .helm-dialog-frame,
       .helm-say,
       .aven-split-tip,
@@ -965,8 +958,6 @@ html:not(.theme-light)
     .aven-sheet,
     .modal-panel[role="dialog"],
     .workspace-action-dialog,
-    .settings-search-results,
-    .workspace-theme-popover,
     .helm-dialog-frame,
     .helm-say,
     .aven-split-tip,
@@ -993,8 +984,6 @@ html:not(.theme-light)
     .aven-sheet,
     .modal-panel[role="dialog"],
     .workspace-action-dialog,
-    .settings-search-results,
-    .workspace-theme-popover,
     .helm-dialog-frame,
     .helm-say,
     .aven-split-tip,

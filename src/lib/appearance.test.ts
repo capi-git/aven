@@ -15,7 +15,6 @@ import {
   saveTranscriptAnchor,
   TRANSCRIPT_ANCHOR_DEFAULT,
   loadThemePreference,
-  saveThemePreference,
   resolveColorScheme,
   THEME_PREFERENCE_DEFAULT,
   normalizeThemeColor,
@@ -311,10 +310,9 @@ describe("theme preference setting", () => {
     expect(loadThemePreference()).toBe("system");
   });
 
-  it("persists each preference", () => {
+  it("reads each stored preference", () => {
     for (const value of ["system", "light", "dark"] as const) {
-      saveThemePreference(value);
-      expect(localStorage.getItem(SCHEME_KEY)).toBe(value);
+      localStorage.setItem(SCHEME_KEY, value);
       expect(loadThemePreference()).toBe(value);
     }
   });

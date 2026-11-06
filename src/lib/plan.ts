@@ -109,16 +109,6 @@ export function planSummary(text: string): string {
   return summary.length > 140 ? `${summary.slice(0, 139)}…` : summary;
 }
 
-export function planMeta(text: string): string[] {
-  const parts: string[] = ["Plan"];
-  const headings = text.match(/^\s{0,3}#{1,6}\s+/gm)?.length ?? 0;
-  if (headings > 1) parts.push(`${headings} sections`);
-  if (/```\s*mermaid\b/i.test(text)) parts.push("diagram");
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  if (words > 0) parts.push(`${words} words`);
-  return parts;
-}
-
 function unwrapMarkdown(value: string): string {
   return value
     .replace(/!\[[^\]]*]\([^)]*\)/g, "")

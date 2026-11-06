@@ -1,5 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement, type ComponentProps } from "react";
+import {
+  act,
+  createElement,
+  useRef,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+} from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,13 +20,61 @@ vi.mock("../lib/harness/registry", async (importOriginal) => ({
   refreshHarnessCatalogs: vi.fn(async () => {}),
 }));
 
-const { AgentPill, agentPanelLayout } = await import("./AgentPill");
+const { AgentPanel, agentPanelLayout, useAgentSummary } =
+  await import("./AgentPill");
 const { CLAUDE_OPUS_5_5_MODEL, modelsFor } = await import("../lib/models");
+
+type HostProps = Omit<
+  ComponentProps<typeof AgentPanel>,
+  "anchor" | "onDismiss"
+> & {
+  /** Hands focus back to the message field. */
+  onClose?: () => void;
+};
+
+/**
+ * What opens the agent panel in the message box (its helm's Model row), as
+ * far as these tests need: a button that toggles it, named and marked as
+ * the panel's summary says, and a dismiss that hands the keyboard back.
+ */
+function PanelHost({ onClose, ...props }: HostProps) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
+  const { description, usageWarning } = useAgentSummary(props);
+  return createElement(
+    "div",
+    { ref: anchor },
+    createElement(
+      "button",
+      {
+        type: "button",
+        "data-agent-pill": "",
+        "aria-label": description,
+        "aria-expanded": open,
+        onMouseDown: (event: MouseEvent) => event.preventDefault(),
+        onClick: () => setOpen((shown) => !shown),
+      },
+      usageWarning?.unseen
+        ? createElement("span", { className: "agent-pill-usage" })
+        : null,
+    ),
+    open
+      ? createElement(AgentPanel, {
+          ...props,
+          anchor,
+          onDismiss: (restore: boolean) => {
+            setOpen(false);
+            if (restore) onClose?.();
+          },
+        })
+      : null,
+  );
+}
 
 let root: Root;
 let host: HTMLDivElement;
 let composer: HTMLTextAreaElement;
-let props: ComponentProps<typeof AgentPill>;
+let props: HostProps;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -44,7 +99,6 @@ beforeEach(() => {
     runtimeMode: "supervised",
     showAccess: true,
     busy: false,
-    hotkeys: true,
     onModelChange: vi.fn(),
     onModelSettingsChange: vi.fn(),
     onRuntimeModeChange: vi.fn(),
@@ -62,7 +116,7 @@ afterEach(async () => {
 });
 
 async function render() {
-  await act(async () => root.render(createElement(AgentPill, props)));
+  await act(async () => root.render(createElement(PanelHost, props)));
 }
 const pill = () => host.querySelector<HTMLButtonElement>("[data-agent-pill]")!;
 const panel = () =>
@@ -92,33 +146,8 @@ async function keyOnWindow(init: KeyboardEventInit) {
   return event;
 }
 
-describe("the agent pill", () => {
-  it("shows the provider, the model and the effort in short form", async () => {
-    props.modelSettings = { effort: "xhigh", fast: "true" };
-    await render();
-    expect(pill().querySelector("img, svg")).not.toBeNull();
-    expect(pill().textContent).toBe(`${CLAUDE_OPUS_5_5_MODEL.name}·X-High`);
-    expect(pill().getAttribute("aria-label")).toBe(
-      `Claude Code ${CLAUDE_OPUS_5_5_MODEL.name} · X-High · Fast`,
-    );
-    expect(pill().querySelector(".agent-pill-fast")).not.toBeNull();
-  });
-
-  it("marks full access on the pill, and only there", async () => {
-    await render();
-    expect(pill().querySelector('[data-mode="full-access"]')).toBeNull();
-    props.runtimeMode = "full-access";
-    await render();
-    const marker = pill().querySelector('[data-mode="full-access"]');
-    expect(marker?.getAttribute("title")).toBe("Full access");
-    expect(pill().getAttribute("aria-label")).toContain("Full access");
-    // A provider without access modes never shows it.
-    props.showAccess = false;
-    await render();
-    expect(pill().querySelector('[data-mode="full-access"]')).toBeNull();
-  });
-
-  it("mounts its panel only while open", async () => {
+describe("the agent panel", () => {
+  it("mounts only while open", async () => {
     await render();
     expect(panel()).toBeNull();
     expect(document.body.querySelector('[aria-label="Search models"]')).toBe(
@@ -215,47 +244,6 @@ describe("the agent pill", () => {
     });
     expect(panel()).toBeNull();
     expect(props.onClose).not.toHaveBeenCalled();
-  });
-
-  it("opens and closes with Cmd+. and the menu command only when it owns the hotkeys", async () => {
-    // The picker drops a second press within 80 ms of the last: step its
-    // clock past that instead of waiting it out.
-    let clock = 1_000;
-    vi.spyOn(performance, "now").mockImplementation(() => clock);
-    const later = () => {
-      clock += 100;
-    };
-    await render();
-    await act(async () => composer.focus());
-    const press = () => keyOnWindow({ key: ".", metaKey: true });
-    // The menu command and the key can both arrive for one press. They are
-    // sent together so a slow machine can't push them 80 ms apart.
-    const both = new KeyboardEvent("keydown", {
-      key: ".",
-      metaKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-    await act(async () => {
-      (document.activeElement ?? document.body).dispatchEvent(both);
-      window.dispatchEvent(new Event("open_model_picker"));
-    });
-    expect(both.defaultPrevented).toBe(true);
-    expect(panel()).not.toBeNull();
-    later();
-    await press();
-    expect(panel()).toBeNull();
-    expect(document.activeElement).toBe(composer);
-    later();
-    await act(async () => window.dispatchEvent(new Event("open_model_picker")));
-    expect(panel()).not.toBeNull();
-    await act(async () => pill().click());
-
-    props.hotkeys = false;
-    await render();
-    later();
-    expect((await press()).defaultPrevented).toBe(false);
-    expect(panel()).toBeNull();
   });
 });
 

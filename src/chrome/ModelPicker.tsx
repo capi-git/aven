@@ -1,5 +1,5 @@
 import { harnessDescriptor } from "../lib/harness/descriptors";
-import { ChevronDown, Search, Star } from "./icons";
+import { Search, Star } from "./icons";
 import "./ModelControls.css";
 import {
   useEffect,
@@ -50,20 +50,8 @@ import {
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { HarnessIcon } from "./HarnessIcon";
 import "./Menu.css";
-import { Popover } from "./Popover";
 import { MOD } from "../lib/platform";
 
-type Props = {
-  harness: HarnessId;
-  model: string;
-  hotkeys?: boolean;
-  onChange: (harness: HarnessId, model: string) => void;
-  onClose?: () => void;
-};
-
-const MENU_WIDTH = 300;
-const MENU_MIN_HEIGHT = 180;
-const MENU_MAX_HEIGHT = 340;
 /** The field a model picker focuses once it is on screen. */
 export const MODEL_SEARCH_FIELD = 'input[aria-label="Search models"]';
 
@@ -139,92 +127,6 @@ export function useCurrentModel(harness: HarnessId, model: string) {
     void catalogVersion;
     return resolveModel(harness, model);
   }, [harness, model, catalogVersion]);
-}
-
-export function ModelPicker({
-  harness,
-  model,
-  hotkeys = false,
-  onChange,
-  onClose,
-}: Props) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const current = useCurrentModel(harness, model);
-
-  const dismiss = (restore: boolean) => {
-    setOpen(false);
-    if (restore) onCloseRef.current?.();
-  };
-  useModelPickerHotkey(hotkeys, open, () => {
-    if (open) dismiss(true);
-    else setOpen(true);
-  });
-
-  return (
-    <div ref={root} className="relative">
-      <button
-        type="button"
-        title={`${HARNESS_TITLE[current.harness]} · ${current.name} (${MOD}.)`}
-        aria-label={`${HARNESS_TITLE[current.harness]} ${current.name}`}
-        aria-keyshortcuts={`${MOD}.`}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => {
-          if (open) {
-            dismiss(true);
-            return;
-          }
-          setOpen(true);
-        }}
-        className={`model-control flex h-6.5 max-w-52 items-center gap-1 rounded-md px-1.5 ${
-          open
-            ? "bg-content/10 text-content"
-            : "bg-content/10 text-content hover:bg-content/15"
-        }`}
-      >
-        <HarnessIcon harness={current.harness} className="size-4 shrink-0" />
-        <span
-          key={current.id}
-          className="model-control-value min-w-0 truncate text-ui-caption"
-        >
-          {current.name}
-        </span>
-        <ChevronDown
-          className={`model-control-chevron size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
-        />
-      </button>
-      {open ? (
-        <Popover
-          anchor={root}
-          side="top"
-          width={MENU_WIDTH}
-          minHeight={MENU_MIN_HEIGHT}
-          maxHeight={MENU_MAX_HEIGHT}
-          autoFocus
-          initialFocus={MODEL_SEARCH_FIELD}
-          onDismiss={(reason) => dismiss(reason === "escape")}
-          role="dialog"
-          aria-label="Model picker"
-          data-model-picker
-          className="flex flex-col overflow-hidden"
-        >
-          <ModelChooser
-            harness={harness}
-            model={model}
-            onPick={(nextHarness, nextModel) => {
-              onChange(nextHarness, nextModel);
-              dismiss(true);
-            }}
-          />
-        </Popover>
-      ) : null}
-    </div>
-  );
 }
 
 /**

@@ -1,11 +1,4 @@
-import {
-  memo,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useUsageForecasts, useUsageWarning } from "../hooks/useUsageForecasts";
 import { isHarnessAvailable } from "../lib/harness/availability";
 import {
@@ -19,20 +12,15 @@ import {
   type HarnessId,
   type RuntimeMode,
 } from "../lib/session";
-import type { ComposerFit } from "../lib/composerFit";
-import { MOD } from "../lib/platform";
 import { popoverWidth } from "../lib/popover";
 import { usageAlternatives } from "../lib/usageAlternatives";
 import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen, type UsageWarning } from "../lib/usageHistory";
 import { AccessModeOptions } from "./AccessPanel";
-import { HarnessIcon } from "./HarnessIcon";
-import { ChevronDown, LockOpen, Zap } from "./icons";
 import {
   MODEL_SEARCH_FIELD,
   ModelChooser,
   useCurrentModel,
-  useModelPickerHotkey,
 } from "./ModelPicker";
 import {
   ModelSettingsSections,
@@ -42,29 +30,6 @@ import {
 import { PanelSection } from "./PanelSection";
 import { Popover, type PopoverAnchor } from "./Popover";
 import "./AgentPill.css";
-
-type Props = {
-  harness: HarnessId;
-  model: string;
-  modelSettings: Record<string, string>;
-  runtimeMode: RuntimeMode;
-  /** Access is offered only where the provider supports it. */
-  showAccess: boolean;
-  busy: boolean;
-  /** Cmd+. and the menu command open this pill's panel. */
-  hotkeys: boolean;
-  onModelChange: (harness: HarnessId, model: string) => void;
-  onModelSettingsChange?: (settings: Record<string, string>) => void;
-  onRuntimeModeChange: (mode: RuntimeMode) => void;
-  /** Hands focus back to the message field. */
-  onClose?: () => void;
-  /**
-   * How much room the message box gives the pill: `compact` leaves out the
-   * effort, `narrow` the model too, keeping the mark. The tooltip and
-   * accessible name always say all of it.
-   */
-  fit?: ComposerFit;
-};
 
 /**
  * The usage warning inside the panel: when the current account will run out
@@ -343,118 +308,3 @@ function subscribeWindowResize(onChange: () => void) {
   window.addEventListener("resize", onChange);
   return () => window.removeEventListener("resize", onChange);
 }
-
-/**
- * The composer's one control for who answers and how: the provider mark, the
- * model and its effort. It opens a single panel with the model list, the
- * model's settings and access. Full access stays visible on the pill. Race
- * is a mode of the message box, in its + menu.
- *
- * Memoized with stable props, so typing in the composer never renders it.
- */
-export const AgentPill = memo(function AgentPill({
-  harness,
-  model,
-  modelSettings,
-  runtimeMode,
-  showAccess,
-  busy,
-  hotkeys,
-  onModelChange,
-  onModelSettingsChange,
-  onRuntimeModeChange,
-  onClose,
-  fit = "full",
-}: Props) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const { current, summary, fullAccess, usageWarning, description } =
-    useAgentSummary({ harness, model, modelSettings, runtimeMode, showAccess });
-
-  const dismiss = (restore: boolean) => {
-    setOpen(false);
-    if (restore) onCloseRef.current?.();
-  };
-  const toggle = () => {
-    if (open) dismiss(true);
-    else setOpen(true);
-  };
-  useModelPickerHotkey(hotkeys, open, toggle);
-
-  return (
-    <div ref={root} className="relative min-w-0">
-      <button
-        type="button"
-        data-agent-pill
-        data-fit={fit === "full" ? undefined : fit}
-        aria-label={description}
-        aria-keyshortcuts={`${MOD}.`}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        title={`${description} (${MOD}.)`}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={toggle}
-        className="agent-pill model-control"
-      >
-        <HarnessIcon harness={current.harness} className="agent-pill-mark" />
-        {fit === "narrow" ? null : (
-          <span
-            key={current.id}
-            className="agent-pill-model model-control-value"
-          >
-            {current.name}
-          </span>
-        )}
-        {summary.effort && fit === "full" ? (
-          <>
-            <span className="agent-pill-separator" aria-hidden="true">
-              ·
-            </span>
-            <span
-              key={summary.effort}
-              className="agent-pill-effort model-control-value"
-            >
-              {summary.effort}
-            </span>
-          </>
-        ) : null}
-        {summary.fast ? (
-          <Zap className="agent-pill-fast" strokeWidth={2} aria-hidden />
-        ) : null}
-        {fullAccess ? (
-          <span
-            className="agent-pill-access"
-            data-mode="full-access"
-            title="Full access"
-          >
-            <LockOpen className="size-3" strokeWidth={2} aria-hidden />
-          </span>
-        ) : null}
-        {usageWarning?.unseen ? (
-          <span className="agent-pill-usage" data-usage-warning aria-hidden />
-        ) : null}
-        <ChevronDown
-          className="agent-pill-chevron model-control-chevron"
-          strokeWidth={1.75}
-        />
-      </button>
-      {open ? (
-        <AgentPanel
-          anchor={root}
-          harness={harness}
-          model={model}
-          modelSettings={modelSettings}
-          runtimeMode={runtimeMode}
-          showAccess={showAccess}
-          busy={busy}
-          onModelChange={onModelChange}
-          onModelSettingsChange={onModelSettingsChange}
-          onRuntimeModeChange={onRuntimeModeChange}
-          onDismiss={dismiss}
-        />
-      ) : null}
-    </div>
-  );
-});

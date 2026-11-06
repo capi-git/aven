@@ -763,18 +763,6 @@ export type Crew = {
 /** How long `about` may be: the setup box's own limit. */
 export const CREW_ABOUT_MAX = 2_000;
 
-/** The team's `about`, replaced (clipped) or cleared with an empty text. */
-export function withAbout(crew: Crew, about: string | null): Crew {
-  const clean = about?.replace(/\r\n?/g, "\n").trim().slice(0, CREW_ABOUT_MAX);
-  if (!clean) {
-    if (crew.about === undefined) return crew;
-    const rest = { ...crew };
-    delete rest.about;
-    return rest;
-  }
-  return { ...crew, about: clean };
-}
-
 /** A message you wrote to the team: to everyone, or to one teammate. */
 export type CrewMessage = {
   id: string;
@@ -2699,11 +2687,6 @@ export function cardDesigner(
   );
 }
 
-/** A card that is a screen or a look for the Designer to mock up. */
-export function isMockupCard(card: Pick<CrewCard, "kind">): boolean {
-  return card.kind === "mockup";
-}
-
 /** Security for a card: the crew's, while it is on. */
 export function cardSecurity(crew: Crew): CrewMember | undefined {
   return crew.members.find(
@@ -2718,11 +2701,6 @@ export function cardResearcher(
   return crew.members.find(
     (member) => member.role === "researcher" && memberOn(member),
   );
-}
-
-/** A card that is a question for the Researcher. */
-export function isResearchCard(card: Pick<CrewCard, "kind">): boolean {
-  return card.kind === "research";
 }
 
 /** The Checker checking a card: the one it was given to while on, else the first on. */

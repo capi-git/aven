@@ -167,7 +167,6 @@ describe("the pro look's shapes", () => {
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/AgentPill.css", ".agent-pill"],
       ["src/chrome/Menu.css", ".aven-menu-search"],
-      ["src/chrome/WorkspaceThemePopover.css", ".workspace-theme-schemes"],
       ["src/surfaces/ScheduledInbox.css", ".scheduled-days"],
       [
         "src/surfaces/UtilityViews.css",
