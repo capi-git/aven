@@ -50,7 +50,10 @@ import { runDevPerf, visibleComposer, type DevPerfOptions } from "./useDevPerf";
 import { runDevIphoneCheck } from "../lib/devIphoneCheck";
 import { checkLoneTabDrag, type SmokeLoneTab } from "../lib/devSmokeLoneTab";
 import { checkPinnedTab } from "../lib/devSmokePinTab";
-import { checkPageDragCutOut } from "../lib/devSmokePageDrag";
+import {
+  checkPageDragCutOut,
+  type PageDragProgress,
+} from "../lib/devSmokePageDrag";
 import { checkCrew } from "../lib/devSmokeCrew";
 import {
   describeOrchestrationRun,
@@ -3574,13 +3577,36 @@ export async function runDevSmoke(
   if (IS_MAC && pageUrl && get().loneTab)
     await step(
       "a tab dragged over a page is cut out of it under its copy, never elsewhere",
-      () => {
+      async () => {
         get().motion?.showWorkspace?.();
-        return withTimeout(
-          checkPageDragCutOut(config.projectPath, pageUrl, get),
-          150_000,
-          "dragging a tab over a page",
+        const progress: PageDragProgress = {
+          done: [],
+          at: null,
+          stopped: false,
+        };
+        const work = checkPageDragCutOut(
+          config.projectPath,
+          pageUrl,
+          get,
+          progress,
         );
+        try {
+          return await withTimeout(work, 150_000, "dragging a tab over a page");
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          if (!message.startsWith("Timed out")) throw error;
+          // Stop the drags and let them put the workspace back (let go,
+          // close the page) before the next step starts.
+          progress.stopped = true;
+          await Promise.race([
+            work.catch(() => undefined),
+            new Promise((resolve) => setTimeout(resolve, 20_000)),
+          ]);
+          throw new Error(
+            `${message}: ${progress.done.length ? `done ${progress.done.join("; ")}` : "no zoom finished"}${progress.at ? `; it was at ${progress.at}` : ""}`,
+          );
+        }
       },
     );
 

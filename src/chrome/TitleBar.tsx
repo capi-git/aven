@@ -127,7 +127,7 @@ import { crewMemberName, useCrew } from "../lib/crews";
 import { botsAvailable } from "../lib/projectBots";
 import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
 import { playMotion } from "../lib/motion";
-import { revealTab } from "../lib/tabStripReveal";
+import { revealTab, tabInView } from "../lib/tabStripReveal";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
 import { isSpaceKey } from "../lib/workspaceSpaces";
 import "./TitleBar.css";
@@ -2710,8 +2710,26 @@ function TitleBarComponent({
     y: number;
     anchor?: HTMLElement;
   } | null>(null);
+  const activeTabRef = useRef<HTMLDivElement | null>(null);
+  // The selected tab stays in view, clear of the scroll arrows, until a
+  // person scrolls the strip themselves: through tabs growing in (from no
+  // width) or closing, titles changing, and the strip resizing or being
+  // laid out again. A tab dragged along the strip scrolls it its own way.
+  const followSelectedRef = useRef(true);
+  const draggingRef = useRef(false);
+  draggingRef.current = Boolean(sortable.draggingId);
   const syncTabOverflow = useCallback(() => {
     const el = tabStripRef.current;
+    const selected = activeTabRef.current;
+    if (
+      el &&
+      selected &&
+      followSelectedRef.current &&
+      !draggingRef.current &&
+      !selected.closest("[data-pinned]") &&
+      !tabInView(selected, el)
+    )
+      revealTab(selected);
     const next = el
       ? tabStripOverflow(el.scrollLeft, el.clientWidth, el.scrollWidth)
       : { left: false, right: false };
@@ -2722,10 +2740,10 @@ function TitleBarComponent({
   const scrollTabsBy = useCallback((direction: -1 | 1) => {
     const el = tabStripRef.current;
     if (!el) return;
+    followSelectedRef.current = false;
     const amount = Math.max(el.clientWidth * 0.6, 112);
     el.scrollBy({ left: direction * amount, behavior: "smooth" });
   }, []);
-  const activeTabRef = useRef<HTMLDivElement | null>(null);
   const canDrag = displayIds.length > 1 || Boolean(onSurfaceDragEnd);
   const wheelTabs = useWheelTabSwitch();
 
@@ -2933,6 +2951,10 @@ function TitleBarComponent({
   );
 
   useEffect(() => {
+    if (sortable.draggingId) followSelectedRef.current = false;
+  }, [sortable.draggingId]);
+
+  useEffect(() => {
     if (previousSelectedId.current === focusedId) return;
     if (sortable.draggingId) {
       previousSelectedId.current = focusedId;
@@ -2942,11 +2964,12 @@ function TitleBarComponent({
     // Not on the strip yet: try again when its tab shows.
     if (!tab) return;
     previousSelectedId.current = focusedId;
+    followSelectedRef.current = true;
     // A pinned tab is always in view; asking would only move the strip.
     if (tab.closest("[data-pinned]")) return;
-    // A new tab grows in from nothing: follow it, or it ends past the
-    // strip's end, under the scroll arrow.
-    return revealTab(tab, tab.closest<HTMLElement>("[data-motion-slot]"));
+    // A new tab then grows in from nothing; the strip's watchers keep it
+    // in view as it does (syncTabOverflow).
+    revealTab(tab);
   }, [focusedId, focusedOnStrip, sortable.draggingId]);
 
   useLayoutEffect(() => {
@@ -4270,6 +4293,8 @@ function TitleBarComponent({
                 : undefined
             }
             onWheel={(event) => {
+              // A person scrolling the strip leaves the selected tab.
+              followSelectedRef.current = false;
               const el = tabStripRef.current;
               if (!el || el.scrollWidth <= el.clientWidth) return;
               if (event.deltaX === 0 && event.deltaY !== 0) {

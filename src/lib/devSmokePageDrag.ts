@@ -5,6 +5,7 @@ import {
 } from "./browserPresentation";
 import { BROWSER_OVERLAYS } from "./browserOverlays";
 import { waitFor } from "./devSmoke";
+import { lastTabReveal } from "./tabStripReveal";
 import {
   cssZoomRects,
   effectiveCssZoom,
@@ -262,6 +263,23 @@ export type DragEnvironment = {
   /** What is drawn over the page, so cut out of it (`describeOverlay`). */
   over?: string[];
   strip: Array<{ id: string; reported: Box; box: Box }>;
+  /** How the window strip's row of tabs is scrolled, and what sits on it. */
+  stripScroll?: StripScroll | null;
+};
+
+/** The window strip's scroller as a failure lists it. */
+export type StripScroll = {
+  left: number;
+  max: number;
+  client: number;
+  /** The box that clips the row (`.personal-title-tabs`). */
+  clip: Box | null;
+  /** The tab the strip marks active, and whether it is still growing in. */
+  active: string | null;
+  opening: boolean;
+  arrows: string[];
+  /** The last time the strip brought its selected tab into view. */
+  reveal: string;
 };
 
 /**
@@ -300,7 +318,41 @@ export function dragSceneLines(
         .join("; ") || "none"
     }`,
   );
+  const scroll = environment.stripScroll;
+  if (scroll)
+    lines.push(
+      `strip scroll: ${round(scroll.left)} of ${round(scroll.max)} (${round(scroll.client)} wide${scroll.clip ? `, clipped to ${span(scroll.clip)}` : ""}); active ${scroll.active ?? "none"}${scroll.opening ? " (growing in)" : ""}; arrows: ${scroll.arrows.join(", ") || "none"}; last reveal: ${scroll.reveal}`,
+    );
   return lines;
+}
+
+/** Reads how the window strip's row of tabs is scrolled. */
+function readStripScroll(strip: HTMLElement | null): StripScroll | null {
+  const row = strip?.querySelector<HTMLElement>(
+    '[aria-label="Workspace tabs"]',
+  );
+  if (!row) return null;
+  const clip = row.closest<HTMLElement>(".personal-title-tabs");
+  const active = row.querySelector<HTMLElement>('[data-active="true"]');
+  return {
+    left: row.scrollLeft,
+    max: row.scrollWidth - row.clientWidth,
+    client: row.clientWidth,
+    clip: clip ? viewportRect(clip, boxOf(clip.getBoundingClientRect())) : null,
+    active: active?.dataset.motionSlot ?? null,
+    opening: Boolean(active?.hasAttribute("data-tab-opening")),
+    reveal: lastTabReveal
+      ? `${lastTabReveal.id ?? "?"} ${round(performance.now() - lastTabReveal.at)} ms ago, left at ${lastTabReveal.left === null ? "?" : round(lastTabReveal.left)}`
+      : "never",
+    arrows: [
+      ...(clip?.querySelectorAll<HTMLElement>(
+        'button[aria-label^="Scroll tabs"]',
+      ) ?? []),
+    ].map(
+      (arrow) =>
+        `${arrow.getAttribute("aria-label")} ${span(viewportRect(arrow, boxOf(arrow.getBoundingClientRect())))}`,
+    ),
+  };
 }
 
 /** What a surface drawn over a page is, for a failure to list. */
@@ -384,6 +436,7 @@ async function readDragEnvironment(
           box: viewportRect(tab, reported),
         };
       }),
+    stripScroll: readStripScroll(strip),
   };
 }
 
@@ -440,10 +493,22 @@ const painted = () =>
     pause(100).then(() => false),
   ]);
 
+/**
+ * How far the drags got, for a step that runs out of time to say, and the
+ * flag that step sets so they stop: the drag in hand lets go, the page
+ * closes, and the steps after start from a still workspace.
+ */
+export type PageDragProgress = {
+  done: string[];
+  at: string | null;
+  stopped: boolean;
+};
+
 export async function checkPageDragCutOut(
   projectPath: string,
   pageUrl: string,
   get: () => LoneTabOptions,
+  progress: PageDragProgress = { done: [], at: null, stopped: false },
 ): Promise<string> {
   const { loneTab, openWebLink } = get();
   if (!loneTab || !openWebLink)
@@ -455,7 +520,9 @@ export async function checkPageDragCutOut(
       saveUiScale(zoom);
       await applyUiScale(zoom);
       try {
-        notes.push(await dragOverPage(projectPath, pageUrl, get));
+        const note = await dragOverPage(projectPath, pageUrl, get, progress);
+        notes.push(note);
+        progress.done.push(note);
       } catch (error) {
         throw new Error(
           `at ${Math.round(zoom * 100)}%: ${error instanceof Error ? error.message : String(error)}`,
@@ -473,8 +540,13 @@ async function dragOverPage(
   projectPath: string,
   pageUrl: string,
   get: () => LoneTabOptions,
+  progress: PageDragProgress,
 ): Promise<string> {
   const zoom = loadUiScale();
+  const going = (what: string) => {
+    if (progress.stopped) throw new Error("stopped: the step ran out of time");
+    progress.at = `${Math.round(zoom * 100)}%, ${what}`;
+  };
   const newChat = async () => {
     const before = get().focusedSurfaceId;
     get().newProjectTask(projectPath);
@@ -498,6 +570,7 @@ async function dragOverPage(
   /** The last carry, for a failure to list. */
   const last: { scene: DragScene | null } = { scene: null };
   try {
+    going("opening a chat and the page");
     // A chat, then a page opened from it: both on the window's strip, the
     // page alone in front.
     const chat = await newChat();
@@ -568,6 +641,7 @@ async function dragOverPage(
       rest = true,
     ) => {
       const what = `${end}${cross ? " after crossing the page's tab" : ""}${rest ? "" : " mid-move"}`;
+      going(`dragging (${what})`);
       // On the window's strip, or in another pane's row of tabs.
       const handle = await waitFor(
         () =>
@@ -644,6 +718,8 @@ async function dragOverPage(
       };
       const moveThrough = async (path: readonly Point[]) => {
         for (const point of path) {
+          // A step out of time lets go here (the finally below).
+          if (progress.stopped) throw new Error("stopped mid-drag");
           await smokeMouse("drag", point);
           at = point;
           sample(false);

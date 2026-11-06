@@ -1,43 +1,41 @@
-/** How long a tab's grow-in can last, with room to spare (aven-tab-open). */
-export const TAB_GROW_IN_LIMIT_MS = 600;
+/** The last reveal, for the in-app check to report beside a missed press. */
+export let lastTabReveal: {
+  id: string | null;
+  at: number;
+  left: number | null;
+} | null = null;
+
+/** Bring `tab` into its strip's view, to the nearest edge. */
+export function revealTab(tab: HTMLElement) {
+  tab.scrollIntoView({ inline: "nearest", block: "nearest" });
+  lastTabReveal = {
+    id: tab.dataset.surfaceTabId ?? tab.dataset.motionSlot ?? null,
+    at: performance.now(),
+    left:
+      tab.closest<HTMLElement>("[data-sortable-scroll-container]")
+        ?.scrollLeft ?? null,
+  };
+}
 
 /**
- * Bring a newly selected tab fully into the strip's view, and keep it there
- * while it grows in.
- *
- * A tab opens from no width (`aven-tab-open` on its `[data-tab-opening]`
- * slot), so scrolling it into view as it is selected brings in only its
- * first pixels, and the strip then overflows past it as it grows: the new
- * tab ends up off the strip's end, under its scroll arrow. Following the
- * slot's size until its grow-in ends leaves the whole tab in view, clear of
- * the arrows (the strip's scroll padding). Returns a stop.
+ * Whether `tab` sits wholly in `strip`'s view, clear of the strip's scroll
+ * padding where there is more to scroll toward (the scroll arrows sit
+ * there). The padding is in the strip's own pixels; the boxes are zoomed.
  */
-export function revealTab(
-  tab: HTMLElement,
-  slot: HTMLElement | null,
-): () => void {
-  const reveal = () =>
-    tab.scrollIntoView({ inline: "nearest", block: "nearest" });
-  reveal();
-  if (
-    !slot?.hasAttribute("data-tab-opening") ||
-    typeof ResizeObserver === "undefined"
-  )
-    return () => {};
-  const observer = new ResizeObserver(reveal);
-  observer.observe(slot);
-  const ended = (event: AnimationEvent) => {
-    // Only the slot's own grow-in, not an animation inside the tab.
-    if (event.target !== slot) return;
-    reveal();
-    stop();
-  };
-  const timer = setTimeout(() => stop(), TAB_GROW_IN_LIMIT_MS);
-  function stop() {
-    observer.disconnect();
-    slot?.removeEventListener("animationend", ended);
-    clearTimeout(timer);
-  }
-  slot.addEventListener("animationend", ended);
-  return stop;
+export function tabInView(tab: Element, strip: HTMLElement): boolean {
+  const box = tab.getBoundingClientRect();
+  const view = strip.getBoundingClientRect();
+  const style = getComputedStyle(strip);
+  const zoom =
+    (strip as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom ?? 1;
+  const room = (value: string) => (parseFloat(value) || 0) * zoom;
+  const towardStart = strip.scrollLeft > 1;
+  const towardEnd =
+    strip.scrollLeft < strip.scrollWidth - strip.clientWidth - 1;
+  return (
+    box.left >=
+      view.left + (towardStart ? room(style.scrollPaddingLeft) : 0) - 0.5 &&
+    box.right <=
+      view.right - (towardEnd ? room(style.scrollPaddingRight) : 0) + 0.5
+  );
 }
