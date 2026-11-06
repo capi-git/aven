@@ -174,6 +174,7 @@ const POSE_STATE: Record<HelmPose, AgentState> = {
   typing: "watching",
   hover: "watching",
   running: "working",
+  needs: "needs",
   done: "still",
   error: "still",
 };
@@ -359,7 +360,13 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const say = runSay ?? usageSay?.say ?? null;
   const fixes = runSay ? runFixes : (usageSay?.fixes ?? []);
   const outcome = helmOutcome(say);
-  const pose = helmPose({ busy, hasValue, open: !!opened, outcome });
+  const pose = helmPose({
+    busy,
+    hasValue,
+    open: !!opened,
+    outcome,
+    needsYou: runSay?.kind === "running" && runSay.work === "needs",
+  });
 
   // The first-run hint: said once, when nothing else is.
   const [hint, setHint] = useState(false);
