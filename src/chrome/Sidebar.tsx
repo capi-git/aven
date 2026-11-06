@@ -233,7 +233,10 @@ export type SidebarProps = {
     archived: boolean,
   ) => void;
   onPinSession?: (sessionId: string, pinned: boolean) => void;
-  /** Put the chats on their project's board, each its own card. */
+  /**
+   * Give the chats to their project's Avos (Give to Avos); where Avos
+   * doesn't run, put each on the project's board as its own card.
+   */
   onAddToBoard?: (sessionIds: string[]) => void;
   onPinSessions?: (sessionIds: readonly string[], pinned: boolean) => void;
   onDeleteSession?: (sessionId: string) => void;
@@ -1131,8 +1134,16 @@ function SidebarComponent({
           },
         ]
       : []),
+    // Where Avos runs, a chat is given to its project's Avos; elsewhere it
+    // goes on the project's board.
     ...(onAddToBoard
-      ? [{ kind: "item" as const, id: "add-to-board", label: "Add to board" }]
+      ? [
+          {
+            kind: "item" as const,
+            id: "add-to-board",
+            label: botsAvailable() ? "Give to Avos" : "Add to board",
+          },
+        ]
       : []),
     { kind: "sep" as const },
     ...pageOrInline("folder", "Move to folder", sessionFolderRows),

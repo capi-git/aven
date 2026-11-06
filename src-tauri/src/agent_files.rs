@@ -3,6 +3,10 @@
 //! folder, which keeps itself out of Git, until the user clicks one in the
 //! chat. Then a copy lands in Downloads the way a browser saves a download:
 //! a name that is taken gets " (1)", " (2)"… and both files stay.
+//!
+//! Nothing is made up front: the agent makes the folder with its first
+//! file, so a project (or a helper's copy) where no file was ever handed
+//! over has no `.aven` folder at all.
 
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
@@ -83,12 +87,12 @@ pub struct AgentDownload {
     openable: bool,
 }
 
-/// The folder an agent saves files for the user in, made (with its ignore
-/// file) when missing. Returns its absolute path.
+/// The folder an agent saves files for the user in, as an absolute path.
+/// It isn't made here; once it is there, its ignore file is kept.
 #[tauri::command]
 pub async fn agent_files_folder(cwd: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        ensure_files_folder(&expand_home(&cwd)).map(|path| path.to_string_lossy().into_owned())
+        files_folder(&expand_home(&cwd)).map(|path| path.to_string_lossy().into_owned())
     })
     .await
     .map_err(|error| error.to_string())?
@@ -148,18 +152,22 @@ pub fn agent_download_open(
         .map_err(|error| error.to_string())
 }
 
-fn ensure_files_folder(cwd: &Path) -> Result<PathBuf, String> {
+/// Where `cwd`'s agent files go. Creates no folder: when the folder is
+/// already there (an agent saved a file in it), the ignore file beside it is
+/// made if missing, so Git leaves the folder alone.
+fn files_folder(cwd: &Path) -> Result<PathBuf, String> {
     if !cwd.is_absolute() || !cwd.is_dir() {
         return Err("The project folder isn't there.".into());
     }
     let aven = cwd.join(AVEN_DIR);
     let files = aven.join(FILES_DIR);
-    std::fs::create_dir_all(&files).map_err(|error| format!("{}: {error}", files.display()))?;
-    let ignore = aven.join(".gitignore");
-    // An ignore file the user changed is theirs to keep.
-    if std::fs::symlink_metadata(&ignore).is_err() {
-        std::fs::write(&ignore, IGNORE_EVERYTHING)
-            .map_err(|error| format!("{}: {error}", ignore.display()))?;
+    if files.is_dir() {
+        let ignore = aven.join(".gitignore");
+        // An ignore file the user changed is theirs to keep.
+        if std::fs::symlink_metadata(&ignore).is_err() {
+            std::fs::write(&ignore, IGNORE_EVERYTHING)
+                .map_err(|error| format!("{}: {error}", ignore.display()))?;
+        }
     }
     Ok(files)
 }
@@ -341,28 +349,39 @@ mod tests {
         Tmp(dir.canonicalize().unwrap())
     }
 
+    /// The folder as an agent makes it with its first file.
+    fn made_files_folder(project: &Path) -> PathBuf {
+        let folder = files_folder(project).unwrap();
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
     fn agent_file(project: &Path, name: &str, body: &str) -> PathBuf {
-        let folder = ensure_files_folder(project).unwrap();
-        let path = folder.join(name);
+        let path = made_files_folder(project).join(name);
         std::fs::write(&path, body).unwrap();
         path
     }
 
     #[test]
-    fn files_folder_is_made_once_and_kept_out_of_git() {
+    fn files_folder_is_left_to_the_agent_and_then_kept_out_of_git() {
         let project = tmp("folder");
-        let folder = ensure_files_folder(&project.0).unwrap();
+        let folder = files_folder(&project.0).unwrap();
         assert_eq!(folder, project.0.join(".aven").join("files"));
-        assert!(folder.is_dir());
+        // Asking where files go makes nothing: no `.aven` in a project (or
+        // a helper's copy) that was never handed a file.
+        assert!(!project.0.join(".aven").exists());
+
+        std::fs::create_dir_all(&folder).unwrap();
+        files_folder(&project.0).unwrap();
         let ignore = project.0.join(".aven").join(".gitignore");
         assert_eq!(std::fs::read_to_string(&ignore).unwrap(), IGNORE_EVERYTHING);
         assert!(IGNORE_EVERYTHING.lines().any(|line| line == "*"));
 
         std::fs::write(&ignore, "keep-mine\n").unwrap();
-        ensure_files_folder(&project.0).unwrap();
+        files_folder(&project.0).unwrap();
         assert_eq!(std::fs::read_to_string(&ignore).unwrap(), "keep-mine\n");
-        assert!(ensure_files_folder(&project.0.join("missing")).is_err());
-        assert!(ensure_files_folder(Path::new("relative")).is_err());
+        assert!(files_folder(&project.0.join("missing")).is_err());
+        assert!(files_folder(Path::new("relative")).is_err());
     }
 
     /// `<root>/p/<parts…>`, absolute on this platform (`/` or `C:\`).
@@ -448,7 +467,7 @@ mod tests {
     fn refuses_folders_missing_files_links_and_files_elsewhere() {
         let project = tmp("refuse");
         let downloads = tmp("refuse-downloads");
-        let folder = ensure_files_folder(&project.0).unwrap();
+        let folder = made_files_folder(&project.0);
 
         std::fs::create_dir(folder.join("site")).unwrap();
         let error = save_copy(&folder.join("site"), &downloads.0).unwrap_err();

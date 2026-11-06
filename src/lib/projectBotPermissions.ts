@@ -13,6 +13,7 @@ import {
   crewRoleUsesBrowser,
   crewRoleUsesWeb,
   crewRoleWritesCopy,
+  AVEN_DIR,
   MOCKUP_DIR,
   crewForChat,
   crewMemberApp,
@@ -592,11 +593,15 @@ export function crewPermissionRules(
 function designerKeepsOut(copy: NonNullable<Crew["copy"]>): string[] {
   const root = slash(copy.path).replace(/\/+$/, "");
   // Every entry when known (ignored ones too), else the files Git knows.
-  return (copy.entries ?? copy.sources ?? [])
+  const entries = (copy.entries ?? copy.sources ?? [])
     .map((entry) => slash(entry).replace(/\/+$/, ""))
     .filter(
       (path) => path.startsWith(`${root}/`) && basename(path) !== MOCKUP_DIR,
     );
+  // Aven's own folder, there or not: its turn isn't checked against it
+  // after (see `AVEN_DIR`), so it is kept out before.
+  const aven = `${root}/${AVEN_DIR}`;
+  return entries.includes(aven) ? entries : [...entries, aven];
 }
 
 /**

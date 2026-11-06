@@ -168,6 +168,10 @@ export function avosGlance(
 export type AvosWeekRow = {
   id: string;
   text: string;
+  /** When it started waiting on you: Needs you rows only. */
+  at?: number;
+  /** How many things the row stands for, when more than one. */
+  count?: number;
   /** Look at what's ready, answer a card, open a run or a job. */
   open?:
     | { kind: "review" }
@@ -204,6 +208,7 @@ export function avosWeek(
       needs.push({
         id: `stuck:${card.id}`,
         text: `“${card.title}” needs your answer`,
+        at: card.updatedAt,
         open: { kind: "card", cardId: card.id },
       });
   const ready = on ? crew.cards.filter((card) => card.stage === "ready") : [];
@@ -214,6 +219,8 @@ export function avosWeek(
         ready.length === 1
           ? `Look at “${ready[0]!.title}”`
           : `Look at ${ready.length} finished cards`,
+      at: Math.max(...ready.map((card) => card.updatedAt)),
+      ...(ready.length > 1 ? { count: ready.length } : {}),
       open: { kind: "review" },
     });
   for (const run of avosReviews(crew.path, input.jobs))
@@ -223,6 +230,7 @@ export function avosWeek(
         run.review?.status === "open"
           ? `${reviewHeading(run.review)}: ${run.review.title}`
           : `“${run.name}” didn't finish`,
+      at: run.review?.postedAt ?? run.finishedAt ?? run.startedAt,
       open: { kind: "run", runId: run.id },
     });
   // Cards at work, then anyone busy with something else (Avos answering
@@ -263,6 +271,97 @@ export function avosWeek(
     .slice(0, DONE_SHOWN)
     .map((card) => ({ id: `done:${card.id}`, text: card.title }));
   return { needs, doing, watching, done };
+}
+
+/** One project's Avos and what waits on you there. */
+export type AvosNeeds = { path: string; rows: AvosWeekRow[] };
+
+/**
+ * What each met Avos waits on you for: its This week Needs you rows, for
+ * every project that has any. The notices, the Dock badge, Home's Needs you
+ * and the Inbox's pointer all count these, each thing once.
+ */
+export function avosNeeds(
+  crews: readonly (Crew | undefined)[],
+  input: { jobs?: AvosJobsInput; now: number },
+): AvosNeeds[] {
+  return crews.flatMap((crew) => {
+    if (!crew || !avosMet(crew)) return [];
+    const rows = avosWeek(crew, input).needs;
+    return rows.length ? [{ path: crew.path, rows }] : [];
+  });
+}
+
+/**
+ * How many things these rows wait on you for, as Avos's line counts them:
+ * each card, and each job's run, once.
+ */
+export function avosRowsCount(rows: readonly AvosWeekRow[]): number {
+  return rows.reduce((count, row) => count + (row.count ?? 1), 0);
+}
+
+/** How many things every Avos waits on you for, each counted once. */
+export function avosNeedsCount(needs: readonly AvosNeeds[]): number {
+  return needs.reduce((count, entry) => count + avosRowsCount(entry.rows), 0);
+}
+
+/** The Inbox's one line pointing at Avos: "2 things in Avos need you". */
+export function avosInboxLine(count: number): string {
+  return count === 1
+    ? "1 thing in Avos needs you"
+    : `${count} things in Avos need you`;
+}
+
+/**
+ * Whether a run belongs to a project's Avos: its job is Avos's and that
+ * Avos is there. Its card then lives in Avos alone (This week, its chat and
+ * one notice), never also in the Inbox or Activity. A job whose Avos is gone
+ * runs as an ordinary automation, and is shown like one.
+ */
+export function avosOwnsRun(
+  run: Pick<ScheduledRun, "scheduleId">,
+  agents: readonly Pick<ScheduledAgent, "id" | "owner">[],
+  crewFor: (path: string) => Crew | undefined,
+): boolean {
+  const owner = agents.find((agent) => agent.id === run.scheduleId)?.owner;
+  return !!owner && avosMet(crewFor(owner.avos));
+}
+
+/**
+ * The id a Mac notification about a project's Avos carries in place of a
+ * chat's, so pressing it opens that Avos. The folder is encoded, since the
+ * notification's own id may not contain "/".
+ */
+export function avosNotificationId(path: string): string {
+  return `avos:${encodeURIComponent(path)}`;
+}
+
+/** The project a notification's id opens the Avos of, if it is one. */
+export function avosNotificationPath(id: string): string | null {
+  if (!id.startsWith("avos:")) return null;
+  try {
+    return decodeURIComponent(id.slice("avos:".length)) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** The most of your last message in a chat that "Give to Avos" passes on. */
+const GIVEN_ASK_MAX = 1_500;
+
+/**
+ * What "Give to Avos" (a chat's menu) says to the project's Avos: the chat,
+ * and the last thing you asked in it when it's open, so Avos can take it
+ * from there. The message links back to the chat as an @Avos one does.
+ */
+export function giveChatToAvosText(title: string, lastAsk?: string): string {
+  const ask = lastAsk?.replace(/\s+/g, " ").trim() ?? "";
+  const quoted =
+    ask.length > GIVEN_ASK_MAX ? `${ask.slice(0, GIVEN_ASK_MAX - 1)}…` : ask;
+  return [
+    `Please take this chat over: “${title || "Untitled"}”.`,
+    ...(quoted ? [`The last thing I asked in it: ${quoted}`] : []),
+  ].join("\n\n");
 }
 
 /** A "needs you" notice from one project's Avos, with what it offers. */
@@ -323,7 +422,7 @@ export function avosNoticeCards(
  * pile of old notices. Returns the new notices and what's been seen.
  */
 export function avosNoticesFor(
-  needs: readonly { path: string; rows: readonly AvosWeekRow[] }[],
+  needs: readonly AvosNeeds[],
   seen: ReadonlySet<string> | null,
   inFront: string | null,
 ): { notices: AvosNotice[]; seen: Set<string> } {

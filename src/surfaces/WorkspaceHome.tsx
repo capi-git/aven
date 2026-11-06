@@ -474,6 +474,18 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                         cwd={item.cwd}
                         title={item.title}
                         attention={item.kind}
+                        // A project's Avos is drawn as its Bot and opens
+                        // Avos, where what it needs you for waits.
+                        mark={
+                          item.avos ? (
+                            <CrewCritter
+                              path={item.avos}
+                              role="lead"
+                              state="needs"
+                              className="workspace-home-avos-mark"
+                            />
+                          ) : undefined
+                        }
                         line={
                           <>
                             <span className="workspace-home-kind">
@@ -487,10 +499,14 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
                             <span className="workspace-home-row-project">
                               {nameFor(item.cwd)}
                             </span>
-                            <TimeAgo at={item.at} />
+                            {item.at ? <TimeAgo at={item.at} /> : null}
                           </>
                         }
-                        onClick={() => onSession(item.id)}
+                        onClick={() =>
+                          item.avos && onOpenAvos
+                            ? onOpenAvos(item.avos)
+                            : onSession(item.id)
+                        }
                       />
                     </li>
                   ))}
@@ -1240,8 +1256,8 @@ const AgentTile = memo(
             <button
               type="button"
               className="workspace-home-agent-board"
-              aria-label={`Open ${name}'s Avos`}
-              title={`Open ${name}'s Avos`}
+              aria-label={`Open ${name}'s ${botsAvailable() ? "Avos" : "board"}`}
+              title={`Open ${name}'s ${botsAvailable() ? "Avos" : "board"}`}
               onClick={() => onOpenBoard(project.path)}
             >
               <Kanban size={13} />

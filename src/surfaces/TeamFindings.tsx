@@ -126,7 +126,7 @@ export function CrewFindingsSheet({
           <section className="crew-sheet-section" data-crew-findings-ideas>
             <h3>
               {open
-                ? "Ideas it proposes · tick what goes on the Board"
+                ? "Ideas it proposes · tick the ones to keep"
                 : findings.added
                   ? `Ideas it proposed · ${plural(findings.added, "idea")} added`
                   : "Ideas it proposed"}
@@ -189,9 +189,7 @@ export function CrewFindingsSheet({
                 disabled={busy || !chosen.length}
                 onClick={() => void finish(chosen)}
               >
-                {busy
-                  ? "Adding…"
-                  : `Add ${plural(chosen.length, "idea")} to Board`}
+                {busy ? "Adding…" : `Add ${plural(chosen.length, "idea")}`}
               </TeamCardButton>
             ) : null}
           </div>

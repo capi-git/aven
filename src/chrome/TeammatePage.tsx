@@ -50,7 +50,7 @@ import "./TeammatePage.css";
 /**
  * A teammate's page: its job, your instructions and where it works on the
  * left; what it runs on (agent, model, effort) and when it works on the
- * right, all in view at once; Remove from team, quietly, at the bottom.
+ * right, all in view at once; Remove helper, quietly, at the bottom.
  * Every change saves as you make it. None of these change what it may do:
  * that comes from its role alone (see `crewChatPermissions`).
  */
@@ -722,7 +722,7 @@ export function MemberMark({
 }
 
 /**
- * Remove from team: a quiet word. The last Builder or Checker stays (its
+ * Remove helper: a quiet word. The last Builder or Checker stays (its
  * why is the tooltip), and you're asked first.
  */
 function RemoveMember({
@@ -785,7 +785,7 @@ function RemoveMember({
       }
       onClick={() => setConfirming(true)}
     >
-      Remove from team
+      Remove helper
     </button>
   );
 }

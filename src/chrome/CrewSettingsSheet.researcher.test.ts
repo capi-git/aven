@@ -55,7 +55,7 @@ async function open(initialPage?: string) {
 const sheet = () => document.querySelector<HTMLElement>(".crew-settings")!;
 
 describe("the Researcher in the Team sheet", () => {
-  it("is offered under Add teammate, once, as a reader", async () => {
+  it("is offered under Add a helper, once, as a reader", async () => {
     await open("add");
     const tile = sheet().querySelector<HTMLElement>(
       '[data-crew-preset="researcher"]',

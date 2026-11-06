@@ -39,7 +39,7 @@ afterEach(async () => {
 const sheet = () => document.querySelector<HTMLElement>(".crew-settings")!;
 
 describe("the Designer in the Team sheet", () => {
-  it("is offered under Add teammate after the Researcher, once", async () => {
+  it("is offered under Add a helper after the Researcher, once", async () => {
     await act(async () =>
       root.render(
         createElement(CrewSettingsSheet, {

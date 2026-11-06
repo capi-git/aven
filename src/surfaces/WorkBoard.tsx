@@ -711,7 +711,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       {throwing ? (
         <ConfirmDialog
           title="Throw this card away?"
-          body={`Avos's work on “${throwing.title}” is thrown away and the card leaves the board. Your files stay as they are.`}
+          body={`Avos's work on “${throwing.title}” is thrown away. Your files stay as they are.`}
           confirmLabel="Throw away"
           danger
           onConfirm={() => {

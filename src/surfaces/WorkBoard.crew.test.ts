@@ -995,7 +995,7 @@ describe("the team view: the Board with the team on it", () => {
       (boards) => (crew) => withCard(crew, crewCardFor(boards[5], "queued")),
     );
     expect(container.querySelector("[data-crew-sentence]")?.textContent).toBe(
-      "All teams' 5 runs today are used: Empty state for notes waits.",
+      "Today's 5 runs for all projects are used: Empty state for notes waits.",
     );
   });
 

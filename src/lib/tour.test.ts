@@ -22,7 +22,7 @@ describe("tour stops", () => {
       "sidebar",
       "browser",
       "changes",
-      "board",
+      "avos",
       "memory",
     ]);
     for (const stop of TOUR_STOPS) {

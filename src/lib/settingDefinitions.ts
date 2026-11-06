@@ -289,8 +289,7 @@ export const SETTINGS = {
   tour: defineSetting({
     section: "general",
     label: "Tour",
-    description:
-      "Take the short tour of the message box, sidebar, preview, Changes, board and project memory again.",
+    description: "Take the short tour of Aven again.",
     keywords: "walkthrough onboarding guide help getting started welcome",
   }),
   version: defineSetting({

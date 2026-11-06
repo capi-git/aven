@@ -1044,7 +1044,7 @@ describe("budgets in the runner", () => {
     const crew = getCrew(PATH)!;
     expect(crew.hold?.reason).toBe("daily-cap");
     expect(crew.feed.at(-1)?.text).toBe(
-      "Today's 20 runs are used. The team picks up again tomorrow.",
+      "Today's 20 runs are used. Avos picks up again tomorrow.",
     );
     h.runner.stop();
   });
@@ -1723,7 +1723,7 @@ describe("members you set up", () => {
     expect(h.sent).toEqual([]);
     expect(getCrew(PATH)!.hold?.reason).toBe("no-member");
     expect(getCrew(PATH)!.feed.at(-1)?.text).toBe(
-      "No Builder is on. Turn one on, or add one, in the team's settings. The card waits.",
+      "No Builder is on. Turn one on, or add one, in Avos's settings. The card waits.",
     );
     h.runner.stop();
   });

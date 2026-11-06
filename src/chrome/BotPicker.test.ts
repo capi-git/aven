@@ -169,7 +169,7 @@ it("says why nothing is listed", async () => {
   expect(picker.querySelector(".bot-picker-note")).toBeNull();
 });
 
-it("asked for a team, says team and Teams, and adds the team once Git is set up", async () => {
+it("asked by Avos, says Avos, and goes on to Avos once Git is set up", async () => {
   const onAdd = vi.fn();
   const setup = pending();
   await act(async () =>
@@ -183,9 +183,9 @@ it("asked for a team, says team and Teams, and adds the team once Git is set up"
     ),
   );
   const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
-  expect(dialog.querySelector("h2")?.textContent).toBe("Add a team");
+  expect(dialog.querySelector("h2")?.textContent).toBe("Set up Git for Avos");
   expect(dialog.querySelector(".bot-picker-note")?.textContent).toMatch(
-    /^Teams need Git/,
+    /^Avos needs Git/,
   );
   await act(async () => button("Set up Git for notes")!.click());
   await act(async () =>

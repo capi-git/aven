@@ -398,3 +398,41 @@ export async function notifySession(
   );
   return result.bannerSent;
 }
+
+/**
+ * A Mac notification for something new a project's Avos needs you for,
+ * sent only while Aven isn't in front: its notice is on screen otherwise.
+ * It follows Notifications, Needs input and Quiet, as a chat's request
+ * does, and pressing it opens that Avos (`id`, see `avosNotificationId`).
+ * Avos's items are never also recorded in Activity: they live in Avos.
+ */
+export async function notifyAvosNeed(input: {
+  id: string;
+  project: string;
+  text: string;
+  presentationFocused?: boolean;
+}): Promise<boolean> {
+  const prefs = loadNotificationPreferences();
+  if (prefs.quiet || !prefs.needsInput) return false;
+  if (
+    !shouldNotify({
+      enabled: loadNotificationsEnabled(),
+      permission,
+      windowFocused: input.presentationFocused ?? windowFocused,
+      sessionVisible: true,
+    })
+  )
+    return false;
+  try {
+    await invoke("show_notification", {
+      sessionId: input.id,
+      title: "Aven",
+      subtitle: `Avos · ${input.project}`,
+      body: displayAppData(clip(input.text)),
+      sound: prefs.sound && loadSoundsEnabled(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}

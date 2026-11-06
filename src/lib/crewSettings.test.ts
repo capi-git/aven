@@ -553,7 +553,7 @@ describe("limits you set", () => {
     expect(gate).toMatchObject({
       ok: false,
       reason: "all-crews-cap",
-      title: "All teams' 25 runs today are used",
+      title: "Today's 25 runs for all projects are used",
     });
   });
 });

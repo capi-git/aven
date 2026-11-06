@@ -668,6 +668,7 @@ import {
   type SessionSummary,
 } from "./lib/sessionStore";
 import {
+  setDockAvosNeeds,
   setDockLeadDecided,
   setDockTeamNeeds,
   syncDockBadge,
@@ -733,6 +734,7 @@ import {
 import { visibleActivitySessionIds } from "./lib/activityVisibility";
 import {
   loadNotificationsEnabled,
+  notifyAvosNeed,
   publishSessionActivity,
   pendingSessionActivityEvents,
   sessionTurnActivityId,
@@ -899,7 +901,7 @@ import {
   installWorkBoardActions,
   type WorkBoardActions,
 } from "./lib/workBoardFeed";
-import { addChatsToBoard } from "./lib/featureCards";
+import { addChatsToBoard, boardProjectFor } from "./lib/featureCards";
 import { useProjectBots } from "./hooks/useProjectBots";
 import { useCrews } from "./hooks/useCrews";
 import { CrewSettingsSheet } from "./chrome/CrewSettingsSheet";
@@ -920,11 +922,17 @@ import {
   AVOS,
   avosGlance,
   avosMet,
+  avosNeeds,
+  avosNeedsCount,
   avosNoticeCards,
   avosNoticesFor,
+  avosNotificationId,
+  avosNotificationPath,
+  avosOwnsRun,
+  giveChatToAvosText,
   withAvosNotices,
-  avosWeek,
   type AvosGlance,
+  type AvosNeeds,
   type AvosNotice,
 } from "./lib/avos";
 import { AvosNoticeCard } from "./chrome/AvosNotices";
@@ -966,6 +974,7 @@ import {
   botForChat,
   runsToday,
   botsAvailable,
+  openAvosLabel,
   botHeadline,
   botName,
   botStatus,
@@ -1012,6 +1021,7 @@ const NO_BOT_CHATS: ReadonlySet<string> = new Set();
 const NO_SIDEBAR_BOTS: readonly SidebarBot[] = [];
 const NO_SIDEBAR_CREWS: readonly SidebarCrew[] = [];
 const NO_AVOS_GLANCES: readonly AvosGlance[] = [];
+const NO_AVOS_NEEDS: readonly AvosNeeds[] = [];
 
 /** A chat started from a Race lane keeps the project but works in the lane. */
 function laneCheckout(source: Session): Pick<Session, "worktreeCwd"> {
@@ -9149,12 +9159,29 @@ export default function App({
 
   showAutomationRunRef.current = showAutomationRun;
 
+  /** Opens a project's Avos; set once `onOpenAvos` exists, further down. */
+  const openAvosRef = useRef<((path: string) => void) | null>(null);
   const onOpenApprovalSession = useCallback(
     async (sessionId: string): Promise<boolean> => {
       // A run's chat stays in Automations until it is opened as a chat, and
       // a notice for a run that never started shows that run.
       const automationRun = automationRunTarget(sessionId);
       if (automationRun) return showAutomationRun(automationRun);
+      // A notification from a project's Avos opens that Avos.
+      const avosPath = avosNotificationPath(sessionId);
+      if (avosPath) {
+        if (!openAvosRef.current) return false;
+        openAvosRef.current(avosPath);
+        try {
+          const appWindow = getCurrentWindow();
+          await appWindow.unminimize();
+          await appWindow.show();
+          await appWindow.setFocus();
+        } catch {
+          // The Avos screen is open; the window comes forward when it can.
+        }
+        return true;
+      }
       const parentId =
         sessionsRef.current.find((session) => session.id === sessionId)
           ?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
@@ -10440,10 +10467,13 @@ export default function App({
         (command.id !== "open_notes" || notesEnabled) &&
         (command.id !== "open_board" || boardProject),
     ).map((command) =>
-      command.id === "open_board" && boardProject && labelsForPalette
+      command.id === "open_board"
         ? {
             ...command,
-            label: `Open Avos for ${projectDisplayName(boardProject, labelsForPalette)}`,
+            label:
+              boardProject && labelsForPalette
+                ? `${openAvosLabel()} for ${projectDisplayName(boardProject, labelsForPalette)}`
+                : openAvosLabel(),
           }
         : command,
     ),
@@ -10659,6 +10689,10 @@ export default function App({
     run,
     session,
   }: AutomationRunNotice) => {
+    // A run of Avos's job lives in Avos: its This week, its chat and one
+    // notice (with a Mac notification while Aven is behind), never also here.
+    if (botsAvailable() && avosOwnsRun(run, listScheduledAgents(), getCrew))
+      return;
     // A run that could not start has no chat: its entry names the run, and
     // opening it shows the run (see `onOpenApprovalSession`).
     const agent = getScheduledAgent(run.scheduleId);
@@ -10875,10 +10909,39 @@ export default function App({
     draft: (project, text) => startProjectChat(project, text),
   };
   /**
-   * Add to board, from a chat's menu: a card per chat on its project's
-   * board, in the column its state implies; then the board comes forward.
+   * Give to Avos, from a chat's menu. Where Avos doesn't run it is Add to
+   * board: a card per chat on its project's board, in the column its state
+   * implies; then the board comes forward.
    */
   addToBoardRef.current = (sessionIds) => {
+    if (botsAvailable()) {
+      // Give to Avos: each chat goes to its project's Avos, as a message
+      // that links back to it, and the first project's Avos opens.
+      let first: string | null = null;
+      for (const id of sessionIds) {
+        const loaded = sessionsRef.current.find((session) => session.id === id);
+        const chat = loaded ?? historyRef.current.find((row) => row.id === id);
+        const project = chat ? boardProjectFor(chat.cwd) : null;
+        if (!chat || !project) continue;
+        const title = loaded
+          ? conversationTitle(loaded)
+          : sessionDisplayTitle(chat.title, chat.harness);
+        const ask = loaded?.blocks.findLast((block) => block.role === "user");
+        ensureAvos(project);
+        void tellTeam(
+          project,
+          giveChatToAvosText(title, ask?.text),
+          "lead",
+          Date.now(),
+          { sessionId: id, title },
+        ).then((problem) => {
+          if (problem) logError("Give to Avos", problem);
+        });
+        first ??= project;
+      }
+      if (first) openAvosRef.current?.(first);
+      return;
+    }
     const drafts = chatCardDrafts(
       sessionIds.flatMap((id) => {
         const chat =
@@ -11111,6 +11174,32 @@ export default function App({
     leadDecided,
     teams,
   });
+  const crewStore = useCrewsStore();
+  const avosAgents = useSyncExternalStore(
+    subscribeScheduledAgents,
+    listScheduledAgents,
+  );
+  // What each project's Avos waits on you for: its notices, the Dock badge
+  // and Home's Needs you all count these (Avos's items live in Avos).
+  const avosNeedList = useMemo<readonly AvosNeeds[]>(
+    () =>
+      botsAvailable()
+        ? avosNeeds(
+            profiles.profileProjects.map(
+              (project) => crewStore[projectKey(project.path)],
+            ),
+            {
+              jobs: { agents: avosAgents, runs: scheduledRuns },
+              now: Date.now(),
+            },
+          )
+        : NO_AVOS_NEEDS,
+    [profiles.profileProjects, crewStore, avosAgents, scheduledRuns],
+  );
+  useEffect(() => {
+    setDockAvosNeeds(avosNeedsCount(avosNeedList));
+    syncDockBadge(sessionsRef.current);
+  }, [avosNeedList, sessionsRef]);
   const homeShown =
     (profileHome || homeViewOpen || view.order.length === 0) &&
     !settingsOpen &&
@@ -11132,6 +11221,7 @@ export default function App({
     standaloneCwds,
     teams,
     leadDecided,
+    avos: avosNeedList,
   });
   // Home's Getting started card, after the walkthrough on a fresh install.
   const gettingStarted = useGettingStarted({
@@ -11565,7 +11655,6 @@ export default function App({
       onSelectHistorySession,
     ],
   );
-  const crewStore = useCrewsStore();
   const sidebarCrews = useMemo<readonly SidebarCrew[]>(() => {
     if (!botsAvailable()) return NO_SIDEBAR_CREWS;
     const on = Object.values(crewStore).filter((crew) => crew.on);
@@ -11621,10 +11710,6 @@ export default function App({
     [closeUtilityViews, onOpenBoard],
   );
   // Every project's Avos at a glance: the sidebar's rows and Home's lines.
-  const avosAgents = useSyncExternalStore(
-    subscribeScheduledAgents,
-    listScheduledAgents,
-  );
   const avosGlances = useMemo<readonly AvosGlance[]>(() => {
     if (!botsAvailable()) return NO_AVOS_GLANCES;
     const busy = new Set(
@@ -11684,26 +11769,30 @@ export default function App({
   }, [activeTab]);
   useEffect(() => {
     if (!avosNoticeWindow || !botsAvailable()) return;
-    const now = Date.now();
-    const jobs = { agents: avosAgents, runs: scheduledRuns };
-    const needs = profiles.profileProjects.flatMap((project) => {
-      const crew = crewStore[projectKey(project.path)];
-      return crew && avosMet(crew)
-        ? [{ path: crew.path, rows: avosWeek(crew, { jobs, now }).needs }]
-        : [];
-    });
+    // An Avos screen counts as in front only while Aven is: with Aven in the
+    // background, what's new there is announced too.
+    const inFront = notificationWindowFocused ? activeAvosPath : null;
     const { notices, seen } = avosNoticesFor(
-      needs,
+      avosNeedList,
       avosSeen.current,
-      activeAvosPath,
+      inFront,
     );
     avosSeen.current = seen;
+    // One Mac notification for each new thing while Aven isn't in front.
+    if (!notificationWindowFocusedRef.current)
+      for (const notice of notices)
+        void notifyAvosNeed({
+          id: avosNotificationId(notice.path),
+          project: projectDisplayName(notice.path, loadTabGroupLabels()),
+          text: notice.text,
+          presentationFocused: false,
+        });
     setAvosNotices((current) => {
       // Sorted elsewhere, or its Avos is in front: the notice goes.
       const kept = current.filter(
         (notice) =>
           seen.has(notice.id) &&
-          !(activeAvosPath && sameProjectPath(activeAvosPath, notice.path)),
+          !(inFront && sameProjectPath(inFront, notice.path)),
       );
       const next = withAvosNotices(kept, notices);
       return next.length === current.length &&
@@ -11713,11 +11802,9 @@ export default function App({
     });
   }, [
     avosNoticeWindow,
-    avosAgents,
-    scheduledRuns,
-    crewStore,
-    profiles.profileProjects,
+    avosNeedList,
     activeAvosPath,
+    notificationWindowFocused,
   ]);
   // The job runs the notices are about, for their Publish or Approve.
   const avosNoticeRuns = useMemo(() => {
@@ -11738,6 +11825,7 @@ export default function App({
     },
     [onOpenCrew],
   );
+  openAvosRef.current = onOpenAvos;
   const onAddCrew = onOpenAvos;
   /**
    * @Avos from a chat: the message goes to that chat's project's Avos (saved

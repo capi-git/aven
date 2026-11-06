@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { ActivityEntry } from "../lib/activity";
+import type { AvosNeeds } from "../lib/avos";
 import {
   completedDays,
   loadStreakDays,
@@ -46,6 +47,7 @@ export type WorkspaceHomeData = {
 
 const RECENT_ROWS = 24;
 const NO_TEAMS: readonly TeamRun[] = Object.freeze([]);
+const NO_AVOS: readonly AvosNeeds[] = Object.freeze([]);
 const EMPTY_LIVE: readonly HomeLiveSession[] = Object.freeze([]);
 const EMPTY_INDEX: HomeSessionIndex = Object.freeze({
   at: new Map<string, number>(),
@@ -77,6 +79,7 @@ export function useWorkspaceHomeData({
   standaloneCwds,
   teams = NO_TEAMS,
   leadDecided = NO_LEAD_DECIDED,
+  avos = NO_AVOS,
 }: {
   enabled: boolean;
   sessions: readonly Session[];
@@ -92,6 +95,8 @@ export function useWorkspaceHomeData({
   teams?: readonly TeamRun[];
   /** Workers whose requests their lead decides (see `teamAttention`). */
   leadDecided?: LeadDecided;
+  /** What each project's Avos waits on you for (see `avosNeeds`). */
+  avos?: readonly AvosNeeds[];
 }): WorkspaceHomeData {
   const next = useMemo(
     () =>
@@ -144,9 +149,9 @@ export function useWorkspaceHomeData({
     useMemo(
       () =>
         enabled
-          ? homeNeedsYou(live, activity, scope, index, teams)
+          ? homeNeedsYou(live, activity, scope, index, teams, avos)
           : EMPTY.needsYou,
-      [enabled, live, activity, scope, index, teams],
+      [enabled, live, activity, scope, index, teams, avos],
     ),
   );
   // A team runs as one row: its members fold into the chat it started from.

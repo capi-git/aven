@@ -12,7 +12,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WindowControls } from "./WindowControls";
 import { DevModeSlot } from "./TitleBar";
 import { SEARCH_KEYS } from "./ProfileSidebarHeader";
-import { IS_MAC } from "../lib/platform";
+import { IS_MAC, MOD } from "../lib/platform";
 import { settingsSectionLabel, type SettingsSectionId } from "../lib/settings";
 import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
@@ -313,7 +313,7 @@ export function WorkspaceNavigation({
             <button
               type="button"
               aria-label="Back"
-              title="Back (⌘[)"
+              title={`Back (${MOD}[)`}
               disabled={!canGoBack}
               onClick={onGoBack}
             >
@@ -324,7 +324,7 @@ export function WorkspaceNavigation({
             <button
               type="button"
               aria-label="Forward"
-              title="Forward (⌘])"
+              title={`Forward (${MOD}])`}
               disabled={!canGoForward}
               onClick={onGoForward}
             >

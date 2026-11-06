@@ -571,6 +571,48 @@ describe("homeNeedsYou", () => {
     );
     expect(item.at).toBe(42);
   });
+
+  it("gives a project's Avos one waiting row that opens it", () => {
+    const items = homeNeedsYou(
+      [
+        live({
+          id: "ask",
+          updatedAt: 150,
+          waiting: { kind: "approval", detail: "x" },
+        }),
+      ],
+      [],
+      scope,
+      undefined,
+      [],
+      [
+        {
+          path: SITE,
+          rows: [
+            { id: "stuck:a", text: "“Cover” needs your answer", at: 120 },
+            { id: "ready", text: "Look at “Pricing”", at: 180 },
+          ],
+        },
+        { path: APP, rows: [{ id: "ready", text: "Look at “Nav”", at: 90 }] },
+        // Another workspace's Avos stays there.
+        { path: OTHER, rows: [{ id: "ready", text: "Look", at: 500 }] },
+      ],
+    );
+    expect(
+      items.map((item) => [
+        item.id,
+        item.kind,
+        item.avos,
+        item.detail,
+        item.at,
+      ]),
+    ).toEqual([
+      [`avos:${SITE}`, "paused", SITE, "2 things need you", 180],
+      ["ask", "approval", undefined, "x", 150],
+      [`avos:${APP}`, "paused", APP, "Look at “Nav”", 90],
+    ]);
+    expect(items[0]!.title).toBe("Avos");
+  });
 });
 
 describe("homeRunning", () => {

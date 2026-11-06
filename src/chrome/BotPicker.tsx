@@ -39,7 +39,7 @@ type ListProps = {
   onAdd: (path: string) => void;
   /** A row started or finished setting up Git. */
   onBusyChange?: (busy: boolean) => void;
-  /** What it adds: a bot (the default) or a team, for its words. */
+  /** What it's for: a bot (the default) or Avos, for its words. */
   kind?: "bot" | "team";
 };
 
@@ -272,7 +272,7 @@ export function BotGitSetupSheet({
   onClose,
 }: {
   project: BotPickerProject;
-  /** Asked for a bot, or for a team (New team). */
+  /** Asked for a bot, or by Avos's Set up Git. */
   kind?: "bot" | "team";
   onAdd: (path: string) => void;
   onClose: () => void;
@@ -283,7 +283,7 @@ export function BotGitSetupSheet({
       onClose={() => {
         if (!busy.current) onClose();
       }}
-      title={kind === "team" ? "Add a team" : "Add a bot"}
+      title={kind === "team" ? "Set up Git for Avos" : "Add a bot"}
       size="sm"
       className="bot-git-sheet"
     >

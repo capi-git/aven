@@ -113,7 +113,7 @@ export function crewGate(input: CrewGateInput): CrewGate {
       ok: false,
       reason: "usage",
       title: `Claude is ${Math.round(input.weeklyUsed)}% used for the week`,
-      detail: `Teams pause at ${crew.limits.pauseAtPercent}% so your own chats keep working.`,
+      detail: `Avos pauses at ${crew.limits.pauseAtPercent}% so your own chats keep working.`,
     };
   const used = crewRunsUsed(crew, now, input.fixerRuns);
   const allowed = crewRunsAllowed(crew, now);
@@ -122,15 +122,15 @@ export function crewGate(input: CrewGateInput): CrewGate {
       ok: false,
       reason: "daily-cap",
       title: `Today's ${allowed} runs are used`,
-      detail: "The team picks up again tomorrow.",
+      detail: "Avos picks up again tomorrow.",
     };
   const cap = input.allRunsCap ?? CREW_ALL_RUNS_PER_DAY;
   if (input.allRuns >= cap)
     return {
       ok: false,
       reason: "all-crews-cap",
-      title: `All teams' ${cap} runs today are used`,
-      detail: "Teams pick up again tomorrow.",
+      title: `Today's ${cap} runs for all projects are used`,
+      detail: "Avos picks up again tomorrow.",
     };
   return { ok: true };
 }
@@ -200,7 +200,7 @@ export function crewNoMemberGate(
     ok: false,
     reason: "no-member",
     title: `No ${label} is on`,
-    detail: `Turn one on, or add one, in the team's settings. The card waits.`,
+    detail: `Turn one on, or add one, in Avos's settings. The card waits.`,
   };
 }
 
@@ -447,7 +447,7 @@ export function crewLimitRows(
       detail: "Then it stops and asks you",
     },
     {
-      title: `${crew.limits.runsPerDay} runs a day per team · ${allRunsCap} for all teams`,
+      title: `${crew.limits.runsPerDay} runs a day here · ${allRunsCap} for all projects`,
       detail: `One run is one bot turn. ${builder} + ${checker} × ${crew.limits.roundsPerCard} rounds = ${crew.limits.roundsPerCard * 2}`,
     },
     {

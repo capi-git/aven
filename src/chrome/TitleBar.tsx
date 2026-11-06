@@ -124,7 +124,7 @@ import { BotCritter } from "./BotCritter";
 import { CrewCritter } from "./CrewCritter";
 import { avosGlance } from "../lib/avos";
 import { crewMemberName, useCrew } from "../lib/crews";
-import { botsAvailable } from "../lib/projectBots";
+import { botsAvailable, openAvosLabel } from "../lib/projectBots";
 import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
 import { playMotion } from "../lib/motion";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
@@ -4460,8 +4460,12 @@ function TitleBarComponent({
             {onOpenBoard && !titleRow ? (
               <button
                 type="button"
-                aria-label="Open Avos"
-                title="Open this project's Avos"
+                aria-label={openAvosLabel()}
+                title={
+                  botsAvailable()
+                    ? "Open this project's Avos"
+                    : "Open this project's board"
+                }
                 data-tauri-drag-region="false"
                 data-tour="board"
                 className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
