@@ -188,7 +188,7 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
   text-underline-offset: 2px;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .mcp-link:hover {
   color: var(--color-content);
@@ -291,7 +291,7 @@
   font: inherit;
   font-size: var(--text-ui-body);
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
   transition: background-color 120ms ease;
 }
 .mcp-fold:hover {

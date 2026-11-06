@@ -99,7 +99,7 @@
   background: transparent;
   color: var(--color-content);
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
   transition:
     background-color 120ms ease,
     border-color 120ms ease;

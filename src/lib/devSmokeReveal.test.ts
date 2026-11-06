@@ -71,12 +71,48 @@ describe("the launch reveal check", () => {
   });
 
   it("names a window that was covered at launch instead of judging it", () => {
-    const covered = {
+    const covered: LaunchReveal = {
       ...drawn,
-      page: { ...drawn.page, visibleWhenDrawn: false },
+      native: {
+        ...drawn.native!,
+        windowStates: ["0 ms concealed: covered, level 0, this Space"],
+      },
+      page: {
+        ...drawn.page,
+        visibleWhenDrawn: false,
+        visibility: [{ state: "hidden", atEpochMs: 1_040 }],
+      },
     };
-    expect(launchRevealProblem(covered)).toMatch(
-      /covered or on another Space at launch/,
+    const problem = launchRevealProblem(covered);
+    expect(problem).toMatch(/covered or on another Space at launch/);
+    // What the page and AppKit saw, to tell a covered window from a slow one.
+    expect(problem).toContain("page: hidden at 40 ms");
+    expect(problem).toContain("drawn at 318 ms");
+    expect(problem).toContain("window: 0 ms concealed: covered, level 0");
+  });
+
+  it("says when a page that loaded hidden saw itself visible", () => {
+    const late: LaunchReveal = {
+      ...drawn,
+      page: {
+        ...drawn.page,
+        visibility: [
+          { state: "hidden", atEpochMs: 1_040 },
+          { state: "visible", atEpochMs: 1_200 },
+        ],
+      },
+    };
+    expect(launchRevealProblem(late)).toBeNull();
+    expect(launchRevealSummary(late)).toMatch(
+      /loaded hidden and saw itself visible at 200 ms$/,
     );
+    const visible: LaunchReveal = {
+      ...drawn,
+      page: {
+        ...drawn.page,
+        visibility: [{ state: "visible", atEpochMs: 1_040 }],
+      },
+    };
+    expect(launchRevealSummary(visible)).not.toMatch(/hidden/);
   });
 });

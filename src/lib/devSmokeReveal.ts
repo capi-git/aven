@@ -10,6 +10,8 @@ export type NativeReveal = {
   revealedAtMs?: number | null;
   reason?: "painted" | "timeout" | null;
   concealedUntilReveal?: boolean | null;
+  /** How AppKit saw the window while concealed and as it was revealed. */
+  windowStates?: string[] | null;
 };
 
 export type LaunchReveal = {
@@ -70,23 +72,49 @@ export function launchRevealProblem({
   if (page.drawnAtEpochMs == null)
     return "the window was shown without the page reporting a drawn frame";
   if (page.visibleWhenDrawn === false)
-    return "the window was covered or on another Space at launch, so its first frame could not be checked; keep Aven Dev's window uncovered";
+    return `the window was covered or on another Space at launch, so its first frame could not be checked; keep Aven Dev's window uncovered${launchVisibility(native, page)}`;
   if (painted == null) return "WebKit reported no painted content";
   if (painted > shown)
     return `the first content was painted ${painted - shown} ms after the window was shown`;
   return null;
 }
 
+/** What the page and AppKit each saw while the window was concealed. */
+function launchVisibility(native: NativeReveal, page: RevealTiming): string {
+  const since = (atEpochMs: number) => `${atEpochMs - native.concealedAtMs} ms`;
+  const lines = [
+    page.visibility?.length
+      ? `page: ${page.visibility.map((mark) => `${mark.state} at ${since(mark.atEpochMs)}`).join(", ")}`
+      : null,
+    page.drawnAtEpochMs != null
+      ? `drawn at ${since(page.drawnAtEpochMs)}`
+      : null,
+    ...(native.windowStates ?? []).map((state) => `window: ${state}`),
+  ].filter(Boolean);
+  return lines.length ? `\n      ${lines.join("\n      ")}` : "";
+}
+
 /** A one-line summary for the check's report. */
 export function launchRevealSummary({
   native,
+  page,
   firstContentfulPaintEpochMs: painted,
 }: LaunchReveal): string {
   if (!native?.revealedAtMs) return "not shown";
   const shown = native.revealedAtMs;
+  // A page that loaded hidden and became visible before it drew passed, but
+  // only just: say how close it came.
+  const marks = page.visibility ?? [];
+  const visibleAt =
+    marks[0]?.state === "hidden"
+      ? marks.find((mark) => mark.state === "visible")?.atEpochMs
+      : undefined;
   return [
     `shown ${shown - native.concealedAtMs} ms after the window was created`,
     painted == null ? null : `${shown - painted} ms after its first paint`,
+    visibleAt == null
+      ? null
+      : `the page loaded hidden and saw itself visible at ${visibleAt - native.concealedAtMs} ms`,
   ]
     .filter(Boolean)
     .join(", ");

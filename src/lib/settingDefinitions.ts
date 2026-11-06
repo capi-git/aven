@@ -164,6 +164,21 @@ export const SETTINGS = {
     rowDescription:
       "Show small games to play in empty chats. Turn off for a quieter workspace.",
   }),
+  newChatInk: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.newChatInk",
+      ...storedBoolean(true, true),
+      changeEvent: "aven:new-chat-ink-change",
+      storageChanges: true,
+    }),
+    section: "general",
+    label: "Ink in new chats",
+    description: "Let the pointer stir soft ink in a new chat.",
+    keywords:
+      "background animation smoke halftone pointer mouse cursor empty chat welcome",
+    rowDescription:
+      "Moving the pointer over a new chat stirs soft ink. Hold to gather it.",
+  }),
   notesEnabled: defineSetting({
     ...defineStoredSetting<boolean>({
       key: "monocode.notesEnabled",
@@ -358,6 +373,22 @@ export const SETTINGS = {
       "animation animations transitions motion movement fade slide spring accessibility calm",
     rowDescription:
       "Messages, menus, panes and lists change at once instead of sliding or fading. Aven also follows your system’s Reduce motion setting.",
+  }),
+  dotPointer: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.dotPointer",
+      ...storedBoolean(true, true),
+      changeEvent: "aven:dot-pointer-change",
+      storageChanges: true,
+    }),
+    section: "appearance",
+    label: "Dot pointer",
+    description: "Show a soft dot instead of the arrow inside Aven.",
+    keywords: "cursor mouse arrow pointer circle dot translucent accessibility",
+    rowDescription:
+      "A soft dot instead of the arrow inside Aven. Text fields keep the I-beam.",
+    disabledDescription:
+      "Off while your Mac uses a larger pointer or more contrast.",
   }),
   chatBackground: defineSetting({
     section: "appearance",

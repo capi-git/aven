@@ -171,7 +171,7 @@ html.theme-light .personal-shell {
 }
 .aven-tab[data-draggable="true"],
 .aven-tab[data-draggable="true"] .aven-tab-button {
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 .aven-tab[data-sortable-moving="true"],
 .aven-tab[data-sortable-moving="true"] .aven-tab-button {
@@ -272,9 +272,15 @@ html.theme-light .personal-shell {
   width: 16px;
   height: 16px;
 }
-/* Tabs scrolled past slide under the pins, behind one frosted backing. */
+/* Tabs scrolled past slide under the pins, behind one frosted backing. A
+   tab scrolled into view stops clear of the scroll arrows too: each is
+   26px, 4px in from its end of the strip (TabStripChevron). */
 .aven-tab-strip {
-  scroll-padding-left: var(--aven-tab-pin-width, 0);
+  --aven-tab-arrow-room: 32px;
+  scroll-padding-left: calc(
+    var(--aven-tab-pin-width, 0px) + var(--aven-tab-arrow-room)
+  );
+  scroll-padding-right: var(--aven-tab-arrow-room);
 }
 .aven-tab-strip[data-scrolled] .aven-tab-slot[data-pinned="first"]::before {
   content: "";
@@ -554,7 +560,7 @@ html.theme-light .personal-shell {
   color: var(--aven-label-secondary);
   font-size: var(--text-ui-micro);
   white-space: nowrap;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .personal-tab-preview-action:hover,
 .personal-tab-preview-action[aria-expanded="true"] {
@@ -590,7 +596,7 @@ html.theme-light .personal-shell {
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   transition:
     filter 120ms ease,
     box-shadow 120ms ease;
@@ -790,7 +796,7 @@ html.theme-light .personal-shell {
   color: var(--aven-label-secondary);
   font-size: var(--text-ui-body);
   font-variant-numeric: tabular-nums;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   transition:
     background-color 120ms var(--aven-tab-ease),
     color 120ms var(--aven-tab-ease);
@@ -857,7 +863,7 @@ html.theme-light .personal-shell {
   border-radius: var(--aven-radius-sm);
   background: transparent;
   color: var(--aven-label-secondary);
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .aven-pane-tool:hover,
 .aven-pane-tool[aria-expanded="true"] {
@@ -953,13 +959,13 @@ html.theme-light .personal-shell {
   font-size: var(--text-ui-row);
   line-height: 1.25;
   white-space: nowrap;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   /* Narrow segments (three panes or more in a crowded strip) keep only
      their icons. */
   container-type: inline-size;
 }
 .aven-split-entry[data-draggable="true"] .aven-split-segment {
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
 }
 .aven-split-segment:hover {
   background: var(--aven-control-bg);

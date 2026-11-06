@@ -531,7 +531,7 @@ html.theme-light [data-composer-box] {
 header[data-tauri-drag-region] [data-tauri-drag-region="false"],
 header[data-tauri-drag-region] [data-tauri-drag-region="false"] *,
 header[data-tauri-drag-region] button {
-  cursor: default !important;
+  cursor: var(--aven-cursor-default) !important;
 }
 
 .material-icon svg {
@@ -703,7 +703,7 @@ header[data-tauri-drag-region] button {
   border: 0;
   background: transparent;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .chat-reference,

@@ -11,7 +11,7 @@
   color: color-mix(in srgb, var(--color-content) 68%, transparent);
   font-size: var(--text-ui-caption);
   line-height: 1;
-  cursor: grab;
+  cursor: var(--aven-cursor-grab);
   user-select: none;
   -webkit-user-select: none;
   background: var(--aven-toolbar-surface, transparent);
@@ -28,7 +28,7 @@
   border: 0;
   background: none;
   color: inherit;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .workspace-status-queue > span {
   overflow: hidden;
@@ -47,7 +47,7 @@
   flex-shrink: 1;
   overflow-x: auto;
   scrollbar-width: none;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .workspace-status-controls::-webkit-scrollbar {
   display: none;
@@ -129,7 +129,7 @@
   border: 0;
   border-radius: var(--aven-radius-track);
   background: transparent;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 /* Plain toolbar buttons, as in Cydonia: no platter behind them, a fill
    only under the pointer or when pressed. */
@@ -182,7 +182,7 @@
   border-radius: var(--aven-radius-thumb);
   background: transparent;
   color: var(--personal-muted, var(--color-content));
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .workspace-status-navigation button:hover,
 .workspace-status-history button:hover:not(:disabled),
@@ -197,7 +197,7 @@
 }
 .workspace-status-history button:disabled {
   opacity: 0.3;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .workspace-status-layout {
   position: relative;
@@ -299,7 +299,7 @@
   border-radius: var(--aven-radius-thumb);
   background: transparent;
   color: var(--personal-muted, var(--color-content));
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .workspace-navigation-more:hover,
 .workspace-navigation-more[aria-expanded="true"] {
@@ -339,7 +339,7 @@
   align-self: stretch;
   min-width: 0;
   margin-right: 32px;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .workspace-status-strip-content {
   display: flex;

@@ -167,7 +167,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   border-radius: var(--aven-radius-thumb);
   background: transparent;
   color: color-mix(in srgb, var(--color-content) 54%, transparent);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
   -webkit-app-region: no-drag;
 }
 .workspace-pane-toggle:hover,
@@ -215,7 +215,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   overflow: hidden;
   background: color-mix(in srgb, var(--color-content) 4%, transparent);
   color: var(--aven-label-secondary);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
   -webkit-app-region: no-drag;
   transition: background-color var(--aven-motion-fast) ease;
   animation: aven-fade var(--aven-motion-base) var(--aven-ease-out) backwards;

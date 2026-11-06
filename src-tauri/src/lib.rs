@@ -97,6 +97,7 @@ mod skill_install;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+mod system_pointer;
 mod team_watch;
 mod turn_shot_image;
 mod turn_shots;
@@ -400,6 +401,7 @@ pub fn run() {
             team_watch::team_watch_dismiss,
             team_watch::team_watch_show_owner,
             popup_glass::popup_glass_set,
+            system_pointer::system_pointer_scale,
             browser_agent::browser_agent_bind,
             #[cfg(target_os = "macos")]
             dictation::dictation_start,

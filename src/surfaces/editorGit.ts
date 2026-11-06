@@ -1103,7 +1103,7 @@ const gitTheme = EditorView.theme({
     bottom: "0",
     zIndex: "8",
     width: "10px",
-    cursor: "pointer",
+    cursor: "var(--aven-cursor-pointer)",
   },
   ".cm-gitOverviewTick": {
     position: "absolute",
@@ -1147,7 +1147,7 @@ const gitTheme = EditorView.theme({
     border: "none",
     color: "inherit",
     background: "transparent",
-    cursor: "pointer",
+    cursor: "var(--aven-cursor-pointer)",
   },
   ".cm-gitHunkBtn:hover": {
     backgroundColor:

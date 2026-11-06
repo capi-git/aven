@@ -224,7 +224,7 @@
   color: var(--aven-muted);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .crew-settings-back:hover {
@@ -242,7 +242,7 @@ button.bot-sheet-row.crew-settings-member {
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 button.bot-sheet-row.crew-settings-member:hover {
@@ -250,7 +250,7 @@ button.bot-sheet-row.crew-settings-member:hover {
 }
 
 button.bot-sheet-row.crew-settings-member[aria-disabled="true"] {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.55;
 }
 
@@ -293,7 +293,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   color: color-mix(in srgb, var(--color-content) 78%, transparent);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .crew-settings-add:hover:not(:disabled) {
@@ -303,7 +303,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 
 .crew-settings-add:disabled {
   opacity: 0.5;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 
 .crew-settings-hint {
@@ -359,7 +359,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   border-radius: var(--aven-radius-sm);
   background: transparent;
   color: var(--aven-muted);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .crew-icon-button:hover:not(:disabled) {
@@ -369,7 +369,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 
 .crew-icon-button:disabled {
   opacity: 0.35;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 
 /* One line and what sits one level deeper: Rules ›, Edit limits ›, More ›. */
@@ -400,7 +400,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   color: var(--aven-muted);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .crew-settings-disclosure:hover {
@@ -448,7 +448,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   color: var(--aven-muted);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .crew-settings-remove-link:hover:not(:disabled) {
@@ -457,7 +457,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 
 .crew-settings-remove-link:disabled {
   opacity: 0.45;
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 
 .crew-settings-text,
@@ -543,7 +543,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .crew-gallery-item:hover:not([aria-disabled="true"]) {
@@ -551,7 +551,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 }
 
 .crew-gallery-item[aria-disabled="true"] {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.5;
 }
 
@@ -614,7 +614,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   color: var(--color-content);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .crew-access-choice:hover {
   background: var(--aven-hover);

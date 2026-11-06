@@ -88,7 +88,7 @@
   color: var(--aven-muted);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .avos-head-tabs button:hover,
 .avos-head-more:hover,
@@ -156,7 +156,7 @@
   text-align: left;
 }
 button.avos-week-row {
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 button.avos-week-row:hover {
   text-decoration: underline;
@@ -186,7 +186,7 @@ button.avos-week-row:hover {
   color: var(--color-content);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .avos-week-helper:hover {
   background: var(--aven-hover);
@@ -246,7 +246,7 @@ button.avos-week-row:hover {
   color: var(--aven-muted);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .team-panel-tabs button:hover {
   background: var(--aven-hover);
@@ -331,7 +331,7 @@ button.avos-week-row:hover {
   font: inherit;
   font-size: var(--text-ui-body);
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .team-notes button:hover,
 .team-schedule-row:hover {
@@ -385,7 +385,7 @@ button.avos-week-row:hover {
   gap: 6px;
 }
 .team-routine-edit button:disabled {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.45;
 }
 .team-routine-edit button {
@@ -396,7 +396,7 @@ button.avos-week-row:hover {
   color: var(--color-content);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 
 .team-model-button {
@@ -413,7 +413,7 @@ button.avos-week-row:hover {
   font: inherit;
   font-size: var(--text-ui-label);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .team-model-button:hover {
   background: var(--aven-control-hover, var(--aven-hover));
@@ -536,14 +536,14 @@ button.avos-week-row:hover {
   background: transparent;
   color: var(--color-content);
   font: inherit;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .team-thread-showing button:hover:not(:disabled) {
   text-decoration: underline;
 }
 .team-thread-showing button:disabled {
   color: var(--aven-muted);
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .team-thread-showing-tools {
   display: inline-flex;
@@ -648,7 +648,7 @@ button.avos-week-row:hover {
   color: var(--aven-muted);
   font: inherit;
   font-size: var(--text-ui-label);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .team-notes-forget:hover {
   color: var(--color-content);
@@ -661,7 +661,7 @@ button.avos-week-aside {
   background: transparent;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 button.avos-week-aside:hover {
   color: var(--color-content);

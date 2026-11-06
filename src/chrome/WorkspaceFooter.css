@@ -63,7 +63,7 @@
 }
 
 .workspace-footer button:disabled {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .workspace-footer-icon:disabled {
   opacity: 0.4;

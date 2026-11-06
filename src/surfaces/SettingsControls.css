@@ -171,7 +171,7 @@
   background: var(--aven-fill-quaternary, var(--aven-hover));
 }
 .settings-segmented button[aria-disabled="true"] {
-  cursor: default;
+  cursor: var(--aven-cursor-default);
   opacity: 0.45;
 }
 .settings-segmented button[aria-checked="true"] {
@@ -199,7 +199,7 @@
   margin: 0;
   border-radius: var(--aven-radius-md);
   background: transparent;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .settings-slider input::-webkit-slider-runnable-track {
   height: 4px;
@@ -275,7 +275,7 @@
   border: 0;
   border-radius: var(--aven-radius-capsule);
   background: transparent;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 /* A switch in iOS's proportions, sized for a dense desktop list: a capsule
    track (the system fill when off, the workspace's accent when on) and a
@@ -371,7 +371,7 @@
   gap: 12px;
   padding: 3px 8px 3px 10px;
   text-align: left;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .settings-button {
   display: inline-flex;
@@ -493,7 +493,7 @@
   border-radius: 50%;
   background: var(--swatch);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 22%, transparent);
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
   transition: transform var(--aven-motion-base, 150ms)
     var(--aven-ease-out, ease-out);
 }
@@ -525,7 +525,7 @@
   width: 100%;
   height: 100%;
   opacity: 0;
-  cursor: pointer;
+  cursor: var(--aven-cursor-pointer);
 }
 .settings-swatch-name {
   min-width: 7.5em;

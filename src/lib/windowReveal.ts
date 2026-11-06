@@ -17,14 +17,35 @@ export type RevealTiming = {
   /** Whether WebKit treated the page as visible when it drew: false for a
    *  window that was covered or on another Space. */
   visibleWhenDrawn?: boolean;
+  /** The page's visibility when this module loaded and at each change after,
+   *  for Aven Dev's real-app check. */
+  visibility?: VisibilityMark[];
+};
+
+export type VisibilityMark = {
+  state: DocumentVisibilityState;
+  atEpochMs: number;
 };
 
 const timing: RevealTiming = {};
 let requested = false;
 
+const visibility: VisibilityMark[] = [];
+if (typeof document !== "undefined") {
+  const mark = () => {
+    if (visibility.length < 16)
+      visibility.push({
+        state: document.visibilityState,
+        atEpochMs: Date.now(),
+      });
+  };
+  mark();
+  document.addEventListener("visibilitychange", mark);
+}
+
 /** What this page reported, for Aven Dev's real-app check and speed test. */
 export function windowRevealTiming(): RevealTiming {
-  return { ...timing };
+  return { ...timing, visibility: [...visibility] };
 }
 
 /** Ask once for this window to be shown now, such as for a startup error. */

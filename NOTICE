@@ -18,6 +18,12 @@ Packaged builds include third-party software, including Chromium Embedded
 Framework. Third-party components retain their own licenses and notices;
 this project's MIT license does not replace those terms.
 
+The ink in a new chat (src/lib/inkField.ts and the code that draws it) is
+adapted from MonoCode's empty-session canvas, crates/monocode-gpui/src/
+ink_field.rs and visuals/dither.rs at commit 5a31951
+(https://github.com/hardbeat920/monocode), under the MIT License. MonoCode's
+copyright notice is retained above and its permission notice in LICENSE.
+
 Portions of Aven's tab strips and pane docking (src/lib/tabTrack.ts,
 src/lib/paneDock.ts and the code that uses them) are adapted from Cydonia
 (https://github.com/crabtalk/cydonia) and its UI kit bezel

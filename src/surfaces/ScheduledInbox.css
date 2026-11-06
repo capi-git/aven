@@ -115,7 +115,7 @@
   width: fit-content;
   color: var(--aven-muted);
   font-size: var(--text-ui-caption);
-  cursor: default;
+  cursor: var(--aven-cursor-default);
 }
 .scheduled-prompt-preview > summary:hover,
 .scheduled-prompt-preview[open] > summary {

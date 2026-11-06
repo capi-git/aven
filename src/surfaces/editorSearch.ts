@@ -661,7 +661,7 @@ const findTheme = EditorView.theme(
         borderRadius: "6px",
         background: "transparent",
         color: "color-mix(in srgb, var(--color-content) 62%, transparent)",
-        cursor: "pointer",
+        cursor: "var(--aven-cursor-pointer)",
       },
     ".cm-find-expand:hover, .cm-find-step:hover, .cm-find-close:hover, .cm-find-toggle:hover, .cm-find-text:hover":
       {

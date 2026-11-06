@@ -1,0 +1,22 @@
+/* A new chat's ink: one canvas of round halftone dots on a 3px grid.
+   Under the chat's words (behind the pane's whole content, just above its
+   background) and never in the way of the pointer. */
+.new-chat-ink {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity calc(var(--aven-motion-glide) * 3) var(--aven-ease-out);
+}
+
+.new-chat-ink[data-leaving] {
+  opacity: 0;
+}
+
+.new-chat-ink canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
