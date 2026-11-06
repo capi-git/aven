@@ -50,7 +50,15 @@ const {
   restoreClaudeTaskLists,
   __claudeTestReset,
 } = await import("./claude");
-import type { HarnessEvent } from "./types";
+const { claudeAdapter } = await import("./claudeAdapter");
+const {
+  HARNESS_IDLE_PARK_MS,
+  registerHarness,
+  resetHarnessIdlePark,
+  sendHarnessTurn,
+} = await import("./registry");
+const { notifyMemoryPressure } = await import("../memoryPressure");
+import type { HarnessEvent, SendTurnInput } from "./types";
 import { newSession, type RuntimeMode, type TurnIntent } from "../session";
 import { applyHarnessEvent } from "./apply";
 
@@ -80,10 +88,12 @@ async function startTurn(
     model?: string;
     modelSettings?: Record<string, string>;
     onEvent?: (event: HarnessEvent) => void;
+    /** Send through something else, such as the harness registry. */
+    send?: (input: SendTurnInput) => Promise<void>;
   } = {},
 ) {
   const events: HarnessEvent[] = [];
-  const turn = sendClaudeTurn({
+  const turn = (options.send ?? sendClaudeTurn)({
     sessionId,
     cwd: "/repo",
     model: options.model ?? "claude:claude-sonnet-5",
@@ -1419,6 +1429,184 @@ describe("claude subagents", () => {
           event.text.includes("I will grep for tokens"),
       ),
     ).toBe(false);
+  });
+});
+
+describe("claude background shells", () => {
+  const shellStarted = (
+    taskId: string,
+    options: Record<string, unknown> = {},
+  ) =>
+    emit({
+      type: "system",
+      subtype: "task_started",
+      task_id: taskId,
+      tool_use_id: `toolu_${taskId}`,
+      task_type: "local_bash",
+      description: "npm run dev",
+      is_backgrounded: true,
+      ...options,
+    });
+  const shellEnded = (taskId: string, options: Record<string, unknown> = {}) =>
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: taskId,
+      status: "stopped",
+      output_file: "",
+      summary: "npm run dev",
+      ...options,
+    });
+  const shellsList = (...rows: Record<string, unknown>[]) =>
+    emit({
+      type: "system",
+      subtype: "background_tasks_changed",
+      tasks: rows.map((row) => ({
+        task_type: "local_bash",
+        description: "npm run dev",
+        ...row,
+      })),
+    });
+  const counts = (events: HarnessEvent[]) =>
+    events.flatMap((event) =>
+      event.type === "shells.updated" ? [event.running] : [],
+    );
+
+  it("counts a background shell from its start to its end, past the turn, without a row in the chat", async () => {
+    const { events, turn } = await startTurn("s1");
+    shellStarted("dev");
+    // The shell is no helper: the reply ends the turn.
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    expect(counts(events)).toEqual([1]);
+    // Claude can report a stop as ambient; it still ends the shell.
+    shellEnded("dev", { ambient: true, skip_transcript: true });
+    expect(counts(events)).toEqual([1, 0]);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "agent.updated" ||
+          ((event.type === "tool.started" || event.type === "tool.updated") &&
+            event.kind === "agent"),
+      ),
+    ).toBe(false);
+  });
+
+  it("counts a foreground command only once it moves to the background", async () => {
+    const { events, turn } = await startTurn("s1");
+    shellStarted("build", { is_backgrounded: false });
+    shellStarted("ls", { is_backgrounded: false });
+    shellEnded("ls", { status: "completed" });
+    expect(counts(events)).toEqual([]);
+    emit({
+      type: "system",
+      subtype: "task_updated",
+      task_id: "build",
+      patch: { is_backgrounded: true },
+    });
+    expect(counts(events)).toEqual([1]);
+    emit({
+      type: "system",
+      subtype: "task_updated",
+      task_id: "build",
+      patch: { status: "killed", end_time: 1 },
+    });
+    shellEnded("build");
+    expect(counts(events)).toEqual([1, 0]);
+    emit({ type: "result", subtype: "success" });
+    await turn;
+  });
+
+  it("leaves out ambient shells", async () => {
+    const { events, turn } = await startTurn("s1");
+    shellStarted("housekeeping", { ambient: true });
+    shellsList({ task_id: "housekeeping", ambient: true });
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    expect(counts(events)).toEqual([]);
+  });
+
+  it("takes Claude's background task list as the whole set", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    shellStarted("web");
+    shellStarted("api");
+    // A missed end: the list no longer has the API server.
+    shellsList({ task_id: "web" });
+    // A missed start: a shell first seen in the list.
+    shellsList({ task_id: "web" }, { task_id: "worker" });
+    shellsList();
+    expect(counts(events)).toEqual([1, 2, 1, 2, 0]);
+  });
+
+  it("starts nothing from a resume's replay of an old shell", async () => {
+    const { events, turn } = await startTurn("s1");
+    // The resumed process reports a shell of the last one as stopped.
+    shellEnded("old-dev", { reason: "worker_restart" });
+    emit({
+      type: "result",
+      subtype: "success",
+      num_turns: 0,
+      origin: { kind: "task-notification", task_id: "old-dev" },
+      session_id: "sess_1",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+    expect(counts(events)).toEqual([]);
+  });
+
+  it("reports no shells once the process exits", async () => {
+    const { events, turn } = await startTurn("s1");
+    shellStarted("dev");
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    onExit!(1);
+    expect(counts(events)).toEqual([1, 0]);
+    expect(events.at(-1)).toEqual({ type: "session.ended", code: 1 });
+  });
+
+  it("reports no shells once the process is stopped", async () => {
+    const { events, turn } = await startTurn("s1");
+    shellStarted("dev");
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    await stopClaudeSession("s1");
+    expect(counts(events)).toEqual([1, 0]);
+  });
+
+  it("keeps the chat's Claude process while an agent's dev server runs, then parks it", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    });
+    registerHarness(claudeAdapter);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { events, turn } = await startTurn("s1", {
+        send: (input) => sendHarnessTurn({ ...input, harness: "claude" }),
+      });
+      shellStarted("dev");
+      emit({ type: "result", subtype: "success" });
+      await turn;
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS * 2);
+      notifyMemoryPressure("critical");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(killed).toEqual([]);
+
+      shellEnded("dev");
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+      await vi.waitFor(() => expect(killed).toEqual(["s1"]));
+      expect(events.some((event) => event.type === "shells.updated")).toBe(
+        false,
+      );
+    } finally {
+      vi.useRealTimers();
+      resetHarnessIdlePark();
+      vi.unstubAllGlobals();
+    }
   });
 });
 

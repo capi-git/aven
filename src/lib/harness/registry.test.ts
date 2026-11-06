@@ -698,6 +698,120 @@ describe("harness registry", () => {
     },
   );
 
+  describe("a chat running a background shell", () => {
+    /** Claude chats whose turns start (or stop) background shells. */
+    function shellHarness() {
+      const stopSession = vi.fn(async (_sessionId: string) => undefined);
+      const emitters = new Map<string, (event: HarnessEvent) => void>();
+      const shown: HarnessEvent[] = [];
+      registerHarness(
+        stub("claude", {
+          stopSession,
+          sendTurn: async (input) => {
+            emitters.set(input.sessionId, input.onEvent);
+            if (input.text === "start the dev server")
+              input.onEvent({ type: "shells.updated", running: 1 });
+          },
+        }),
+      );
+      const send = (sessionId: string, text = "hi") =>
+        sendHarnessTurn({
+          ...turnInput("claude", sessionId),
+          text,
+          onEvent: (event) => shown.push(event),
+        });
+      const emit = (sessionId: string, event: HarnessEvent) =>
+        emitters.get(sessionId)!(event);
+      return { stopSession, send, emit, shown };
+    }
+
+    it("is not parked while the shell runs, and parks the usual time after it ends", async () => {
+      vi.useFakeTimers();
+      const { stopSession, send, emit, shown } = shellHarness();
+      await send("dev", "start the dev server");
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS * 3);
+      expect(stopSession).not.toHaveBeenCalled();
+
+      emit("dev", { type: "shells.updated", running: 0 });
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS - 1);
+      expect(stopSession).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(stopSession).toHaveBeenCalledExactlyOnceWith("dev");
+      // Parking state only: the chat never hears about the shell.
+      expect(shown.some((event) => event.type === "shells.updated")).toBe(
+        false,
+      );
+    });
+
+    it("cancels a waiting park when a shell starts after the turn settled", async () => {
+      vi.useFakeTimers();
+      const { stopSession, send, emit } = shellHarness();
+      await send("late");
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS - 1);
+      // Claude moved a long command to the background after the reply.
+      emit("late", { type: "shells.updated", running: 1 });
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS * 2);
+      expect(stopSession).not.toHaveBeenCalled();
+    });
+
+    it("does not count toward the warm limit and is never the one parked for it", async () => {
+      vi.useFakeTimers();
+      const { stopSession, send, emit } = shellHarness();
+      // Used longest ago, so the first to go if it counted as idle.
+      await send("dev", "start the dev server");
+      await vi.advanceTimersByTimeAsync(1_000);
+      for (let index = 0; index < HARNESS_WARM_LIMIT; index += 1) {
+        await send(`idle-${index}`);
+        await vi.advanceTimersByTimeAsync(1_000);
+      }
+      expect(stopSession).not.toHaveBeenCalled();
+      await send("newest");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stopSession.mock.calls).toEqual([["idle-0"]]);
+
+      // Once its server stops it is the most recent idle chat, and the
+      // oldest of the others makes room for it.
+      emit("dev", { type: "shells.updated", running: 0 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stopSession.mock.calls).toEqual([["idle-0"], ["idle-1"]]);
+    });
+
+    it("survives critical memory pressure, then parks at the pressure delay once the shell ends", async () => {
+      vi.useFakeTimers();
+      const { stopSession, send, emit } = shellHarness();
+      await send("dev", "start the dev server");
+      await send("idle");
+      notifyMemoryPressure("critical");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stopSession.mock.calls).toEqual([["idle"]]);
+
+      notifyMemoryPressure("warn");
+      await vi.advanceTimersByTimeAsync(HARNESS_PRESSURE_PARK_MS * 2);
+      expect(stopSession).toHaveBeenCalledTimes(1);
+
+      emit("dev", { type: "shells.updated", running: 0 });
+      await vi.advanceTimersByTimeAsync(HARNESS_PRESSURE_PARK_MS);
+      expect(stopSession.mock.calls).toEqual([["idle"], ["dev"]]);
+    });
+
+    it("forgets its shells when the provider's process ends", async () => {
+      vi.useFakeTimers();
+      const { stopSession, send, emit } = shellHarness();
+      await send("dev", "start the dev server");
+      emit("dev", { type: "session.ended", code: 0 });
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+      expect(stopSession).toHaveBeenCalledExactlyOnceWith("dev");
+    });
+
+    it("still reconnects at once when asked", async () => {
+      const { stopSession, send } = shellHarness();
+      await send("dev", "start the dev server");
+      reconnectHarnessSession("claude", "dev");
+      await Promise.resolve();
+      expect(stopSession).toHaveBeenCalledExactlyOnceWith("dev");
+    });
+  });
+
   it("cancels pending idle parking when a child starts after the lead turn finishes", async () => {
     vi.useFakeTimers();
     let emit!: (event: HarnessEvent) => void;
