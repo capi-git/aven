@@ -86,6 +86,7 @@ import {
   cardResearcher,
   crewCard,
   crewMemberName,
+  ensureAvos,
   getCrew,
   stackedCards,
   useCrew,
@@ -196,7 +197,14 @@ export function WorkBoard({
   // where they stand, and Ideas offer Give to crew.
   const crew = useCrew(project);
   const bot = useProjectBot(project);
-  const crewOn = !!crew?.on && botsAvailable();
+  // Every project's Board is its Avos: opening it the first time saves its
+  // Avos and is meeting it. Only where Avos can't run at all (no sandbox
+  // for its helpers) is it the plain Board.
+  const avosHere = botsAvailable();
+  useEffect(() => {
+    if (avosHere && !crew) ensureAvos(project);
+  }, [avosHere, crew, project]);
+  const crewOn = avosHere && !!crew;
   const fixerName = bot ? botName(bot) : undefined;
   // The time only matters here to the Scout's daily cap: it moves once a
   // day, so the minute's tick doesn't draw every card again.
@@ -222,6 +230,9 @@ export function WorkBoard({
         : shown.columns,
     [crewOn, crew, shown.columns, today],
   );
+  // Its Avos is being saved: the screen follows in a moment, never the
+  // plain Board in between.
+  if (avosHere && !crew) return null;
   return (
     <WorkBoardView
       project={project}
@@ -404,7 +415,7 @@ export const WorkBoardView = memo(function WorkBoardView({
           return;
         case "review":
         case "apply": {
-          // A card on the team's branch is reviewed, and lands, with the
+          // A card on Avos's branch is reviewed, and lands, with the
           // batch's Review: Apply lands exactly what you saw there.
           const known = getCrew(project);
           if (
@@ -540,7 +551,7 @@ export const WorkBoardView = memo(function WorkBoardView({
           {ideas && crew && cards.length ? (
             <p className="work-board-column-hint">
               {crew.paused
-                ? "The team is paused: ideas wait"
+                ? "Avos is paused: ideas wait"
                 : "Built one by one, top first, while you're away"}
             </p>
           ) : null}
@@ -613,7 +624,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       data-work-board={project}
       data-crew={crew ? "" : undefined}
       aria-busy={loading || undefined}
-      aria-label={`${projectDisplayName(project, labels)} ${crew ? "team" : "board"}`}
+      aria-label={`${projectDisplayName(project, labels)}${crew ? "'s Avos" : " board"}`}
     >
       {crew ? null : <WorkBoardHeading project={project} line={today} />}
       {error ? (
@@ -621,7 +632,9 @@ export const WorkBoardView = memo(function WorkBoardView({
           {error}
         </p>
       ) : null}
-      {outside.length && !loading ? (
+      {/* Chats at work outside the board belong to the plain Board. Avos
+          tracks its own work: your chats are in the sidebar, as ever. */}
+      {outside.length && !loading && !crew ? (
         <OutsideLine project={project} outside={outside} />
       ) : null}
       {crew ? (
@@ -643,6 +656,7 @@ export const WorkBoardView = memo(function WorkBoardView({
           name={crewName}
           problems={crewProblems}
           onCrewAction={crewAction}
+          onDeleteCard={setDeleting}
         />
       ) : (
         <div className="work-board-columns">{sections()}</div>
@@ -697,7 +711,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       {throwing ? (
         <ConfirmDialog
           title="Throw this card away?"
-          body={`The team's work on “${throwing.title}” is thrown away and the card leaves the board. Your files stay as they are.`}
+          body={`Avos's work on “${throwing.title}” is thrown away and the card leaves the board. Your files stay as they are.`}
           confirmLabel="Throw away"
           danger
           onConfirm={() => {
@@ -714,7 +728,9 @@ export const WorkBoardView = memo(function WorkBoardView({
         <ConfirmDialog
           title="Delete this card?"
           body={[
-            `“${deleting.title}” leaves the board.`,
+            crew
+              ? `“${deleting.title}” is deleted.`
+              : `“${deleting.title}” leaves the board.`,
             crewDeleteNote(storedCrew, deleting.id),
             "Its chats stay in the sidebar.",
           ]

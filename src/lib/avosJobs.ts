@@ -22,7 +22,7 @@ import type { HarnessId } from "./session";
  * A team's standing jobs: work you asked its Lead for that repeats or keeps
  * watching ("watch this Notion page; when it updates, add it to the site").
  * Each is an ordinary automation the team owns. It runs in the project's own
- * folder, as automations do, never in the team's copy, leaves anything to
+ * folder, as automations do, never in Avos's copy, leaves anything to
  * publish as a draft behind a Publish button, shows in the team's chat, and
  * waits while the team is paused.
  */

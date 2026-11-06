@@ -57,15 +57,15 @@ describe("palette commands", () => {
     ).toContain("new_scheduled_agent");
   });
 
-  it("opens the project's board, also by what it shows", () => {
+  it("opens the project's Avos, also by the old Board's name and what it shows", () => {
+    expect(rankPaletteCommands(PALETTE_COMMANDS, "avos")[0].id).toBe(
+      "open_board",
+    );
     expect(rankPaletteCommands(PALETTE_COMMANDS, "board")[0].id).toBe(
       "open_board",
     );
-    expect(rankPaletteCommands(PALETTE_COMMANDS, "kanban")[0].id).toBe(
-      "open_board",
-    );
     expect(
-      rankPaletteCommands(PALETTE_COMMANDS, "shipped").map(
+      rankPaletteCommands(PALETTE_COMMANDS, "helpers").map(
         (command) => command.id,
       ),
     ).toContain("open_board");

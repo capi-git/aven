@@ -1,0 +1,81 @@
+/* Sub agents: one row per helper, split by hairlines in one card. */
+.avos-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.avos-agents-list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-card, 10px);
+  list-style: none;
+}
+.avos-agent {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+}
+.avos-agent + .avos-agent {
+  border-top: 1px solid var(--aven-line);
+}
+.avos-agent .dot-mark.avos-agent-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+  grid-row: span 2;
+}
+.avos-agent-text {
+  min-width: 0;
+}
+.avos-agent-name,
+.avos-agent-line,
+.avos-agent-note {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avos-agent-name {
+  font-size: var(--text-ui-body);
+}
+.avos-agent-name b {
+  font-weight: 500;
+}
+.avos-agent-name span {
+  margin-left: 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-agent-line {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-agent-note {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+.avos-agent-word {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-agent-word[data-needs-you] {
+  color: var(--aven-needs-you);
+}
+.avos-agent-tools {
+  display: flex;
+  grid-column: 2 / -1;
+  gap: 6px;
+}
+.avos-agents-empty {
+  margin: 24px auto 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body);
+  text-align: center;
+}
+.avos-agents-add {
+  display: flex;
+}

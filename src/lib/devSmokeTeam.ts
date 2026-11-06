@@ -2,6 +2,8 @@ import { setTeamView } from "./teamView";
 import {
   addCrewPreset,
   addResearchIdeas,
+  BUILDING_NEEDS_GIT,
+  giveCardToCrew,
   crewWorkspace,
   dismissResearch,
   setCrewAccess,
@@ -24,6 +26,7 @@ import { ownedBy } from "./avosJobs";
 import { waitFor } from "./devSmoke";
 import { crewDiagnostics, type SmokeCrew } from "./devSmokeCrew";
 import { errorText } from "./errors";
+import { addFeatureIdea } from "./featureCards";
 import { createPath, gitDiffIndex, writeTextFile } from "./fs";
 import { parentPath, projectName } from "./paths";
 import { IS_MAC } from "./platform";
@@ -38,8 +41,8 @@ import type { Session } from "./session";
 
 /**
  * The real-app check's team steps, each in a Git project of its own beside
- * the check's, with the stand-in as every teammate: a team sets itself up
- * from a description, the Researcher hands back findings whose ideas go on
+ * the check's, with the stand-in as every teammate: meeting Avos in a
+ * folder without Git, the Researcher hands back findings whose ideas go on
  * the Board and keeps its notes between turns, the Designer draws one
  * mock-up (and is refused when it strays outside its folder), and the Team
  * sheet's Access choices persist. Each step turns its team off at its end,
@@ -67,16 +70,11 @@ export const NO_WEB_LINE = "You have no web access this turn";
 /** The tag a member's notes are quoted inside in its next turn. */
 export const NOTES_TAG = "<your-notes>";
 
-/** The description the setup step types; stored as the team's `about`. */
-export const SETUP_DESCRIPTION =
-  "A small to-do app for one person. I want a calm today list and nothing else.";
-/** The idea the setup step adds as its own. */
-export const SETUP_OWN_IDEA = "Show the date at the top";
 /** The ideas the stand-in Researcher proposes, as its findings list them. */
 export const RESEARCH_IDEAS = ["Open on today's list", "Cap the list at five"];
 
 export type SmokeTeam = SmokeCrew & {
-  /** New team for a project, as the sidebar's New team does. */
+  /** Open a project's Avos, as its sidebar row does. */
   newTeam: (path: string) => void;
   listDir: (path: string) => Promise<{ name: string }[]>;
 };
@@ -154,7 +152,7 @@ export function boardCardProblem(
 }
 
 /**
- * Why the folder listing of the team's copy isn't clean after a turn: the
+ * Why the folder listing of Avos's copy isn't clean after a turn: the
  * Designer's folder must be gone and no stray file left. Null when it is.
  */
 export function copyLeftoversProblem(
@@ -254,6 +252,22 @@ async function openBoard(project: string): Promise<HTMLElement> {
   setTeamView(project, "board");
   workspace().openCrew(project);
   return waitFor(() => boardOnScreen(project), 15_000, "the team's Board");
+}
+
+/** The project's Avos on screen, on its Chat. */
+async function openChat(project: string): Promise<HTMLElement> {
+  setTeamView(project, "chat");
+  workspace().openCrew(project);
+  return waitFor(
+    () =>
+      [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].find(
+        (chat) =>
+          sameProjectPath(chat.dataset.teamChat ?? "", project) &&
+          onScreen(chat),
+      ) ?? null,
+    15_000,
+    "Avos's chat",
+  );
 }
 
 /** The Board card with this title, on the project's Board on screen. */
@@ -367,7 +381,7 @@ async function addIdeaFromBoard(project: string, text: string) {
 
 /**
  * Ask the Researcher or the Designer from the Board's box, and the card's
- * id once it is theirs. The team is paused while the card lands: the Board
+ * id once it is theirs. Avos is paused while the card lands: the Board
  * adds it as an idea and asks a moment later, and an idle team would start
  * the idea by itself in between (the Builder, not the one asked).
  */
@@ -521,198 +535,124 @@ async function tidy(project: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Self-setup
+// Meeting Avos
 
-export async function checkTeamSetup(
-  get: Get,
-  config: { projectPath: string },
+/**
+ * Meeting Avos, in a folder without Git: opening its row shows its
+ * introduction and question on the chat screen (no setup sheet, no
+ * teammates, no panel); your answer, asking it to watch a Notion page,
+ * wakes it, and it reads your folder (no copy) to set up its job, which
+ * shows in its chat below the introduction. Asked to build, it offers Set
+ * up Git instead of failing, and brings in no helpers.
+ */
+export async function checkMeetAvos(
+  config: { projectPath: string; binDir: string },
   team: SmokeTeam,
 ): Promise<string> {
-  const project = await newTeamProject(config.projectPath, "team-setup");
-  const name = projectName(project);
+  const project = await createPath(
+    parentPath(config.projectPath),
+    "avos-meet",
+    true,
+  );
+  await writeTextFile(`${project}/README.md`, "Aven Dev real-app check.\n");
   try {
     team.newTeam(project);
-    const sheet = await waitFor(
+    const meet = await waitFor(
       () => {
-        const found = document.querySelector<HTMLElement>("[data-crew-setup]");
+        const found = document.querySelector<HTMLElement>("[data-avos-meet]");
         return onScreen(found) ? found : null;
       },
       15_000,
-      "the New team sheet",
+      "meeting Avos",
     );
-    const heading =
-      sheet.closest('[role="dialog"]')?.querySelector("header")?.textContent ??
-      "";
-    if (!heading.includes(`New team for ${name}`))
-      throw new Error(`The sheet is headed "${heading.trim()}"`);
-    const field = sheet.querySelector<HTMLTextAreaElement>("textarea");
-    if (!field) throw new Error("The sheet has no description box");
-    typeInto(field, SETUP_DESCRIPTION);
-    const pressable = (selector: string) => {
-      const button = sheet.querySelector<HTMLButtonElement>(selector);
-      return button && !button.disabled ? button : null;
-    };
-    const suggest = await waitFor(
-      () => pressable("[data-crew-setup-suggest]"),
-      5_000,
-      "Suggest to be pressable after typing",
+    const hello = meet.textContent ?? "";
+    if (!hello.includes("Hi, I'm Avos") || !hello.includes("keep an eye on"))
+      throw new Error(`Avos's introduction reads “${hello}”`);
+    if (onScreen(document.querySelector("[data-crew-setup]")))
+      throw new Error("The old team setup sheet opened");
+    const roles = getCrew(project)?.members.map((member) => member.role);
+    if (roles?.join() !== "lead")
+      throw new Error(`Avos started with ${roles?.join(", ")}`);
+    const chat = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].find(
+        onScreen,
+      ) ?? null;
+    const box = chat()?.querySelector<HTMLTextAreaElement>(
+      ".team-compose-input",
     );
-    suggest.click();
-    const roles = () =>
-      [...sheet.querySelectorAll<HTMLElement>("[data-crew-setup-role]")].map(
-        (tile) => tile.dataset.crewSetupRole,
-      );
-    await waitFor(
+    if (!box) throw new Error("Avos's chat has no message box");
+    const words = `Watch this Notion page: ${SMOKE_JOB_SOURCE}. If it updates, add it to the articles on the website.`;
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!.call(box, words);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    chat()
+      ?.querySelector<HTMLFormElement>("[data-team-compose]")
+      ?.requestSubmit();
+    const job = await waitFor(
       () => {
-        const problem = sheet.querySelector("[data-crew-setup-problem]");
-        if (problem)
-          throw new Error(`Suggest failed: ${problem.textContent?.trim()}`);
-        return roles().length > 0;
+        failOnHold(project);
+        return (
+          listScheduledAgents().find(
+            (agent) => agent.owner && ownedBy(agent, project),
+          ) ?? null
+        );
       },
-      90_000,
-      "the suggested team",
-    );
-    if (roles().join() !== "builder,checker,researcher,designer")
-      throw new Error(`The tiles are ${roles().join(", ")}`);
-    const ideaRows = () =>
-      [...sheet.querySelectorAll<HTMLElement>("[data-crew-setup-idea]")].map(
-        (row) => ({
-          source: row.dataset.crewSetupIdea ?? "",
-          title:
-            row.querySelector<HTMLInputElement>("input")?.value.trim() ?? "",
-          label:
-            row.querySelector(".team-setup-idea-source")?.textContent?.trim() ??
-            "",
-        }),
-      );
-    const proposed = ideaRows();
-    if (
-      proposed.map((row) => row.source).join() !== "setup,researcher,designer"
-    )
-      throw new Error(
-        `The idea rows are ${proposed.map((row) => `${row.source} (${row.label})`).join(", ")}`,
-      );
-    if (
-      proposed.map((row) => row.label).join() !==
-      "suggested,Researcher,Designer first"
-    )
-      throw new Error(
-        `The idea rows say ${proposed.map((row) => row.label).join(", ")}`,
-      );
-    const [suggested, research, design] = proposed.map((row) => row.title) as [
-      string,
-      string,
-      string,
-    ];
-    // One tile fewer: the Checker.
-    sheet
-      .querySelector<HTMLButtonElement>('button[aria-label="Drop Checker"]')
-      ?.click();
-    await waitFor(
-      () => roles().join() === "builder,researcher,designer",
-      5_000,
-      "the Checker's tile to go",
-    );
-    // One idea more, the user's own.
-    const newIdea = sheet.querySelector<HTMLInputElement>(
-      "[data-crew-setup-new-idea] input",
-    );
-    if (!newIdea) throw new Error("The sheet has no Add an idea row");
-    typeInto(newIdea, SETUP_OWN_IDEA);
-    newIdea.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      60_000,
+      `Avos to set up a job (${JSON.stringify(
+        getCrew(project)
+          ?.feed.map((entry) => entry.text)
+          .slice(-4),
+      )})`,
     );
     await waitFor(
-      () => ideaRows().some((row) => row.source === "you"),
-      5_000,
-      "the added idea's row",
-    );
-    const rows = ideaRows();
-    if (rows.length !== 4 || rows[3]?.title !== SETUP_OWN_IDEA)
-      throw new Error(
-        `The idea rows are now ${rows.map((row) => `"${row.title}" (${row.source})`).join(", ")}`,
-      );
-    const start = await waitFor(
-      () => pressable("[data-crew-setup-start]"),
-      5_000,
-      "Start team to be pressable",
-    );
-    start.click();
-    await waitFor(
-      () => {
-        const problem = sheet.querySelector("[data-crew-setup-problem]");
-        if (problem)
-          throw new Error(`Start team failed: ${problem.textContent?.trim()}`);
-        return getCrew(project)?.on;
-      },
-      90_000,
-      "the team to turn on",
-    );
-    await waitFor(
-      () => !onScreen(document.querySelector("[data-crew-setup]")),
+      () =>
+        onScreen(
+          chat()?.querySelector(`[data-team-job="${CSS.escape(job.id)}"]`),
+        ) || null,
       10_000,
-      "the setup sheet to close",
+      "the job in Avos's chat",
     );
-    await waitFor(() => boardOnScreen(project), 15_000, "the team's Board");
-    const crew = getCrew(project)!;
-    if (crew.about !== SETUP_DESCRIPTION)
+    const thread = chat()?.textContent ?? "";
+    if (!thread.includes("Hi, I'm Avos") || !thread.includes(words))
+      throw new Error("Avos's introduction didn't stay above your answer");
+    const crew = getCrew(project);
+    if (crew?.copy) throw new Error("Avos made a copy of a folder without Git");
+    const turns = (await standInTurns(team, config.binDir)) ?? [];
+    const plain = (path: string) => path.replace(/^\/private\//, "/");
+    const read = turns.filter((turn) => turn.crew === "job-lead").at(-1);
+    if (!read || plain(String(read.cwd)) !== plain(project))
       throw new Error(
-        `The team's about reads ${JSON.stringify(crew.about ?? null)}`,
+        `Avos read ${String(read?.cwd ?? "no folder")}, not your folder`,
       );
-    const members = crew.members
-      .filter((member) => member.role !== "fixer")
-      .map((member) => member.role)
-      .sort()
-      .join();
-    if (members !== "builder,designer,lead,researcher")
-      throw new Error(`The team's members are ${members}`);
-    // The user's idea is an ordinary idea; a suggestion waits for a tick;
-    // the question and the screen are the Researcher's and the Designer's.
-    await expectCard(
-      project,
-      SETUP_OWN_IDEA,
-      { column: ["idea", "building"], line: /^(?!.*waits for you)/ },
-      "the user's own idea on the Board",
+
+    // Asked to build: Set up Git, and no helpers for work that can't start.
+    const idea = await addFeatureIdea(project, { title: "Tidy the README" });
+    if (!idea) throw new Error("Couldn't add an idea to the Board");
+    const why = await giveCardToCrew(project, idea);
+    if (why !== BUILDING_NEEDS_GIT)
+      throw new Error(`Building in a folder without Git said “${why}”`);
+    await waitFor(
+      () => onScreen(chat()?.querySelector("[data-avos-set-up-git]")) || null,
+      10_000,
+      "Set up Git in Avos's chat",
     );
-    await expectCard(
-      project,
-      suggested,
-      { column: "idea", line: "From setup · waits for you" },
-      "the suggested idea on the Board",
+    const helpers = getCrew(project)?.members.filter(
+      (member) => member.role !== "lead",
     );
-    const researchCard = await expectCard(
-      project,
-      research,
-      { column: ["building", "review"], stage: /^(Up next|Reading|Findings)/ },
-      "the research card on the Board",
-      30_000,
-    );
-    const researchId = researchCard.dataset.boardCard ?? "";
-    if (teamCard(project, researchId, true)?.kind !== "research")
-      throw new Error("The question isn't a research card of the team's");
-    const designCard = await expectCard(
-      project,
-      design,
-      {
-        column: ["building", "review"],
-        stage: /^(Up next|Mocking up|Mock-up)/,
-      },
-      "the mock-up card on the Board",
-      30_000,
-    );
-    if (
-      teamCard(project, designCard.dataset.boardCard ?? "", true)?.kind !==
-      "mockup"
-    )
-      throw new Error("The screen isn't a mock-up card of the team's");
-    return `"New team for ${name}" suggested Builder, Checker, Researcher and Designer with three ideas; without the Checker and with "${SETUP_OWN_IDEA}" added, Start team turned the team on with its about kept, the suggestion waiting for a tick and the question and screen with the Researcher and Designer`;
-  } catch (error) {
-    withDiagnostics(get, project, undefined, error);
+    if (helpers?.length)
+      throw new Error(
+        `Avos brought in ${helpers.map((member) => member.role).join(", ")}`,
+      );
+    return "opening Avos's row met it in its chat (no setup sheet, Avos alone); your answer woke it, it read your folder without a copy and set up its job below its introduction, and asked to build it offered Set up Git";
   } finally {
+    for (const agent of listScheduledAgents())
+      if (agent.owner && ownedBy(agent, project))
+        updateScheduledAgent(agent.id, { enabled: false });
     await tidy(project);
   }
 }
-
 // ---------------------------------------------------------------------------
 // The Researcher, and its notes
 
@@ -1152,7 +1092,7 @@ export async function checkDesigner(
 
 /**
  * A message to everyone, through the app: it reaches the Lead, the Lead asks
- * the Checker and starts a helper, each runs sandboxed in the team's copy with
+ * the Checker and starts a helper, each runs sandboxed in Avos's copy with
  * no web, the answers come back, and the team chat shows the Lead's line.
  */
 export async function checkTeamTalk(
@@ -1163,7 +1103,7 @@ export async function checkTeamTalk(
   try {
     const crew = await startTeam(team, project, []);
     if (!crewLead(crew)) throw new Error("A new team started without a Lead");
-    await openBoard(project);
+    await openChat(project);
     const problem = await tellTeam(
       project,
       `Is it fine? ${SMOKE_TALK_WORD}`,
@@ -1201,13 +1141,15 @@ export async function checkTeamTalk(
     // macOS spells the temp folder both with and without /private.
     const plain = (path: string) => path.replace(/^\/private\//, "/");
     const copy = plain(getCrew(project)?.copy?.path ?? "");
+    const folder = plain(project);
     for (const who of ["lead", "checker", "helper"]) {
-      // Only this team's: the log holds every team this check has run.
-      const mine = turns.filter(
-        (turn) =>
-          turn.crew === who &&
-          plain(String(turn.launch ?? "").split("cwd=")[1] ?? "") === copy,
-      );
+      // Only this team's: the log holds every team this check has run. Avos
+      // reads your folder until the copy is made, then works in it.
+      const mine = turns.filter((turn) => {
+        if (turn.crew !== who) return false;
+        const cwd = plain(String(turn.launch ?? "").split("cwd=")[1] ?? "");
+        return cwd === copy || (who === "lead" && cwd === folder);
+      });
       if (!mine.length) throw new Error(`The stand-in logged no ${who} turn`);
       for (const turn of mine) {
         const launch = String(turn.launch ?? "");
@@ -1224,7 +1166,7 @@ export async function checkTeamTalk(
     const left = getCrew(project);
     return `the Lead asked the Checker and a helper, ${
       left?.helperRuns?.count ?? 0
-    } helper run, every turn sandboxed in the team's copy`;
+    } helper run, every turn sandboxed (Avos in your folder until the copy, the rest in it)`;
   } finally {
     await tidy(project);
   }
@@ -1240,7 +1182,7 @@ const SMOKE_JOB_DRAFT = "Spring launch";
 /**
  * A standing job from the team's chat: asked to watch a Notion page, the Lead
  * sets up the team's job (no idea cards), the chat shows it with Change, the
- * job runs in the project itself (not the team's copy) and its Publish card
+ * job runs in the project itself (not Avos's copy) and its Publish card
  * shows in the chat, a paused team's job doesn't run, and Change opens it.
  */
 export async function checkTeamJob(
@@ -1285,6 +1227,8 @@ export async function checkTeamJob(
       throw new Error(
         `The request also left ${ideas} ideas and ${cards} cards on the Board`,
       );
+    // The job shows in Avos's chat, which the Board's view hides.
+    await openChat(project);
     const chat = () =>
       [...document.querySelectorAll<HTMLElement>("[data-team-chat]")].find(
         onScreen,

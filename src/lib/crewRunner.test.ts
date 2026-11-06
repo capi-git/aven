@@ -6,6 +6,7 @@ import {
   memberAsk,
   replyForTurn,
   resetCrewRunnerSession,
+  type CrewRunnerDeps,
 } from "./crewRunner";
 import {
   cardInCopy,
@@ -94,7 +95,10 @@ const verdict = (mustFix: unknown[], later: string[] = []) =>
     ran: [{ command: "npm test", ok: true }],
   });
 
-function harness(agents: Partial<Record<Role, Agent>>) {
+function harness(
+  agents: Partial<Record<Role, Agent>>,
+  extra: Partial<CrewRunnerDeps> = {},
+) {
   let now = NOON;
   let nextId = 1;
   let turnIds = 0;
@@ -312,6 +316,7 @@ function harness(agents: Partial<Record<Role, Agent>>) {
       update(sessionId, (chat) => ({ ...chat, providerSessionId: undefined }));
     },
     newId: () => `turn-${nextId++}`,
+    ...extra,
   });
 
   const flush = async () => {
@@ -798,7 +803,7 @@ describe("one card at a time, stacked", () => {
     await h.advance(10 * MINUTE);
     expect(card()).toMatchObject({ stage: "stuck" });
     expect(card().stuck?.text).toContain(
-      "its work couldn't be stacked on the team's branch",
+      "its work couldn't be stacked on Avos's branch",
     );
     expect(card().stacked).toBeUndefined();
     h.runner.stop();
@@ -1238,6 +1243,87 @@ describe("the Scout: ideas start themselves, within limits", () => {
     h.runner.stop();
   });
 
+  it("Avos with no Builder yet leaves the Board's ideas to you, and brings in helpers for one it took down from your words", async () => {
+    const bring = vi.fn((path: string) =>
+      updateCrew(path, (crew) => ({
+        ...crew,
+        members: [
+          ...crew.members,
+          { id: "builder", role: "builder" },
+          { id: "checker", role: "checker" },
+        ],
+      })),
+    );
+    const h = harness(
+      {
+        builder: () => ({
+          text: handoff("Built"),
+          copy: { hash: "h1", files: ["src/pricing.ts"] },
+        }),
+        checker: () => ({ text: verdict([]) }),
+      },
+      { bringInBuilders: bring, buildingProblem: async () => null },
+    );
+    onCrew({ members: [{ id: "lead", role: "lead" }] });
+    const idea = (id: string, title: string, createdAt: number) =>
+      h.board.set(id, {
+        id,
+        title,
+        column: "idea",
+        chatIds: [],
+        createdAt,
+        updatedAt: createdAt,
+        movedAt: createdAt,
+      });
+    idea("old", "An idea from before Avos", 1);
+    h.runner.start();
+    await h.advance(0);
+    expect(getCrew(PATH)!.cards).toEqual([]);
+    expect(bring).not.toHaveBeenCalled();
+    // Avos took this one down from what you asked.
+    idea("asked", "Fix the pricing table", 2);
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      ideas: { ...crew.ideas, asked: { at: NOON, size: "small" } },
+    }));
+    await h.advance(MINUTE);
+    expect(bring).toHaveBeenCalledWith(PATH);
+    expect(card("asked")).toMatchObject({
+      from: "scout",
+      title: "Fix the pricing table",
+    });
+    expect(crewCard(getCrew(PATH)!, "old")).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("Avos in a folder without Git says so, and the idea waits for you", async () => {
+    const h = harness(
+      {},
+      {
+        bringInBuilders: vi.fn(),
+        buildingProblem: async () => "Building needs Git.",
+      },
+    );
+    onCrew({
+      members: [{ id: "lead", role: "lead" }],
+      ideas: { asked: { at: NOON, size: "small" } },
+    });
+    h.board.set("asked", {
+      id: "asked",
+      title: "Fix the pricing table",
+      column: "idea",
+      chatIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+      movedAt: 1,
+    });
+    h.runner.start();
+    await h.advance(0);
+    expect(getCrew(PATH)!.cards).toEqual([]);
+    expect(getCrew(PATH)!.notNow).toEqual(["asked"]);
+    h.runner.stop();
+  });
+
   it("goes on past a card that changed nothing, and builds it again from the top when you try it again", async () => {
     let builds = 0;
     const h = harness({
@@ -1301,7 +1387,7 @@ describe("the Scout: ideas start themselves, within limits", () => {
       stage: "stuck",
       stuck: {
         reason: "failed",
-        text: "Beetle's turn didn't finish: Aven couldn't read what changed in the team's copy",
+        text: "Beetle's turn didn't finish: Aven couldn't read what changed in Avos's copy",
       },
     });
     // Its work may still be in the copy: nothing else starts on top of it.
@@ -1833,7 +1919,7 @@ describe("what an agent leaves in the copy", () => {
     expect(h.sent).toEqual([]);
     expect(card().stuck?.reason).toBe("failed");
     expect(card().stuck?.text).toContain(
-      "Aven found .claude/settings.local.json in the team's copy and removed it",
+      "Aven found .claude/settings.local.json in Avos's copy and removed it",
     );
     // Removed: Try again goes ahead.
     resumeCrewCard(PATH, card().id);
@@ -2081,7 +2167,7 @@ describe("the Scout's look", () => {
   });
 });
 
-describe("a goal: the team keeps going", () => {
+describe("a goal: Avos keeps going", () => {
   const goalReply = (body: object) => ({ text: fence("aven-goal", body) });
   const builds = (
     _text: string,
@@ -2158,7 +2244,7 @@ describe("a goal: the team keeps going", () => {
     expect(h.sent.map((item) => item.role)).toEqual(["scout"]);
     expect(crew.goal?.done).toMatchObject({ met: false });
     expect(crew.goal?.done?.text).toBe(
-      "Nothing left to plan for the goal: Needs a design decision. The team stops here.",
+      "Nothing left to plan for the goal: Needs a design decision. Avos stops here.",
     );
     h.runner.stop();
   });
@@ -2225,7 +2311,7 @@ describe("a goal: the team keeps going", () => {
     const crew = getCrew(PATH)!;
     expect(crew.goal?.done?.met).toBe(true);
     expect(crew.feed.map((entry) => entry.text)).toContain(
-      "Aven undid what Beetle changed in the team's copy while planning: planning only reads.",
+      "Aven undid what Beetle changed in Avos's copy while planning: planning only reads.",
     );
     h.runner.stop();
   });
@@ -2245,7 +2331,7 @@ describe("a goal: the team keeps going", () => {
     const crew = getCrew(PATH)!;
     expect(crew.goal?.done).toMatchObject({
       met: false,
-      text: "Aven couldn't check the team's copy after Fox's planning, so the team stopped. Look over the copy, then Keep going to try again.",
+      text: "Aven couldn't check Avos's copy after Fox's planning, so Avos stopped. Look over the copy, then Keep going to try again.",
     });
     expect(crew.feed.at(-1)).toMatchObject({ kind: "hold", who: "aven" });
     expect(h.copy.discard).not.toHaveBeenCalled();

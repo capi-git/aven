@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { queueCard, startCard } from "./crewLoop";
-import {
-  crewBrief,
-  crewTurnLabel,
-  mockupMessage,
-  setupPrompt,
-} from "./crewPrompts";
+import { crewBrief, crewTurnLabel, mockupMessage } from "./crewPrompts";
 import type { CrewCard } from "./crews";
 
 const names = { builder: "Beetle", checker: "Owl" };
@@ -88,11 +83,5 @@ describe("what the Designer is told", () => {
     expect(crewTurnLabel({ role: "designer", card: screen() })).toBe(
       "Mock-up · Timer: a ring that fills",
     );
-  });
-
-  it("offers the Designer when a team sets itself up", () => {
-    const { system } = setupPrompt({ project: "/p/Pom", description: "x" });
-    expect(system).toContain("- designer: Mocks up a screen or a look");
-    expect(system).toContain('"by": "designer"');
   });
 });

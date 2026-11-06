@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newBoardWorkspaceTab } from "../lib/layout";
 import { FilePane } from "./FilePane";
 
+// The plain Board: what a project shows where Avos can't run (no sandbox
+// for its helpers). Everywhere else a project's Board is its Avos.
+vi.mock("../lib/projectBots", async (original) => ({
+  ...(await original<typeof import("../lib/projectBots")>()),
+  botsAvailable: () => false,
+}));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => []),
   isTauri: () => false,

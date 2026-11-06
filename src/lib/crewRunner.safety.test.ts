@@ -268,7 +268,7 @@ describe("a team's chat never launches without its rules or outside its copy", (
     expect(off.sandbox?.enabled).toBe(true);
     expect(off.readOnly).toBe(true);
     // …and refused outright.
-    expect(launchRefusal("s-checker", COPY)).toMatch(/team is off/);
+    expect(launchRefusal("s-checker", COPY)).toMatch(/Avos is off/);
     stop();
   });
 

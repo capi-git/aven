@@ -124,7 +124,7 @@ export function PersonalProjectRow({
     },
     { kind: "item", id: "customize", label: "Customise project…" },
     ...(onOpenBoard
-      ? [{ kind: "item" as const, id: "board", label: "Open board" }]
+      ? [{ kind: "item" as const, id: "board", label: "Open Avos" }]
       : []),
     ...(onBotSettings
       ? [

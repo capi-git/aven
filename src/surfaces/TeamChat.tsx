@@ -1,4 +1,3 @@
-import { TeamModelButton } from "./TeamPanel";
 import {
   useEffect,
   useId,
@@ -11,16 +10,21 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { AgentMark } from "../chrome/AgentMark";
 import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { ArrowRight, ChevronDown, MoveUp, X } from "../chrome/icons";
-import { ProjectMark } from "../chrome/ProjectMark";
 import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
+  projectDisplayName,
+  useProjectLabels,
+} from "../hooks/useProjectLabels";
+import { avosIntro, avosUnmet } from "../lib/avos";
+import {
   TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
+  addQuestionCard,
   firstCardChatText,
+  wakeAvos,
   subscribeCrewTell,
   takeCrewTell,
   takeCrewTellTo,
@@ -35,6 +39,8 @@ import {
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
+  cardDesigner,
+  cardResearcher,
   crewLead,
   crewMemberById,
   crewMemberName,
@@ -51,7 +57,6 @@ import {
   type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
-import { crewAgentState } from "../lib/agentMark";
 import { isImeComposition } from "../lib/keyboard";
 import {
   FEED_FOLLOW_START,
@@ -70,7 +75,6 @@ import {
 } from "../lib/scheduledAgents";
 import { useTeamWorkspace } from "../lib/teamWorkspace";
 import {
-  latestPosts,
   postIsMember,
   teamPosts,
   teamThread,
@@ -105,19 +109,6 @@ function clock(at: number): string {
   }
 }
 
-/** A roster time: "now" while it works, its last post's time today, else its day. */
-function rosterWhen(at: number | undefined, now: number): string {
-  if (!at || !isTime(at)) return "";
-  const date = new Date(at);
-  if (date.toDateString() === new Date(now).toDateString())
-    return clock(at).replace(/\s?[AP]\.?M\.?$/i, "");
-  try {
-    return date.toLocaleDateString(undefined, { weekday: "short" });
-  } catch {
-    return "";
-  }
-}
-
 /** A time for a <time> element; none for one a Date can't show. */
 function isoTime(at: number): string | undefined {
   return isTime(at) ? new Date(at).toISOString() : undefined;
@@ -128,20 +119,34 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   card: "a card",
   rule: "a rule for every card",
   goal: "the goal",
-  lead: "a question for the Lead",
+  lead: "a question for Avos",
 };
 
-type Mode = CrewMessageKind;
+/** What the box does with a message: a kind of message, or a question card. */
+type Mode = CrewMessageKind | "research" | "mockup";
 
 /** The teammate the box writes to: its id, and its name when you picked it. */
 type Addressee = { id: string; name: string };
 
 const MODES: readonly { id: Mode; label: string; word: string }[] = [
-  { id: "lead", label: "Ask the Lead", word: "Lead" },
+  { id: "lead", label: "Ask Avos", word: "Avos" },
   { id: "card", label: "Build it", word: "Card" },
   { id: "rule", label: "Remember for every card", word: "Rule" },
   { id: "goal", label: "Make it a goal", word: "Goal" },
+  // The Researcher and the Designer, while Avos has them: what the Board's
+  // Add an idea once asked them.
+  { id: "research", label: "Ask the Researcher", word: "Research" },
+  { id: "mockup", label: "Mock it up", word: "Mock-up" },
 ];
+
+/** Whether a mode can be picked for this Avos now. */
+function modeOpen(
+  id: Mode,
+  open: { lead: boolean; research: boolean; mockup: boolean },
+): boolean {
+  if (id === "lead" || id === "research" || id === "mockup") return open[id];
+  return true;
+}
 
 export function TeamChat({
   project,
@@ -210,14 +215,26 @@ export function TeamChat({
     [crew, name, agents, runs],
   );
   const [selected, setSelected] = useState<string | null>(null);
+  const workspace = useCrewWorkspace();
+  // Why a helper's own chat didn't open, under the Showing line.
+  const [openProblem, setOpenProblem] = useState<{
+    id: string;
+    text: string;
+  } | null>(null);
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
   // Your choice for this message; otherwise the Lead, on a team that has one.
   const [chosenMode, setMode] = useState<Mode | null>(null);
   const hasLead = !!crewLead(crew);
+  const meeting = avosUnmet(crew);
+  const modesOpen = {
+    lead: hasLead,
+    research: !!cardResearcher(crew),
+    mockup: !!cardDesigner(crew),
+  };
   const mode: Mode =
-    chosenMode && (chosenMode !== "lead" || hasLead)
+    chosenMode && modeOpen(chosenMode, modesOpen)
       ? chosenMode
       : hasLead
         ? "lead"
@@ -278,10 +295,51 @@ export function TeamChat({
         {filter ? (
           <div className="team-thread-showing" data-team-showing={filter}>
             <span>Showing {name(filter)}</span>
-            <button type="button" onClick={() => select(null)}>
-              Show everyone
-            </button>
+            <span className="team-thread-showing-tools">
+              <button
+                type="button"
+                data-team-open-chat
+                // Its chat starts with Avos's first card.
+                disabled={!teammateChatReady(crew, filter)}
+                title={
+                  teammateChatReady(crew, filter)
+                    ? undefined
+                    : firstCardChatText(name(filter))
+                }
+                onClick={() => {
+                  setOpenProblem(null);
+                  void Promise.resolve(
+                    workspace?.openChat(project, filter),
+                  ).then((why) =>
+                    setOpenProblem(why ? { id: filter, text: why } : null),
+                  );
+                }}
+              >
+                Open chat
+              </button>
+              <button
+                type="button"
+                onClick={() => workspace?.openSettings(project, filter)}
+              >
+                Settings
+              </button>
+              <button type="button" onClick={() => select(null)}>
+                Show all
+              </button>
+            </span>
           </div>
+        ) : null}
+        {filter &&
+        (openProblem?.id === filter || !teammateChatReady(crew, filter)) ? (
+          <p
+            className="team-thread-showing-note"
+            role="status"
+            data-team-open-note
+          >
+            {openProblem?.id === filter
+              ? openProblem.text
+              : firstCardChatText(name(filter))}
+          </p>
         ) : null}
         {view.batch || ready.length ? (
           <div className="team-ready-list">
@@ -313,6 +371,7 @@ export function TeamChat({
         <Thread
           key={filter ?? "everyone"}
           project={project}
+          meeting={meeting}
           posts={posts}
           filter={filter}
           filterName={filter ? name(filter) : undefined}
@@ -322,10 +381,11 @@ export function TeamChat({
         />
         <Composer
           project={project}
+          meeting={meeting}
           members={members}
           to={to}
           mode={mode}
-          hasLead={hasLead}
+          modesOpen={modesOpen}
           input={input}
           onTo={setTo}
           onMode={setMode}
@@ -334,245 +394,6 @@ export function TeamChat({
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// The roster
-
-/** The team's teammates, in the panel: Everyone, then each one. */
-export function TeamRoster({
-  project,
-  crew,
-  now,
-  name,
-  fixer,
-  onSelect,
-  selected,
-}: {
-  project: string;
-  crew: Crew;
-  now: number;
-  name: (who: string) => string;
-  fixer?: { status: BotStatus; sessionId?: string };
-  onSelect: (id: string | null) => void;
-  selected: string | null;
-}) {
-  const workspace = useCrewWorkspace();
-  const members = useMemo(
-    () =>
-      crewMemberViews(crew, {
-        name,
-        ...(fixer
-          ? {
-              fixer: {
-                status: fixer.status,
-                ...(fixer.sessionId ? { sessionId: fixer.sessionId } : {}),
-              },
-            }
-          : {}),
-      }),
-    [crew, name, fixer],
-  );
-  const posts = useMemo(() => teamPosts(crew, name), [crew, name]);
-  const latest = useMemo(() => latestPosts(posts), [posts]);
-  // Why a teammate's chat didn't open, under its name.
-  const [openProblem, setOpenProblem] = useState<{
-    id: string;
-    text: string;
-  } | null>(null);
-  return (
-    <Roster
-      project={project}
-      crew={crew}
-      members={members}
-      latest={latest}
-      now={now}
-      selected={selected}
-      onSelect={onSelect}
-      openProblem={openProblem}
-      onOpenChat={(id) => {
-        setOpenProblem(null);
-        void Promise.resolve(workspace?.openChat(project, id)).then((why) =>
-          setOpenProblem(why ? { id, text: why } : null),
-        );
-      }}
-      onSettings={(id) => workspace?.openSettings(project, id)}
-      onAdd={() => workspace?.openSettings(project, "add")}
-    />
-  );
-}
-
-function Roster({
-  project,
-  crew,
-  members,
-  latest,
-  now,
-  selected,
-  onSelect,
-  openProblem,
-  onOpenChat,
-  onSettings,
-  onAdd,
-}: {
-  project: string;
-  crew: Crew;
-  members: readonly CrewMemberView[];
-  latest: ReadonlyMap<string, number>;
-  now: number;
-  selected: string | null;
-  onSelect: (id: string | null) => void;
-  openProblem: { id: string; text: string } | null;
-  onOpenChat: (id: string) => void;
-  onSettings: (id: string) => void;
-  onAdd: () => void;
-}) {
-  return (
-    <nav className="team-roster" aria-label="Teammates">
-      <ul role="list">
-        <li className="team-roster-item" data-selected={!selected || undefined}>
-          <button
-            type="button"
-            className="team-roster-row"
-            aria-pressed={!selected}
-            onClick={() => onSelect(null)}
-          >
-            <ProjectMark path={project} className="team-roster-mark" />
-            <span className="team-roster-text">
-              <span className="team-roster-name">Everyone</span>
-              <span className="team-roster-line">Team thread</span>
-            </span>
-          </button>
-        </li>
-        {members.map((member) => {
-          const known = crewMemberById(crew, member.id);
-          const paused = !!known?.paused;
-          const needs = member.status === "needs-you";
-          const line =
-            member.line ??
-            (needs
-              ? "Needs you"
-              : member.status === "paused" || paused
-                ? "Off"
-                : member.status === "working"
-                  ? "Working"
-                  : "Free");
-          // Its line, said once: "Needs you · Settings page".
-          const said = needs && member.line ? `Needs you · ${line}` : line;
-          const when =
-            member.status === "working"
-              ? "now"
-              : rosterWhen(latest.get(member.id), now);
-          const isSelected = selected === member.id;
-          return (
-            <li
-              key={member.id}
-              className="team-roster-item"
-              data-selected={isSelected || undefined}
-              data-team-member={member.id}
-            >
-              <button
-                type="button"
-                className="team-roster-row"
-                aria-pressed={isSelected}
-                aria-label={`${member.name}: ${said}`}
-                onClick={() => onSelect(isSelected ? null : member.id)}
-              >
-                <CrewCritter
-                  path={project}
-                  role={member.role}
-                  {...(member.critter ? { critter: member.critter } : {})}
-                  state={crewAgentState(
-                    member.status,
-                    member.active,
-                    paused ? "still" : "resting",
-                  )}
-                  className="team-roster-mark"
-                />
-                <span className="team-roster-text">
-                  <span className="team-roster-name">{member.name}</span>
-                  <span
-                    className="team-roster-line"
-                    data-live={
-                      member.status === "working" || needs || undefined
-                    }
-                    title={said}
-                  >
-                    {said}
-                  </span>
-                </span>
-                {when ? (
-                  <span className="team-roster-when" aria-hidden="true">
-                    {when}
-                  </span>
-                ) : null}
-              </button>
-              {known && member.role !== "fixer" ? (
-                <span className="team-roster-model">
-                  <TeamModelButton path={crew.path} member={known} />
-                </span>
-              ) : null}
-              {isSelected ? (
-                <span className="team-roster-tools">
-                  <button
-                    type="button"
-                    className="team-roster-tool"
-                    data-team-open-chat
-                    // Its chat starts with the team's first card.
-                    disabled={!teammateChatReady(crew, member.id)}
-                    title={
-                      teammateChatReady(crew, member.id)
-                        ? undefined
-                        : firstCardChatText(member.name)
-                    }
-                    onClick={() => onOpenChat(member.id)}
-                  >
-                    Open chat
-                  </button>
-                  <button
-                    type="button"
-                    className="team-roster-tool"
-                    onClick={() => onSettings(member.id)}
-                  >
-                    Settings
-                  </button>
-                </span>
-              ) : null}
-              {isSelected &&
-              (openProblem?.id === member.id ||
-                !teammateChatReady(crew, member.id)) ? (
-                <p
-                  className="team-roster-note"
-                  role="status"
-                  data-team-open-note
-                >
-                  {openProblem?.id === member.id
-                    ? openProblem.text
-                    : firstCardChatText(member.name)}
-                </p>
-              ) : null}
-            </li>
-          );
-        })}
-        <li className="team-roster-item" data-add>
-          <button
-            type="button"
-            className="team-roster-row"
-            data-team-add
-            onClick={onAdd}
-          >
-            <AgentMark vacant className="team-roster-mark" />
-            <span className="team-roster-text">
-              <span className="team-roster-name">Add teammate</span>
-            </span>
-          </button>
-        </li>
-      </ul>
-    </nav>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Ready for you, pinned on top
 
 function ReadyBatch({
   project,
@@ -707,6 +528,7 @@ function Thread({
   filterName,
   working,
   now,
+  meeting,
   onCards,
 }: {
   project: string;
@@ -715,6 +537,8 @@ function Thread({
   filterName?: string;
   working: readonly CrewMemberView[];
   now: number;
+  /** Meeting Avos: its chat opens on its introduction. */
+  meeting?: boolean;
   onCards: () => void;
 }) {
   const [shown, setShown] = useState(SHOWN);
@@ -790,7 +614,7 @@ function Thread({
         ref={scroller}
         className="team-thread-scroll"
         role="log"
-        aria-label={filterName ? `${filterName}'s posts` : "Team thread"}
+        aria-label={filterName ? `${filterName}'s posts` : "Avos thread"}
         data-team-thread
         onScroll={(event) => {
           const element = event.currentTarget;
@@ -818,11 +642,13 @@ function Thread({
             Show earlier
           </button>
         ) : null}
-        {empty ? (
+        {empty && meeting ? (
+          <AvosMeet project={project} />
+        ) : empty ? (
           <p className="team-thread-empty">
             {filterName
               ? `Nothing from ${filterName} yet. Write to it below; its handoffs show here.`
-              : "Nothing here yet. Write to the team below, and its handoffs show here."}
+              : "Nothing here yet. Write to Avos below."}
           </p>
         ) : null}
         {thread.days.map((day) => (
@@ -903,6 +729,27 @@ function AuthorMark({
   );
 }
 
+/**
+ * Meeting Avos: its Bot, who it is, and its question, centred where the
+ * chat will start. Your answer wakes it, and these lines stay as its first.
+ */
+function AvosMeet({ project }: { project: string }) {
+  const labels = useProjectLabels();
+  const intro = avosIntro(projectDisplayName(project, labels));
+  return (
+    <div className="avos-meet" data-avos-meet>
+      <CrewCritter
+        path={project}
+        role="lead"
+        state="watching"
+        className="avos-meet-mark"
+      />
+      <h2 className="avos-meet-hello">{intro.hello}</h2>
+      <p className="avos-meet-ask">{intro.ask}</p>
+    </div>
+  );
+}
+
 function PostView({
   project,
   post,
@@ -912,6 +759,7 @@ function PostView({
   post: TeamPost;
   onCards: () => void;
 }) {
+  const workspace = useCrewWorkspace();
   if (post.kind === "you")
     return (
       <li className="team-you" data-team-post="you">
@@ -920,9 +768,25 @@ function PostView({
           <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
           {post.to
             ? ` · to ${post.to.name}`
-            : post.as
+            : // Written to Avos, it needs no word; what else it became does.
+              post.as && post.as !== "lead"
               ? ` · ${BECAME[post.as]}`
               : ""}
+          {post.from ? (
+            <>
+              {" · "}
+              <button
+                type="button"
+                className="team-post-link"
+                data-team-from={post.from.sessionId}
+                title="Open that chat"
+                disabled={!workspace?.openSession}
+                onClick={() => workspace?.openSession?.(post.from!.sessionId)}
+              >
+                from “{post.from.title || "Untitled"}”
+              </button>
+            </>
+          ) : null}
         </p>
       </li>
     );
@@ -1007,6 +871,16 @@ function PostView({
             Answer on its card
           </button>
         ) : null}
+        {post.action === "set-up-git" && workspace?.setUpGit ? (
+          <button
+            type="button"
+            className="team-post-link"
+            data-avos-set-up-git
+            onClick={() => workspace.setUpGit?.(project)}
+          >
+            Set up Git
+          </button>
+        ) : null}
       </div>
     </li>
   );
@@ -1060,6 +934,21 @@ function RunPost({ post }: { post: Extract<TeamPost, { kind: "run" }> }) {
 // ---------------------------------------------------------------------------
 // The box
 
+/**
+ * A question for the Researcher, or a screen for the Designer: a card of
+ * its own, as the Board's Add an idea once made. Avos wakes for it.
+ */
+async function askQuestion(
+  project: string,
+  words: string,
+  kind: "research" | "mockup",
+): Promise<string | null> {
+  const woke = await wakeAvos(project);
+  if (woke) return woke;
+  const { problem } = await addQuestionCard(project, words, kind);
+  return problem;
+}
+
 /** The "@word" being typed just before the cursor, if any. */
 /**
  * The "@word" the caret is in, if any: where its @ is, and the whole word
@@ -1080,20 +969,24 @@ export function mentionAt(
 
 function Composer({
   project,
+  meeting = false,
   members,
   to,
   mode,
-  hasLead,
+  modesOpen,
   input,
   onTo,
   onMode,
 }: {
   project: string;
+  /** Meeting Avos: the box asks what to keep an eye on, and has the cursor. */
+  meeting?: boolean;
   members: readonly CrewMemberView[];
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
   mode: Mode;
-  hasLead: boolean;
+  /** Which modes this Avos has now (Avos itself, a Researcher, a Designer). */
+  modesOpen: { lead: boolean; research: boolean; mockup: boolean };
   input: RefObject<HTMLTextAreaElement | null>;
   onTo: (to: Addressee | null) => void;
   /** Null goes back to the usual: the Lead, or a card without one. */
@@ -1120,12 +1013,15 @@ function Composer({
   const toGone = !!to && !members.some((member) => member.id === to.id);
   const options = picker
     ? [
-        { id: null as string | null, name: "Everyone", role: undefined },
-        ...members.map((member) => ({
-          id: member.id as string | null,
-          name: member.name,
-          role: member,
-        })),
+        // Avos itself, then its helpers: writing to Avos is the default.
+        { id: null as string | null, name: "Avos", role: undefined },
+        ...members
+          .filter((member) => member.role !== "lead")
+          .map((member) => ({
+            id: member.id as string | null,
+            name: member.name,
+            role: member,
+          })),
       ].filter((option) =>
         option.name.toLowerCase().startsWith(picker.query.toLowerCase()),
       )
@@ -1140,6 +1036,11 @@ function Composer({
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 132)}px`;
   }, [text, input]);
+  // Meeting Avos: its question waits for your answer, so the box has the
+  // cursor.
+  useEffect(() => {
+    if (meeting) input.current?.focus();
+  }, [meeting, input]);
   /** The typed "@word" the list is for, if the caret is still in it. */
   const mentionStill = (value: string, caret: number) => {
     if (!picker || picker.start < 0) return null;
@@ -1175,11 +1076,12 @@ function Composer({
     requestAnimationFrame(() => element?.focus());
   };
   // How long it may be: a chat message, a goal, or a card's words.
-  const limit = to
-    ? CREW_MESSAGE_MAX
-    : mode === "goal"
-      ? CREW_GOAL_MAX
-      : CREW_NOTE_MAX;
+  const limit =
+    to || mode === "lead"
+      ? CREW_MESSAGE_MAX
+      : mode === "goal"
+        ? CREW_GOAL_MAX
+        : CREW_NOTE_MAX;
   const send = async () => {
     const words = text.trim();
     if (!words || sending) return;
@@ -1187,7 +1089,7 @@ function Composer({
     // choose again.
     if (to && toGone) {
       setProblem(
-        `${toName} isn't in the team any more. Pick someone else or write to everyone.`,
+        `${toName} isn't helping Avos any more. Pick someone else or write to Avos.`,
       );
       return;
     }
@@ -1203,7 +1105,9 @@ function Composer({
     setText("");
     const why = sentTo
       ? await tellTeammate(project, sentTo.id, words)
-      : await tellTeam(project, words, mode);
+      : mode === "research" || mode === "mockup"
+        ? await askQuestion(project, words, mode)
+        : await tellTeam(project, words, mode);
     setSending(false);
     if (why) {
       setProblem(why);
@@ -1266,13 +1170,19 @@ function Composer({
   };
   const placeholder = toName
     ? `Write to ${toName}…`
-    : mode === "rule"
-      ? "A rule for every card, like “Use pnpm”…"
-      : mode === "goal"
-        ? "A goal the team keeps going towards…"
-        : mode === "lead"
-          ? "Ask the team, or @ one teammate…"
-          : "Write to the team, or @ one teammate…";
+    : meeting
+      ? "Something to keep an eye on, or what's coming up…"
+      : mode === "rule"
+        ? "A rule for every card, like “Use pnpm”…"
+        : mode === "goal"
+          ? "A goal Avos keeps going towards…"
+          : mode === "research"
+            ? "A question for the Researcher…"
+            : mode === "mockup"
+              ? "A screen for the Designer to mock up…"
+              : mode === "lead"
+                ? "Ask Avos anything, or @ a helper…"
+                : "Write to Avos, or @ a helper…";
   const current = MODES.find((item) => item.id === mode)!;
   return (
     <div className="team-compose-wrap">
@@ -1305,7 +1215,12 @@ function Composer({
                   className="team-mention-mark"
                 />
               ) : (
-                <ProjectMark path={project} className="team-mention-mark" />
+                <CrewCritter
+                  path={project}
+                  role="lead"
+                  state="watching"
+                  className="team-mention-mark"
+                />
               )}
               <span className="team-mention-name">{option.name}</span>
               <span className="team-mention-role">
@@ -1314,7 +1229,7 @@ function Composer({
                       option.name,
                       CREW_ROLE_INFO[option.role.role].label,
                     )
-                  : "The whole team"}
+                  : "Looks after this project"}
               </span>
             </li>
           ))}
@@ -1350,7 +1265,7 @@ function Composer({
           className="team-compose-input"
           rows={1}
           role="combobox"
-          aria-label={toName ? `Write to ${toName}` : "Write to the team"}
+          aria-label={toName ? `Write to ${toName}` : "Write to Avos"}
           aria-autocomplete="list"
           aria-expanded={!!picker && options.length > 0}
           aria-controls={picker ? listId : undefined}
@@ -1380,7 +1295,7 @@ function Composer({
             type="button"
             className="team-compose-mode"
             data-mode={mode}
-            aria-label={`How the team takes this: ${current.label}`}
+            aria-label={`How Avos takes this: ${current.label}`}
             title="A card to build, a rule for every card, or a goal"
             aria-haspopup="menu"
             aria-expanded={!!menu}
@@ -1393,8 +1308,8 @@ function Composer({
         <button
           type="button"
           className="team-compose-at"
-          aria-label="Write to one teammate"
-          title="Write to one teammate"
+          aria-label="Write to one helper"
+          title="Write to one helper"
           aria-expanded={!!picker && picker.start < 0}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
@@ -1407,7 +1322,7 @@ function Composer({
         <button
           type="submit"
           className="team-compose-send"
-          aria-label={toName ? `Send to ${toName}` : "Send to the team"}
+          aria-label={toName ? `Send to ${toName}` : "Send to Avos"}
           disabled={!text.trim() || sending}
         >
           <MoveUp className="size-3.5" />
@@ -1425,8 +1340,8 @@ function Composer({
           anchor={menu}
           align="end"
           gap={4}
-          ariaLabel="How the team takes this"
-          items={MODES.filter((item) => item.id !== "lead" || hasLead).map(
+          ariaLabel="How Avos takes this"
+          items={MODES.filter((item) => modeOpen(item.id, modesOpen)).map(
             (item) => ({
               kind: "item" as const,
               id: item.id,

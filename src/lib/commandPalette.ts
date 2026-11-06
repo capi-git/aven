@@ -90,8 +90,8 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
   },
   {
     id: "open_board",
-    label: "Open board",
-    keywords: "work status kanban progress review shipped needs you",
+    label: "Open Avos",
+    keywords: "avos board work status progress review needs you helpers",
   },
   {
     id: "open_search",

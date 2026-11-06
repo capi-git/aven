@@ -148,7 +148,7 @@ export const botCopyHost = {
  * said "crew").
  */
 export function isRestackConflict(error: unknown): boolean {
-  return /^Your files changed where the (?:crew|team) worked/.test(
+  return /^Your files changed where (?:the crew|the team|Avos) worked/.test(
     String(error instanceof Error ? error.message : error),
   );
 }
@@ -232,7 +232,7 @@ export function botCopyError(error: unknown): string {
   const lookAlike = lookAlikePath(text);
   if (lookAlike) return lookAlikeText(lookAlike);
   if (/isn't the change its checks passed/i.test(text))
-    return "A card on the team's branch isn't the change its checks passed, so nothing was applied. Take it off the branch, or update the branch and review it again.";
+    return "A card on Avos's branch isn't the change its checks passed, so nothing was applied. Take it off the branch, or update the branch and review it again.";
   if (/name has characters Aven can't read safely/i.test(text))
     return "A changed file's name has characters Aven can't read safely, so Aven won't use this change. Take it over in a chat.";
   if (/conflict with edits in your project/i.test(text))

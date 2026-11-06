@@ -18,7 +18,7 @@ import "../chrome/TeamCard.css";
 import "./TeamBatch.css";
 
 /**
- * The batch on the team's branch: its card on the Board, its buttons
+ * The batch on Avos's branch: its card on the Board, its buttons
  * (Review, Apply all) and its Review. The rest of the team's screen is in
  * `TeamScreen`.
  */
@@ -280,7 +280,7 @@ export function CrewBatchSheet({
   return (
     <Modal
       onClose={onClose}
-      title={`${plural(order.length, "card")} ready on the team's branch`}
+      title={`${plural(order.length, "card")} ready on Avos's branch`}
       description={
         review
           ? `${upTo ? `Up to ${ordered.at(-1)?.title}` : "All of them"} · ${plural(review.diff.files.length, "file")} · +${review.diff.additions} −${review.diff.deletions}`

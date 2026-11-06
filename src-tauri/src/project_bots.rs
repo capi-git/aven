@@ -1137,7 +1137,7 @@ pub fn restack(
 }
 
 /// The start of a restack's refusal when a card no longer fits.
-const RESTACK_CONFLICT: &str = "Your files changed where the team worked";
+const RESTACK_CONFLICT: &str = "Your files changed where Avos worked";
 
 /// Remove the copy and its branch.
 pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), String> {

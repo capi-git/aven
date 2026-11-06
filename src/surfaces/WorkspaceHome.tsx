@@ -9,6 +9,8 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { CrewCritter } from "../chrome/CrewCritter";
+import { AVOS_NOTE_LABEL, type AvosGlance } from "../lib/avos";
 import {
   Bot,
   CheckCircle,
@@ -137,6 +139,10 @@ export type WorkspaceHomeProps = {
   onNewProjectTask?: (path: string) => void;
   /** Open a project's board. */
   onOpenBoard?: (path: string) => void;
+  /** Every project's Avos at a glance, one line each. */
+  avos?: readonly AvosGlance[];
+  /** Open a project's Avos. */
+  onOpenAvos?: (path: string) => void;
   /** Projects' bots that are on, as the sidebar shows them. */
   bots?: readonly SidebarBot[];
   /** Open a project's bot chat. */
@@ -170,11 +176,13 @@ const HOME_DATA: readonly (keyof WorkspaceHomeProps)[] = [
   "usageProviders",
   "windows",
   "gettingStarted",
+  "avos",
   "bots",
 ];
 
 const NO_FINISHED: readonly HomeFinished[] = [];
 const NO_BOTS: readonly SidebarBot[] = [];
+const NO_AVOS: readonly AvosGlance[] = [];
 const NO_DAYS: readonly string[] = [];
 /** Rows each part of the briefing lists before summing up the rest. */
 const BRIEFING_ROWS = 3;
@@ -239,6 +247,8 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
   onSession,
   onNewProjectTask,
   onOpenBoard,
+  avos = NO_AVOS,
+  onOpenAvos,
   bots = NO_BOTS,
   onOpenBot,
   onBotSettings,
@@ -360,6 +370,53 @@ const MemoWorkspaceHome = memo(function WorkspaceHomeView({
           onSession={onSession}
           onNeeds={() => reveal(needsRef)}
         />
+
+        {avos.length && onOpenAvos ? (
+          <section
+            className="workspace-home-section"
+            aria-labelledby={`${ids}-avos`}
+            data-home-avos
+          >
+            <h2 id={`${ids}-avos`} tabIndex={-1}>
+              Avos
+            </h2>
+            <ul
+              className="workspace-home-panel workspace-home-list"
+              role="list"
+            >
+              {avos.map((glance) => (
+                <li key={glance.path} data-home-avos-row={glance.path}>
+                  <SessionRow
+                    cwd={glance.path}
+                    title={projectDisplayName(glance.path, labels)}
+                    line={glance.line}
+                    mark={
+                      <CrewCritter
+                        path={glance.path}
+                        role="lead"
+                        state={glance.state}
+                        className="workspace-home-avos-mark"
+                      />
+                    }
+                    aside={
+                      glance.note ? (
+                        <span
+                          className="workspace-home-avos-note"
+                          data-needs-you={
+                            glance.note === "needs-you" || undefined
+                          }
+                        >
+                          {AVOS_NOTE_LABEL[glance.note]}
+                        </span>
+                      ) : null
+                    }
+                    onClick={() => onOpenAvos(glance.path)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section
           ref={agentsRef}
@@ -1183,8 +1240,8 @@ const AgentTile = memo(
             <button
               type="button"
               className="workspace-home-agent-board"
-              aria-label={`Open ${name} board`}
-              title={`Open ${name} board`}
+              aria-label={`Open ${name}'s Avos`}
+              title={`Open ${name}'s Avos`}
               onClick={() => onOpenBoard(project.path)}
             >
               <Kanban size={13} />

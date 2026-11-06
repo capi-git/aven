@@ -1,6 +1,7 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { useProjectTone } from "../hooks/useProjectTone";
-import type { CrewRole } from "../lib/crews";
+import { useCrew, type CrewRole } from "../lib/crews";
+import type { MarkTone } from "../lib/markTones";
 import {
   CREW_STATUS_LABEL,
   CREW_STATUS_STAGE,
@@ -10,6 +11,7 @@ import {
   agentMemberTone,
   agentOutfit,
   agentPhase,
+  helperTones,
   type AgentState,
 } from "../lib/agentMark";
 import { AgentMark } from "./AgentMark";
@@ -29,6 +31,7 @@ export const CrewCritter = memo(function CrewCritter({
   critter,
   active = false,
   state,
+  taken,
   className = "crew-critter",
 }: {
   /** The team's project: the Lead's and the Fixer's marks take its colour. */
@@ -40,13 +43,23 @@ export const CrewCritter = memo(function CrewCritter({
   active?: boolean;
   /** A state of its own (needs you, watching, resting), over `active`. */
   state?: AgentState;
+  /**
+   * Colours the other helpers on screen wear (`helperTones`), when known;
+   * otherwise its team's, from the store.
+   */
+  taken?: ReadonlySet<MarkTone>;
   className?: string;
 }) {
   const projectTone = useProjectTone(path);
+  const crew = useCrew(taken ? undefined : path);
+  const avoid = useMemo(
+    () => taken ?? (crew ? helperTones(crew.members) : undefined),
+    [taken, crew],
+  );
   return (
     <span className="crew-critter-wrap" data-crew-critter={role}>
       <AgentMark
-        tone={agentMemberTone(role, critter, projectTone)}
+        tone={agentMemberTone(role, critter, projectTone, avoid)}
         state={state ?? (active ? "working" : "still")}
         outfit={agentOutfit(role)}
         phase={agentPhase(role)}
@@ -81,6 +94,12 @@ export function CrewCritters({
   );
   const shown = faces.slice(0, max);
   const more = faces.length - shown.length;
+  const taken = helperTones(
+    faces.map((face) => ({
+      role: face.role,
+      ...("critter" in face && face.critter ? { critter: face.critter } : {}),
+    })),
+  );
   return (
     <span className={`crew-critters ${className ?? ""}`} aria-hidden="true">
       {shown.map((face) => (
@@ -92,6 +111,7 @@ export function CrewCritters({
             ? { critter: face.critter }
             : {})}
           active={active === true || active === face.id || active === face.role}
+          taken={taken}
         />
       ))}
       {more > 0 ? <span className="crew-critters-more">+{more}</span> : null}

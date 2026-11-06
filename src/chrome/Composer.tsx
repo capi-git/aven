@@ -1,4 +1,6 @@
 import { harnessDescriptor } from "../lib/harness/descriptors";
+import { CrewCritter } from "./CrewCritter";
+import { AVOS } from "../lib/avos";
 import {
   AiIdea,
   Check,
@@ -195,6 +197,14 @@ import {
 } from "../lib/dictation";
 import { BriefRow, DictationNotice, MicButton } from "./ComposerSpeech";
 
+/** Handing a message to the project's Avos from this chat (see `avos`). */
+export type ComposerAvos = {
+  /** Send it to Avos; resolves with why it couldn't, or null. */
+  send: (text: string) => Promise<string | null>;
+  /** Show Avos's screen. */
+  open: () => void;
+};
+
 type Props = {
   enabled?: boolean;
   focused: boolean;
@@ -253,6 +263,11 @@ type Props = {
     attachments: Attachment[],
     options?: ComposerTurnOptions,
   ) => void | boolean;
+  /**
+   * The project's Avos, offered first in the @ list: picked, the message
+   * goes to Avos with a link back to this chat instead of to this chat.
+   */
+  avos?: ComposerAvos;
   /**
    * Send the message to several agents at once; absent hides Race. Resolves
    * false when the race could not start, so the draft is put back.
@@ -619,6 +634,7 @@ function ComposerComponent({
   onHandoffCardDismiss,
   onQuestionReply,
   onSubmit,
+  avos,
   onRace,
   onStop,
   onCompactContext,
@@ -846,9 +862,34 @@ function ComposerComponent({
     () => (followOpenFiles ? openFilesSnapshot() : NO_OPEN_FILES),
     () => NO_OPEN_FILES,
   );
+  // @Avos: first in the list, while what you've typed after @ fits its name.
+  const avosShown =
+    !!avos &&
+    mention !== null &&
+    AVOS.toLowerCase().startsWith(mention.query.toLowerCase());
   const mentionOpen =
     mention !== null &&
-    (looksLikeProject(cwd) || notesEnabled || knownFiles.open.length > 0);
+    (looksLikeProject(cwd) ||
+      notesEnabled ||
+      knownFiles.open.length > 0 ||
+      avosShown);
+  // The message goes to Avos (picked from @), and the line once it went.
+  const [toAvos, setToAvos] = useState(false);
+  const [avosSent, setAvosSent] = useState(false);
+  const avosOffset = avosShown ? 1 : 0;
+  const avosMark =
+    avos && looksLikeProject(cwd) ? (
+      <CrewCritter
+        path={cwd}
+        role="lead"
+        state="watching"
+        className="personal-composer-avos-mark"
+      />
+    ) : null;
+  // Typing again: the line on where the last message went has said enough.
+  useEffect(() => {
+    if (avosSent && draft.trim()) setAvosSent(false);
+  }, [avosSent, draft]);
   const navigationEmpty =
     draft.length === 0 &&
     attachments.length === 0 &&
@@ -1455,6 +1496,25 @@ function ComposerComponent({
     [syncHasValue, updateDraft],
   );
 
+  /** @Avos: the @word goes, and the message is for Avos. */
+  const pickAvos = useCallback(() => {
+    const el = ref.current;
+    const token = mentionRef.current;
+    if (el && token) {
+      const rest = el.value.slice(token.end).replace(/^ /, "");
+      const next = `${el.value.slice(0, token.start)}${rest}`;
+      el.value = next;
+      resizeComposer(el);
+      el.setSelectionRange(token.start, token.start);
+      updateDraft(next);
+      syncHasValue(next, attachmentsRef.current);
+      el.focus();
+    }
+    setMention(null);
+    setAvosSent(false);
+    setToAvos(true);
+  }, [syncHasValue, updateDraft]);
+
   useEffect(() => {
     if (!focused) return;
     if (
@@ -1641,6 +1701,22 @@ function ComposerComponent({
   const submit = (value: string) => {
     // Sending takes the words as they are in the field.
     dictation.cancel();
+    if (toAvos && avos) {
+      const words = value.trim();
+      if (!words) return;
+      setCommandNotice(null);
+      void avos.send(words).then((problem) => {
+        if (problem) {
+          setCommandNotice(problem);
+          return;
+        }
+        // Gone to Avos: the box is free, with one line on where it went.
+        if (ref.current?.value.trim() === words) clearField();
+        setToAvos(false);
+        setAvosSent(true);
+      });
+      return;
+    }
     if (jumpInId) {
       jumpIn(jumpInId, value);
       return;
@@ -1781,6 +1857,17 @@ function ComposerComponent({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(e.nativeEvent)) return;
     if (creatingSkill) return;
+    // Backspace at the start lets go of @Avos, as of anyone you write to.
+    if (
+      toAvos &&
+      e.key === "Backspace" &&
+      e.currentTarget.selectionStart === 0 &&
+      e.currentTarget.selectionEnd === 0
+    ) {
+      e.preventDefault();
+      setToAvos(false);
+      return;
+    }
 
     // Escape stops listening, keeping what was heard.
     if (e.key === "Escape" && dictation.active) {
@@ -1802,18 +1889,17 @@ function ComposerComponent({
     }
 
     if (mentionOpen) {
+      const rows = rankedFiles.length + avosOffset;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        if (rankedFiles.length === 0) return;
-        setMentionActive((index) => (index + 1) % rankedFiles.length);
+        if (rows === 0) return;
+        setMentionActive((index) => (index + 1) % rows);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        if (rankedFiles.length === 0) return;
-        setMentionActive(
-          (index) => (index - 1 + rankedFiles.length) % rankedFiles.length,
-        );
+        if (rows === 0) return;
+        setMentionActive((index) => (index - 1 + rows) % rows);
         return;
       }
       if (e.key === "Escape") {
@@ -1824,12 +1910,21 @@ function ComposerComponent({
       }
       if (e.key === "Tab") {
         e.preventDefault();
-        const file = rankedFiles[mentionActive];
+        if (avosShown && mentionActive === 0) {
+          pickAvos();
+          return;
+        }
+        const file = rankedFiles[mentionActive - avosOffset];
         if (file) pickMention(file);
         return;
       }
       if (e.key === "Enter" && !e.shiftKey) {
-        const file = rankedFiles[mentionActive];
+        if (avosShown && mentionActive === 0) {
+          e.preventDefault();
+          pickAvos();
+          return;
+        }
+        const file = rankedFiles[mentionActive - avosOffset];
         if (file) {
           e.preventDefault();
           pickMention(file);
@@ -2314,6 +2409,9 @@ function ComposerComponent({
               files={rankedFiles}
               query={mention?.query ?? ""}
               active={mentionActive}
+              {...(avosShown && avosMark
+                ? { avos: { mark: avosMark, onPick: pickAvos } }
+                : {})}
               loading={
                 looksLikeProject(cwd) && peekLastProjectFiles(cwd) == null
               }
@@ -2381,6 +2479,46 @@ function ComposerComponent({
                 />
               ))}
             </div>
+          ) : null}
+
+          {toAvos && avos ? (
+            <div
+              className="personal-composer-avos flex min-w-0 items-center gap-2 px-3 pt-2 text-ui-label"
+              data-composer-avos
+            >
+              <button
+                type="button"
+                className="personal-composer-avos-chip"
+                aria-label="Writing to Avos. Write in this chat instead"
+                title="Write in this chat instead"
+                onClick={() => {
+                  setToAvos(false);
+                  ref.current?.focus();
+                }}
+              >
+                {avosMark}
+                @Avos
+                <X className="size-3" aria-hidden />
+              </button>
+              <span className="min-w-0 truncate text-content/55">
+                With a link back to this chat
+              </span>
+            </div>
+          ) : avosSent && avos ? (
+            <p
+              className="personal-composer-avos flex items-center gap-2 px-3 pt-2 text-ui-label text-content/55"
+              role="status"
+              data-composer-avos-sent
+            >
+              Sent to Avos.
+              <button
+                type="button"
+                className="personal-composer-avos-open"
+                onClick={avos.open}
+              >
+                Open Avos
+              </button>
+            </p>
           ) : null}
 
           {inboxCard ? (

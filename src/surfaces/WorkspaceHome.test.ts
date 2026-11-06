@@ -1374,3 +1374,58 @@ describe("Getting started on Home", () => {
     ).toHaveLength(2);
   });
 });
+
+describe("every project's Avos", () => {
+  it("shows each one at a glance, one line each, and opens it", async () => {
+    const onOpenAvos = vi.fn();
+    await render(
+      props({
+        avos: [
+          {
+            path: "/work/clippedin",
+            note: "needs-you",
+            state: "needs",
+            line: "2 things ready for you",
+          },
+          {
+            path: "/work/aven",
+            note: "working",
+            state: "working",
+            line: "Builder is adding bookmarks to the browser",
+          },
+          { path: "/work/holo", note: null, state: "watching", line: "Quiet" },
+        ],
+        onOpenAvos,
+      }),
+    );
+    const avos = section("Avos")!;
+    const rows = [
+      ...avos.querySelectorAll<HTMLElement>("[data-home-avos-row]"),
+    ];
+    expect(
+      rows.map((row) => [
+        row.querySelector("strong")?.textContent,
+        row.querySelector("small")?.textContent,
+        row.querySelector(".workspace-home-avos-note")?.textContent ?? null,
+        row.querySelector<HTMLElement>("[data-crew-critter=lead] [data-agent]")
+          ?.dataset.agent,
+      ]),
+    ).toEqual([
+      ["clippedin", "2 things ready for you", "Needs you", "needs"],
+      [
+        "aven",
+        "Builder is adding bookmarks to the browser",
+        "Working",
+        "working",
+      ],
+      ["holo", "Quiet", null, "watching"],
+    ]);
+    await act(async () => rows[0]!.querySelector("button")!.click());
+    expect(onOpenAvos).toHaveBeenCalledWith("/work/clippedin");
+  });
+
+  it("has no Avos section without Avos", async () => {
+    await render(props());
+    expect(section("Avos")).toBeUndefined();
+  });
+});

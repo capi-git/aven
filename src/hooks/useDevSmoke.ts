@@ -28,7 +28,7 @@ import {
 } from "../lib/devSmokeReveal";
 import { agentRole, roleBrief, type AgentRoleId } from "../lib/agentRoles";
 import { errorText } from "../lib/errors";
-import { deleteFeatureCard } from "../lib/featureCards";
+import { forgetCrew, getCrew } from "../lib/crews";
 import { getKeeperProject } from "../lib/memoryKeeper";
 import { formatLineDiff } from "../lib/memoryKeeperFormat";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
@@ -61,7 +61,7 @@ import {
   checkDesigner,
   checkResearcher,
   checkTeamAccess,
-  checkTeamSetup,
+  checkMeetAvos,
   checkTeamJob,
   checkTeamTalk,
   type SmokeTeam,
@@ -1570,10 +1570,6 @@ export async function checkRaceResult(
   return `${labels.join(", ")} each raced in a copy of its own; the card read Ready to compare, calm and with no Stop; one "Race ready to compare · 3 of 3 done" entry, every lane's turn quiet; the stand-in judge suggested ${grok.label}; kept it: "${headline}" with why; Continue with opened its chat with the cursor in the message box, and the next message carried the recap`;
 }
 
-/** The file the board check's turn edits, in the check's project. */
-export const BOARD_EDIT_FILE = "aven-board-check.txt";
-const BOARD_COLUMN_IDS = ["idea", "building", "review", "shipped"];
-
 /** The project's board on screen, if it is. */
 function boardOnScreen(project: string): HTMLElement | null {
   return (
@@ -1585,161 +1581,69 @@ function boardOnScreen(project: string): HTMLElement | null {
   );
 }
 
-/** The card a chat is linked to on the project's board on screen, and its column. */
-function boardCard(
-  project: string,
-  sessionId: string,
-): { card: HTMLElement; column: string | undefined } | null {
-  const card = boardOnScreen(project)?.querySelector<HTMLElement>(
-    `[data-board-chats~="${sessionId}"]`,
-  );
-  return card
-    ? {
-        card,
-        column: card.closest<HTMLElement>("[data-board-column]")?.dataset
-          .boardColumn,
-      }
-    : null;
-}
-
 /**
- * Open the project's board from the title bar's button while a new chat's
- * turn edits a file: the board must show its four columns, Ideas, Building,
- * Review and Shipped, and count the chat on its line for work outside the
- * board; adding it from there must give it a card under Building while the
- * turn runs, which moves by itself to Review, naming the file, once it ends;
- * pressing the card must open the chat. The card is removed again after.
+ * The title bar's Open Avos button opens the project's Avos, never the old
+ * Board: meeting it the first time (its introduction), no Board columns and
+ * no line about chats outside the board, and its Avos saved. Cmd+W closes
+ * it. What it saved is forgotten again, so the crew steps after start from
+ * a team of their own.
  */
 export async function checkBoard(
   get: () => Options,
   project: string,
 ): Promise<string> {
   get().motion?.showWorkspace?.();
-  const chat = await openNewTask(get, project);
-  const reply = await startHeldTurn(
-    get,
-    chat.id,
-    // Held long enough for the board to open and show it at work.
-    `Write the board note. AVEN_SMOKE_EDIT ${BOARD_EDIT_FILE} AVEN_SMOKE_HOLD 8000`,
-  );
+  const hadCrew = !!getCrew(project);
   const open = await waitFor(
     () =>
       [
         ...document.querySelectorAll<HTMLButtonElement>(
-          'button[aria-label="Open board"]',
+          'button[aria-label="Open Avos"]',
         ),
       ].find((button) => button.getClientRects().length > 0),
     5_000,
-    "the title bar's Open board button",
+    "the title bar's Open Avos button",
   );
   open.click();
-  const board = await waitFor(
-    () => boardOnScreen(project),
-    5_000,
-    "the project's board",
-  );
-  const columns = [
-    ...board.querySelectorAll<HTMLElement>("[data-board-column]"),
-  ].map((column) => column.dataset.boardColumn);
-  if (columns.join() !== BOARD_COLUMN_IDS.join())
-    throw new Error(`The board's columns are ${columns.join(", ")}`);
-  // Not on a card yet, the chat is counted on the line above the columns.
-  const outside = await waitFor(
-    () =>
-      boardOnScreen(project)?.querySelector<HTMLElement>(
-        "[data-board-outside]",
-      ),
-    10_000,
-    "the line for chats outside the board",
-  );
-  const counted = outside.textContent ?? "";
-  if (!counted.includes("outside the board"))
-    throw new Error(`The line above the columns reads "${counted}"`);
-  outside
-    .querySelector<HTMLButtonElement>(".work-board-outside-toggle")
-    ?.click();
-  const add = await waitFor(
-    () =>
-      boardOnScreen(project)?.querySelector<HTMLButtonElement>(
-        `[data-outside-chat="${chat.id}"] .work-board-action`,
-      ),
-    5_000,
-    "the chat on the line for chats outside the board",
-  );
-  add.click();
-  await waitFor(
-    () => boardCard(project, chat.id)?.column === "building",
-    10_000,
-    "the chat's card under Building",
-  );
-  await reply();
-  const { card } = await waitFor(
-    () => {
-      const found = boardCard(project, chat.id);
-      return found?.column === "review" && found;
-    },
-    15_000,
-    "the chat's card to move to Review",
-  );
-  const cardId = card.dataset.boardCard;
   try {
-    const line = card.textContent ?? "";
-    if (!line.includes(BOARD_EDIT_FILE))
-      throw new Error(`The review card reads "${line}"`);
-    const buttons = [...card.querySelectorAll(".work-board-action")]
-      .map((button) => button.textContent?.trim())
-      .filter(Boolean);
-    if (!buttons.includes("Review") || !buttons.includes("Ship it"))
-      throw new Error(`The review card offers ${buttons.join(", ")}`);
-    card.querySelector<HTMLButtonElement>(".work-board-card-open")?.click();
-    // The chat must be the focused surface. The board may stay on screen
-    // beside it when the workspace shows two groups of tabs side by side.
-    const surfaceOf = (element: Element | null) =>
-      element?.closest<HTMLElement>("[data-workspace-surface]")?.dataset
-        .workspaceSurface;
-    const chatFocused = () => {
-      const pane = chatPane(chat.id);
-      const focused = get().focusedSurfaceId;
-      return !!pane && (focused === undefined || surfaceOf(pane) === focused);
-    };
-    try {
-      await waitFor(chatFocused, 5_000, "the card to open its chat");
-    } catch (error) {
-      const pane = chatPane(chat.id);
-      throw new Error(
-        `${errorText(error)} (chat ${pane ? `on screen in ${surfaceOf(pane) ?? "no surface"}` : "not on screen"}, focused ${get().focusedSurfaceId ?? "unknown"}, board ${boardOnScreen(project) ? `on screen in ${surfaceOf(boardOnScreen(project))}` : "gone"})`,
+    const screen = await waitFor(
+      () => {
+        const board = boardOnScreen(project);
+        return board?.querySelector("[data-avos-meet], [data-crew-header]")
+          ? board
+          : null;
+      },
+      5_000,
+      "the project's Avos",
+    );
+    const shown = (selector: string) =>
+      [...screen.querySelectorAll(selector)].some(
+        (element) => element.getClientRects().length > 0,
       );
-    }
-    // Leave no board open: bring it forward and close it as a person would.
-    const again = await waitFor(
-      () =>
-        [
-          ...document.querySelectorAll<HTMLButtonElement>(
-            'button[aria-label="Open board"]',
-          ),
-        ].find((button) => button.getClientRects().length > 0),
-      5_000,
-      "the Open board button again",
+    if (shown("[data-board-column]"))
+      throw new Error("The old Board's columns showed");
+    if (shown("[data-board-outside]"))
+      throw new Error("The line about chats outside the board showed");
+    const meeting = shown("[data-avos-meet]");
+    if (!getCrew(project)?.members.some((member) => member.role === "lead"))
+      throw new Error("Opening it didn't save the project's Avos");
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "w",
+        metaKey: IS_MAC,
+        ctrlKey: !IS_MAC,
+        bubbles: true,
+        cancelable: true,
+      }),
     );
-    again.click();
     await waitFor(
-      () => boardOnScreen(project),
+      () => !boardOnScreen(project) || null,
       5_000,
-      "Open board to bring the board forward",
+      "Cmd+W to close Avos",
     );
-    pressShortcut("w");
-    await waitFor(
-      () =>
-        ![...document.querySelectorAll<HTMLElement>("[data-work-board]")].some(
-          (board) => sameProjectPath(board.dataset.workBoard ?? "", project),
-        ),
-      5_000,
-      "Cmd+W to close the board",
-    );
-    return `four columns; added from the line for chats outside the board, the card moved from Building to Review with ${BOARD_EDIT_FILE} and offered ${buttons.join(", ")}; pressing it opened the chat; Cmd+W closed the board`;
+    return `Open Avos opened the project's Avos${meeting ? " on meeting it" : ""}, with no Board columns and no line about chats outside the board; Cmd+W closed it`;
   } finally {
-    // The check's card leaves the project's board as it found it.
-    if (cardId) await deleteFeatureCard(project, cardId).catch(() => false);
+    if (!hadCrew) forgetCrew(project);
   }
 }
 
@@ -4146,14 +4050,10 @@ export async function runDevSmoke(
       () => checkRaceResult(get, config, race),
     );
 
-  // The project's board, opened from the title bar like a browser tab: a
-  // chat added from the line for work outside the board gets a card, which
-  // moves from Building to Review once a turn that edits a file ends, and
-  // pressing the card opens the chat.
+  // The title bar's Open Avos opens the project's Avos, never the old Board.
   if (safe && get().board)
-    await step(
-      "the board's card follows a chat from Building to Review and opens it",
-      () => checkBoard(get, config.projectPath),
+    await step("Open Avos opens the project's Avos, never the old Board", () =>
+      checkBoard(get, config.projectPath),
     );
 
   // A crew in the project, with the stand-in as each member: the Builder
@@ -4168,15 +4068,15 @@ export async function runDevSmoke(
       () => checkCrew(get, config.projectPath, crew),
     );
 
-  // The team family, each step in a Git project of its own beside the
-  // check's, with the stand-in as every teammate: a team sets itself up
-  // from a description, the Researcher's findings put ideas on the Board
-  // and its notes are kept between turns, the Designer's mock-up is kept
-  // (and a stray one refused), and the Team sheet's Access choices stay.
+  // The Avos family, each step in a project of its own beside the check's,
+  // with the stand-in as Avos and every helper: meeting Avos in a folder
+  // without Git, the Researcher's findings put ideas on the Board and its
+  // notes are kept between turns, the Designer's mock-up is kept (and a
+  // stray one refused), and the settings' Access choices stay.
   if (safe && crew)
     await step(
-      "a new team sets itself up from a description, with its ideas placed and its about kept",
-      () => checkTeamSetup(get, config, crew),
+      "meeting Avos in a folder without Git: its introduction, a job from your answer, and Set up Git when asked to build",
+      () => checkMeetAvos(config, crew),
     );
   if (safe && crew)
     await step(
@@ -4190,17 +4090,17 @@ export async function runDevSmoke(
     );
   if (safe && crew)
     await step(
-      "a message to the Lead reaches a teammate and a helper and comes back",
+      "a message to Avos reaches a helper and that helper's own helper, and comes back",
       () => checkTeamTalk(config, crew),
     );
   if (safe && crew)
     await step(
-      "a watch request in the team chat becomes the team's job, whose run's Publish card shows in the chat",
+      "a watch request in Avos's chat becomes its job, whose run's Publish card shows in the chat",
       () => checkTeamJob(config, crew, () => get().motion?.showWorkspace?.()),
     );
   if (safe && crew)
     await step(
-      "the Team sheet's Access choices persist across closing and reopening it",
+      "Avos's settings keep their Access choices across closing and reopening them",
       () => checkTeamAccess(get, config),
     );
 

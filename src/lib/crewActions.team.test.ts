@@ -69,7 +69,7 @@ describe("writing to the team", () => {
     const words = "Build a timer screen: start, pause, and a ring.";
     expect(await tellTeam(PATH, words, "card", NOON)).toBeNull();
     const crew = getCrew(PATH)!;
-    // It stands for the Feed's own line, "You gave the team …".
+    // It stands for the Feed's own line, "You gave Avos …".
     const echo = crew.feed.find((entry) => entry.text.startsWith("You gave"));
     expect(crew.messages).toEqual([
       {
@@ -122,8 +122,8 @@ describe("writing to the team", () => {
       // Your words, not called a card.
       ["you", "keep going", ""],
       // Only the Feed's own copy of your words is left out.
-      ["event", "You resumed the team", ""],
-      ["event", "Tell the team what to build, or add an idea.", ""],
+      ["event", "You resumed Avos", ""],
+      ["event", "Tell Avos what to build, or add an idea.", ""],
     ]);
   });
 
@@ -148,7 +148,7 @@ describe("writing to the team", () => {
 
   it("keeps nothing when the team is off", async () => {
     expect(await tellTeam(PATH, "Build it", "card", NOON)).toBe(
-      "Turn the team on first.",
+      "Avos is off. Open Avos to wake it.",
     );
     expect(getCrew(PATH)?.messages).toBeUndefined();
     expect(featureBoardState(PATH).cards).toEqual([]);
@@ -199,14 +199,14 @@ describe("writing to one teammate", () => {
       openCrew: vi.fn(),
       openSettings: vi.fn(),
       stop: vi.fn(async () => undefined),
-      sendToMember: async () => "Its chat starts with the team's first card.",
+      sendToMember: async () => "Its chat starts with Avos's first card.",
     });
     try {
       expect(await tellTeammate(PATH, "builder", "hi", NOON)).toBe(
-        "Its chat starts with the team's first card.",
+        "Its chat starts with Avos's first card.",
       );
       expect(await tellTeammate(PATH, "nobody", "hi", NOON)).toBe(
-        "That teammate isn't in the team.",
+        "That helper isn't with Avos any more.",
       );
     } finally {
       uninstall();
@@ -242,7 +242,7 @@ describe("starting from a suggested team", () => {
     ).toMatchObject({ harness: "claude", model: "claude:opus-5.5" });
     on();
     expect(startTeamFrom(PATH, "ship", MODELS)).toBe(
-      "Add or remove teammates one at a time once the team has started.",
+      "Add or remove helpers one at a time once Avos has started.",
     );
   });
 
@@ -297,7 +297,7 @@ describe("a project you delete or archive", () => {
 });
 
 describe("a teammate's own chat", () => {
-  it("waits for the team's copy, except the Fixer's, which is the bot's", () => {
+  it("waits for Avos's copy, except the Fixer's, which is the bot's", () => {
     on();
     const crew = getCrew(PATH)!;
     expect(teammateChatReady(crew, "builder")).toBe(false);

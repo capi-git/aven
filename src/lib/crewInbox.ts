@@ -23,10 +23,10 @@ export const CREW_INBOX_ACTIONS: Readonly<
 > = {
   ready: [
     { id: "apply", label: "Apply" },
-    { id: "open-board", label: "Open board" },
+    { id: "open-board", label: "Open Avos" },
   ],
   stuck: [
-    { id: "open-board", label: "Open board" },
+    { id: "open-board", label: "Open Avos" },
     { id: "done", label: "Done" },
   ],
 };
@@ -142,10 +142,7 @@ export function openCrewInboxItems(
           title:
             batch.length === 1
               ? top.title
-              : `${batch.length} cards ready on the team's branch`.slice(
-                  0,
-                  120,
-                ),
+              : `${batch.length} cards ready on Avos's branch`.slice(0, 120),
           summary: (batch.some((card) => card.stacked?.replayed)
             ? `${batch.map((card) => card.title).join(" · ")} · replayed onto your files, not re-checked; Review them, then Apply`
             : batch.length === 1

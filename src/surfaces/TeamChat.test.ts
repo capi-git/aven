@@ -208,7 +208,7 @@ async function setUp(
       who: "you",
       cardId: boards[0]!.id,
       title: "Timer screen",
-      text: "You gave the team “Timer screen”",
+      text: "You gave Avos “Timer screen”",
     });
     next = withFeed(next, {
       at: NOW - 10 * 60_000,
@@ -315,9 +315,7 @@ const thread = () => chat().querySelector<HTMLElement>("[data-team-thread]")!;
 const pick = (id: string) =>
   act(async () =>
     container
-      .querySelector<HTMLButtonElement>(
-        `[data-team-member="${id}"] .team-roster-row`,
-      )!
+      .querySelector<HTMLButtonElement>(`[data-avos-helper="${id}"]`)!
       .click(),
   );
 
@@ -338,7 +336,7 @@ beforeEach(() => {
   resetCrewsCache();
   resetTeamViewCache();
   // The chat is always beside the panel; the roster is its Teammates tab.
-  setTeamView(PROJECT, "teammates");
+  setTeamView(PROJECT, "chat");
   setFeatureCardBackend(memoryFeatureCardBackend());
   resetWorkBoardFeed();
   installWorkBoardActions({
@@ -373,79 +371,84 @@ afterEach(async () => {
 });
 
 describe("the team chat", () => {
-  it("opens on Overview beside the chat, and remembers the tab for this project", async () => {
+  it("opens on the Chat with This week beside it, and remembers Changes or Notes for this project", async () => {
     localStorage.removeItem(TEAM_VIEW_KEY);
     resetTeamViewCache();
     await setUp();
     expect(chat()).not.toBeNull();
-    expect(container.querySelector("[data-team-overview]")).not.toBeNull();
+    expect(container.querySelector("[data-avos-week]")).not.toBeNull();
     expect(container.querySelector("[data-team-board]")).toBeNull();
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
-    expect(header.querySelector("h1")?.textContent).toBe("pom");
+    expect(header.querySelector("h1")?.textContent).toBe("Avos");
     const tabs = [
       ...container.querySelectorAll<HTMLButtonElement>("[data-team-tab]"),
     ];
+    // Changes counts what's ready to apply.
     expect(tabs.map((item) => item.textContent)).toEqual([
-      "Board",
-      "Overview",
-      "Teammates",
+      "Chat",
+      "Changes1",
       "Notes",
-      "Schedule",
-      "Changes",
+      "Sub agents",
     ]);
+    expect(tabs[1]!.querySelector("[data-avos-changes]")?.textContent).toBe(
+      "1",
+    );
+    expect(tabs[0]!.getAttribute("aria-selected")).toBe("true");
+    await act(async () => tabs[2]!.click());
+    // The chat stays put underneath, hidden, with what you were writing;
+    // Notes takes the whole width.
+    expect(chat().closest<HTMLElement>(".avos-body")!.hidden).toBe(true);
+    expect(container.querySelector("[data-avos-week]")).toBeNull();
+    expect(teamView(PROJECT)).toBe("notes");
+    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("notes");
     await act(async () => tabs[0]!.click());
-    expect(chat()).not.toBeNull();
-    expect(container.querySelector("[data-team-board]")).not.toBeNull();
-    expect(teamView(PROJECT)).toBe("board");
-    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("board");
+    expect(chat().closest<HTMLElement>(".avos-body")!.hidden).toBe(false);
   });
 
-  it("lists Everyone, then each teammate with what it's doing, then Add teammate", async () => {
+  it("lists what needs you, what's going on and who's helping out, each helper with its Bot and one word", async () => {
     await setUp();
-    const rows = [
-      ...container.querySelectorAll<HTMLElement>(".team-roster-item"),
+    const week = container.querySelector<HTMLElement>("[data-avos-week]")!;
+    expect(
+      [...week.querySelectorAll("[data-avos-week-section] h3")].map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["Needs you", "Doing now", "Helping out"]);
+    // Ready changes, as one line with Review and Apply all.
+    const ready = week.querySelector<HTMLElement>('[data-avos-need="batch"]')!;
+    expect(ready.querySelector(".avos-week-row")?.textContent).toBe(
+      "1 change ready",
+    );
+    expect(
+      [...ready.querySelectorAll("button")].map((item) => item.textContent),
+    ).toEqual(["Review", "Apply all"]);
+    const helpers = [
+      ...week.querySelectorAll<HTMLElement>("[data-avos-helper]"),
     ];
     expect(
-      rows.map(
-        (row) => row.querySelector(".team-roster-name")?.textContent ?? "",
-      ),
+      helpers.map((helper) => [
+        helper.querySelector(".avos-week-helper-name")?.textContent,
+        helper.querySelector(".avos-week-helper-word")?.textContent,
+      ]),
     ).toEqual([
-      "Everyone",
-      "Builder",
-      "Designer",
-      "Checker",
-      "Security",
-      "Scout",
-      "Add teammate",
+      ["Builder", "Resting"],
+      ["Designer", "Resting"],
+      ["Checker", "Working"],
+      ["Security", "Resting"],
+      ["Scout", "Resting"],
     ]);
-    const checker = container.querySelector<HTMLElement>(
-      '[data-team-member="checker"]',
-    )!;
-    expect(checker.querySelector(".team-roster-line")?.textContent).toBe(
-      "Checking Timer screen · round 2",
+    // The Checker's Bot types while it works, in the Checker's colour.
+    const checker = week.querySelector<HTMLElement>(
+      '[data-avos-helper="checker"] .agent-mark',
     );
-    expect(checker.querySelector(".team-roster-when")?.textContent).toBe("now");
-    // Its Bot types while it works, in the Checker's colour.
-    const checkerMark = checker.querySelector<HTMLElement>(".agent-mark");
-    expect(checkerMark?.dataset.agent).toBe("working");
-    expect(checkerMark?.dataset.tone).toBe("purple");
-    // The others rest, and Add teammate shows the steps alone.
+    expect(checker?.dataset.agent).toBe("working");
+    expect(checker?.dataset.tone).toBe("purple");
+    // Picking a helper shows its posts.
+    await pick("checker");
     expect(
-      container.querySelector<HTMLElement>(
-        '[data-team-member="security"] .agent-mark',
-      )?.dataset.agent,
-    ).toBe("resting");
-    expect(
-      container.querySelector("[data-team-add] .agent-mark[data-vacant]"),
-    ).not.toBeNull();
-    expect(
-      container.querySelector('[data-team-member="security"] .team-roster-line')
-        ?.textContent,
-    ).toBe("Free");
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>("[data-team-add]")!.click(),
-    );
-    expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "add");
+      [...chat().querySelectorAll<HTMLElement>("[data-team-post]")].map(
+        (post) => post.dataset.teamPost,
+      ),
+    ).toEqual(["checker"]);
   });
 
   it("reads the Feed as posts, with handoffs, your message and who's working now", async () => {
@@ -454,7 +457,7 @@ describe("the team chat", () => {
     const posts = [
       ...thread.querySelectorAll<HTMLElement>("[data-team-post]"),
     ].map((post) => post.dataset.teamPost);
-    // The Feed's own "You gave the team…" is your message.
+    // The Feed's own "You gave Avos…" is your message.
     expect(posts).toEqual(["scout", "you", "builder", "checker"]);
     expect(thread.querySelector(".team-day-label")?.textContent).toBe("Today");
     expect(
@@ -503,7 +506,7 @@ describe("the team chat", () => {
       ),
     ).toBe(true);
     expect(
-      offersRestack("Update the team's branch onto your files, then Apply."),
+      offersRestack("Update Avos's branch onto your files, then Apply."),
     ).toBe(true);
     expect(offersRestack("Something else went wrong")).toBe(false);
   });
@@ -577,15 +580,9 @@ describe("the team chat", () => {
     expect(list()).toBeNull();
   });
 
-  it("shows one teammate's posts when you pick it, writes to it, and opens its chat", async () => {
+  it("shows one helper's posts when you pick it, writes to it, and opens its chat", async () => {
     await setUp();
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(
-          '[data-team-member="checker"] .team-roster-row',
-        )!
-        .click(),
-    );
+    await pick("checker");
     const posts = [
       ...chat().querySelectorAll<HTMLElement>("[data-team-post]"),
     ].map((post) => post.dataset.teamPost);
@@ -599,11 +596,12 @@ describe("the team chat", () => {
     expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
     // Everyone again.
     await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>(".team-roster-item .team-roster-row")!
-        .click(),
+      button(
+        container.querySelector("[data-team-showing]")!,
+        "Show all",
+      )!.click(),
     );
-    expect(box().placeholder).toBe("Write to the team, or @ one teammate…");
+    expect(box().placeholder).toBe("Write to Avos, or @ a helper…");
   });
 
   it("keeps a long thread fast: the newest posts, and Show earlier for more", async () => {
@@ -636,7 +634,7 @@ describe("the team chat", () => {
     expect(actions.tellTeam).not.toHaveBeenCalled();
     expect(actions.tellTeammate).not.toHaveBeenCalled();
     expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
-      "Designer isn't in the team any more. Pick someone else or write to everyone.",
+      "Designer isn't helping Avos any more. Pick someone else or write to Avos.",
     );
     expect(box().value).toBe("Can the ring use the project's colour?");
     expect(chat().querySelector(".team-compose-to")?.textContent).toBe(
@@ -654,7 +652,7 @@ describe("the team chat", () => {
     );
   });
 
-  it("asks you to answer only a card that still waits, and shows the Board without saving it", async () => {
+  it("asks you to answer only a card that still waits, in a sheet of its own", async () => {
     await setUp((crew, boards) => {
       const stuck = (id: string, stage: "stuck" | "applied") => ({
         ...crew.cards.find((card) => card.id === boards[0]!.id)!,
@@ -691,10 +689,21 @@ describe("the team chat", () => {
       true,
     ]);
     expect(button(asks[0]!, "Answer on its card")).toBeUndefined();
+    // Its question opens in a sheet of its own, with the box to answer it.
     await act(async () => button(asks[1]!, "Answer on its card")!.click());
-    expect(container.querySelector("[data-team-board]")).not.toBeNull();
-    // Which tab the team opens on stays your choice.
-    expect(teamView(PROJECT)).toBe("teammates");
+    const sheet = document.querySelector<HTMLElement>("[data-avos-answer]")!;
+    expect(sheet).not.toBeNull();
+    expect(
+      sheet.querySelector('textarea[aria-label="Your answer"]'),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-team-board]")).toBeNull();
+    // It's under Needs you too, with Answer.
+    expect(
+      container.querySelector('[data-avos-need^="stuck:"] .avos-week-row')
+        ?.textContent,
+    ).toBe("“Timer screen” needs your answer");
+    // Which view Avos opens on stays your choice.
+    expect(teamView(PROJECT)).toBe("chat");
   });
 
   it("counts as new only the posts the view shows", async () => {
@@ -837,7 +846,7 @@ describe("the team chat", () => {
             who: "you",
             text: "keep going",
           }),
-          { at: NOW, kind: "note", who: "you", text: "You resumed the team" },
+          { at: NOW, kind: "note", who: "you", text: "You resumed Avos" },
         ),
       ),
     );
@@ -852,7 +861,7 @@ describe("the team chat", () => {
       .slice(-2)
       .map((post) => post.textContent);
     expect(last[0]).toContain("keep going");
-    expect(last[1]).toContain("You resumed the team");
+    expect(last[1]).toContain("You resumed Avos");
   });
 
   it("stays at the very bottom when you write in a thread longer than it shows", async () => {
@@ -960,7 +969,7 @@ describe("the team chat", () => {
     expect(box().value).toBe(goal);
   });
 
-  it("can't open a teammate's chat before the team's first card, and says why", async () => {
+  it("can't open a teammate's chat before Avos's first card, and says why", async () => {
     await setUp((crew) => {
       const next = { ...crew };
       delete next.copy;
@@ -971,11 +980,9 @@ describe("the team chat", () => {
       "[data-team-open-chat]",
     )!;
     expect(open.disabled).toBe(true);
-    expect(open.title).toBe(
-      "Checker's chat starts with the team's first card.",
-    );
+    expect(open.title).toBe("Checker's chat starts with Avos's first card.");
     expect(container.querySelector("[data-team-open-note]")?.textContent).toBe(
-      "Checker's chat starts with the team's first card.",
+      "Checker's chat starts with Avos's first card.",
     );
     // Once it can open, a chat that still doesn't says why, under its name.
     await act(async () =>
@@ -994,5 +1001,91 @@ describe("the team chat", () => {
     expect(container.querySelector("[data-team-open-note]")?.textContent).toBe(
       "Couldn't open Checker's chat.",
     );
+  });
+
+  it("lists each helper under Sub agents, with Open chat and Settings, and Add a helper", async () => {
+    await setUp();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-tab="agents"]')!
+        .click(),
+    );
+    const agents = container.querySelector<HTMLElement>("[data-avos-agents]")!;
+    const rows = [...agents.querySelectorAll<HTMLElement>("[data-avos-agent]")];
+    expect(
+      rows.map((row) => [
+        row.querySelector(".avos-agent-name b")?.textContent,
+        row.querySelector(".avos-agent-word")?.textContent,
+      ]),
+    ).toEqual([
+      ["Builder", "Resting"],
+      ["Designer", "Resting"],
+      ["Checker", "Working"],
+      ["Security", "Resting"],
+      ["Scout", "Resting"],
+    ]);
+    const checker = agents.querySelector<HTMLElement>(
+      '[data-avos-agent="checker"]',
+    )!;
+    expect(checker.querySelector(".avos-agent-line")?.textContent).toBe(
+      "Checking Timer screen · round 2",
+    );
+    await act(async () =>
+      checker
+        .querySelector<HTMLButtonElement>("[data-avos-agent-chat]")!
+        .click(),
+    );
+    expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
+    await act(async () =>
+      checker
+        .querySelector<HTMLButtonElement>("[data-avos-agent-settings]")!
+        .click(),
+    );
+    expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "checker");
+    await act(async () =>
+      agents
+        .querySelector<HTMLButtonElement>("[data-avos-add-helper]")!
+        .click(),
+    );
+    expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "add");
+    // Sub agents takes the whole width; back on the Chat, This week still
+    // lists who's helping out.
+    expect(container.querySelector("[data-avos-week]")).toBeNull();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-tab="chat"]')!
+        .click(),
+    );
+    expect(
+      container.querySelector('[data-avos-week-section="helpers"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps what Avos remembers, and what you asked it to remember for every card, under Notes", async () => {
+    await setUp((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.id === "checker"
+          ? { ...member, memory: "Tests live in src/__tests__." }
+          : member,
+      ),
+      notes: [{ id: "n1", at: NOW - 60_000, text: "Use pnpm, not npm" }],
+    }));
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-team-tab="notes"]')!
+        .click(),
+    );
+    const notes = container.querySelector<HTMLElement>("[data-avos-notes]")!;
+    expect(
+      [...notes.querySelectorAll(".team-notes-heading")].map(
+        (heading) => heading.textContent,
+      ),
+    ).toEqual(["What they remember", "For every card"]);
+    expect(notes.textContent).toContain("Tests live in src/__tests__.");
+    const rule = notes.querySelector<HTMLElement>("[data-avos-rule]")!;
+    expect(rule.textContent).toContain("Use pnpm, not npm");
+    await act(async () => button(rule, "Forget")!.click());
+    expect(getCrew(PROJECT)!.notes).toEqual([]);
   });
 });

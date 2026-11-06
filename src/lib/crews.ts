@@ -87,10 +87,12 @@ export const CREW_ROLE_INFO: Readonly<Record<CrewRole, CrewRoleInfo>> = {
     job: "Looks into one thing for a teammate, then goes",
     edits: false,
   },
+  // Avos: the one who looks after the project, always there. Stored as the
+  // Lead, so teams made before keep theirs.
   lead: {
     role: "lead",
-    label: "Lead",
-    job: "Answers messages to everyone and passes questions on",
+    label: "Avos",
+    job: "Looks after this project",
     edits: false,
   },
   builder: {
@@ -247,7 +249,7 @@ export function crewAgentsFor(role: CrewRole): readonly CrewAgent[] {
 }
 
 /**
- * The folder, at the top of the team's copy, where the Designer draws its
+ * The folder, at the top of Avos's copy, where the Designer draws its
  * mock-ups: the only place it may write. Untracked, never stacked or
  * applied, and emptied once a mock-up is kept by Aven.
  */
@@ -627,7 +629,12 @@ export type CrewFeedEntry = {
   title?: string;
   round?: number;
   text: string;
+  /** What the line offers you: Set up Git, when building needs it. */
+  action?: CrewFeedAction;
 };
+
+/** An action a feed line offers. */
+export type CrewFeedAction = "set-up-git";
 
 /** Standing guidance you gave the crew; every bot reads it at each turn. */
 export type CrewNote = { id: string; at: number; text: string };
@@ -771,9 +778,14 @@ export type CrewMessage = {
    * for a nudge ("keep going"), which only starts what waits.
    */
   as?: CrewMessageKind;
-  /** The Feed's own line for it ("You gave the team …"), which it stands for. */
+  /** The Feed's own line for it ("You gave Avos …"), which it stands for. */
   echo?: string;
+  /** The chat you wrote it from with @Avos, for a link back to it. */
+  from?: CrewMessageFrom;
 };
+
+/** A chat a message to Avos came from: its id and its title then. */
+export type CrewMessageFrom = { sessionId: string; title: string };
 
 export type CrewMessageKind = "card" | "rule" | "goal" | "lead";
 
@@ -1683,6 +1695,7 @@ export function readCrew(value: unknown): Crew | null {
             ...(title ? { title } : {}),
             ...(typeof entry.round === "number" ? { round: entry.round } : {}),
             text: body,
+            ...(entry.action === "set-up-git" ? { action: entry.action } : {}),
           };
         })
         .filter((entry): entry is CrewFeedEntry => !!entry)
@@ -1874,6 +1887,13 @@ function readTalks(value: unknown): CrewTalk[] {
     .slice(-CREW_TALKS_KEPT);
 }
 
+function readFrom(value: unknown): { from?: CrewMessageFrom } {
+  const from = value as Partial<CrewMessageFrom> | null | undefined;
+  const sessionId = text(from?.sessionId, 80);
+  const title = text(from?.title, 200);
+  return sessionId ? { from: { sessionId, title: title ?? "" } } : {};
+}
+
 function readMessages(value: unknown): CrewMessage[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1893,6 +1913,7 @@ function readMessages(value: unknown): CrewMessage[] {
         ...(MESSAGE_KINDS.has(entry.as as CrewMessageKind)
           ? { as: entry.as as CrewMessageKind }
           : {}),
+        ...readFrom(entry.from),
       };
     })
     .filter((entry): entry is CrewMessage => !!entry)
@@ -2231,6 +2252,87 @@ export function updateCrew(path: string, update: (crew: Crew) => Crew): Crew {
   if (next === current) return current;
   write({ ...store, crews: { ...store.crews, [key]: next } });
   return next;
+}
+
+/**
+ * A project's Avos as it starts the first time you open it: off, with only
+ * Avos itself (stored as the Lead). Helpers join when work needs them.
+ */
+export function newAvosCrew(path: string, now = Date.now()): Crew {
+  return {
+    ...newCrew(path, now),
+    members: [{ id: "lead", role: "lead", critter: "lead" }],
+  };
+}
+
+/**
+ * The project's Avos, saved the first time it's used (never up front). A
+ * team made before keeps its members, and gets Avos (its Lead) if it had
+ * none; the project bot stays its Fixer.
+ */
+export function ensureAvos(path: string, now = Date.now()): Crew {
+  const store = read();
+  const key = projectKey(normalizeProjectPath(path));
+  const known = store.crews[key];
+  if (known) {
+    // Never started: the teammates it was made with were never met, so
+    // they give way to Avos alone. Any you set up yourself stay.
+    const unmet = !known.onAt && !known.cards.length;
+    const members = unmet
+      ? known.members.filter((member) => !defaultTeammate(member))
+      : known.members;
+    const hasLead = members.some((member) => member.role === "lead");
+    if (hasLead && members.length === known.members.length) return known;
+    return updateCrew(path, (crew) => ({
+      ...crew,
+      members: hasLead
+        ? members
+        : [
+            {
+              id: newMemberId({ members }, "lead"),
+              role: "lead",
+              critter: "lead",
+            },
+            ...members,
+          ],
+    }));
+  }
+  // A project bot already made a crew in memory (see `crewFromBot`): Avos
+  // joins it, and the bot stays its Fixer.
+  const made = getCrew(path);
+  const crew: Crew = made
+    ? {
+        ...made,
+        members: [
+          { id: "lead", role: "lead", critter: "lead" },
+          ...made.members.filter(
+            (member) => member.role === "fixer" || member.role === "lead",
+          ),
+        ],
+      }
+    : newAvosCrew(path, now);
+  write({ ...store, crews: { ...store.crews, [key]: crew } });
+  return crew;
+}
+
+/** One of the teammates `newCrew` starts with, as it started. */
+function defaultTeammate(member: CrewMember): boolean {
+  return (
+    (member.id === "builder" ||
+      member.id === "checker" ||
+      member.id === "security") &&
+    member.role === member.id &&
+    !member.name &&
+    !member.preset &&
+    !member.label &&
+    !member.paused &&
+    !member.effort &&
+    !member.scope?.length &&
+    !member.sessionId &&
+    (member.instructions === undefined ||
+      (member.role === "security" &&
+        member.instructions === SECURITY_INSTRUCTIONS))
+  );
 }
 
 /**
@@ -2980,6 +3082,7 @@ export function withMessage(
     ...(message.to ? { to: message.to } : {}),
     ...(message.as ? { as: message.as } : {}),
     ...(message.echo ? { echo: message.echo } : {}),
+    ...(message.from ? { from: message.from } : {}),
   };
   return {
     ...crew,
@@ -3144,8 +3247,8 @@ export function withGoal(
       who: by ? "aven" : "you",
       ...(by ? { member: by } : {}),
       text: by
-        ? `${byName ?? crewMemberName(crew, by)} set the team's goal: ${goal}`
-        : `You set the team's goal: ${goal}`,
+        ? `${byName ?? crewMemberName(crew, by)} set Avos's goal: ${goal}`
+        : `You set Avos's goal: ${goal}`,
     },
   );
 }

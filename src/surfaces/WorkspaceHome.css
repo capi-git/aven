@@ -1093,3 +1093,19 @@ html.theme-light:not(.has-chat-background) .workspace-home {
 .workspace-home-list > li:focus-within + li::before {
   opacity: 0;
 }
+
+/* Each project's Avos, one line each: its Bot, the project, what it's at,
+   and Needs you in amber or Working at the end. */
+.workspace-home-row-mark .dot-mark.workspace-home-avos-mark {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+.workspace-home-avos-note {
+  flex: none;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+.workspace-home-avos-note[data-needs-you] {
+  color: var(--aven-needs-you);
+}

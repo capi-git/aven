@@ -26,6 +26,12 @@ import { WorkBoard } from "./WorkBoard";
 // The header's mark renders only when the drawn board does, and each card's
 // mascots only when that card does: their Profilers count those renders.
 const renders = vi.hoisted(() => ({ board: 0, cards: 0 }));
+// The plain Board: what a project shows where Avos can't run (no sandbox
+// for its helpers). Everywhere else a project's Board is its Avos.
+vi.mock("../lib/projectBots", async (original) => ({
+  ...(await original<typeof import("../lib/projectBots")>()),
+  botsAvailable: () => false,
+}));
 vi.mock("../chrome/ProjectMark", async () => {
   const react = await import("react");
   const onRender: ProfilerOnRenderCallback = () => {
