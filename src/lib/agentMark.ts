@@ -245,14 +245,55 @@ export function botAgentState(status: BotStatus | undefined): AgentState {
 }
 
 /**
- * A team member's colour: the Lead (Avos) and the Fixer (its project's
- * bot) wear their project's; every other role its own (`crewMemberTone`).
+ * The colours a helper may take instead of its own when its own is its
+ * project's (so it isn't mistaken for Avos): never yellow, green or red,
+ * which say what's happening, nor grey, the plain mark. The ones most roles
+ * don't wear come first.
+ */
+const STAND_IN_TONES: readonly MarkTone[] = [
+  "teal",
+  "orange",
+  "pink",
+  "purple",
+  "blue",
+];
+
+/**
+ * A team member's colour: Avos (the Lead) and the Fixer (its project's
+ * bot) wear their project's; every other role its own (`crewMemberTone`),
+ * unless that is the project's too: then the next free colour, so no helper
+ * looks like Avos. Worked out as it's drawn; nothing stored changes.
  */
 export function agentMemberTone(
   role: string,
   mark: string | null | undefined,
   projectTone: MarkTone | null | undefined,
+  /** Colours the other helpers on screen wear: a stand-in avoids them. */
+  taken?: ReadonlySet<MarkTone>,
 ): MarkTone | null {
   if (role === "lead" || role === "fixer") return projectTone ?? null;
-  return crewMemberTone(role, mark) ?? projectTone ?? null;
+  const own = crewMemberTone(role, mark);
+  if (!own) return projectTone ?? null;
+  if (!projectTone || own !== projectTone) return own;
+  return (
+    STAND_IN_TONES.find((tone) => tone !== projectTone && !taken?.has(tone)) ??
+    STAND_IN_TONES.find((tone) => tone !== projectTone) ??
+    own
+  );
+}
+
+/**
+ * The colours a team's helpers wear by their roles, its Avos and Fixer
+ * aside: what a helper standing in for its project's colour avoids.
+ */
+export function helperTones(
+  members: readonly { role: string; critter?: string | undefined }[],
+): Set<MarkTone> {
+  const tones = new Set<MarkTone>();
+  for (const member of members) {
+    if (member.role === "lead" || member.role === "fixer") continue;
+    const tone = crewMemberTone(member.role, member.critter);
+    if (tone) tones.add(tone);
+  }
+  return tones;
 }

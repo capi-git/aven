@@ -51,7 +51,7 @@ const tones = () =>
   );
 
 describe("crew marks", () => {
-  it("each take the teammate's own colour, whatever the project's", async () => {
+  it("each take the helper's own colour, unless it's the project's", async () => {
     saveTabGroupColor(projectKey(APP), 4);
     await draw(
       createElement(CrewCritters, {
@@ -68,8 +68,10 @@ describe("crew marks", () => {
       host.querySelector<HTMLElement>('.agent-mark[data-agent="working"]')
         ?.dataset.tone,
     ).toBe("blue");
+    // A purple project: the Checker would look like its Avos, so it takes
+    // the next colour no helper beside it wears.
     await act(async () => saveTabGroupColor(projectKey(APP), 6));
-    expect(tones()).toEqual(["blue", "purple", "pink", "teal"]);
+    expect(tones()).toEqual(["blue", "orange", "pink", "teal"]);
   });
 
   it("never wears a colour that says what's happening", () => {
