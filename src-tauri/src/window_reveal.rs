@@ -170,6 +170,8 @@ pub fn conceal(window: &Window) {
     let concealed = window.clone();
     on_main(window.app_handle(), move || {
         crate::macos::set_concealed(&concealed, true);
+        // Aven Dev's check keeps its windows above the desk's others.
+        crate::dev_smoke::keep_window_up(&concealed);
         // Ordered in and key while transparent, so WebKit draws the page and
         // keystrokes reach it as soon as it appears.
         let _ = concealed.show();

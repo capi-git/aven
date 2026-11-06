@@ -395,6 +395,9 @@ fn open_window(
         .build()
         .map_err(|error| error.to_string())
         .and_then(|window| {
+            // Above the check's workspace, which Aven Dev's check keeps up.
+            #[cfg(target_os = "macos")]
+            crate::dev_smoke::keep_window_up(&window.as_ref().window());
             window
                 .set_position(position)
                 .map_err(|error| error.to_string())
