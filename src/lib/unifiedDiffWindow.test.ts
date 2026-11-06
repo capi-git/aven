@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { foldUnifiedLines, type UnifiedLine } from "./unifiedDiff";
 import {
+  changeOffsets,
+  diffViewRows,
   flattenVisibleRows,
   layoutRows,
+  splitRows,
   rowsHeight,
   UNIFIED_FOLD_PX,
   UNIFIED_LINE_PX,
@@ -171,3 +174,79 @@ function rangeContext(from: number, to: number): UnifiedLine[] {
   }
   return lines;
 }
+
+describe("splitRows", () => {
+  const block = (lines: UnifiedLine[]) =>
+    diffViewRows(
+      [{ kind: "hunk", pos: 0, lines }],
+      () => undefined,
+      true,
+      "split",
+    );
+
+  it("puts replaced lines side by side and unchanged lines on both sides", () => {
+    const rows = block([
+      { kind: "context", text: "a", oldNumber: 1, newNumber: 1 },
+      { kind: "del", text: "b", oldNumber: 2, newNumber: null, pos: 3 },
+      { kind: "del", text: "c", oldNumber: 3, newNumber: null, pos: 3 },
+      { kind: "add", text: "B", oldNumber: null, newNumber: 2, pos: 3 },
+      { kind: "context", text: "d", oldNumber: 4, newNumber: 3 },
+      { kind: "add", text: "e", oldNumber: null, newNumber: 4, pos: 9 },
+    ]);
+    const sides = rows.map((row) =>
+      row.type === "pair"
+        ? [row.left?.text ?? null, row.right?.text ?? null, row.stage]
+        : row.type,
+    );
+    expect(sides).toEqual([
+      ["a", "a", false],
+      ["b", "B", true],
+      ["c", null, true],
+      ["d", "d", false],
+      [null, "e", true],
+    ]);
+    expect(rows.every((row) => row.height === UNIFIED_LINE_PX)).toBe(true);
+  });
+
+  it("keeps hunk headers and folds across both sides", () => {
+    const rows = splitRows([
+      {
+        type: "line",
+        stage: false,
+        height: 22,
+        line: { kind: "hunk", text: "@@", oldNumber: null, newNumber: null },
+      },
+      { type: "fold", id: "fold-0", hidden: 4, height: UNIFIED_FOLD_PX },
+    ]);
+    expect(rows.map((row) => row.type)).toEqual(["line", "fold"]);
+  });
+});
+
+describe("changeOffsets", () => {
+  it("stops at the start of each run of changes", () => {
+    const rows = diffViewRows(
+      [
+        {
+          kind: "hunk",
+          lines: [
+            { kind: "context", text: "a", oldNumber: 1, newNumber: 1 },
+            { kind: "del", text: "b", oldNumber: 2, newNumber: null },
+            { kind: "add", text: "B", oldNumber: null, newNumber: 2 },
+            { kind: "context", text: "c", oldNumber: 3, newNumber: 3 },
+            { kind: "context", text: "d", oldNumber: 4, newNumber: 4 },
+            { kind: "add", text: "e", oldNumber: null, newNumber: 5 },
+          ],
+        },
+      ],
+      () => undefined,
+      false,
+      "unified",
+    );
+    expect(changeOffsets(rows)).toEqual([UNIFIED_LINE_PX, UNIFIED_LINE_PX * 5]);
+    const split = splitRows(rows);
+    expect(changeOffsets(split)).toEqual([
+      UNIFIED_LINE_PX,
+      UNIFIED_LINE_PX * 4,
+    ]);
+  });
+});
