@@ -118,7 +118,7 @@ describe("new chat ink", () => {
     const red = (pixel: number) => pixel & 0xff;
     for (const pixel of [...dark.ink, ...dark.lit]) {
       expect(red(pixel)).toBe(235);
-      expect(alpha(pixel)).toBeLessThan(0.4 * 255);
+      expect(alpha(pixel)).toBeLessThan(0.6 * 255);
     }
     expect(alpha(light.ink[0])).toBeGreaterThan(alpha(dark.ink[0]));
     expect(packRgba(1, 2, 3, 1)).toBe(0xff030201);

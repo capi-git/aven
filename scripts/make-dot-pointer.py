@@ -29,19 +29,19 @@ RADIUS = 9.0
 EDGE = 1.0
 # The shadow: offset down, softness (Gaussian sigma), all in CSS pixels.
 SHADOW_DROP = 1.0
-SHADOW_SIGMA = 2.4
+SHADOW_SIGMA = 2.0
 
 # (rgb, centre alpha, edge alpha, shadow alpha) per image. The fill is
 # nearly flat; the shadow is black in both appearances.
 TONES = {
     "dark": {
-        "dot": ((1, 1, 1), 0.4, 0.32, 0.24),
-        "dot-press": ((1, 1, 1), 0.52, 0.42, 0.26),
+        "dot": ((1, 1, 1), 0.7, 0.62, 0.4),
+        "dot-press": ((1, 1, 1), 0.82, 0.74, 0.42),
     },
     # Mid grey, so it shows over white and over a dark code block alike.
     "light": {
-        "dot": ((0.45, 0.45, 0.48), 0.5, 0.4, 0.2),
-        "dot-press": ((0.4, 0.4, 0.43), 0.62, 0.5, 0.22),
+        "dot": ((0.42, 0.42, 0.45), 0.68, 0.6, 0.24),
+        "dot-press": ((0.36, 0.36, 0.39), 0.78, 0.7, 0.26),
     },
 }
 

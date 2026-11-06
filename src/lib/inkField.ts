@@ -116,8 +116,8 @@ export function inkPalette(
   const tone = (alpha: number) =>
     packRgba(rgb[0], rgb[1], rgb[2], alpha * boost);
   return {
-    ink: [tone(0.16), tone(0.23), tone(0.3)],
-    lit: [tone(0.22), tone(0.3), tone(0.38)],
+    ink: [tone(0.24), tone(0.34), tone(0.44)],
+    lit: [tone(0.32), tone(0.44), tone(0.56)],
   };
 }
 

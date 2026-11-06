@@ -32,7 +32,7 @@ function dotTile(tile: number): HTMLCanvasElement {
 }
 
 /** A cell's dot, as a share of its side: round dots with a gap between. */
-const DOT_RADIUS = 0.38;
+const DOT_RADIUS = 0.44;
 
 /**
  * Runs a new chat's ink (`src/lib/inkField.ts`) on `canvas`, stirred by the
