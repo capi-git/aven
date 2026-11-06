@@ -10,9 +10,9 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { ExplorerMenu } from "../chrome/ExplorerMenu";
-import { ArrowRight, ChevronDown, MoveUp, X } from "../chrome/icons";
+import { ArrowRight, MoveUp, X } from "../chrome/icons";
 import { TeamCardButton } from "../chrome/TeamCard";
+import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
   projectDisplayName,
@@ -20,11 +20,8 @@ import {
 } from "../hooks/useProjectLabels";
 import { avosIntro, avosUnmet } from "../lib/avos";
 import {
-  TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
-  addQuestionCard,
   firstCardChatText,
-  wakeAvos,
   subscribeCrewTell,
   takeCrewTell,
   takeCrewTellTo,
@@ -35,12 +32,9 @@ import {
 } from "../lib/crewActions";
 import type { Pipeline, PipelineRow } from "../lib/crewPipeline";
 import {
-  CREW_GOAL_MAX,
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
-  cardDesigner,
-  cardResearcher,
   crewLead,
   crewMemberById,
   crewMemberName,
@@ -122,31 +116,15 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   lead: "a question for Avos",
 };
 
-/** What the box does with a message: a kind of message, or a question card. */
-type Mode = CrewMessageKind | "research" | "mockup";
+/**
+ * What the box does with a message: it goes to Avos, which works out what
+ * it is (an answer, work to build, a rule, the goal, a job). A team from
+ * before Avos, with no Lead, takes it as a card.
+ */
+type Mode = Extract<CrewMessageKind, "lead" | "card">;
 
 /** The teammate the box writes to: its id, and its name when you picked it. */
 type Addressee = { id: string; name: string };
-
-const MODES: readonly { id: Mode; label: string; word: string }[] = [
-  { id: "lead", label: "Ask Avos", word: "Avos" },
-  { id: "card", label: "Build it", word: "Card" },
-  { id: "rule", label: "Remember for every card", word: "Rule" },
-  { id: "goal", label: "Make it a goal", word: "Goal" },
-  // The Researcher and the Designer, while Avos has them: what the Board's
-  // Add an idea once asked them.
-  { id: "research", label: "Ask the Researcher", word: "Research" },
-  { id: "mockup", label: "Mock it up", word: "Mock-up" },
-];
-
-/** Whether a mode can be picked for this Avos now. */
-function modeOpen(
-  id: Mode,
-  open: { lead: boolean; research: boolean; mockup: boolean },
-): boolean {
-  if (id === "lead" || id === "research" || id === "mockup") return open[id];
-  return true;
-}
 
 export function TeamChat({
   project,
@@ -181,10 +159,9 @@ export function TeamChat({
   onCards: () => void;
   /** The teammate the thread shows, for the panel to mark. */
   onSelected: (id: string | null) => void;
-  /** ⋯ → Set a goal…: the box turns to the goal; a teammate filters it. */
+  /** A teammate in This week filters the thread to it. */
   control: {
     current: {
-      goal: () => void;
       select: (id: string | null) => void;
     } | null;
   };
@@ -224,21 +201,8 @@ export function TeamChat({
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
-  // Your choice for this message; otherwise the Lead, on a team that has one.
-  const [chosenMode, setMode] = useState<Mode | null>(null);
-  const hasLead = !!crewLead(crew);
   const meeting = avosUnmet(crew);
-  const modesOpen = {
-    lead: hasLead,
-    research: !!cardResearcher(crew),
-    mockup: !!cardDesigner(crew),
-  };
-  const mode: Mode =
-    chosenMode && modeOpen(chosenMode, modesOpen)
-      ? chosenMode
-      : hasLead
-        ? "lead"
-        : "card";
+  const mode: Mode = crewLead(crew) ? "lead" : "card";
   const input = useRef<HTMLTextAreaElement>(null);
   const filter =
     selected && members.some((member) => member.id === selected)
@@ -269,15 +233,7 @@ export function TeamChat({
     return subscribeCrewTell(take);
   }, [project]);
   useEffect(() => {
-    control.current = {
-      goal: () => {
-        setSelected(null);
-        setTo(null);
-        setMode("goal");
-        requestAnimationFrame(() => input.current?.focus());
-      },
-      select,
-    };
+    control.current = { select };
     return () => {
       control.current = null;
     };
@@ -385,10 +341,8 @@ export function TeamChat({
           members={members}
           to={to}
           mode={mode}
-          modesOpen={modesOpen}
           input={input}
           onTo={setTo}
-          onMode={setMode}
         />
       </div>
     </div>
@@ -687,7 +641,11 @@ function Thread({
                     <b>{member.name}</b>
                     <time>now</time>
                   </p>
-                  <p className="team-post-text">{member.line}…</p>
+                  <LiveText
+                    project={project}
+                    memberId={member.id}
+                    line={member.line ?? ""}
+                  />
                 </div>
               </li>
             ))}
@@ -707,6 +665,29 @@ function Thread({
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A working teammate's line: what it's writing to you, as it's written,
+ * or what it's doing until its first words come.
+ */
+function LiveText({
+  project,
+  memberId,
+  line,
+}: {
+  project: string;
+  memberId: string;
+  line: string;
+}) {
+  const writing = useCrewLiveReply(project, memberId);
+  return writing ? (
+    <p className="team-post-text" data-team-live-reply>
+      {writing}
+    </p>
+  ) : (
+    <p className="team-post-text">{line}…</p>
   );
 }
 
@@ -934,21 +915,6 @@ function RunPost({ post }: { post: Extract<TeamPost, { kind: "run" }> }) {
 // ---------------------------------------------------------------------------
 // The box
 
-/**
- * A question for the Researcher, or a screen for the Designer: a card of
- * its own, as the Board's Add an idea once made. Avos wakes for it.
- */
-async function askQuestion(
-  project: string,
-  words: string,
-  kind: "research" | "mockup",
-): Promise<string | null> {
-  const woke = await wakeAvos(project);
-  if (woke) return woke;
-  const { problem } = await addQuestionCard(project, words, kind);
-  return problem;
-}
-
 /** The "@word" being typed just before the cursor, if any. */
 /**
  * The "@word" the caret is in, if any: where its @ is, and the whole word
@@ -973,10 +939,8 @@ function Composer({
   members,
   to,
   mode,
-  modesOpen,
   input,
   onTo,
-  onMode,
 }: {
   project: string;
   /** Meeting Avos: the box asks what to keep an eye on, and has the cursor. */
@@ -985,12 +949,8 @@ function Composer({
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
   mode: Mode;
-  /** Which modes this Avos has now (Avos itself, a Researcher, a Designer). */
-  modesOpen: { lead: boolean; research: boolean; mockup: boolean };
   input: RefObject<HTMLTextAreaElement | null>;
   onTo: (to: Addressee | null) => void;
-  /** Null goes back to the usual: the Lead, or a card without one. */
-  onMode: (mode: Mode | null) => void;
 }) {
   const listId = useId();
   const [text, setText] = useState("");
@@ -999,7 +959,6 @@ function Composer({
   typed.current = text;
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [menu, setMenu] = useState<HTMLElement | null>(null);
   /** The @ list: the word typed after @ (start -1 when opened from @). */
   const [picker, setPicker] = useState<{
     start: number;
@@ -1075,13 +1034,8 @@ function Composer({
     onTo(option.id ? { id: option.id, name: option.name } : null);
     requestAnimationFrame(() => element?.focus());
   };
-  // How long it may be: a chat message, a goal, or a card's words.
-  const limit =
-    to || mode === "lead"
-      ? CREW_MESSAGE_MAX
-      : mode === "goal"
-        ? CREW_GOAL_MAX
-        : CREW_NOTE_MAX;
+  // How long it may be: a chat message, or a card's words.
+  const limit = to || mode === "lead" ? CREW_MESSAGE_MAX : CREW_NOTE_MAX;
   const send = async () => {
     const words = text.trim();
     if (!words || sending) return;
@@ -1094,7 +1048,7 @@ function Composer({
       return;
     }
     if (!to && words.length > limit) {
-      setProblem(mode === "goal" ? TOO_LONG_FOR_A_GOAL : TOO_LONG_FOR_EVERYONE);
+      setProblem(TOO_LONG_FOR_EVERYONE);
       return;
     }
     // Who it went to, so a message that fails comes back to them.
@@ -1103,11 +1057,11 @@ function Composer({
     setProblem(null);
     // The box is free at once: what you start typing now stays.
     setText("");
+    // Avos works out what it is: an answer, work, a rule, the goal, a job,
+    // or a question or mock-up for its Researcher or Designer.
     const why = sentTo
       ? await tellTeammate(project, sentTo.id, words)
-      : mode === "research" || mode === "mockup"
-        ? await askQuestion(project, words, mode)
-        : await tellTeam(project, words, mode);
+      : await tellTeam(project, words, mode);
     setSending(false);
     if (why) {
       setProblem(why);
@@ -1119,7 +1073,6 @@ function Composer({
       }
       return;
     }
-    onMode(null);
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(event.nativeEvent)) return;
@@ -1172,18 +1125,9 @@ function Composer({
     ? `Write to ${toName}…`
     : meeting
       ? "Something to keep an eye on, or what's coming up…"
-      : mode === "rule"
-        ? "A rule for every card, like “Use pnpm”…"
-        : mode === "goal"
-          ? "A goal Avos keeps going towards…"
-          : mode === "research"
-            ? "A question for the Researcher…"
-            : mode === "mockup"
-              ? "A screen for the Designer to mock up…"
-              : mode === "lead"
-                ? "Ask Avos anything, or @ a helper…"
-                : "Write to Avos, or @ a helper…";
-  const current = MODES.find((item) => item.id === mode)!;
+      : mode === "lead"
+        ? "Ask Avos anything, or @ a helper…"
+        : "Write to Avos, or @ a helper…";
   return (
     <div className="team-compose-wrap">
       {picker && options.length ? (
@@ -1290,21 +1234,6 @@ function Composer({
           onClick={(event) => follow(event.currentTarget)}
           onKeyDown={onKeyDown}
         />
-        {!to ? (
-          <button
-            type="button"
-            className="team-compose-mode"
-            data-mode={mode}
-            aria-label={`How Avos takes this: ${current.label}`}
-            title="A card to build, a rule for every card, or a goal"
-            aria-haspopup="menu"
-            aria-expanded={!!menu}
-            onClick={(event) => setMenu(menu ? null : event.currentTarget)}
-          >
-            {current.word}
-            <ChevronDown size={11} />
-          </button>
-        ) : null}
         <button
           type="button"
           className="team-compose-at"
@@ -1332,30 +1261,6 @@ function Composer({
         <p className="team-compose-problem" role="alert">
           {problem}
         </p>
-      ) : null}
-      {menu ? (
-        <ExplorerMenu
-          x={0}
-          y={0}
-          anchor={menu}
-          align="end"
-          gap={4}
-          ariaLabel="How Avos takes this"
-          items={MODES.filter((item) => modeOpen(item.id, modesOpen)).map(
-            (item) => ({
-              kind: "item" as const,
-              id: item.id,
-              label: item.label,
-              ...(item.id === mode ? { checked: true } : {}),
-            }),
-          )}
-          onClose={() => setMenu(null)}
-          onPick={(id) => {
-            setMenu(null);
-            onMode(id as Mode);
-            input.current?.focus();
-          }}
-        />
       ) : null}
     </div>
   );

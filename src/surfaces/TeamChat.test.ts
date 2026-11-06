@@ -31,7 +31,8 @@ import {
   setTeamView,
   teamView,
 } from "../lib/teamView";
-import { TOO_LONG_FOR_A_GOAL, TOO_LONG_FOR_EVERYONE } from "../lib/crewActions";
+import { TOO_LONG_FOR_EVERYONE } from "../lib/crewActions";
+import { setCrewLiveReply } from "../lib/crewLiveReply";
 import {
   installWorkBoardActions,
   publishWorkBoardFeed,
@@ -511,8 +512,11 @@ describe("the team chat", () => {
     expect(offersRestack("Something else went wrong")).toBe(false);
   });
 
-  it("writes to everyone as a card by default, or a rule, and keeps the box's words on a problem", async () => {
+  it("writes to everyone with no menu, and keeps the box's words on a problem", async () => {
     await setUp();
+    // No choice of what a message is: Avos works it out (a team from before
+    // Avos, with no Lead, takes it as a card).
+    expect(chat().querySelector(".team-compose-mode")).toBeNull();
     await type("Add haptics when a timer ends");
     await press("Enter");
     expect(actions.tellTeam).toHaveBeenCalledWith(
@@ -521,26 +525,25 @@ describe("the team chat", () => {
       "card",
     );
     expect(box().value).toBe("");
-    // A rule for every card, from the small Card ▾ choice.
-    await act(async () =>
-      chat().querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
-    );
-    await act(async () =>
-      button(document.body, "Remember for every card")!.click(),
-    );
-    expect(box().placeholder).toBe("A rule for every card, like “Use pnpm”…");
     actions.tellTeam.mockResolvedValueOnce("Turn the team on first.");
     await type("Use pnpm");
     await press("Enter");
-    expect(actions.tellTeam).toHaveBeenLastCalledWith(
-      PROJECT,
-      "Use pnpm",
-      "rule",
-    );
     expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
       "Turn the team on first.",
     );
     expect(box().value).toBe("Use pnpm");
+  });
+
+  it("shows what a teammate is writing to you as it's written", async () => {
+    await setUp();
+    const live = () =>
+      chat().querySelector('[data-team-live="checker"] .team-post-text')
+        ?.textContent;
+    expect(live()).toBe("Checking Timer screen · round 2…");
+    act(() => setCrewLiveReply(PROJECT, "checker", "The ring looks right"));
+    expect(live()).toBe("The ring looks right");
+    act(() => setCrewLiveReply(PROJECT, "checker", null));
+    expect(live()).toBe("Checking Timer screen · round 2…");
   });
 
   it("@ picks one teammate from the keyboard, and sends only to its chat", async () => {
@@ -950,23 +953,6 @@ describe("the team chat", () => {
       "Only review the ring, change nothing",
     );
     expect(actions.tellTeam).not.toHaveBeenCalled();
-  });
-
-  it("won't cut a goal to fit: it asks you to shorten it", async () => {
-    await setUp();
-    await act(async () =>
-      chat().querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
-    );
-    await act(async () => button(document.body, "Make it a goal")!.click());
-    expect(box().maxLength).toBe(300);
-    const goal = "g".repeat(400);
-    await type(goal);
-    await press("Enter");
-    expect(actions.tellTeam).not.toHaveBeenCalled();
-    expect(chat().querySelector(".team-compose-problem")?.textContent).toBe(
-      TOO_LONG_FOR_A_GOAL,
-    );
-    expect(box().value).toBe(goal);
   });
 
   it("can't open a teammate's chat before Avos's first card, and says why", async () => {

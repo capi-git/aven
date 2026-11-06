@@ -172,10 +172,8 @@ export function TeamScreen({
   useEffect(() => {
     if (reviewing && !hasBatch) setReviewing(false);
   }, [reviewing, hasBatch]);
-  // ⋯ → Set a goal…: the Chat's box turns to the goal; a helper in This
-  // week shows its posts.
+  // A helper in This week shows its posts.
   const chat = useRef<{
-    goal: () => void;
     select: (id: string | null) => void;
   } | null>(null);
   // Meeting Avos is the chat alone: nothing else applies yet.

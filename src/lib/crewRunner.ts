@@ -1,7 +1,10 @@
 import { addAvosJob } from "./avosJobs";
+import { setCrewLiveReply } from "./crewLiveReply";
+import { avosTalkModel } from "./crewModels";
 import {
   TALK_TEXT_MAX,
   parseTalk,
+  talkAnswerText,
   talkMayAddJob,
   talkMayHop,
   talkMessage,
@@ -112,7 +115,10 @@ import {
   securityReviewBy,
   securityReviewsIt,
   withFeed,
+  withGoalFromYou,
   withIdea,
+  withNote,
+  CREW_FEED_TEXT_MAX,
   withMemberId,
   withCheckerOnClaude,
   withDoingCleared,
@@ -504,6 +510,12 @@ export class CrewRunner {
       path: string;
       to: string;
       sessionId: string;
+      /** The turn it started in that chat, for the reply as it streams. */
+      turnId?: string;
+      /** Your own message: its answer shows as it's written. */
+      live?: boolean;
+      /** Avos answered on the quick model, not one you picked for it. */
+      quick?: boolean;
       /** Whether its reply may start helpers, as it stood when it went. */
       mayStartHelpers: boolean;
       timer?: number;
@@ -799,7 +811,13 @@ export class CrewRunner {
         if (!prepared) return;
         crew = prepared.crew;
       }
-      const chat = await this.deps.ensureChat(crew, member.id);
+      // Avos answers on a quick model unless you picked one for it.
+      const quick = avosTalkModel(member);
+      const chat = await this.deps.ensureChat(
+        crew,
+        member.id,
+        ...(quick ? [quick] : []),
+      );
       if (!chat) throw new Error(`Couldn't open ${toName}'s chat.`);
       if (chatAtWork(chat)) {
         this.waitingOn.add(chat.id);
@@ -844,6 +862,9 @@ export class CrewRunner {
         path,
         to: member.id,
         sessionId: chat.id,
+        turnId,
+        live: talk.from === "you" && !talk.routine,
+        ...(quick ? { quick: true } : {}),
         mayStartHelpers,
       });
       this.updateWorking();
@@ -866,6 +887,11 @@ export class CrewRunner {
         mayAsk: member.role !== "helper" && talkMayHop(talk),
         mayStartHelpers,
         mayAddJob: talkMayAddJob(talk, member.role),
+        mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
+        helpersOn: {
+          research: !!cardResearcher(fresh),
+          mockup: !!cardDesigner(fresh),
+        },
         guidance: crewGuidanceText({
           ...(member.instructions ? { instructions: member.instructions } : {}),
           ...(member.memory ? { memory: member.memory } : {}),
@@ -912,6 +938,7 @@ export class CrewRunner {
     } catch (error) {
       logError("Crew message", error);
       this.talking.delete(talkId);
+      setCrewLiveReply(path, talk.to, null);
       this.updateWorking();
       this.dropTalk(
         path,
@@ -937,6 +964,7 @@ export class CrewRunner {
   ) {
     if (!this.markHandled(turnId)) return;
     const carrying = this.talking.get(talkId);
+    if (carrying) setCrewLiveReply(carrying.path, carrying.to, null);
     if (carrying?.timer != null) this.deps.clearTimer(carrying.timer);
     if (carrying?.giveUp != null) this.deps.clearTimer(carrying.giveUp);
     this.talking.delete(talkId);
@@ -975,6 +1003,39 @@ export class CrewRunner {
     // Only your own message, to a Lead that has read no other agent's words,
     // can build by itself. A routine runs with nobody watching.
     const yours = talk.from === "you" && !talk.routine && !member?.heardOthers;
+    // Its answer to you, as you watched it being written: the thread keeps
+    // it, unless it's too long for a post (then its one line).
+    const answer =
+      !failed && talk.from === "you" && !talk.routine
+        ? talkAnswerText(reply)
+        : "";
+    const shown =
+      answer && answer.length <= CREW_FEED_TEXT_MAX ? answer : said.line;
+    // A rule or a goal, taken down from your own words only.
+    const keep = isLead && yours && crew.on && !failed;
+    // A question for the Researcher or a screen for the Designer: their own
+    // cards, as the box once made them.
+    if (keep && (said.research || said.mockup)) {
+      const { addQuestionCard } = await import("./crewActions");
+      for (const [text, kind] of [
+        [said.research, "research"],
+        [said.mockup, "mockup"],
+      ] as const)
+        if (text) {
+          const made = await addQuestionCard(path, text, kind, now).catch(
+            (error) => ({ problem: errorText(error) }),
+          );
+          if (made.problem)
+            updateCrew(path, (current) =>
+              withFeed(current, {
+                at: now,
+                kind: "note",
+                who: "aven",
+                text: made.problem!,
+              }),
+            );
+        }
+    }
     // Repeating work becomes the team's job, in the project itself, and only
     // from your own message asking for it. The reply is about the job, so
     // cards beside it would be the same work again.
@@ -987,8 +1048,15 @@ export class CrewRunner {
             crew,
             draft: said.job,
             lead: member,
+            // A job runs on your usual model, not the quick one Avos
+            // answered on.
             ...(lead
-              ? { chat: { harness: lead.harness, model: lead.model } }
+              ? {
+                  chat: {
+                    harness: lead.harness,
+                    model: carrying?.quick ? "" : lead.model,
+                  },
+                }
               : {}),
             now,
           })
@@ -1065,13 +1133,23 @@ export class CrewRunner {
           who: "aven",
           text: `${who} didn't finish answering.`,
         });
-      if (said.line)
+      if (shown)
         next = withFeed(next, {
           at: now,
           kind: "say",
           who: member.role,
           member: member.id,
-          text: said.line,
+          text: shown,
+        });
+      if (keep && said.remember)
+        next = withNote(next, said.remember, now, {
+          member: member.id,
+          name: who,
+        });
+      if (keep && said.goal)
+        next = withGoalFromYou(next, said.goal, now, {
+          member: member.id,
+          name: who,
         });
       if (jobAsked && !jobAllowed && said.job)
         next = withFeed(next, {
@@ -3540,6 +3618,16 @@ export class CrewRunner {
    */
   observe(sessions: readonly Session[]) {
     if (!this.running) return;
+    // Your message's answer, as far as it's written, for the Avos screen.
+    for (const entry of this.talking.values()) {
+      if (!entry.live || !entry.turnId) continue;
+      const chat = sessions.find((session) => session.id === entry.sessionId);
+      setCrewLiveReply(
+        entry.path,
+        entry.to,
+        chat ? talkAnswerText(replyForTurn(chat, entry.turnId)) : null,
+      );
+    }
     for (const id of [...this.waitingOn]) {
       const chat = sessions.find((session) => session.id === id);
       if (chat && chatAtWork(chat)) continue;

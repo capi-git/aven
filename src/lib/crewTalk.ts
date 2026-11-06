@@ -6,10 +6,12 @@ import {
   parseAutomationFields,
   type ChatAutomationDraft,
 } from "./chatAutomation";
-import { botLine } from "./crewHandoff";
+import { botLine, withoutMemory } from "./crewHandoff";
 import { cleanUntrusted, wrapData } from "./memoryKeeperSafety";
 import {
+  CREW_GOAL_MAX,
   CREW_HELPERS,
+  CREW_NOTE_MAX,
   CREW_ROLE_INFO,
   crewMemberName,
   memberOn,
@@ -37,6 +39,8 @@ export const TALK_ASKS_MAX = 2;
 export const TALK_CARDS_MAX = 3;
 /** One line for the team chat. */
 export const TALK_LINE_MAX = 200;
+/** A question or a screen to mock up, as a card's title holds it. */
+const QUESTION_MAX = 200;
 
 export type TalkReply = {
   line: string;
@@ -48,6 +52,14 @@ export type TalkReply = {
    * Lead's, and only from your own message (see `CrewRunner.afterTalk`).
    */
   job?: ChatAutomationDraft;
+  /** A rule every helper follows from now on: the Lead's, from your message. */
+  remember?: string;
+  /** What the project works towards now: the Lead's, from your message. */
+  goal?: string;
+  /** A question for the Researcher, as its own card: the Lead's, from you. */
+  research?: string;
+  /** A screen for the Designer to mock up, as its own card: likewise. */
+  mockup?: string;
 };
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -107,13 +119,35 @@ export function parseTalk(text: string): TalkReply {
       helpers.push({ title, task });
   }
   const job = parseAutomationFields(fields?.job);
+  const remember = botLine(fields?.remember, CREW_NOTE_MAX);
+  const goal = botLine(fields?.goal, CREW_GOAL_MAX);
+  const research = botLine(fields?.research, QUESTION_MAX);
+  const mockup = botLine(fields?.mockup, QUESTION_MAX);
   return {
     line: botLine(fields?.line, TALK_LINE_MAX) || firstLine(text),
     asks,
     cards,
     helpers,
     ...(job ? { job } : {}),
+    ...(remember ? { remember } : {}),
+    ...(goal ? { goal } : {}),
+    ...(research ? { research } : {}),
+    ...(mockup ? { mockup } : {}),
   };
+}
+
+/**
+ * What a reply says to the reader, before the block that ends it: the
+ * answer the thread shows, as it streams and once it's done. A block still
+ * being written (its fence only partly there) is left out as well.
+ */
+export function talkAnswerText(reply: string): string {
+  let text = withoutMemory(reply);
+  const fence = text.lastIndexOf("```" + TALK_FENCE);
+  if (fence >= 0) text = text.slice(0, fence);
+  // While streaming: the start of a fence, or of the block's name.
+  text = text.replace(/`{1,3}[a-z-]*$/, "");
+  return text.trim();
 }
 
 /** The teammate a reply names: by its name or title, never itself or the Fixer. */
@@ -174,6 +208,9 @@ function howToAnswer(input: {
   mayAsk: boolean;
   mayStartHelpers?: boolean;
   mayAddJob?: boolean;
+  mayKeep?: boolean;
+  /** The Researcher and the Designer this team has on now. */
+  helpersOn?: { research: boolean; mockup: boolean };
 }): string {
   const fields = [
     `"line": "One line for the team chat, under ${TALK_LINE_MAX} characters."`,
@@ -191,9 +228,25 @@ function howToAnswer(input: {
         ]
       : []),
     ...(input.mayAddJob ? [`"job": ${AUTOMATION_SHAPE}`] : []),
+    ...(input.mayKeep
+      ? [
+          `"remember": "A rule every helper follows from now on."`,
+          `"goal": "What the project works towards now."`,
+          ...(input.helpersOn?.research
+            ? [`"research": "A question for the Researcher to look into."`]
+            : []),
+          ...(input.helpersOn?.mockup
+            ? [`"mockup": "A screen for the Designer to mock up."`]
+            : []),
+        ]
+      : []),
   ];
   return [
-    `Answer in this chat, as long as it needs. Then end your reply with exactly one block, as the very last thing in it:\n\`\`\`${TALK_FENCE}\n{${fields.join(", ")}}\n\`\`\`\nLeave out what you don't need.`,
+    `${
+      input.isLead
+        ? "Answer in this chat the way a person would in a chat: a few short sentences in plain words, with no headings, lists or bold, unless they ask for more. The user reads your answer as you write it."
+        : "Answer in this chat, as long as it needs."
+    } Then end your reply with exactly one block, as the very last thing in it:\n\`\`\`${TALK_FENCE}\n{${fields.join(", ")}}\n\`\`\`\nLeave out what you don't need.`,
     ...(input.mayAsk && input.others.length
       ? [
           `Your teammates: ${input.others.join(", ")}. Ask one only when you need them.`,
@@ -206,7 +259,22 @@ function howToAnswer(input: {
       : []),
     ...(input.isLead
       ? [
-          "When the user asks for something built, put it under cards: it goes on the Board, where the team builds and checks it. Large work waits for the user. You never change files yourself.",
+          "When the user asks for something built, put it under cards: it shows in This week, where the team builds and checks it. Large work waits for the user. You never change files yourself. There is no Board: don't mention one.",
+          ...(input.mayKeep
+            ? [
+                'When the user tells you something to always or never do from now on ("always use pnpm", "don\'t touch the API"), put it under remember, in their words. When they set or change what the project is working towards, put it under goal. Say in your answer what you saved.',
+                ...(input.helpersOn?.research
+                  ? [
+                      "When they want something looked into (the web, other apps, how others do it), put the question under research: the Researcher looks into it, and its findings come back to the user.",
+                    ]
+                  : []),
+                ...(input.helpersOn?.mockup
+                  ? [
+                      "When they want a screen designed or mocked up, put it under mockup: the Designer makes a mock-up the user can build from.",
+                    ]
+                  : []),
+              ]
+            : []),
           ...(input.mayAddJob
             ? [
                 [
@@ -239,6 +307,10 @@ export function talkMessage(input: {
   mayStartHelpers?: boolean;
   /** The Lead may set up a job: your own message asks for one. */
   mayAddJob?: boolean;
+  /** The Lead may save a rule or change the goal: your own message. */
+  mayKeep?: boolean;
+  /** The Researcher and the Designer this team has on now. */
+  helpersOn?: { research: boolean; mockup: boolean };
   brief?: string;
   /** Its instructions and notes, as any turn carries them. */
   guidance?: string;

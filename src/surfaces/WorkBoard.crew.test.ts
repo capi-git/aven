@@ -783,22 +783,14 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.extra?.count).toBe(10);
   });
 
-  it("makes a goal from the chat's box, and says in This week when it waits", async () => {
+  it("says in This week what the goal is, and when it waits", async () => {
     const boards = await setUp(() => (crew) => crew);
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[data-team-tab="chat"]')!
         .click(),
     );
-    // The box's menu: Make it a goal.
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
-    );
-    await pickMenu("Make it a goal");
-    expect(
-      container.querySelector<HTMLTextAreaElement>(".team-compose-input")!
-        .placeholder,
-    ).toBe("A goal Avos keeps going towards…");
+    // You tell Avos the goal in the box; it saves it (see crewRunner.talk).
     await act(async () =>
       updateCrew(PROJECT, (crew) => ({
         ...crew,
@@ -1626,18 +1618,15 @@ describe("This week, in place of the Board", () => {
     ).not.toBeNull();
   });
 
-  it("asks the Researcher from the chat's box while Avos has one", async () => {
+  it("has one box for Avos and its helpers, with no menu, while Avos has a Researcher", async () => {
     await setUp(() => (crew) => ({
       ...crew,
       members: [...crew.members, { id: "researcher", role: "researcher" }],
     }));
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
-    );
-    await pickMenu("Ask the Researcher");
+    expect(container.querySelector(".team-compose-mode")).toBeNull();
     expect(
       container.querySelector<HTMLTextAreaElement>(".team-compose-input")!
         .placeholder,
-    ).toBe("A question for the Researcher…");
+    ).toMatch(/@ a helper/);
   });
 });

@@ -935,6 +935,8 @@ export const CREW_MESSAGES_KEPT = 50;
 export const CREW_MESSAGE_MAX = 2_000;
 export const CREW_BRIEF_MAX = 4_000;
 const TEXT_MAX = 600;
+/** The longest a post in the thread can be. */
+export const CREW_FEED_TEXT_MAX = TEXT_MAX;
 const FINDINGS_KEPT = 5;
 const LATER_KEPT = 8;
 const RAN_KEPT = 8;
@@ -2980,14 +2982,55 @@ export function withFeed(
   return { ...crew, feed: [...crew.feed, next].slice(-FEED_KEPT) };
 }
 
-/** Standing guidance for the crew: every bot reads it at each turn. */
-export function withNote(crew: Crew, body: string, now: number): Crew {
+/**
+ * Standing guidance for the crew: every bot reads it at each turn. `by` is
+ * the member (Avos) that took it down from your words in its chat.
+ */
+export function withNote(
+  crew: Crew,
+  body: string,
+  now: number,
+  by?: { member: string; name: string },
+): Crew {
   const clean = body.replace(/\s+/g, " ").trim().slice(0, CREW_NOTE_MAX);
   if (!clean) return crew;
   const note: CrewNote = { id: crypto.randomUUID(), at: now, text: clean };
   return withFeed(
     { ...crew, notes: [...crew.notes, note].slice(-NOTES_KEPT) },
-    { at: now, kind: "note", who: "you", text: clean },
+    by
+      ? {
+          at: now,
+          kind: "note",
+          who: "aven",
+          member: by.member,
+          text: `${by.name} will remember for every card: ${clean}`,
+        }
+      : { at: now, kind: "note", who: "you", text: clean },
+  );
+}
+
+/**
+ * The goal you gave in your own words, taken down by Avos in its chat: it
+ * counts as yours (nothing another helper plans replaces it), and the
+ * thread says Avos saved it.
+ */
+export function withGoalFromYou(
+  crew: Crew,
+  text: string,
+  now: number,
+  by: { member: string; name: string },
+): Crew {
+  const goal = text.replace(/\s+/g, " ").trim().slice(0, CREW_GOAL_MAX);
+  if (!goal) return crew;
+  return withFeed(
+    { ...crew, goal: { text: goal, at: now } },
+    {
+      at: now,
+      kind: "note",
+      who: "aven",
+      member: by.member,
+      text: `${by.name} will work towards: ${goal}`,
+    },
   );
 }
 
