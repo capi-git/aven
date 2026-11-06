@@ -61,6 +61,10 @@ pub struct RevealRecord {
     /// Whether the window was still concealed when it was revealed, so
     /// nothing else had shown it before its interface drew.
     pub concealed_until_reveal: Option<bool>,
+    /// How AppKit saw the window while it was concealed and as it was
+    /// revealed, recorded only for Aven Dev's real-app check.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub window_states: Vec<String>,
 }
 
 struct Entry {
@@ -94,6 +98,7 @@ impl Reveals {
                     revealed_at_ms: None,
                     reason: None,
                     concealed_until_reveal: None,
+                    window_states: Vec::new(),
                 },
             },
         );
@@ -120,6 +125,18 @@ impl Reveals {
             entry.record.revealed_at_ms = Some(now_ms);
             entry.record.concealed_until_reveal = Some(was_concealed);
         }
+    }
+
+    fn note_state(&mut self, label: &str, generation: u64, state: String) {
+        if let Some(entry) = self.windows.get_mut(label) {
+            if entry.generation == generation && entry.record.window_states.len() < 16 {
+                entry.record.window_states.push(state);
+            }
+        }
+    }
+
+    fn generation(&self, label: &str) -> Option<u64> {
+        self.windows.get(label).map(|entry| entry.generation)
     }
 
     fn is_pending(&self, label: &str) -> bool {
@@ -166,7 +183,8 @@ fn on_main(app: &AppHandle, work: impl FnOnce() + Send + 'static) {
 #[cfg(target_os = "macos")]
 pub fn conceal(window: &Window) {
     let label = window.label().to_string();
-    let generation = reveals().conceal(&label, now_ms());
+    let concealed_at = now_ms();
+    let generation = reveals().conceal(&label, concealed_at);
     let concealed = window.clone();
     on_main(window.app_handle(), move || {
         crate::macos::set_concealed(&concealed, true);
@@ -174,7 +192,11 @@ pub fn conceal(window: &Window) {
         // keystrokes reach it as soon as it appears.
         let _ = concealed.show();
         let _ = concealed.set_focus();
+        // Aven Dev's check keeps its windows above the desk's others, from
+        // before the page loads.
+        crate::dev_smoke::keep_window_up(&concealed);
     });
+    note_states_while_concealed(window, generation, concealed_at);
     let app = window.app_handle().clone();
     std::thread::spawn(move || {
         std::thread::sleep(REVEAL_TIMEOUT);
@@ -190,12 +212,64 @@ pub fn conceal(window: &Window) {
     });
 }
 
+/// Record how AppKit saw a concealed window a few times after it was ordered
+/// in, for Aven Dev's real-app check only: a page that drew while WebKit
+/// thought it hidden cannot show that its first frame was drawn.
+#[cfg(target_os = "macos")]
+fn note_states_while_concealed(window: &Window, generation: u64, concealed_at: u64) {
+    if crate::dev_smoke::smoke_dir().is_none() {
+        return;
+    }
+    let app = window.app_handle().clone();
+    let label = window.label().to_string();
+    std::thread::spawn(move || {
+        for delay_ms in [0u64, 50, 150, 400, 1000] {
+            std::thread::sleep(Duration::from_millis(
+                (concealed_at + delay_ms).saturating_sub(now_ms()),
+            ));
+            let Some(window) = app.get_window(&label) else {
+                return;
+            };
+            let current = {
+                let reveals = reveals();
+                reveals.generation(&label) == Some(generation) && reveals.is_pending(&label)
+            };
+            if !current {
+                return;
+            }
+            note_state(&window, generation, "concealed");
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn note_state(window: &Window, generation: u64, when: &'static str) {
+    let noted = window.clone();
+    on_main(window.app_handle(), move || {
+        let concealed_at = reveals()
+            .record(noted.label())
+            .map_or(0, |record| record.concealed_at_ms);
+        let state = format!(
+            "{} ms {when}: {}",
+            now_ms().saturating_sub(concealed_at),
+            crate::macos::describe_window(&noted)
+        );
+        reveals().note_state(noted.label(), generation, state);
+    });
+}
+
 /// Make a concealed window visible. Returns whether this call revealed it.
 #[cfg(target_os = "macos")]
 fn reveal(window: &Window, reason: RevealReason, timeout_of: Option<u64>) -> bool {
     let label = window.label().to_string();
     if !reveals().begin_reveal(&label, reason, timeout_of) {
         return false;
+    }
+    if crate::dev_smoke::smoke_dir().is_some() {
+        let generation = reveals().generation(&label);
+        if let Some(generation) = generation {
+            note_state(window, generation, "at reveal");
+        }
     }
     let shown = window.clone();
     on_main(window.app_handle(), move || {
@@ -259,6 +333,7 @@ mod tests {
                 revealed_at_ms: Some(250),
                 reason: Some(RevealReason::Painted),
                 concealed_until_reveal: Some(true),
+                window_states: Vec::new(),
             })
         );
     }
@@ -288,6 +363,26 @@ mod tests {
         assert!(!reveals.begin_reveal("main", RevealReason::Timeout, Some(first)));
         assert!(reveals.is_pending("main"));
         assert!(reveals.begin_reveal("main", RevealReason::Timeout, Some(second)));
+    }
+
+    #[test]
+    fn window_states_belong_to_the_current_concealment_and_stay_few() {
+        let mut reveals = Reveals::new();
+        let first = reveals.conceal("main", 0);
+        reveals.note_state("main", first, "0 ms concealed: covered".into());
+        let second = reveals.conceal("main", 5);
+        assert_eq!(reveals.generation("main"), Some(second));
+        // A note from the earlier concealment lands nowhere.
+        reveals.note_state("main", first, "late".into());
+        for index in 0..20 {
+            reveals.note_state("main", second, format!("{index} ms concealed"));
+        }
+        let states = reveals.record("main").map(|record| record.window_states);
+        assert_eq!(states.as_ref().map(Vec::len), Some(16));
+        assert_eq!(
+            states.and_then(|states| states.first().cloned()).as_deref(),
+            Some("0 ms concealed")
+        );
     }
 
     #[test]

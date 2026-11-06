@@ -272,9 +272,15 @@ html.theme-light .personal-shell {
   width: 16px;
   height: 16px;
 }
-/* Tabs scrolled past slide under the pins, behind one frosted backing. */
+/* Tabs scrolled past slide under the pins, behind one frosted backing. A
+   tab scrolled into view stops clear of the scroll arrows too: each is
+   26px, 4px in from its end of the strip (TabStripChevron). */
 .aven-tab-strip {
-  scroll-padding-left: var(--aven-tab-pin-width, 0);
+  --aven-tab-arrow-room: 32px;
+  scroll-padding-left: calc(
+    var(--aven-tab-pin-width, 0px) + var(--aven-tab-arrow-room)
+  );
+  scroll-padding-right: var(--aven-tab-arrow-room);
 }
 .aven-tab-strip[data-scrolled] .aven-tab-slot[data-pinned="first"]::before {
   content: "";

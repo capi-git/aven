@@ -1607,6 +1607,37 @@ describe("browser tab integration", () => {
     expect(width).toHaveBeenCalled();
   });
 
+  it("keeps the selected tab in view as the strip changes, until a person scrolls it", async () => {
+    await render({ activeId: "b" });
+    const strip = container.querySelector<HTMLElement>('[role="tablist"]')!;
+    const selected = container.querySelector<HTMLElement>(
+      '[data-surface-tab-id="b"]',
+    )!;
+    // The strip was put back to its start: "b" lies past its end.
+    strip.getBoundingClientRect = () => new DOMRect(0, 0, 400, 32);
+    selected.getBoundingClientRect = () => new DOMRect(450, 0, 90, 32);
+    Object.defineProperties(strip, {
+      scrollLeft: { value: 0, configurable: true },
+      scrollWidth: { value: 600, configurable: true },
+      clientWidth: { value: 400, configurable: true },
+    });
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    await act(async () => strip.dispatchEvent(new Event("scroll")));
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(scroll.mock.contexts[0]).toBe(selected);
+    // A person's own scroll leaves it where they put it.
+    await act(async () =>
+      strip.dispatchEvent(
+        new WheelEvent("wheel", { bubbles: true, deltaX: 40 }),
+      ),
+    );
+    await act(async () => strip.dispatchEvent(new Event("scroll")));
+    expect(scroll).toHaveBeenCalledOnce();
+    // Selecting a tab follows it again.
+    await render({ activeId: "a" });
+    expect(scroll).toHaveBeenCalledTimes(2);
+  });
+
   it("opens the browser from the action immediately after task tabs", async () => {
     await render();
     // The tools sit beside the tabs, so they stay put when the tabs scroll.
@@ -2359,6 +2390,14 @@ describe("shared tab style", () => {
     if (start < 0) throw new Error(`Missing ${selector}`);
     return css.slice(start, css.indexOf("\n}", start));
   };
+
+  it("scrolls a tab into view clear of the strip's scroll arrows", () => {
+    // Each arrow is 26px (size-6.5), 4px in from its end of the strip.
+    const strip = css.slice(css.indexOf("--aven-tab-arrow-room: 32px;"));
+    expect(strip).toMatch(
+      /scroll-padding-left: calc\(\s*var\(--aven-tab-pin-width, 0px\) \+ var\(--aven-tab-arrow-room\)\s*\);\s*scroll-padding-right: var\(--aven-tab-arrow-room\);/,
+    );
+  });
 
   it("sets height, radius, padding, fills and close behaviour once", () => {
     expect(block(".aven-tab-button")).toMatch(

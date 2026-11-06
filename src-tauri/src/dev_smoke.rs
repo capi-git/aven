@@ -47,6 +47,24 @@ pub(crate) fn smoke_dir() -> Option<PathBuf> {
     dir.join(MARKER).is_file().then_some(dir)
 }
 
+/// Keep a window of Aven Dev's real-app check above others and on every Space
+/// while the check runs. macOS stops drawing a covered window, and an app
+/// launched from the runner's shell cannot take the front from the app in use,
+/// so with other windows open the check would wait out every frame it never
+/// gets (the speed test does the same through `dev_perf_keep_visible`).
+/// Outside the throwaway profiles this does nothing.
+#[cfg(target_os = "macos")]
+pub(crate) fn keep_window_up(window: &tauri::Window) {
+    if smoke_dir().is_none() {
+        return;
+    }
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_visible_on_all_workspaces(true);
+    // Raised and in front now, not once tao's queued level change runs, so
+    // even the first frame is drawn for a visible page.
+    crate::macos::float_to_front(window);
+}
+
 /// Whether Aven runs in one of Aven Dev's throwaway profiles (the real-app
 /// check, the speed test or the iPhone check), whose home has no keychain.
 /// Chromium then keeps its encryption key out of the keychain (otherwise it
