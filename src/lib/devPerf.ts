@@ -287,6 +287,12 @@ export type HotCalls = {
   storage: { calls: number; ms: number };
   /** DOM changes that took noticeable time, by kind. */
   dom: { calls: number; ms: number; byKind: Record<string, number> };
+  /**
+   * Wheel listeners added or removed, on the page's clock. In WebKit each
+   * one restyles the whole page at the next style pass (~35 ms with 7,000
+   * elements), and no DOM change shows it.
+   */
+  wheelListeners?: { at: number; change: "add" | "remove"; where: string }[];
 };
 
 /**
@@ -468,6 +474,32 @@ export function recordHotCalls() {
   restores.push(() => {
     window.getComputedStyle = originalComputed;
   });
+  for (const [method, change] of [
+    ["addEventListener", "add"],
+    ["removeEventListener", "remove"],
+  ] as const) {
+    const original = EventTarget.prototype[method];
+    EventTarget.prototype[method] = function (
+      this: EventTarget,
+      type: string,
+      ...rest: unknown[]
+    ) {
+      if (type === "wheel" || type === "mousewheel")
+        (totals.wheelListeners ??= []).push({
+          at: round(performance.now()),
+          change,
+          where: caller() || "unknown",
+        });
+      return (original as (...args: unknown[]) => unknown).call(
+        this,
+        type,
+        ...rest,
+      );
+    } as typeof original;
+    restores.push(() => {
+      EventTarget.prototype[method] = original;
+    });
+  }
   wrapMethod(JSON, "stringify", (ms) => {
     totals.json.calls += 1;
     totals.json.ms += ms;

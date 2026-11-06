@@ -245,11 +245,14 @@ export function PromptOutline({
     schedule();
   }, [schedule, blocks, visible]);
 
+  // Attached once per rail, which stays mounted (hidden) while the chat is
+  // hidden: in WebKit, adding or removing a wheel listener restyles the whole
+  // page (~35 ms), so showing or hiding a chat must not.
   useEffect(() => {
     const control = rail.current;
-    if (!visible || !hasRail || !control) return;
+    if (!hasRail || !control) return;
     const onWheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.metaKey) return;
+      if (!visibleRef.current || event.ctrlKey || event.metaKey) return;
       const mode = event.deltaMode;
       const deltaY = event.deltaY;
       if (
@@ -278,8 +281,12 @@ export function PromptOutline({
       // The outline sits beside, rather than inside, the transcript. Forward
       // only its vertical wheel input; the transcript owns native wheel input
       // everywhere else and its normal upward gesture releases the bottom pin.
+      // It bubbles, as real wheel input does: the transcript hears wheel
+      // input through React's listener at the root.
       if (delta < 0)
-        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: delta }));
+        scroller.dispatchEvent(
+          new WheelEvent("wheel", { deltaY: delta, bubbles: true }),
+        );
       scroller.scrollTop = Math.max(
         0,
         Math.min(max, scroller.scrollTop + delta),
@@ -288,7 +295,7 @@ export function PromptOutline({
     };
     control.addEventListener("wheel", onWheel, { passive: false });
     return () => control.removeEventListener("wheel", onWheel);
-  }, [hasRail, schedule, scope, visible]);
+  }, [hasRail, schedule, scope]);
 
   useEffect(() => {
     if (!visible) return;
@@ -446,7 +453,9 @@ export function PromptOutline({
     if (!scroller) return;
     // The transcript scrolls to the bottom on each streaming update until a
     // wheel-up event occurs. Send one, so the jump stays.
-    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
+    scroller.dispatchEvent(
+      new WheelEvent("wheel", { deltaY: -1, bubbles: true }),
+    );
     const selector = `[data-prompt-anchor="${CSS.escape(id)}"]`;
     let anchor = scroller.querySelector<HTMLElement>(selector);
     if (!anchor && revealBlock?.(id)) {
@@ -476,7 +485,7 @@ export function PromptOutline({
     });
   };
 
-  if (!visible || !hasRail) return null;
+  if (!hasRail) return null;
 
   const activeIndex = prompts.findIndex((prompt) => prompt.id === activeId);
   const stack = barStack(
@@ -542,6 +551,7 @@ export function PromptOutline({
   return (
     <div
       ref={rail}
+      hidden={!visible}
       role="toolbar"
       aria-label="Prompts"
       data-prompt-count={prompts.length}
