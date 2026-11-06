@@ -23,10 +23,10 @@ export const CREW_INBOX_ACTIONS: Readonly<
 > = {
   ready: [
     { id: "apply", label: "Apply" },
-    { id: "open-board", label: "Open board" },
+    { id: "open-board", label: "Open Avos" },
   ],
   stuck: [
-    { id: "open-board", label: "Open board" },
+    { id: "open-board", label: "Open Avos" },
     { id: "done", label: "Done" },
   ],
 };

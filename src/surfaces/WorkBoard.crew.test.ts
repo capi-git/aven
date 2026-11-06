@@ -1080,9 +1080,10 @@ describe("the team view: the Board with the team on it", () => {
     const boards = await setUp((boards) => (crew) => ({
       ...withCard(crew, crewCardFor(boards[3], "ready")),
       on: false,
+      onAt: NOW - 3_600_000,
     }));
-    // A plain board: no crew face on the card, yet the crew still has it.
-    expect(container.querySelector("[data-crew-header]")).toBeNull();
+    // Asleep, it's still its Avos: no plain Board in between.
+    expect(container.querySelector("[data-crew-header]")).not.toBeNull();
     await act(async () =>
       card(boards[3].id)
         .querySelector<HTMLButtonElement>(".work-board-card-more")!

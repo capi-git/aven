@@ -77,11 +77,11 @@ afterEach(async () => {
 });
 
 describe("the title bar's board", () => {
-  it("offers Open board beside the new browser tab globe", async () => {
+  it("offers Open Avos beside the new browser tab globe", async () => {
     await act(async () => root.render(createElement(TitleBar, props)));
     const globe = container.querySelector(".personal-title-browser-new");
     const open = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open board"]',
+      'button[aria-label="Open Avos"]',
     )!;
     expect(globe?.nextElementSibling).toBe(open);
     await act(async () => open.click());
@@ -95,7 +95,7 @@ describe("the title bar's board", () => {
       ),
     );
     expect(
-      container.querySelector('button[aria-label="Open board"]'),
+      container.querySelector('button[aria-label="Open Avos"]'),
     ).toBeNull();
   });
 

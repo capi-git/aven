@@ -86,6 +86,7 @@ import {
   cardResearcher,
   crewCard,
   crewMemberName,
+  ensureAvos,
   getCrew,
   stackedCards,
   useCrew,
@@ -196,12 +197,14 @@ export function WorkBoard({
   // where they stand, and Ideas offer Give to crew.
   const crew = useCrew(project);
   const bot = useProjectBot(project);
-  // Once you've met the project's Avos (or its team was on), its Board is
-  // the Avos screen, awake or not: writing to it wakes it.
-  const crewOn =
-    !!crew &&
-    botsAvailable() &&
-    (crew.on || crew.members.some((member) => member.role === "lead"));
+  // Every project's Board is its Avos: opening it the first time saves its
+  // Avos and is meeting it. Only where Avos can't run at all (no sandbox
+  // for its helpers) is it the plain Board.
+  const avosHere = botsAvailable();
+  useEffect(() => {
+    if (avosHere && !crew) ensureAvos(project);
+  }, [avosHere, crew, project]);
+  const crewOn = avosHere && !!crew;
   const fixerName = bot ? botName(bot) : undefined;
   // The time only matters here to the Scout's daily cap: it moves once a
   // day, so the minute's tick doesn't draw every card again.
@@ -227,6 +230,9 @@ export function WorkBoard({
         : shown.columns,
     [crewOn, crew, shown.columns, today],
   );
+  // Its Avos is being saved: the screen follows in a moment, never the
+  // plain Board in between.
+  if (avosHere && !crew) return null;
   return (
     <WorkBoardView
       project={project}

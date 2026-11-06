@@ -4,6 +4,7 @@ import {
   useProjectLabels,
 } from "../hooks/useProjectLabels";
 import { BOARD_COLUMNS } from "../lib/workBoard";
+import { botsAvailable } from "../lib/projectBots";
 import "./WorkBoard.css";
 
 /** The board's title: its project's mark and name, and one line under it. */
@@ -33,6 +34,17 @@ export function WorkBoardHeading({
  */
 export function WorkBoardFrame({ project }: { project: string }) {
   const labels = useProjectLabels();
+  // Every project's Board is its Avos: a quiet pane while it loads, never
+  // the old Board's columns.
+  if (botsAvailable())
+    return (
+      <div
+        className="work-board"
+        data-work-board-frame={project}
+        aria-busy="true"
+        aria-label={`${projectDisplayName(project, labels)}'s Avos`}
+      />
+    );
   return (
     <div
       className="work-board"

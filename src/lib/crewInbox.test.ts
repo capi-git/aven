@@ -69,10 +69,10 @@ describe("crew cards in the Inbox", () => {
   it("gives each state fixed buttons, never words a bot wrote", () => {
     expect(CREW_INBOX_ACTIONS.ready.map((action) => action.label)).toEqual([
       "Apply",
-      "Open board",
+      "Open Avos",
     ]);
     expect(CREW_INBOX_ACTIONS.stuck.map((action) => action.label)).toEqual([
-      "Open board",
+      "Open Avos",
       "Done",
     ]);
     // A bot's verdict can't change a card's title into a button.

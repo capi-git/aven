@@ -10442,7 +10442,7 @@ export default function App({
       command.id === "open_board" && boardProject && labelsForPalette
         ? {
             ...command,
-            label: `Open board for ${projectDisplayName(boardProject, labelsForPalette)}`,
+            label: `Open Avos for ${projectDisplayName(boardProject, labelsForPalette)}`,
           }
         : command,
     ),

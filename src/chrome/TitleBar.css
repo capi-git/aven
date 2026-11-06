@@ -336,7 +336,8 @@ html.theme-light .personal-shell {
   content: none;
 }
 .personal-shell .personal-title-tab-identity .personal-title-tab-bot,
-.personal-shell .personal-title-tab-identity .personal-title-tab-avos {
+.personal-shell .personal-title-tab-identity .personal-title-tab-avos,
+.personal-title-board-open .dot-mark.personal-title-board-avos {
   width: 15px;
   height: 15px;
   flex-shrink: 0;

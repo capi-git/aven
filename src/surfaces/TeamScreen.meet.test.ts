@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { installCrewWorkspace } from "../lib/crewActions";
-import { ensureAvos, resetCrewsCache, updateCrew } from "../lib/crews";
+import { ensureAvos, getCrew, resetCrewsCache, updateCrew } from "../lib/crews";
 import { memoryStorage } from "../lib/devSmoke";
 import {
   memoryFeatureCardBackend,
@@ -169,4 +169,14 @@ it("leaves the Board's line about chats outside it to the Board", async () => {
   expect(container.querySelector("[data-avos-meet]")).not.toBeNull();
   expect(container.querySelector("[data-board-outside]")).toBeNull();
   expect(container.textContent).not.toContain("outside the board");
+});
+
+it("opens a project that never met its Avos on meeting it, never the plain Board", async () => {
+  expect(getCrew(PROJECT)).toBeUndefined();
+  await open();
+  expect(container.querySelector("[data-avos-meet]")).not.toBeNull();
+  expect(container.querySelector("[data-board-column]")).toBeNull();
+  expect(getCrew(PROJECT)?.members.map((member) => member.role)).toEqual([
+    "lead",
+  ]);
 });

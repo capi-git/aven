@@ -124,6 +124,7 @@ import { BotCritter } from "./BotCritter";
 import { CrewCritter } from "./CrewCritter";
 import { avosGlance } from "../lib/avos";
 import { crewMemberName, useCrew } from "../lib/crews";
+import { botsAvailable } from "../lib/projectBots";
 import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
 import { playMotion } from "../lib/motion";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
@@ -286,7 +287,7 @@ export type TitleBarProps = {
   ) => void;
   onUnsplit?: () => void;
   onNewBrowser?: () => void;
-  /** Open (or bring forward) the current project's board. */
+  /** Open (or bring forward) the current project's Avos. */
   onOpenBoard?: () => void;
   /** Open the project's iPhone simulator beside the chat. */
   onOpenIphone?: () => void;
@@ -4459,14 +4460,21 @@ function TitleBarComponent({
             {onOpenBoard && !titleRow ? (
               <button
                 type="button"
-                aria-label="Open board"
-                title="Open this project's board"
+                aria-label="Open Avos"
+                title="Open this project's Avos"
                 data-tauri-drag-region="false"
                 data-tour="board"
                 className="personal-title-board-open relative grid h-full shrink-0 place-items-center text-content/45 hover:text-content"
                 onClick={onOpenBoard}
               >
-                <Kanban className="size-3.5" strokeWidth={1.75} />
+                {looksLikeProject(cwd) && botsAvailable() ? (
+                  <AvosTabMark
+                    path={cwd}
+                    className="personal-title-board-avos"
+                  />
+                ) : (
+                  <Kanban className="size-3.5" strokeWidth={1.75} />
+                )}
               </button>
             ) : null}
             {onOpenIphone && !titleRow ? (

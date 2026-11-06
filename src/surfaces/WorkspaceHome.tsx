@@ -1240,8 +1240,8 @@ const AgentTile = memo(
             <button
               type="button"
               className="workspace-home-agent-board"
-              aria-label={`Open ${name} board`}
-              title={`Open ${name} board`}
+              aria-label={`Open ${name}'s Avos`}
+              title={`Open ${name}'s Avos`}
               onClick={() => onOpenBoard(project.path)}
             >
               <Kanban size={13} />
