@@ -32,6 +32,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { FadeText, MiddleText } from "./FadeText";
 import { FileTypeIcon } from "./FileTypeIcon";
 import {
   GitHistoryGraph,
@@ -1501,12 +1502,16 @@ function ChangeRow({
         >
           {tree ? <span className="size-4 shrink-0" /> : null}
           <FileTypeIcon name={name} isDir={false} size={16} />
-          <span className="min-w-0 flex-1 truncate">
-            <span className="text-ui-body font-medium">{name}</span>
+          <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            <FadeText className="flex-[0_1_auto] text-ui-body font-medium">
+              {name}
+            </FadeText>
+            {/* The folder keeps both ends; the name keeps its room. */}
             {dir ? (
-              <span className="ml-1.5 text-ui-caption text-content/40">
-                {dir}
-              </span>
+              <MiddleText
+                text={dir}
+                className="flex-[1_1_0] text-ui-caption text-content/40"
+              />
             ) : null}
             {stagedNote ? (
               <span className="sr-only">, {stagedNote}</span>

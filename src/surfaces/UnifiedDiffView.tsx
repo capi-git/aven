@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { MiddleText } from "../chrome/FadeText";
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
 import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
@@ -542,12 +543,10 @@ const FileSection = memo(function FileSection({
             strokeWidth={1.75}
           />
           <FileTypeIcon name={name} isDir={false} size={16} />
-          <span
-            className="min-w-0 flex-1 truncate font-mono text-ui-label text-content/85"
-            title={file.label}
-          >
-            {file.label}
-          </span>
+          <MiddleText
+            text={file.label}
+            className="flex-1 font-mono text-ui-label text-content/85"
+          />
           <DiffCounts additions={file.additions} deletions={file.deletions} />
         </button>
         {file.canDiscard && onDiscardFile ? (

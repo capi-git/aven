@@ -1,3 +1,4 @@
+import { useScrollEdges } from "../hooks/useSoftCut";
 import { harnessDescriptor } from "../lib/harness/descriptors";
 import { visibleInterval } from "../lib/visibleInterval";
 import { useEffect, useState } from "react";
@@ -239,6 +240,8 @@ export function UsagePanelContent({
   onClose,
 }: UsagePanelContentProps) {
   const [now, setNow] = useState(Date.now);
+  // The header casts a shadow over the body once it scrolls.
+  const bodyEdges = useScrollEdges<HTMLDivElement>();
   useEffect(() => visibleInterval(() => setNow(Date.now()), 30_000), []);
   const context = snapshot.context;
   const hasUsed =
@@ -288,7 +291,7 @@ export function UsagePanelContent({
           </button>
         }
       />
-      <div className="usage-panel-body">
+      <div ref={bodyEdges} className="usage-panel-body aven-stuck-shadow">
         {hasUsed ? (
           <section
             className="usage-panel-context usage-panel-window"

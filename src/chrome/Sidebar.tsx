@@ -32,6 +32,7 @@ import {
   type ReactNode,
 } from "react";
 import type { HoverRevealHandlers } from "../hooks/useHoverRevealPanel";
+import { FadeText } from "./FadeText";
 import { DeleteWorkspaceDialog } from "./DeleteWorkspaceDialog";
 import { WorkspaceProfileMenu } from "./WorkspaceProfileMenu";
 import { basename } from "../lib/fs";
@@ -1203,7 +1204,7 @@ function SidebarComponent({
         }}
       >
         <BotCritter path={bot.path} status={bot.status} />
-        <span className="personal-task-title">{bot.name}</span>
+        <FadeText className="personal-task-title">{bot.name}</FadeText>
         <span className="personal-bot-project">{bot.project}</span>
         <span className="personal-task-status">
           <BotStatusPill status={bot.status} />
@@ -2037,12 +2038,12 @@ function SidebarComponent({
                                   {...talkRow(session.id)}
                                 >
                                   {plainLead(session, "Working")}
-                                  <span className="personal-task-title">
+                                  <FadeText className="personal-task-title">
                                     {sessionDisplayTitle(
                                       session.title,
                                       session.harness,
                                     )}
-                                  </span>
+                                  </FadeText>
                                   {talkBadge(session.id)}
                                   {teamBadge(session.id)}
                                   <WorkConflictMark
@@ -2280,12 +2281,12 @@ function SidebarComponent({
                                     }
                                   >
                                     {plainLead(session, "Working")}
-                                    <span className="personal-task-title">
+                                    <FadeText className="personal-task-title">
                                       {sessionDisplayTitle(
                                         session.title,
                                         session.harness,
                                       )}
-                                    </span>
+                                    </FadeText>
                                     {talkBadge(session.id)}
                                     {teamBadge(session.id)}
                                     <WorkConflictMark
@@ -3118,7 +3119,7 @@ function SessionCard({
               {session.pinned ? (
                 <Pin className="size-3 shrink-0 text-content/45" />
               ) : null}
-              <span className="personal-task-title">{title}</span>
+              <FadeText className="personal-task-title">{title}</FadeText>
             </span>
           </button>
           <OrchestrationSidebarAgents

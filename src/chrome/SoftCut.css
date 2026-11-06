@@ -1,0 +1,82 @@
+/* Softer cut-offs (src/hooks/useSoftCut.ts, after Rune's truncate_fade,
+   truncate_middle and scroll_edge_fade). Masks only while something is cut
+   off: a label that fits, or a list that doesn't scroll, has none. */
+
+/* Not inherited: a scroll area's edges change on its own style alone, never
+   restyling what it holds. */
+@property --aven-edge-top {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --aven-edge-bottom {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --aven-stuck {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+.fade-cut {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+.fade-cut-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.fade-cut[data-cut] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - 1.5em),
+    transparent
+  );
+  mask-image: linear-gradient(to right, #000 calc(100% - 1.5em), transparent);
+}
+
+.middle-cut {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* A scroll area fades the edge content is hidden past, more as more is
+   hidden, over its first 15 px. */
+.aven-edge-fade[data-edge-fade] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - var(--aven-edge-top))) 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    rgb(0 0 0 / calc(1 - var(--aven-edge-bottom))) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - var(--aven-edge-top))) 0,
+    #000 24px,
+    #000 calc(100% - 24px),
+    rgb(0 0 0 / calc(1 - var(--aven-edge-bottom))) 100%
+  );
+}
+
+/* The header above a scroll area casts a shadow over it once it scrolls,
+   coming in over the first 8 px. A zero-height line pinned to the top of
+   the scroll area carries it, so nothing moves. */
+.aven-stuck-shadow[data-stuck]::before {
+  --aven-stuck: inherit;
+  content: "";
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: block;
+  height: 0;
+  pointer-events: none;
+  box-shadow: 0 0 10px 5px rgb(0 0 0 / calc(var(--aven-stuck) * 0.3));
+}

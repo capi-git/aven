@@ -42,6 +42,7 @@ import {
   useTabHighlight,
 } from "../hooks/useTabHighlight";
 import { trackSeparators } from "../lib/tabTrack";
+import { FadeText } from "./FadeText";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { HarnessIcon } from "./HarnessIcon";
@@ -491,8 +492,8 @@ export function SurfaceTabs({
                   ) : (
                     <FileTypeIcon name={iconName} isDir={false} size={14} />
                   )}
-                  <span
-                    className={`aven-surface-tab-label aven-tab-label min-w-0 flex-1 truncate ${review ? "italic" : ""} ${
+                  <FadeText
+                    className={`aven-surface-tab-label aven-tab-label flex-1 ${review ? "italic" : ""} ${
                       errors
                         ? active
                           ? "text-red-400"
@@ -501,7 +502,7 @@ export function SurfaceTabs({
                     }`}
                   >
                     {label}
-                  </span>
+                  </FadeText>
                   {dirty ? (
                     <span
                       className="size-1.5 shrink-0 rounded-full bg-content/75"

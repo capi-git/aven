@@ -1,11 +1,13 @@
 import {
   Fragment,
+  useCallback,
   useEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { useScrollEdges } from "../hooks/useSoftCut";
 import { isImeComposition } from "../lib/keyboard";
 import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { ToolbarPanel, ToolbarPanelHeader } from "./ToolbarPanel";
@@ -29,6 +31,15 @@ export function WorkspaceMenuPanelContent({
   error?: string | null;
 }) {
   const menu = useRef<HTMLDivElement>(null);
+  // A long list fades the edge rows are hidden past, under its header.
+  const edges = useScrollEdges<HTMLDivElement>();
+  const bindMenu = useCallback(
+    (element: HTMLDivElement | null) => {
+      menu.current = element;
+      edges(element);
+    },
+    [edges],
+  );
   const search = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -141,11 +152,11 @@ export function WorkspaceMenuPanelContent({
         </div>
       ) : null}
       <div
-        ref={menu}
+        ref={bindMenu}
         role="menu"
         tabIndex={-1}
         aria-label={snapshot.title}
-        className="workspace-menu-panel-items aven-menu"
+        className="workspace-menu-panel-items aven-menu aven-edge-fade"
         onKeyDown={navigate}
       >
         {items.map((item, index) => (

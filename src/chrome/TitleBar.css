@@ -620,7 +620,7 @@ html.theme-light .personal-shell {
 .personal-shell .personal-tab-group-chip-name {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
 }
 .personal-shell .personal-tab-group-chip-count {
   opacity: 0.72;
@@ -987,7 +987,8 @@ html.theme-light .personal-shell {
 .aven-split-label {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 @container (max-width: 56px) {
   .aven-split-label {
@@ -997,7 +998,8 @@ html.theme-light .personal-shell {
 .aven-combine .aven-split-label {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 .aven-split-segment .personal-title-tab-identity {
   display: inline-flex;

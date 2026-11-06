@@ -441,7 +441,8 @@
 .personal-shell .personal-navigation .personal-task-title {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  /* FadeText: the end fades out instead of "…". */
+  text-overflow: clip;
   white-space: nowrap;
   font-size: var(--text-ui-row);
   font-weight: 400;
