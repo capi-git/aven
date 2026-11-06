@@ -79,8 +79,9 @@ export function recordFrames(refreshMs: number) {
   frame = requestAnimationFrame(tick);
   return {
     /** What the scenario does from now on, to tell which part a long frame fell in. */
-    mark(label: string) {
-      marks.push({ atMs: performance.now() - started, label });
+    /** `at`: a frame's own time, for a part that starts with that frame. */
+    mark(label: string, at = performance.now()) {
+      marks.push({ atMs: at - started, label });
     },
     stop(): FrameStats {
       running = false;

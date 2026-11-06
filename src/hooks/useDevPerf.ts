@@ -32,6 +32,7 @@ import {
   type ReactProfile,
 } from "../lib/devPerfReact";
 import { pressPoint, smokeMouse } from "../lib/devSmokeLoneTab";
+import { smokeSwipe } from "../lib/devSmokeSwipe";
 import {
   checkMotion,
   recordMotion,
@@ -58,6 +59,12 @@ export type DevPerfOptions = {
   /** The hover sidebar's layer, once attached, and whether its card is out. */
   floatingSidebarLabel?: string | null;
   hoverSidebarRevealed?: boolean;
+  /** The workspace in front (Personal, Work…). */
+  activeProfileId?: string;
+  /** Move a project into a workspace, as the project row's menu does. */
+  assignProject?: (path: string, profileId: string) => void;
+  /** Bring a workspace to the front, as its menu's row does. */
+  selectProfile?: (id: string) => void;
 };
 
 type PerfSettings = {
@@ -75,6 +82,8 @@ type PerfSettings = {
   sample?: string;
   /** Record the window from outside during the scenario whose name contains this. */
   record?: string;
+  /** A second project, put in the Work workspace for the swipe scenario. */
+  workProjectPath?: string;
 };
 
 export type ScenarioResult = {
@@ -113,7 +122,7 @@ export type ScenarioResult = {
 
 type Measure = {
   /** The part of the scenario that starts now, for long frames to be told apart. */
-  mark: (label: string) => void;
+  mark: (label: string, at?: number) => void;
   /** Time `action` until `until` holds and the next frame is drawn. */
   time: (
     action: () => unknown,
@@ -225,17 +234,14 @@ export async function runDevPerf(
   };
   let refreshMs = 1000 / 60;
 
+  const wanted = (name: string) =>
+    !settings.only?.length || settings.only.some((part) => name.includes(part));
   const scenario = async (
     name: string,
     body: (measure: Measure) => Promise<void>,
     options: { frames?: boolean; setup?: boolean } = {},
   ) => {
-    if (
-      settings.only?.length &&
-      !options.setup &&
-      !settings.only.some((part) => name.includes(part))
-    )
-      return;
+    if (!options.setup && !wanted(name)) return;
     await invoke("dev_perf_mark", { label: `start:${name}` }).catch(() => {});
     // Let a profiler the runner starts on this mark attach first.
     if (
@@ -271,7 +277,7 @@ export async function runDevPerf(
     let error: string | undefined;
     try {
       await body({
-        mark: (label) => frames?.mark(label),
+        mark: (label, at) => frames?.mark(label, at),
         time: async (action, until, timeoutMs = 5_000) => {
           const begin = performance.now();
           await action();
@@ -832,6 +838,156 @@ export async function runDevPerf(
         await pause(1_000);
       });
     }
+    // Two workspaces, each with a project and chats: a two-finger swipe on
+    // the pinned sidebar's workspace pages moves to the other, as people do
+    // all day. Last of the timed scenarios, so the ones above run as they
+    // always have; it ends on the workspace it started in.
+    const swipeName = "switching workspaces by swiping";
+    const viewport = () =>
+      document.querySelector<HTMLElement>(".personal-profile-viewport");
+    const workspaces = () =>
+      [...document.querySelectorAll(".personal-profile-page")].length;
+    /** One swipe to the other workspace; resolves once it is in front and the pages rest. */
+    const swipeWorkspace = async (measure?: Measure, label = "") => {
+      const pages = viewport();
+      if (!pages || workspaces() < 2) throw new Error("No workspace pages");
+      const from = get().activeProfileId;
+      const toPersonal = from !== "personal";
+      const target = toPersonal ? 0 : 1;
+      // Pages can be a fraction of a pixel wide; the last rests at the end.
+      const rest = () =>
+        Math.min(
+          target * pages.clientWidth,
+          pages.scrollWidth - pages.clientWidth,
+        );
+      const settled = () =>
+        get().activeProfileId !== from &&
+        Math.abs(pages.scrollLeft - rest()) < 1.5;
+      // The fingers travel 45% of a page; momentum and the snap carry it on.
+      const distance = (toPersonal ? -1 : 1) * pages.clientWidth * 0.45;
+      let gesture: Promise<void> = Promise.resolve();
+      let failed: unknown;
+      // Counts scrolls for a failure's report. (No wheel listener: adding
+      // one on the window makes WebKit restyle the whole page.)
+      let scrolls = 0;
+      const onScroll = () => (scrolls += 1);
+      pages.addEventListener("scroll", onScroll, { passive: true });
+      const play = () => {
+        gesture = smokeSwipe(pages, distance, refreshMs).catch((error) => {
+          failed = error;
+        });
+      };
+      const until = () => {
+        if (failed) throw failed;
+        return settled();
+      };
+      // Which part of the swipe a long frame falls in: the glide, or after
+      // the pages came to rest.
+      let resting = false;
+      const watch = (frame: number) => {
+        if (!measure || resting) return;
+        if (Math.abs(pages.scrollLeft - rest()) < 1.5) {
+          resting = true;
+          // At the frame's own time: a long frame that starts in it is the
+          // switch after the pages arrived, not the glide.
+          measure.mark(`${label}, at rest`, frame);
+          return;
+        }
+        requestAnimationFrame(watch);
+      };
+      try {
+        measure?.mark(`${label}, gliding`);
+        requestAnimationFrame(watch);
+        if (measure) await measure.time(play, until, 5_000);
+        else {
+          play();
+          await waitFor(until, 5_000, "the other workspace");
+        }
+      } catch (error) {
+        await gesture;
+        throw new Error(
+          `${errorText(failed ?? error)} (pages at ${Math.round(pages.scrollLeft)} of ${pages.scrollWidth} px, ${pages.clientWidth} px each, carousel ${pages.dataset.carouselEnabled}, ${get().activeProfileId} in front, ${scrolls} scroll events)`,
+        );
+      } finally {
+        pages.removeEventListener("scroll", onScroll);
+      }
+      await gesture;
+    };
+    if (
+      settings.workProjectPath &&
+      get().assignProject &&
+      get().selectProfile &&
+      (wanted(swipeName) || settings.only?.some((part) => part === "motion"))
+    ) {
+      try {
+        if (!get().sidebarOpen) {
+          pressShortcut("b");
+          await waitFor(() => get().sidebarOpen, 5_000, "the sidebar to pin");
+        }
+        get().assignProject?.(settings.workProjectPath, "work");
+        for (let index = 0; index < 2; index += 1) {
+          const known = new Set(get().sessions.map((session) => session.id));
+          get().newProjectTask(settings.workProjectPath);
+          const session = await waitFor(
+            () =>
+              get().sessions.find(
+                (candidate) =>
+                  !known.has(candidate.id) &&
+                  sameProjectPath(candidate.cwd, settings.workProjectPath!),
+              ),
+            10_000,
+            "a chat in the Work workspace",
+          );
+          await turn(session.id, "Explain the change. AVEN_PERF_STREAM 120", 1);
+        }
+        if (get().activeProfileId !== "work") get().selectProfile?.("work");
+        await waitFor(
+          () => get().activeProfileId === "work",
+          5_000,
+          "the Work workspace in front",
+        );
+        await pause(600);
+        // Once there and back, so both workspaces have been seen.
+        await swipeWorkspace();
+        await pause(600);
+        await swipeWorkspace();
+        await pause(600);
+        await swipeWorkspace();
+        await pause(800);
+        // Diagnosis only (`--perf-only restyle`): what a switch of workspace
+        // makes WebKit restyle and lay out, there and back.
+        if (settings.only?.some((part) => part.includes("restyle"))) {
+          const settle = async () => {
+            await nextPaint();
+            await nextPaint();
+          };
+          for (const id of ["work", "personal"]) {
+            const result = await analyzeRestyle(
+              () => get().selectProfile?.(id),
+              settle,
+            );
+            restyle.push({ name: `switch workspace to ${id}`, ...result });
+            await pause(400);
+          }
+        }
+        await scenario(swipeName, async (measure) => {
+          for (let index = 0; index < 6; index += 1) {
+            await swipeWorkspace(
+              measure,
+              index % 2 ? "to Personal" : "to Work",
+            );
+            measure.mark("between swipes");
+            await pause(700);
+          }
+        });
+      } catch (error) {
+        steps.push({
+          name: swipeName,
+          passed: false,
+          detail: errorText(error),
+        });
+      }
+    }
     // The motion check (after Rune's motion audit): a few of the moves
     // above again, every keyed element's box recorded each frame, and what
     // a person would notice listed (devPerfMotion.ts, motionAudit.ts). It
@@ -936,6 +1092,21 @@ export async function runDevPerf(
         pressShortcut("w");
         await pause(400);
       });
+      if (get().activeProfileId === "personal" && workspaces() > 1)
+        await check("swiping between workspaces", async (recorder) => {
+          for (const label of ["swipe to Work", "swipe back to Personal"]) {
+            recorder.input({
+              label,
+              allow: {
+                kinds: ["pop-in", "pop-out"],
+                reason:
+                  "the other workspace's project and its tabs replace these at once when the pages come to rest",
+              },
+            });
+            await swipeWorkspace();
+            await pause(500);
+          }
+        });
     }
   } catch (error) {
     steps.push({

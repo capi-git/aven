@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
-import { flushSync } from "react-dom";
 import type { WorkspaceProfile } from "../lib/workspaceProfiles";
 
 type Options = {
@@ -13,8 +12,14 @@ type Options = {
 const DRAG_EXCLUDED =
   "button,a,input,textarea,select,[contenteditable],[draggable=true],[role=slider],[role=separator]";
 
-/** The browser owns wheel movement, momentum and snapping. Adopt the dominant
- * page during a swipe, rather than waiting for its slow final snap. */
+/**
+ * The browser owns wheel movement, momentum and snapping. The workspace
+ * changes once the pages come to rest on one, never while they glide:
+ * switching workspaces changes the project and its tab, a long frame (about
+ * 200 ms with long chats open, measured), which mid-glide froze the swipe.
+ * The switch is not forced through inside the scroll event either, so the
+ * frame the pages arrive in is drawn first.
+ */
 export function useProfileCarousel(options: Options) {
   const latest = useRef(options);
   latest.current = options;
@@ -76,30 +81,19 @@ export function useProfileCarousel(options: Options) {
         Math.abs(left - nearest() * width) <= 1
       );
     };
-    const commit = (dominant = false) => {
+    /** The pages rest on one: make its workspace the current one. */
+    const commit = () => {
       clearTimeout(timer);
       if (pointer?.dragging || viewport.clientWidth <= 0) return;
       const current = latest.current;
       const target = current.profiles[nearest()];
+      // Use the requested identity while React is still acknowledging a swipe.
       const selected = requested ?? current.activeProfileId;
       if (!target || target.id === selected) return;
-      // Cross 60% to adopt the next page; reversing must cross 40%. The small
-      // dead band prevents workspace/theme churn while hovering at halfway.
-      // Use the requested identity while React is still acknowledging a swipe.
-      if (
-        dominant &&
-        Math.abs(
-          viewport.scrollLeft / viewport.clientWidth - indexOf(selected),
-        ) < 0.6
-      )
-        return;
       requested = target.id;
       pendingSelections.add(target.id);
-      // Make the dominant workspace interactive before the next native scroll
-      // frame. Flush only the identity handoff, never individual frames.
-      flushSync(() => {
-        current.onSelectProfile?.(target.id);
-      });
+      // Outside React's own events this renders after the frame is drawn.
+      current.onSelectProfile?.(target.id);
     };
     const onScrollEnd = () => {
       alignmentTarget = undefined;
@@ -116,7 +110,6 @@ export function useProfileCarousel(options: Options) {
         commit();
         return;
       }
-      if (!alignmentTarget) commit(true);
       if (nativeScrollEnd) return;
       // Older WebKit lacks scrollend. Only a snapped page can finish an
       // interrupted explicit navigation; a pause between pages is not arrival.
@@ -197,12 +190,15 @@ export function useProfileCarousel(options: Options) {
       if (viewport.hasPointerCapture(event.pointerId))
         viewport.releasePointerCapture(event.pointerId);
       if (dragged) {
-        const left = nearest() * viewport.clientWidth;
-        // The destination is decided on release. Activate it before the native
-        // snap's easing tail, including when no final scroll event is emitted.
-        commit();
+        // Released on a page: no scroll follows, so it is the destination.
+        if (atSnapPoint()) {
+          commit();
+          return;
+        }
+        // Otherwise the pages glide to the nearest one, which becomes the
+        // workspace when they arrive (see onScroll).
         viewport.scrollTo({
-          left,
+          left: nearest() * viewport.clientWidth,
           behavior: reducedMotion() ? "instant" : "smooth",
         });
       }

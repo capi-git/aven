@@ -674,11 +674,14 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None, record=Non
     (root / PERF_MARKER).write_text('Aven Dev speed test\n')
     (root / 'site').mkdir()
     (root / 'site/index.html').write_text(PERF_PAGE)
+    # A second project, which the swipe scenario puts in the Work workspace.
+    (root / 'work-project').mkdir()
+    (root / 'work-project/README.md').write_text('Aven Dev speed test project in Work.\n')
     finished = False
     try:
         child_env = host_scoped_environment()
         with production_preview_server(child_env), static_page_server(root / 'site') as page_url:
-            settings = {'pageUrl': page_url}
+            settings = {'pageUrl': page_url, 'workProjectPath': str(root / 'work-project')}
             if only:
                 settings['only'] = [part.strip() for part in only.split(',') if part.strip()]
             if sample:
@@ -763,7 +766,7 @@ def print_long_frames(scenarios, sources):
     """The longest frames and the forced layouts in them."""
     for item in scenarios:
         frames = (item.get('frames') or {}).get('longFrames') or []
-        if not frames or 'dragging' not in item['name']:
+        if not frames or not any(move in item['name'] for move in ('dragging', 'swiping')):
             continue
         print(f'Longest frames, {item["name"]}:')
         calls = (item.get('hotCalls') or {}).get('slowLayouts', [])

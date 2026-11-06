@@ -379,6 +379,8 @@ pub fn run() {
             dev_smoke::dev_perf_mark,
             #[cfg(all(debug_assertions, target_os = "macos"))]
             dev_smoke_pointer::dev_smoke_pointer,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            dev_smoke_pointer::dev_smoke_scroll,
             floating_sidebar::floating_sidebar_attach,
             floating_sidebar::floating_sidebar_workspace,
             floating_sidebar::floating_sidebar_regions,

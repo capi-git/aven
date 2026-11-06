@@ -12051,6 +12051,9 @@ export default function App({
     sidebarOpen,
     openWebLink: onOpenWebLink,
     hoverSidebarRevealed: floatingSidebar.revealed,
+    activeProfileId: profiles.activeProfileId,
+    assignProject: profiles.assignProject,
+    selectProfile: onSelectProfile,
     board: true,
     ...(botsAvailable()
       ? {
