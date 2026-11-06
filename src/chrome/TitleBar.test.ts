@@ -2360,6 +2360,14 @@ describe("shared tab style", () => {
     return css.slice(start, css.indexOf("\n}", start));
   };
 
+  it("scrolls a tab into view clear of the strip's scroll arrows", () => {
+    // Each arrow is 26px (size-6.5), 4px in from its end of the strip.
+    const strip = css.slice(css.indexOf("--aven-tab-arrow-room: 32px;"));
+    expect(strip).toMatch(
+      /scroll-padding-left: calc\(\s*var\(--aven-tab-pin-width, 0px\) \+ var\(--aven-tab-arrow-room\)\s*\);\s*scroll-padding-right: var\(--aven-tab-arrow-room\);/,
+    );
+  });
+
   it("sets height, radius, padding, fills and close behaviour once", () => {
     expect(block(".aven-tab-button")).toMatch(
       /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: var\(--aven-radius-sm\);/,

@@ -127,6 +127,7 @@ import { crewMemberName, useCrew } from "../lib/crews";
 import { botsAvailable } from "../lib/projectBots";
 import { TAB_CHIP_MAX_WIDTH } from "../lib/motionTokens";
 import { playMotion } from "../lib/motion";
+import { revealTab } from "../lib/tabStripReveal";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
 import { isSpaceKey } from "../lib/workspaceSpaces";
 import "./TitleBar.css";
@@ -2927,18 +2928,26 @@ function TitleBarComponent({
     return null;
   };
   const previousSelectedId = useRef<string | null>(null);
+  const focusedOnStrip = Boolean(
+    focusedId && displayedTabIds.includes(focusedId),
+  );
 
   useEffect(() => {
     if (previousSelectedId.current === focusedId) return;
+    if (sortable.draggingId) {
+      previousSelectedId.current = focusedId;
+      return;
+    }
+    const tab = activeTabRef.current;
+    // Not on the strip yet: try again when its tab shows.
+    if (!tab) return;
     previousSelectedId.current = focusedId;
-    if (sortable.draggingId) return;
     // A pinned tab is always in view; asking would only move the strip.
-    if (activeTabRef.current?.closest("[data-pinned]")) return;
-    activeTabRef.current?.scrollIntoView({
-      inline: "nearest",
-      block: "nearest",
-    });
-  }, [focusedId, sortable.draggingId]);
+    if (tab.closest("[data-pinned]")) return;
+    // A new tab grows in from nothing: follow it, or it ends past the
+    // strip's end, under the scroll arrow.
+    return revealTab(tab, tab.closest<HTMLElement>("[data-motion-slot]"));
+  }, [focusedId, focusedOnStrip, sortable.draggingId]);
 
   useLayoutEffect(() => {
     const focusedControl = focusedTabControlRef.current;
