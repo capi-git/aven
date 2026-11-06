@@ -68,6 +68,7 @@ import { useWheelTabSwitch } from "../hooks/useWheelTabSwitch";
 import { useTabSlotMotion } from "../hooks/useTabSlotMotion";
 import {
   TAB_TRACK_ID_ATTRIBUTE,
+  TAB_TRACK_SPACE_ATTRIBUTE,
   useTabHighlight,
 } from "../hooks/useTabHighlight";
 import {
@@ -2559,7 +2560,11 @@ function TitleBarComponent({
         !sortable.draggingId &&
         sortable.landingId !== focusedId &&
         sortable.dropTarget?.id !== focusedId,
-      layoutKey: displayIds.join("\n"),
+      // A closed tab's space collapsing moves the tabs after it.
+      layoutKey: [
+        ...displayIds,
+        ...slotMotion.ghosts.map((ghost) => `ghost:${ghost.id}`),
+      ].join("\n"),
       glideFrom: sortable.takeOrigin,
     },
   );
@@ -4195,6 +4200,7 @@ function TitleBarComponent({
         <div
           key={`ghost:${ghost.id}`}
           className="personal-tab-ghost"
+          {...{ [TAB_TRACK_SPACE_ATTRIBUTE]: "" }}
           style={{ "--tab-ghost-width": `${ghost.width}px` } as CSSProperties}
           aria-hidden
         />

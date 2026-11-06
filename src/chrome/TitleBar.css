@@ -1356,6 +1356,13 @@ html.theme-light .personal-shell {
 .workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-button {
   justify-content: flex-start;
 }
+/* A pinned tab is its mark alone, centred in its tile. */
+.workspace-status-strip
+  .aven-tab-strip[data-tab-track]
+  .aven-tab-slot[data-pinned]
+  .aven-tab-button {
+  justify-content: center;
+}
 .workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-label {
   flex: 1 1 auto;
 }

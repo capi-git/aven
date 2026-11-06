@@ -2391,6 +2391,13 @@ describe("shared tab style", () => {
     return css.slice(start, css.indexOf("\n}", start));
   };
 
+  it("centres a pinned tab's mark on the window's own row too", () => {
+    // That row starts each tab's name at its left; a pinned tab is its mark.
+    expect(css).toMatch(
+      /\.workspace-status-strip\s+\.aven-tab-strip\[data-tab-track\]\s+\.aven-tab-slot\[data-pinned\]\s+\.aven-tab-button\s*\{\s*justify-content: center;/,
+    );
+  });
+
   it("scrolls a tab into view clear of the strip's scroll arrows", () => {
     // Each arrow is 26px (size-6.5), 4px in from its end of the strip.
     const strip = css.slice(css.indexOf("--aven-tab-arrow-room: 32px;"));
