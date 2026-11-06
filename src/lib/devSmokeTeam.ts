@@ -750,9 +750,9 @@ export async function checkResearcher(
         `The sheet lists ${ticks.length} ideas, ${ticks.filter((tick) => tick.checked).length} ticked`,
       );
     const add = [...sheet.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent?.trim() === "Add 2 ideas to Board",
+      (button) => button.textContent?.trim() === "Add 2 ideas",
     );
-    if (!add) throw new Error('The sheet has no "Add 2 ideas to Board"');
+    if (!add) throw new Error('The sheet has no "Add 2 ideas"');
     add.click();
     await waitFor(
       () => !onScreen(sheet),
@@ -891,7 +891,7 @@ export async function checkResearcher(
       "Clear to empty the notes",
     );
     await closeSheet(again2, "the teammate's page");
-    return `Findings · 2 findings · 2 ideas proposed; Read numbered both with a link each and ticked both ideas; Add 2 ideas to Board put "${RESEARCH_IDEAS.join('" and "')}" in Ideas as From Researcher · Waits for you and the card in Done; Add again added nothing; the turn's notes block set its Notes (${memory.length} characters, with Updated); with Access → web No one, ${told}; Clear emptied the notes`;
+    return `Findings · 2 findings · 2 ideas proposed; Read numbered both with a link each and ticked both ideas; Add 2 ideas put "${RESEARCH_IDEAS.join('" and "')}" in Ideas as From Researcher · Waits for you and the card in Done; Add again added nothing; the turn's notes block set its Notes (${memory.length} characters, with Updated); with Access → web No one, ${told}; Clear emptied the notes`;
   } catch (error) {
     withDiagnostics(get, project, cardId, error);
   } finally {

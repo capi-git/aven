@@ -110,7 +110,7 @@ describe("budgets", () => {
       ok: false,
       reason: "usage",
       title: "Claude is 81% used for the week",
-      detail: "Teams pause at 80% so your own chats keep working.",
+      detail: "Avos pauses at 80% so your own chats keep working.",
     });
     // Unknown usage doesn't hold the crew.
     expect(gate({ weeklyUsed: null }).ok).toBe(true);
@@ -419,7 +419,7 @@ describe("why the Board says the team holds", () => {
   it("names the all-crews ceiling while a card waits", () => {
     expect(hold({ cards: [queued] }, { allRuns: 30 })?.gate).toMatchObject({
       reason: "all-crews-cap",
-      title: "All teams' 30 runs today are used",
+      title: "Today's 30 runs for all projects are used",
     });
     expect(hold({ cards: [queued] }, { allRuns: 29 })).toBeNull();
   });

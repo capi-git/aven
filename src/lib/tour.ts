@@ -1,9 +1,11 @@
+import { IS_WIN } from "./platform";
+
 /**
  * The short guided tour over the real app. Each stop points at an element
  * tagged `data-tour="…"`; a stop whose element is not on screen is skipped.
  */
 export type TourStopId =
-  "composer" | "sidebar" | "browser" | "changes" | "board" | "memory";
+  "composer" | "sidebar" | "browser" | "changes" | "avos" | "memory";
 
 export type TourStop = {
   id: TourStopId;
@@ -39,16 +41,18 @@ export const TOUR_STOPS: readonly TourStop[] = [
     body: "The side panel's Changes shows what your agents changed. Ship it commits the change, with a message written for you.",
   },
   {
-    id: "board",
-    anchors: ["board", "activity"],
-    title: "Board and Activity",
-    body: "The board holds features you want. Build hands one to an agent, and it moves to Shipped by itself. Activity lists what finished and what needs you.",
+    id: "avos",
+    // Avos's row under the project, or the top row's Open Avos. Windows has
+    // no Avos, so there this stop finds nothing and is skipped.
+    anchors: IS_WIN ? [] : ["avos", "board"],
+    title: "Avos",
+    body: "Every project has Avos. Tell it what you need and what to keep an eye on. Its helpers work in a copy until you apply their changes.",
   },
   {
     id: "memory",
     anchors: ["project-active", "project"],
     title: "Project memory",
-    body: "Open a project's menu and choose Project memory to write down what every agent in it should know first.",
+    body: "Open a project's menu and choose Customise project to write down what every agent in it should know first.",
   },
 ];
 

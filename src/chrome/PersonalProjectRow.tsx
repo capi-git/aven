@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { isTextTruncated } from "../lib/truncatedTitle";
 import { basename, revealPath } from "../lib/fs";
 import { projectName } from "../lib/paths";
+import { REVEAL_LABEL } from "../lib/platform";
+import { openAvosLabel } from "../lib/projectBots";
 import {
   loadPinnedProjects,
   sameProjectPath,
@@ -124,7 +126,7 @@ export function PersonalProjectRow({
     },
     { kind: "item", id: "customize", label: "Customise project…" },
     ...(onOpenBoard
-      ? [{ kind: "item" as const, id: "board", label: "Open Avos" }]
+      ? [{ kind: "item" as const, id: "board", label: openAvosLabel() }]
       : []),
     ...(onBotSettings
       ? [
@@ -136,7 +138,7 @@ export function PersonalProjectRow({
         ]
       : []),
     { kind: "sep" },
-    { kind: "item", id: "reveal", label: "Reveal in Finder" },
+    { kind: "item", id: "reveal", label: REVEAL_LABEL },
     ...pageOrInline("move", "Move to workspace", moveRows),
     ...(onRemove
       ? [

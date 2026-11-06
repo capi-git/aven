@@ -11,6 +11,7 @@ import {
   loadNotificationPreferences,
   setWindowFocused,
   probeNotificationPermission,
+  notifyAvosNeed,
 } from "./notifications";
 import { newSession, type Session } from "./session";
 import { NO_LEAD_DECIDED, sessionNeedsUser } from "./teamAttention";
@@ -479,5 +480,50 @@ describe("Activity delivery policy", () => {
       1,
     );
     expect(sessionNeedsUser(worker, NO_LEAD_DECIDED)).toBe(true);
+  });
+});
+
+describe("a Mac notification from Avos", () => {
+  const need = {
+    id: "avos:%2FUsers%2Fme%2Fsite",
+    project: "site",
+    text: "Look at “Pricing”",
+  };
+  beforeEach(async () => {
+    mockLocalStorage();
+    vi.mocked(invoke).mockReset().mockResolvedValue("granted");
+    await probeNotificationPermission();
+    vi.mocked(invoke).mockClear();
+    setWindowFocused(false);
+  });
+
+  it("is sent while Aven is behind, and opens that Avos", async () => {
+    saveNotificationsEnabled(true);
+    expect(await notifyAvosNeed(need)).toBe(true);
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("show_notification", {
+      sessionId: need.id,
+      title: "Aven",
+      subtitle: "Avos · site",
+      body: "Look at “Pricing”",
+      sound: true,
+    });
+    // Avos's things live in Avos: nothing is added to Activity.
+    expect(getActivitySnapshot().some((entry) => entry.id === need.id)).toBe(
+      false,
+    );
+  });
+
+  it("follows Notifications, Needs input and Quiet, and stays quiet in front", async () => {
+    expect(await notifyAvosNeed(need)).toBe(false);
+    saveNotificationsEnabled(true);
+    saveNotificationPreferences({ needsInput: false });
+    expect(await notifyAvosNeed(need)).toBe(false);
+    saveNotificationPreferences({ needsInput: true, quiet: true });
+    expect(await notifyAvosNeed(need)).toBe(false);
+    saveNotificationPreferences({ quiet: false });
+    expect(await notifyAvosNeed({ ...need, presentationFocused: true })).toBe(
+      false,
+    );
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

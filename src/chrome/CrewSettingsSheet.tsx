@@ -80,9 +80,9 @@ type Page =
   | { kind: "add" };
 
 /**
- * A team's settings: who is in it, who builds what, its limits and quiet
- * hours, Pause and Turn off. Build a team (Add teammate) adds teammates or
- * starts from a suggested team; a teammate's own page sets its name and
+ * Avos's settings: its helpers, who builds what, its limits and quiet
+ * hours, Pause and Turn off. Add a helper adds helpers or starts from a
+ * suggested set; a helper's own page sets its name and
  * mark, its job, your instructions, where it works, what it runs on and
  * when it works. None of these change what a teammate may do: that comes
  * from its role (see `crewChatPermissions`).
@@ -471,7 +471,7 @@ function CrewBody({
           onClick={onAdd}
         >
           <Plus className="size-3.5" />
-          Add teammate
+          Add a helper
         </button>
       </Section>
       <AccessSection crew={crew} />

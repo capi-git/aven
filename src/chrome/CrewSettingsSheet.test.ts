@@ -449,7 +449,7 @@ describe("a teammate's page", () => {
       "Run the e2e tests.",
     );
     // The last Checker can't be removed: a quiet word, its why a tooltip.
-    const remove = buttonNamed("Remove from team")!;
+    const remove = buttonNamed("Remove helper")!;
     expect(remove.disabled).toBe(true);
     expect(remove.className).toBe("crew-settings-remove-link");
     expect(remove.title).toBe("Avos needs a Checker.");

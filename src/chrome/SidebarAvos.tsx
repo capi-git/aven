@@ -27,6 +27,7 @@ export const SidebarAvosRow = memo(function SidebarAvosRow({
       className="personal-other-task personal-task-card personal-avos-row"
       data-avos-row={avos.path}
       data-avos-note={avos.note ?? undefined}
+      data-tour="avos"
       aria-current={active ? "true" : undefined}
       title={
         avos.line ? `Avos · ${avos.line}` : "Avos looks after this project"

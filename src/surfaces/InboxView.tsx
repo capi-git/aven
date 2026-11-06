@@ -98,10 +98,14 @@ import {
 } from "./InboxDiscussionPanel";
 import { inboxAskKey } from "../lib/inboxAsk";
 import {
+  useAvosInboxNeeds,
   useOpenCrewInboxItems,
   useOpenReviewRuns,
 } from "../hooks/useAutomationChats";
 import { CrewInboxDetail, InboxCrewCard } from "./CrewInboxCard";
+import { CrewCritter } from "../chrome/CrewCritter";
+import { avosInboxLine, avosRowsCount } from "../lib/avos";
+import { useCrewWorkspace } from "../lib/crewActions";
 import type { ScheduledRun } from "../lib/scheduledAgents";
 import { AutomationReviewCard, InboxReviewCard } from "./AutomationReviewCard";
 
@@ -363,6 +367,17 @@ export function InboxView({
       ),
     [crewItems, activeFilters, projects, searchInput],
   );
+  // Avos's own items live in Avos: one line per project points there.
+  const crewWorkspace = useCrewWorkspace();
+  const shownProjectPaths = useMemo(() => {
+    const hidden = new Set(
+      activeFilters.hiddenProjects.map((path) => projectKey(path)),
+    );
+    return projects
+      .map((project) => project.path)
+      .filter((path) => !hidden.has(projectKey(path)));
+  }, [activeFilters, projects]);
+  const avosNeeds = useAvosInboxNeeds(shownProjectPaths);
   const inboxSeenTick = useInboxSeenTick();
   const seenEntries = useMemo(
     () =>
@@ -493,10 +508,31 @@ export function InboxView({
         ref={listLock}
         className="min-h-0 flex-1 overflow-y-auto overscroll-none"
       >
+        {avosNeeds.length && crewWorkspace ? (
+          <ul className="flex flex-col gap-0.5 p-1.5 pb-0" aria-label="Avos">
+            {avosNeeds.map(({ path, rows }) => (
+              <li key={path}>
+                <button
+                  type="button"
+                  data-inbox-avos={path}
+                  title={`Open ${projectName(path)}'s Avos`}
+                  onClick={() => crewWorkspace.openCrew(path)}
+                  className="flex h-7 w-full items-center gap-2 rounded-md px-2.5 text-left text-ui-label text-content/70 hover:bg-(--aven-hover) hover:text-content"
+                >
+                  <CrewCritter path={path} role="lead" state="needs" />
+                  <span className="min-w-0 truncate">
+                    {avosNeeds.length > 1 ? `${projectName(path)} · ` : ""}
+                    {avosInboxLine(avosRowsCount(rows))}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {visibleCrew.length ? (
           <ul
             className="flex flex-col gap-0.5 p-1.5 pb-0"
-            aria-label="From teams"
+            aria-label="From helpers"
           >
             {visibleCrew.map((item) => (
               <li key={item.key}>

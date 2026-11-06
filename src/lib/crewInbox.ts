@@ -6,6 +6,7 @@ import {
   type Crew,
   type CrewCard,
 } from "./crews";
+import { openAvosLabel } from "./projectBots";
 import { plural } from "./words";
 
 /**
@@ -40,7 +41,12 @@ export function crewInboxActions(
   item: Pick<CrewInboxItem, "card" | "batch">,
 ): readonly { id: CrewInboxAction; label: string }[] {
   if (item.batch) return [{ id: "review", label: "Review" }];
-  return CREW_INBOX_ACTIONS[item.card.stage === "ready" ? "ready" : "stuck"];
+  // Where Avos doesn't run, the same button opens the project's board.
+  return CREW_INBOX_ACTIONS[
+    item.card.stage === "ready" ? "ready" : "stuck"
+  ].map((action) =>
+    action.id === "open-board" ? { ...action, label: openAvosLabel() } : action,
+  );
 }
 
 /** "Ready" or "Needs you", for the card's heading. */

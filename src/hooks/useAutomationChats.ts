@@ -7,13 +7,18 @@ import {
   inboxReviewRuns,
   subscribeInboxFilters,
 } from "../lib/inboxFilters";
+import { avosNeeds, avosOwnsRun, type AvosNeeds } from "../lib/avos";
 import { openCrewInboxItems, type CrewInboxItem } from "../lib/crewInbox";
-import { useCrewsStore } from "../lib/crews";
-import type { RecentProject } from "../lib/recents";
+import { useCrewsStore, type Crew } from "../lib/crews";
+import { projectKey } from "../lib/paths";
+import { botsAvailable } from "../lib/projectBots";
+import { normalizeProjectPath, type RecentProject } from "../lib/recents";
 import {
   automationChatIds,
+  listScheduledAgents,
   listScheduledRuns,
   openReviewRuns,
+  subscribeScheduledAgents,
   subscribeScheduledRuns,
   type ScheduledRun,
 } from "../lib/scheduledAgents";
@@ -34,15 +39,68 @@ function reviewSnapshot(): ScheduledRun[] {
   return reviewCache.runs;
 }
 
-/** Runs whose card waits in the Inbox, newest first. */
+const NO_CREW_ITEMS: CrewInboxItem[] = [];
+/** A project's crew in the store's snapshot, as `getCrew` finds it. */
+const crewIn =
+  (crews: Readonly<Record<string, Crew>>) =>
+  (path: string): Crew | undefined =>
+    crews[projectKey(normalizeProjectPath(path))];
+const NO_AVOS_NEEDS: AvosNeeds[] = [];
+
+/**
+ * Runs whose card waits in the Inbox, newest first. A run of Avos's job
+ * isn't one: its card lives in Avos (see `avosOwnsRun`).
+ */
 export function useOpenReviewRuns(): ScheduledRun[] {
-  return useSyncExternalStore(subscribeScheduledRuns, reviewSnapshot);
+  const runs = useSyncExternalStore(subscribeScheduledRuns, reviewSnapshot);
+  const agents = useSyncExternalStore(
+    subscribeScheduledAgents,
+    listScheduledAgents,
+  );
+  const crews = useCrewsStore();
+  return useMemo(() => {
+    if (!botsAvailable() || !Object.keys(crews).length) return runs;
+    const crewFor = crewIn(crews);
+    const shown = runs.filter((run) => !avosOwnsRun(run, agents, crewFor));
+    return shown.length === runs.length ? runs : shown;
+  }, [runs, agents, crews]);
 }
 
-/** Crew cards waiting in the Inbox (Ready and Stuck), newest first. */
+/**
+ * Crew cards waiting in the Inbox (Ready and Stuck), newest first. Where
+ * Avos runs, its cards live in Avos and the Inbox lists none.
+ */
 export function useOpenCrewInboxItems(): CrewInboxItem[] {
   const crews = useCrewsStore();
-  return useMemo(() => openCrewInboxItems(crews), [crews]);
+  return useMemo(
+    () => (botsAvailable() ? NO_CREW_ITEMS : openCrewInboxItems(crews)),
+    [crews],
+  );
+}
+
+/**
+ * What each of these projects' Avos waits on you for, for the Inbox's one
+ * line that points at Avos (its items live there, not in the Inbox).
+ */
+export function useAvosInboxNeeds(
+  paths: readonly string[],
+): readonly AvosNeeds[] {
+  const crews = useCrewsStore();
+  const agents = useSyncExternalStore(
+    subscribeScheduledAgents,
+    listScheduledAgents,
+  );
+  const runs = useSyncExternalStore(subscribeScheduledRuns, listScheduledRuns);
+  return useMemo(
+    () =>
+      botsAvailable()
+        ? avosNeeds(paths.map(crewIn(crews)), {
+            jobs: { agents, runs },
+            now: Date.now(),
+          })
+        : NO_AVOS_NEEDS,
+    [paths, crews, agents, runs],
+  );
 }
 
 /**

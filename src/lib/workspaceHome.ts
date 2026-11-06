@@ -1,3 +1,4 @@
+import { AVOS, avosRowsCount, type AvosNeeds } from "./avos";
 import type { ActivityEntry } from "./activity";
 import { basename } from "./fs";
 import { displayAppData, projectKey } from "./paths";
@@ -79,8 +80,10 @@ export type HomeSession = {
  * for them, or an unread reply.
  */
 export type HomeAttention = {
-  /** Session id. */
+  /** Session id, or `avos:<folder>` for a project's Avos. */
   id: string;
+  /** The project whose Avos this row opens, in place of a chat. */
+  avos?: string;
   kind: "approval" | "question" | "paused" | "completed" | "failed" | "stopped";
   title: string;
   cwd: string;
@@ -417,6 +420,7 @@ export function homeNeedsYou(
   scope: HomeScope,
   index: HomeSessionIndex = NO_INDEX,
   teams: readonly TeamRun[] = [],
+  avos: readonly AvosNeeds[] = [],
 ): HomeAttention[] {
   const requested = new Map<string, number>();
   const replies = new Map<string, ActivityEntry>();
@@ -468,6 +472,20 @@ export function homeNeedsYou(
       cwd: team.project,
       detail: clip(need.text),
       at: index.at.get(need.sessionId) ?? need.since,
+    });
+  }
+  // A project's Avos waiting on you: one row for all it needs, opening it.
+  for (const { path, rows } of avos) {
+    if (!rows.length || !inHomeScope(scope, path)) continue;
+    const count = avosRowsCount(rows);
+    waiting.push({
+      id: `avos:${path}`,
+      avos: path,
+      kind: "paused",
+      title: AVOS,
+      cwd: path,
+      detail: clip(count === 1 ? rows[0]!.text : `${count} things need you`),
+      at: Math.max(0, ...rows.map((row) => row.at ?? 0)),
     });
   }
   const listed = new Set(waiting.map((item) => item.id));

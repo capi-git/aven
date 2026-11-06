@@ -820,7 +820,7 @@ function PostView({
           <>
             {" "}
             <button type="button" className="team-post-link" onClick={onCards}>
-              See it on the board
+              Answer
             </button>
           </>
         ) : null}

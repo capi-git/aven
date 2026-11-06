@@ -18,9 +18,10 @@ import { formatRelativeTime } from "../lib/githubTasks";
 import { projectName } from "../lib/paths";
 import "./AutomationReviewCard.css";
 
-// A crew card in the Inbox: Ready (Apply, Open board) or Needs you (Open
-// board, Done). Its buttons are Aven's, fixed for its state; the bots only
-// wrote words in its summary, and nothing here sends those anywhere.
+// A helper's card in the Inbox, only where Avos doesn't run (elsewhere it
+// lives in Avos): Ready (Apply, Open board) or Needs you (Open board, Done).
+// Its buttons are Aven's, fixed for its state; the helpers only wrote words
+// in its summary, and nothing here sends those anywhere.
 
 const ACTION =
   "aven-press inline-flex items-center gap-1.5 rounded-md px-3 text-ui-label";
@@ -57,7 +58,7 @@ export function CrewInboxDetail({ item }: { item: CrewInboxItem }) {
       <p className="automation-review-kind">
         <ProjectMark path={item.project} className="automation-review-mark" />
         <span>
-          {crewInboxHeading(item.card)} · {projectName(item.project)} team
+          {crewInboxHeading(item.card)} · {projectName(item.project)}
         </span>
       </p>
       <h2>{item.review.title}</h2>
@@ -107,7 +108,7 @@ export function InboxCrewCard({
       data-utility-card
       data-crew-inbox-card={item.key}
       aria-current={active ? "true" : undefined}
-      aria-label={`${crewInboxHeading(item.card)}: ${item.review.title}, from ${projectName(item.project)}'s team`}
+      aria-label={`${crewInboxHeading(item.card)}: ${item.review.title}, from ${projectName(item.project)}`}
       onClick={onSelect}
       className={`flex w-full flex-col rounded-md border border-transparent px-2.5 py-2 text-left ${
         active
@@ -137,9 +138,7 @@ export function InboxCrewCard({
       </span>
       <span className="mt-1 flex min-w-0 items-center gap-1.5 text-ui-caption text-content/45">
         <ProjectMark path={item.project} className="automation-review-mark" />
-        <span className="min-w-0 truncate">
-          {projectName(item.project)} team
-        </span>
+        <span className="min-w-0 truncate">{projectName(item.project)}</span>
       </span>
     </button>
   );

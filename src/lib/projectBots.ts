@@ -559,6 +559,14 @@ export function botsAvailable(): boolean {
   return !IS_WIN;
 }
 
+/**
+ * What opens a project's Avos, in a button or menu. Where Avos doesn't run
+ * (Windows) the same place is the project's board.
+ */
+export function openAvosLabel(): "Open Avos" | "Open board" {
+  return botsAvailable() ? "Open Avos" : "Open board";
+}
+
 export function activeProjectBots(): ProjectBot[] {
   if (!botsAvailable()) return [];
   return Object.values(read().bots).filter((bot) => bot.on);
