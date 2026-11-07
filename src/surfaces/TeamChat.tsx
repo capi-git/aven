@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { ArrowRight, MoveUp, X } from "../chrome/icons";
+import { ArrowRight, CornerDownRight, MoveUp, X } from "../chrome/icons";
 import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
 import {
   projectDisplayName,
@@ -19,7 +19,13 @@ import {
 } from "../hooks/useProjectLabels";
 import { avosIntro, avosUnmet } from "../lib/avos";
 import {
+  questionToAnswer,
+  waitingQuestions,
+  type WaitingQuestion,
+} from "../lib/avosAnswer";
+import {
   TOO_LONG_FOR_EVERYONE,
+  answerCrewCard,
   firstCardChatText,
   subscribeCrewTell,
   takeCrewTell,
@@ -77,6 +83,8 @@ import "./TeamChat.css";
  * Avos's chat: the thread (its helpers' handoffs and verdicts as short
  * posts, your messages among them, who's working now, and last Avos's
  * message on what needs you), and one box to write to Avos or @ a helper.
+ * While a helper's question waits on you, the box answers it (see
+ * `questionToAnswer` for which one, and when a message goes elsewhere).
  */
 
 /** Posts the thread shows at first, and adds with each Show earlier. */
@@ -125,7 +133,6 @@ export function TeamChat({
   fixer,
   forYou,
   forYouKey = "",
-  onCards,
   onSelected,
   control,
 }: {
@@ -139,14 +146,16 @@ export function TeamChat({
   forYou?: ReactNode;
   /** What that message holds, so a new ask comes into view. */
   forYouKey?: string;
-  /** Answer a card that waits on you (its question, in a sheet). */
-  onCards: () => void;
   /** The teammate the thread shows, for the panel to mark. */
   onSelected: (id: string | null) => void;
-  /** A helper in Avos's profile filters the thread to it. */
+  /**
+   * A helper in Avos's profile filters the thread to it; Answer on a card
+   * that waits on you writes the box's next message to it.
+   */
   control: {
     current: {
       select: (id: string | null) => void;
+      answer: (cardId: string) => void;
     } | null;
   };
 }) {
@@ -188,6 +197,16 @@ export function TeamChat({
   const meeting = avosUnmet(crew);
   const mode: Mode = crewLead(crew) ? "lead" : "card";
   const input = useRef<HTMLTextAreaElement>(null);
+  // The helpers' questions that wait on you: the box answers one of them.
+  const waiting = useMemo(() => waitingQuestions(crew, name), [crew, name]);
+  // The one you picked with Answer, and those you set aside from the box.
+  const [picked, setPicked] = useState<string | null>(null);
+  const [passed, setPassed] = useState<readonly string[]>([]);
+  const answering = questionToAnswer(waiting, {
+    to: to?.id ?? null,
+    picked,
+    passed,
+  });
   const filter =
     selected && members.some((member) => member.id === selected)
       ? selected
@@ -216,8 +235,14 @@ export function TeamChat({
     take();
     return subscribeCrewTell(take);
   }, [project]);
+  const answer = (cardId: string) => {
+    setSelected(null);
+    setTo(null);
+    setPicked(cardId);
+    requestAnimationFrame(() => input.current?.focus());
+  };
   useEffect(() => {
-    control.current = { select };
+    control.current = { select, answer };
     return () => {
       control.current = null;
     };
@@ -289,7 +314,7 @@ export function TeamChat({
           filterName={filter ? name(filter) : undefined}
           working={working}
           now={now}
-          onCards={onCards}
+          onAnswer={answer}
           forYou={filter ? null : forYou}
           forYouKey={filter ? "" : forYouKey}
         />
@@ -299,8 +324,13 @@ export function TeamChat({
           members={members}
           to={to}
           mode={mode}
+          answering={answering}
           input={input}
           onTo={setTo}
+          onPass={(key) => {
+            setPassed((keys) => [...keys, key]);
+            setPicked(null);
+          }}
         />
       </div>
     </div>
@@ -317,7 +347,7 @@ function Thread({
   working,
   now,
   meeting,
-  onCards,
+  onAnswer,
   forYou,
   forYouKey,
 }: {
@@ -329,7 +359,8 @@ function Thread({
   now: number;
   /** Meeting Avos: its chat opens on its introduction. */
   meeting?: boolean;
-  onCards: () => void;
+  /** Answer a card's question: the box writes to it. */
+  onAnswer: (cardId: string) => void;
   /** Avos's message on what needs you, after everything else. */
   forYou: ReactNode;
   forYouKey: string;
@@ -454,7 +485,7 @@ function Thread({
                   key={post.id}
                   project={project}
                   post={post}
-                  onCards={onCards}
+                  onAnswer={onAnswer}
                 />
               ))}
             </ol>
@@ -575,11 +606,11 @@ function AvosMeet({ project }: { project: string }) {
 function PostView({
   project,
   post,
-  onCards,
+  onAnswer,
 }: {
   project: string;
   post: TeamPost;
-  onCards: () => void;
+  onAnswer: (cardId: string) => void;
 }) {
   const workspace = useCrewWorkspace();
   if (post.kind === "you")
@@ -590,10 +621,12 @@ function PostView({
           <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
           {post.to
             ? ` · to ${post.to.name}`
-            : // Written to Avos, it needs no word; what else it became does.
-              post.as && post.as !== "lead"
-              ? ` · ${BECAME[post.as]}`
-              : ""}
+            : post.answers
+              ? ` · answers “${post.answers}”`
+              : // Written to Avos, it needs no word; what else it became does.
+                post.as && post.as !== "lead"
+                ? ` · ${BECAME[post.as]}`
+                : ""}
           {post.from ? (
             <>
               {" · "}
@@ -638,12 +671,10 @@ function PostView({
       >
         {post.needsYou ? <i className="team-event-dot" aria-hidden /> : null}
         {post.text} <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
-        {post.needsYou ? (
+        {post.asks ? (
           <>
             {" "}
-            <button type="button" className="team-post-link" onClick={onCards}>
-              Answer
-            </button>
+            <AnswerLink cardId={post.asks} onAnswer={onAnswer} />
           </>
         ) : null}
       </li>
@@ -688,10 +719,8 @@ function PostView({
             <span>{post.handoff.label}</span>
           </span>
         ) : null}
-        {post.needsYou ? (
-          <button type="button" className="team-post-link" onClick={onCards}>
-            Answer on its card
-          </button>
+        {post.asks ? (
+          <AnswerLink cardId={post.asks} onAnswer={onAnswer} />
         ) : null}
         {post.action === "set-up-git" && workspace?.setUpGit ? (
           <button
@@ -705,6 +734,26 @@ function PostView({
         ) : null}
       </div>
     </li>
+  );
+}
+
+/** Answer a question in the thread: the box below writes to its card. */
+function AnswerLink({
+  cardId,
+  onAnswer,
+}: {
+  cardId: string;
+  onAnswer: (cardId: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="team-post-link"
+      data-team-answer={cardId}
+      onClick={() => onAnswer(cardId)}
+    >
+      Answer
+    </button>
   );
 }
 
@@ -780,8 +829,10 @@ function Composer({
   members,
   to,
   mode,
+  answering,
   input,
   onTo,
+  onPass,
 }: {
   project: string;
   /** Meeting Avos: the box asks what to keep an eye on, and has the cursor. */
@@ -790,8 +841,12 @@ function Composer({
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
   mode: Mode;
+  /** The question a plain message answers now; none for Avos. */
+  answering: WaitingQuestion | null;
   input: RefObject<HTMLTextAreaElement | null>;
   onTo: (to: Addressee | null) => void;
+  /** Set a question aside (its key): the box writes to Avos instead. */
+  onPass: (key: string) => void;
 }) {
   const listId = useId();
   const [text, setText] = useState("");
@@ -872,11 +927,14 @@ function Composer({
       setText(next);
     }
     setPicker(null);
+    // @Avos while a question waits: this message goes to Avos instead.
+    if (!option.id && answering) onPass(answering.key);
     onTo(option.id ? { id: option.id, name: option.name } : null);
     requestAnimationFrame(() => element?.focus());
   };
-  // How long it may be: a chat message, or a card's words.
-  const limit = to || mode === "lead" ? CREW_MESSAGE_MAX : CREW_NOTE_MAX;
+  // How long it may be: a chat message, or a card's words (an answer too).
+  const limit =
+    !answering && (to || mode === "lead") ? CREW_MESSAGE_MAX : CREW_NOTE_MAX;
   const send = async () => {
     const words = text.trim();
     if (!words || sending) return;
@@ -888,7 +946,7 @@ function Composer({
       );
       return;
     }
-    if (!to && words.length > limit) {
+    if (!to && !answering && words.length > limit) {
       setProblem(TOO_LONG_FOR_EVERYONE);
       return;
     }
@@ -898,11 +956,14 @@ function Composer({
     setProblem(null);
     // The box is free at once: what you start typing now stays.
     setText("");
-    // Avos works out what it is: an answer, work, a rule, the goal, a job,
-    // or a question or mock-up for its Researcher or Designer.
+    // An answer goes to the card it answers. Otherwise Avos works out what
+    // it is: work, a rule, the goal, a job, or a question or mock-up for
+    // its Researcher or Designer.
     const why = sentTo
       ? await tellTeammate(project, sentTo.id, words)
-      : await tellTeam(project, words, mode);
+      : answering
+        ? answerCrewCard(project, answering.cardId, words)
+        : await tellTeam(project, words, mode);
     setSending(false);
     if (why) {
       setProblem(why);
@@ -948,13 +1009,14 @@ function Composer({
     }
     if (
       event.key === "Backspace" &&
-      to &&
+      (to || answering) &&
       !sending &&
       !text &&
       event.currentTarget.selectionStart === 0
     ) {
       event.preventDefault();
-      onTo(null);
+      if (to) onTo(null);
+      else if (answering) onPass(answering.key);
       return;
     }
     if (event.key === "Enter" && !event.shiftKey) {
@@ -964,11 +1026,13 @@ function Composer({
   };
   const placeholder = toName
     ? `Write to ${toName}…`
-    : meeting
-      ? "Something to keep an eye on, or what's coming up…"
-      : mode === "lead"
-        ? "Ask Avos anything, or @ a helper…"
-        : "Write to Avos, or @ a helper…";
+    : answering
+      ? `Your answer to ${answering.who}…`
+      : meeting
+        ? "Something to keep an eye on, or what's coming up…"
+        : mode === "lead"
+          ? "Ask Avos anything, or @ a helper…"
+          : "Write to Avos, or @ a helper…";
   return (
     <div className="team-compose-wrap">
       {picker && options.length ? (
@@ -1044,13 +1108,36 @@ function Composer({
             @{toName}
             <X className="size-3" aria-hidden />
           </button>
+        ) : answering ? (
+          <button
+            type="button"
+            className="team-compose-to team-compose-answer"
+            data-team-answering={answering.cardId}
+            disabled={sending}
+            aria-label={`Answering “${answering.title}”. Write to Avos instead`}
+            title={`Answering “${answering.title}”. Write to Avos instead`}
+            onClick={() => {
+              onPass(answering.key);
+              input.current?.focus();
+            }}
+          >
+            <CornerDownRight className="size-3 flex-none" aria-hidden />
+            <span className="team-compose-answer-title">{answering.title}</span>
+            <X className="size-3 flex-none" aria-hidden />
+          </button>
         ) : null}
         <textarea
           ref={input}
           className="team-compose-input"
           rows={1}
           role="combobox"
-          aria-label={toName ? `Write to ${toName}` : "Write to Avos"}
+          aria-label={
+            toName
+              ? `Write to ${toName}`
+              : answering
+                ? `Answer ${answering.who}`
+                : "Write to Avos"
+          }
           aria-autocomplete="list"
           aria-expanded={!!picker && options.length > 0}
           aria-controls={picker ? listId : undefined}
@@ -1092,7 +1179,13 @@ function Composer({
         <button
           type="submit"
           className="team-compose-send"
-          aria-label={toName ? `Send to ${toName}` : "Send to Avos"}
+          aria-label={
+            toName
+              ? `Send to ${toName}`
+              : answering
+                ? "Send answer"
+                : "Send to Avos"
+          }
           disabled={!text.trim() || sending}
         >
           <MoveUp className="size-3.5" />

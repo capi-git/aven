@@ -28,9 +28,12 @@ import {
   renewCrewJob,
   queuedCards,
   stackedCards,
+  buildsAnywhere,
+  cardBuilder,
   crewCard,
   crewMemberName,
   getCrew,
+  memberOn,
   updateCrew,
   withCard,
   withFeed,
@@ -1559,6 +1562,134 @@ export function resumeCrewCard(
   void moveFeatureCard(path, cardId, "building", "");
 }
 
+/** Said when an answer is longer than a card's note can be. */
+export const TOO_LONG_FOR_AN_ANSWER = `An answer has to fit in ${CREW_NOTE_MAX} characters. Shorten it, or write to Avos.`;
+
+/** Said when the question a message was meant for was answered meanwhile. */
+export const ALREADY_ANSWERED =
+  "That question was already answered. Send it again to write to Avos.";
+
+/**
+ * Whether your answer says yes to a Builder: you agree to a helper that
+ * asked for one ("Yes", "Sure, hand it over"), or you ask for one yourself
+ * ("add a builder"). A "no" never does.
+ */
+export function answerWantsBuilder(question: string, answer: string): boolean {
+  const words = answer.trim();
+  if (/^(no|nope|nah|don'?t|do not|not now)\b/i.test(words)) return false;
+  const named = /\bbuilders?\b/i;
+  if (
+    /\b(add|bring in|get|give|hand|pass|use|need)\b[^.?!]{0,30}\bbuilders?\b/i.test(
+      words,
+    )
+  )
+    return true;
+  if (!named.test(question)) return false;
+  return (
+    named.test(words) ||
+    /^(yes|yeah|yep|yup|sure|ok(ay)?|please|go ahead|do it|sounds good)\b/i.test(
+      words,
+    )
+  );
+}
+
+/**
+ * A helper kept to some files (a Tester changes only tests) that asked for
+ * a Builder, and your yes: the card goes to a Builder that can change any
+ * file, brought in first when the team has none, and Avos says so in its
+ * chat. Returns the note the Builder gets (your answer with the question
+ * it answers), or null when the card stays with its helper.
+ */
+function handToBuilder(
+  path: string,
+  card: CrewCard,
+  answer: string,
+  now: number,
+): string | null {
+  const crew = getCrew(path);
+  if (!crew || card.stuck?.reason !== "question") return null;
+  if (buildsAnywhere(cardBuilder(crew, card))) return null;
+  if (!answerWantsBuilder(card.stuck.text, answer)) return null;
+  let builder = crew.members.find(
+    (member) => buildsAnywhere(member) && memberOn(member),
+  );
+  // One you switched off stays off: the answer goes to the helper instead.
+  if (!builder && crew.members.some(buildsAnywhere)) return null;
+  const preset = CREW_PRESETS.find((item) => item.key === "builder");
+  if (!builder && !preset) return null;
+  updateCrew(path, (current) => {
+    let next = current;
+    const brought = !builder;
+    if (!builder) {
+      next = withPreset(
+        next,
+        preset!,
+        crewModelFor(crewModelsHere(), "builder"),
+      );
+      builder = next.members.at(-1)!;
+    }
+    const held = crewCard(next, card.id);
+    if (!held) return current;
+    const who = crewMemberName(next, builder.id);
+    return withFeed(withCard(next, { ...held, builderId: builder.id }), {
+      at: now,
+      kind: "note",
+      who: "lead",
+      cardId: card.id,
+      title: card.title,
+      text: brought
+        ? `I brought in ${who} and handed it “${card.title}”.`
+        : `I handed “${card.title}” to ${who}.`,
+    });
+  });
+  // Your words whole; the question they answer in what room is left.
+  const asked = card.stuck.text.replace(/\s+/g, " ").trim();
+  const room = CREW_NOTE_MAX - answer.length - 30;
+  return room > 20
+    ? `${answer} (This answers: ${asked.length > room ? `${asked.slice(0, room - 1)}…` : asked})`
+    : answer;
+}
+
+/**
+ * Your answer to a helper's question, written in Avos's chat box: it goes
+ * to the card as its next turn (as Answer on the card did), and stays in
+ * the chat as your message, marked as the answer to that card. A yes to a
+ * helper that asked for a Builder hands the card to one (see
+ * `handToBuilder`). Resolves with why it couldn't, or null.
+ */
+export function answerCrewCard(
+  path: string,
+  cardId: string,
+  text: string,
+  now = Date.now(),
+): string | null {
+  const words = text.trim();
+  if (!words) return null;
+  if (words.length > CREW_NOTE_MAX) return TOO_LONG_FOR_AN_ANSWER;
+  const crew = getCrew(path);
+  if (!crew?.on) return AVOS_ASLEEP;
+  const card = crewCard(crew, cardId);
+  if (card?.stage !== "stuck" || card.stuck?.reason !== "question")
+    return ALREADY_ANSWERED;
+  const note = handToBuilder(path, card, words, now) ?? words;
+  const before = new Set(getCrew(path)?.feed.map((entry) => entry.id));
+  resumeCrewCard(path, cardId, note, now);
+  // The Feed's own line ("You sent … back: …"): your message stands for it.
+  const echo = getCrew(path)?.feed.find(
+    (entry) =>
+      !before.has(entry.id) && entry.who === "you" && entry.cardId === cardId,
+  )?.id;
+  updateCrew(path, (current) =>
+    withMessage(current, {
+      at: now,
+      text: words,
+      card: cardId,
+      ...(echo ? { echo } : {}),
+    }),
+  );
+  return null;
+}
+
 /**
  * A card that stepped aside (it changed nothing) goes again from the top:
  * first in line, built afresh on whatever the team has now, with your words
@@ -2927,8 +3058,12 @@ export function bringInBuilders(
 ): Crew | null {
   const crew = getCrew(path);
   if (!crew) return null;
+  // A Tester or Scribe is a Builder kept to its paths: it can't build an
+  // ordinary card, so it doesn't count as the team having a Builder.
   const has = (role: CrewRole) =>
-    crew.members.some((member) => member.role === role);
+    crew.members.some((member) =>
+      role === "builder" ? buildsAnywhere(member) : member.role === role,
+    );
   const needed = (["builder", "checker"] as const).filter((role) => !has(role));
   if (!needed.length) return null;
   const names: string[] = [];

@@ -14,6 +14,7 @@ import {
   type CrewFeedAction,
   type CrewFeedEntry,
   type CrewMember,
+  type CrewMessage,
   type CrewMessageFrom,
   type CrewMessageKind,
   type CrewRole,
@@ -61,6 +62,8 @@ export type TeamPost =
       handoff?: TeamHandoff;
       /** It waits on you (a question). */
       needsYou?: boolean;
+      /** The card whose question waits on you: Answer writes to it. */
+      asks?: string;
       /** What it offers you: Set up Git, when building needs it. */
       action?: CrewFeedAction;
     }
@@ -75,6 +78,8 @@ export type TeamPost =
       as?: CrewMessageKind;
       /** The chat you wrote it from with @Avos. */
       from?: CrewMessageFrom;
+      /** The title of the card whose question it answered. */
+      answers?: string;
     }
   | {
       kind: "event";
@@ -84,6 +89,8 @@ export type TeamPost =
       /** The teammate it is about, when it is about one. */
       about?: string;
       needsYou?: boolean;
+      /** The card whose question waits on you: Answer writes to it. */
+      asks?: string;
     }
   | {
       /** A job the team keeps: "Keeping an eye on … · <schedule> · Change". */
@@ -246,6 +253,14 @@ function yourWords(entry: CrewFeedEntry): boolean {
   );
 }
 
+/** A stuck line's card, when what it waits on is your answer to a question. */
+function asks(crew: Crew, entry: CrewFeedEntry): { asks?: string } {
+  return entry.cardId &&
+    crewCard(crew, entry.cardId)?.stuck?.reason === "question"
+    ? { asks: entry.cardId }
+    : {};
+}
+
 /** One Feed entry as the thread shows it, or null when it isn't shown. */
 function postOf(
   crew: Crew,
@@ -282,7 +297,9 @@ function postOf(
       at: entry.at,
       text: plain(teamWording(entry.text)),
       ...(entry.member ? { about: entry.member } : {}),
-      ...(entry.kind === "stuck" && waiting(entry) ? { needsYou: true } : {}),
+      ...(entry.kind === "stuck" && waiting(entry)
+        ? { needsYou: true, ...asks(crew, entry) }
+        : {}),
     };
   const base = {
     kind: "post" as const,
@@ -342,7 +359,7 @@ function postOf(
       return {
         ...base,
         text: plain(entry.text),
-        ...(waiting(entry) ? { needsYou: true } : {}),
+        ...(waiting(entry) ? { needsYou: true, ...asks(crew, entry) } : {}),
       };
     // "Researcher read 6 sources for “…”: …", handed to you as Findings.
     case "findings":
@@ -371,6 +388,15 @@ function postOf(
     default:
       return { ...base, text: plain(withoutName(entry.text, by.name)) };
   }
+}
+
+/** The title of the card a message answered: the card's, else its Feed line's. */
+function answered(crew: Crew, message: CrewMessage): string | undefined {
+  if (!message.card) return undefined;
+  return (
+    crewCard(crew, message.card)?.title ??
+    crew.feed.find((entry) => entry.id === message.echo)?.title
+  );
 }
 
 /**
@@ -425,6 +451,7 @@ export function teamPosts(
         : {}),
       ...(message.as && !message.to ? { as: message.as } : {}),
       ...(message.from ? { from: message.from } : {}),
+      ...(answered(crew, message) ? { answers: answered(crew, message) } : {}),
     });
   }
   for (const entry of crew.feed) {

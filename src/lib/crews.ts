@@ -794,6 +794,8 @@ export type CrewMessage = {
   echo?: string;
   /** The chat you wrote it from with @Avos, for a link back to it. */
   from?: CrewMessageFrom;
+  /** The card whose question it answered (its id). */
+  card?: string;
 };
 
 /** A chat a message to Avos came from: its id and its title then. */
@@ -1981,12 +1983,14 @@ function readMessages(value: unknown): CrewMessage[] {
         return null;
       const to = text(entry.to, 60);
       const echo = text(entry.echo, 60);
+      const card = text(entry.card, 60);
       return {
         id: entry.id.slice(0, 60),
         at: entry.at,
         text: body,
         ...(to ? { to } : {}),
         ...(echo ? { echo } : {}),
+        ...(card ? { card } : {}),
         ...(MESSAGE_KINDS.has(entry.as as CrewMessageKind)
           ? { as: entry.as as CrewMessageKind }
           : {}),
@@ -2687,13 +2691,26 @@ export function crewMemberById(
 export const memberOn = (member: CrewMember | undefined): boolean =>
   !!member && !member.paused;
 
-/** The Builder a card goes to when no rule picks one: yours, or the first that's on. */
+/**
+ * A Builder that can change any file: one with no paths of its own. A
+ * Tester or Scribe is a Builder kept to its paths (tests, docs), so it
+ * can't build an ordinary card.
+ */
+export function buildsAnywhere(member: CrewMember | undefined): boolean {
+  return member?.role === "builder" && !member.scope?.length;
+}
+
+/**
+ * The Builder a card goes to when no rule picks one: yours, else the first
+ * on that can change any file, else the first that's on.
+ */
 export function defaultBuilder(crew: Crew): CrewMember | undefined {
   const chosen = crewMemberById(crew, crew.defaultBuilder);
   if (chosen?.role === "builder" && memberOn(chosen)) return chosen;
-  return crew.members.find(
+  const on = crew.members.filter(
     (member) => member.role === "builder" && memberOn(member),
   );
+  return on.find(buildsAnywhere) ?? on[0];
 }
 
 /** A card's words as a rule reads them: its title and note, lower-cased. */
@@ -3200,6 +3217,7 @@ export function withMessage(
     ...(message.as ? { as: message.as } : {}),
     ...(message.echo ? { echo: message.echo } : {}),
     ...(message.from ? { from: message.from } : {}),
+    ...(message.card ? { card: message.card } : {}),
   };
   return {
     ...crew,

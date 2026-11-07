@@ -709,3 +709,17 @@
   font-size: var(--text-ui-reading);
   line-height: 1.45;
 }
+
+/* The question a plain message answers: its card's title, cut to fit. */
+.team-compose-answer {
+  max-width: 45%;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.team-compose-answer-title {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
