@@ -1,34 +1,45 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_DOTS,
-  AGENT_ROWS,
-  agentCells,
+  AGENT_FACES,
+  AGENT_GRIDS,
+  agentCellCentre,
+  agentFacePaths,
   agentMemberTone,
   agentOutfit,
   agentPhase,
   botAgentState,
   crewAgentState,
 } from "./agentMark";
-import { DOT_GRID, dotsPath } from "./dotSigils";
 
 describe("Bot's drawing", () => {
-  it("is the work dots' 5×5 grid: a light, a head with two eyes, two feet", () => {
-    expect(AGENT_ROWS).toHaveLength(DOT_GRID);
-    for (const row of AGENT_ROWS) expect(row).toHaveLength(DOT_GRID);
-    expect(agentCells("l")).toEqual([[0, 2]]);
-    expect(agentCells("e")).toEqual([
-      [2, 1],
-      [2, 3],
-    ]);
-    // Symmetric, so its look and blink read the same either way.
-    for (const row of AGENT_ROWS) expect([...row].reverse().join("")).toBe(row);
-    // Every cell is one part, and the faint rest fills the square.
-    const parts = (["l", "h", "e", "."] as const).map(
-      (part) => agentCells(part).length,
-    );
-    expect(parts.reduce((a, b) => a + b)).toBe(DOT_GRID * DOT_GRID);
-    expect(AGENT_DOTS.head).toBe(dotsPath(agentCells("h")));
-    expect(AGENT_DOTS.grid).toBe(dotsPath(agentCells(".")));
+  it("draws every face on its grid, symmetric, inside the screen", () => {
+    for (const [grid, faces] of Object.entries(AGENT_FACES)) {
+      const { cols, rows } = AGENT_GRIDS[grid as keyof typeof AGENT_GRIDS];
+      for (const [face, lines] of Object.entries(faces)) {
+        expect(lines, `${grid} ${face}`).toHaveLength(rows);
+        for (const line of lines) expect(line).toHaveLength(cols);
+        // Every face lights something.
+        expect(lines.join("")).toMatch(/[#u]/);
+      }
+      // Faces that look straight at you are the same either way round.
+      for (const face of ["squares", "narrow", "happy", "cross"] as const)
+        for (const line of faces[face])
+          expect([...line].reverse().join(""), `${grid} ${face}`).toBe(line);
+      // Its corners stay inside the screen.
+      const [x0, y0] = agentCellCentre(grid as never, 0, 0);
+      const [x1, y1] = agentCellCentre(grid as never, rows - 1, cols - 1);
+      expect(x0).toBeGreaterThan(5);
+      expect(y0).toBeGreaterThan(5);
+      expect(x1).toBeLessThan(95);
+      expect(y1).toBeLessThan(95);
+    }
+  });
+
+  it("keeps a prompt's cursor apart, so it alone blinks", () => {
+    const prompt = agentFacePaths("large", "prompt");
+    expect(prompt.cursor.match(/M/g)).toHaveLength(5);
+    expect(prompt.lit.match(/M/g)).toHaveLength(10);
+    expect(agentFacePaths("large", "squares").cursor).toBe("");
   });
 });
 
@@ -69,7 +80,7 @@ describe("a member's state", () => {
     expect(crewAgentState("working", false)).toBe("working");
     expect(crewAgentState(undefined, true)).toBe("working");
     expect(crewAgentState("watching", false)).toBe("watching");
-    expect(crewAgentState("ready", false)).toBe("resting");
+    expect(crewAgentState("ready", false)).toBe("ready");
     expect(crewAgentState(undefined, false, "still")).toBe("still");
     expect(crewAgentState("paused", false)).toBe("still");
   });
@@ -80,7 +91,7 @@ describe("a bot's state", () => {
     expect(botAgentState("watching")).toBe("watching");
     expect(botAgentState("working")).toBe("working");
     expect(botAgentState("needs-you")).toBe("needs");
-    expect(botAgentState("fix-ready")).toBe("resting");
+    expect(botAgentState("fix-ready")).toBe("ready");
     expect(botAgentState("paused")).toBe("still");
     expect(botAgentState(undefined)).toBe("resting");
   });

@@ -4,10 +4,9 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  AGENT_DOT,
-  AGENT_DOT_SMALL,
-  AGENT_DOTS,
-  agentCells,
+  AGENT_GLASS,
+  AGENT_STATE_FACES,
+  agentFacePaths,
 } from "../lib/agentMark";
 import { AgentMark } from "./AgentMark";
 
@@ -55,75 +54,103 @@ function rule(text: string, selector: string): string {
   return blockAfter(text, at);
 }
 
-const smallBlock = blockAfter(
-  css,
-  css.indexOf("@container (max-width: 23.5px)"),
-);
 const motionBlock = blockAfter(
   css,
   css.indexOf("@media (prefers-reduced-motion: no-preference)"),
 );
 
-/** A cell's centre in the dots' 100-unit square: [x, y]. */
-const centre = ([row, column]: [number, number]) => [
-  10 + column * 20,
-  10 + row * 20,
-];
-
 describe("AgentMark", () => {
-  it("draws its head, the faint rest of the grid, its eyes and a light", async () => {
-    const mark = await draw({});
+  it("is a screen: its glass, its face at three densities, its frame and glow", async () => {
+    const mark = await draw({ state: "watching" });
     expect(mark.classList.contains("dot-mark")).toBe(true);
     expect(
       mark.querySelector(".agent-body .agent-head")!.getAttribute("d"),
-    ).toBe(AGENT_DOTS.head);
-    expect(
-      mark.querySelector(".agent-body .agent-grid")!.getAttribute("d"),
-    ).toBe(AGENT_DOTS.grid);
-    expect(
-      mark.querySelector(".agent-eyes .agent-eye")!.getAttribute("d"),
-    ).toBe(AGENT_DOTS.eyes);
-    expect(mark.querySelector(".agent-bob > .agent-light")).not.toBeNull();
-    expect(mark.dataset.agent).toBe("still");
-    // A label's eyes are open and nothing moves.
-    expect(mark.querySelector<HTMLElement>(".agent-eyes")!.dataset.mood).toBe(
-      "open",
+    ).toBe(AGENT_GLASS);
+    expect(mark.dataset.face).toBe("squares");
+    const faces = [...mark.querySelectorAll(".agent-eyes .agent-face")];
+    expect(faces.map((face) => face.getAttribute("class"))).toEqual([
+      "agent-face agent-face-large",
+      "agent-face agent-face-medium",
+      "agent-face agent-face-small",
+    ]);
+    expect(faces[0]!.querySelector(".agent-eye")!.getAttribute("d")).toBe(
+      agentFacePaths("large", "squares").lit,
     );
-    expect(mark.querySelector(".agent-key")).toBeNull();
+    expect(mark.querySelector(".agent-ring")).not.toBeNull();
+    expect(mark.querySelector(".agent-glow")).not.toBeNull();
+    // Only working runs a light round its edge.
+    expect(mark.querySelector(".agent-comet")).toBeNull();
   });
 
-  it("shows each mood in its eyes, and a lit foot while it works", async () => {
-    const mood = async (state: Parameters<typeof AgentMark>[0]["state"]) => {
+  it("shows a face for each state, and a light round its edge while it works", async () => {
+    const shown = async (state: Parameters<typeof AgentMark>[0]["state"]) => {
       const mark = await draw({ state });
       return {
-        eyes: mark.querySelector<HTMLElement>(".agent-eyes")!.dataset.mood,
-        key: !!mark.querySelector(".agent-key"),
+        face: mark.dataset.face,
+        cursor: !!mark.querySelector(".agent-cursor"),
+        comet: !!mark.querySelector(".agent-comet"),
       };
     };
-    expect(await mood("resting")).toEqual({ eyes: "closed", key: false });
-    expect(await mood("watching")).toEqual({ eyes: "open", key: false });
-    expect(await mood("working")).toEqual({ eyes: "squint", key: true });
-    expect(await mood("needs")).toEqual({ eyes: "wide", key: false });
-    expect(rule(css, '.agent-eyes[data-mood="wide"] .agent-eye')).toContain(
-      "var(--aven-needs-you)",
+    expect(await shown("still")).toEqual({
+      face: "squares",
+      cursor: false,
+      comet: false,
+    });
+    expect(await shown("resting")).toEqual({
+      face: "prompt",
+      cursor: true,
+      comet: false,
+    });
+    expect(await shown("working")).toEqual({
+      face: "narrow",
+      cursor: false,
+      comet: true,
+    });
+    expect(await shown("needs")).toMatchObject({ face: "chevron" });
+    expect(await shown("ready")).toMatchObject({ face: "squares" });
+    for (const [state, face] of Object.entries(AGENT_STATE_FACES))
+      expect((await draw({ state: state as never })).dataset.face).toBe(face);
+  });
+
+  it("colours what needs you amber and what's ready green, framed and tinted", () => {
+    expect(rule(css, '.agent-mark[data-agent="needs"]')).toContain(
+      "--agent-face: var(--aven-needs-you)",
     );
-    expect(rule(css, '.agent-eyes[data-mood="closed"] .agent-eye')).toContain(
-      "opacity",
+    expect(rule(css, '.agent-mark[data-agent="ready"]')).toContain(
+      "--agent-face: var(--agent-ready)",
+    );
+    const framed = rule(
+      css,
+      '.agent-mark:is([data-agent="needs"], [data-agent="ready"]) .agent-ring',
+    );
+    expect(framed).toContain("opacity: 1");
+    expect(framed).toContain("box-shadow: inset 0 0 0");
+  });
+
+  it("puts on a happy face for a done turn, and red eyes for a failed one", async () => {
+    expect(
+      (await draw({ reaction: "cheer", reactionId: "t1" })).dataset.face,
+    ).toBe("happy");
+    expect(
+      (await draw({ reaction: "slump", reactionId: "t2" })).dataset.face,
+    ).toBe("squares");
+    expect(rule(css, '.agent-mark[data-reaction="cheer"]')).toContain(
+      "--agent-face: var(--agent-happy)",
     );
   });
 
-  it("says its colour and role as attributes, wears nothing, and leaves Grey plain", async () => {
+  it("says its colour and role as attributes, and leaves Grey plain", async () => {
     let mark = await draw({ state: "working", tone: "blue", outfit: "hat" });
     expect(mark.dataset.tone).toBe("blue");
     expect(mark.dataset.outfit).toBe("hat");
-    expect(mark.querySelectorAll("path")).toHaveLength(3);
     mark = await draw({ tone: "grey", outfit: "tick" });
     expect(mark.dataset.tone).toBeUndefined();
   });
 
-  it("draws its outline alone, faint, for a teammate still to come", async () => {
-    const mark = await draw({ vacant: true, outfit: "headset" });
+  it("draws its screen alone, faint, for a teammate still to come", async () => {
+    const mark = await draw({ vacant: true, state: "working" });
     expect(mark.querySelector(".agent-eyes")).toBeNull();
+    expect(mark.querySelector(".agent-comet")).toBeNull();
     expect(mark.querySelector(".agent-head")).not.toBeNull();
     expect(rule(css, ".agent-mark[data-vacant] .agent-bob")).toContain(
       "opacity",
@@ -141,58 +168,35 @@ describe("AgentMark", () => {
     ).toBeNull();
   });
 
-  it("draws its dots as the other dot marks do, bigger when small", () => {
-    const sizes = (block: string, selector: string, dot: number) => {
-      const own = rule(block, selector);
-      expect(own).toContain(`--agent-dot: ${dot};`);
-      expect(own).toContain(`--agent-size: ${dot}%;`);
-      expect(own).toContain(`--agent-inset: ${dot / 2}%;`);
-      // Its lit foot steps two cells, in its own widths.
-      expect(own).toContain(
-        `--agent-step: ${Number(((40 / dot) * 100).toFixed(3))}%;`,
+  it("picks the face's density by size: 5×5 small, 7×5 from 20px, 13×9 and its glass from 36px", () => {
+    expect(rule(css, ".agent-face-small")).toContain("display: inline");
+    const medium = blockAfter(
+      css,
+      css.indexOf("@container (min-width: 19.5px)"),
+    );
+    expect(rule(medium, ".agent-face-medium")).toContain("display: inline");
+    const large = blockAfter(
+      css,
+      css.indexOf("@container (min-width: 35.5px)"),
+    );
+    expect(large).toContain(
+      ".agent-face-large,\n  .agent-glass {\n    display: inline;",
+    );
+  });
+
+  it("gives each state its own motion", () => {
+    for (const [selector, name] of [
+      ['.agent-mark[data-agent="resting"] .agent-cursor', "agent-blink"],
+      ['.agent-mark[data-agent="watching"] .agent-eyes', "agent-look"],
+      ['.agent-mark[data-agent="working"] .agent-eyes', "agent-scan"],
+      ['.agent-mark[data-agent="working"] .agent-comet', "agent-spin"],
+      ['.agent-mark[data-agent="needs"] .agent-eyes', "agent-nudge"],
+      ['.agent-mark[data-agent="needs"] .agent-ring', "agent-breathe"],
+      ['.agent-mark[data-agent="ready"] .agent-eyes', "agent-wink"],
+    ] as const)
+      expect(rule(motionBlock, selector), selector).toContain(
+        `animation: ${name} `,
       );
-    };
-    sizes(css, ".agent-mark", AGENT_DOT);
-    // The mark is its own container: a size query styles what's inside it.
-    sizes(smallBlock, ".agent-bob", AGENT_DOT_SMALL);
-    const marks = readFileSync("src/chrome/DotMark.css", "utf8");
-    expect(marks).toContain(`--dot-mark-dot: ${AGENT_DOT};`);
-    expect(marks).toContain(`--dot-mark-dot: ${AGENT_DOT_SMALL};`);
-  });
-
-  it("puts its light on the antenna's dot and the lit foot on its left foot", () => {
-    const [lightX, lightY] = centre(agentCells("l")[0]!);
-    const light = rule(css, ".agent-light");
-    expect(light).toContain(`left: calc(${lightX}% - var(--agent-inset))`);
-    expect(light).toContain(`top: calc(${lightY}% - var(--agent-inset))`);
-    const feet = agentCells("h").filter(([row]) => row === 4);
-    expect(feet).toHaveLength(2);
-    const [footX, footY] = centre(feet[0]!);
-    // Its own rule, after the one it shares with the light.
-    const key = blockAfter(css, css.lastIndexOf("\n.agent-key {"));
-    expect(key).toContain(`left: calc(${footX}% - var(--agent-inset))`);
-    expect(key).toContain(`top: calc(${footY}% - var(--agent-inset))`);
-    expect(centre(feet[1]!)[0]! - footX).toBe(40);
-    // Its eyes blink about the row they sit on.
-    const [, eyeY] = centre(agentCells("e")[0]!);
-    expect(
-      /\n\.agent-eyes \{\s*transform-origin: ([^;]+);/.exec(css)?.[1],
-    ).toBe(`50% ${eyeY}%`);
-  });
-
-  it("moves as far as before: a 6-unit bounce, a 2.6-unit look, a step a foot on", () => {
-    const pct = (part: number) => `${Number(((part / 64) * 100).toFixed(6))}%`;
-    const frames = (name: string) =>
-      blockAfter(css, css.indexOf(`@keyframes ${name} `));
-    expect(frames("agent-bounce")).toContain(`translateY(-${pct(6)})`);
-    expect(frames("agent-busy")).toContain(`translateY(-${pct(1.4)})`);
-    expect(frames("agent-doze")).toContain(`translateY(${pct(0.4)})`);
-    expect(frames("agent-doze")).toContain(`translateY(${pct(1.6)})`);
-    expect(frames("agent-look")).toContain(`translateX(-${pct(2.6)})`);
-    expect(frames("agent-look")).toContain(`translateX(${pct(2.6)})`);
-    // A blink at each turn of its look.
-    expect(frames("agent-look").match(/scaleY\(0\.12\)/g)).toHaveLength(2);
-    expect(frames("agent-type")).toContain("translateX(var(--agent-step))");
   });
 
   it("animates only transform and opacity", () => {
@@ -218,9 +222,13 @@ describe("AgentMark", () => {
       '[data-workspace-stage][data-resizing="true"]',
     ])
       expect(pause).toContain(flag);
-    expect(pause).toContain(
-      ":is(.agent-bob, .agent-eyes, .agent-light, .agent-key)",
-    );
+    for (const part of [
+      ".agent-eyes",
+      ".agent-cursor",
+      ".agent-comet",
+      ".agent-ring",
+    ])
+      expect(pause).toContain(part);
     expect(pause).toContain("animation-play-state: paused");
   });
 });

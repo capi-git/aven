@@ -1,10 +1,13 @@
 import { memo, type CSSProperties } from "react";
 import {
-  AGENT_DOTS,
+  AGENT_GLASS,
+  AGENT_STATE_FACES,
+  agentFacePaths,
+  type AgentFace,
+  type AgentGrid,
   type AgentOutfit,
   type AgentState,
 } from "../lib/agentMark";
-import { DOT_VIEW_BOX } from "../lib/dotSigils";
 import type { MarkTone } from "../lib/markTones";
 import {
   MASCOT_REACTION_MS,
@@ -14,40 +17,55 @@ import "./AgentMark.css";
 
 export type { AgentOutfit, AgentState } from "../lib/agentMark";
 
-type Mood = "open" | "wide" | "squint" | "closed";
+const VIEW_BOX = "0 0 100 100";
+const GRIDS: readonly AgentGrid[] = ["large", "medium", "small"];
 
-const MOODS: Readonly<Record<AgentState, Mood>> = {
-  still: "open",
-  watching: "open",
-  resting: "closed",
-  working: "squint",
-  needs: "wide",
-};
+/** Each face's paths at each density, worked out once. */
+const PATHS = Object.fromEntries(
+  GRIDS.map((grid) => [
+    grid,
+    Object.fromEntries(
+      (
+        ["prompt", "squares", "narrow", "chevron", "happy", "cross"] as const
+      ).map((face) => [face, agentFacePaths(grid, face)]),
+    ),
+  ]),
+) as Record<AgentGrid, Record<AgentFace, { lit: string; cursor: string }>>;
+
+/** A reaction's face over the state's while it plays. */
+function reactionFace(
+  reaction: MascotReactionKind | null,
+): AgentFace | undefined {
+  if (reaction === "cheer") return "happy";
+  if (reaction === "slump" || reaction === "shrug") return "squares";
+  return undefined;
+}
 
 type Props = {
   /** What the agent is doing (`still` when not set). */
   state?: AgentState;
   /**
    * Its colour: its project's for Avos, a bot and a chat, its role's for a
-   * teammate. Grey, or none, is the text colour. Its eyes and light turn
-   * amber while it needs you.
+   * teammate. Grey, or none, is the text colour. What needs you is amber,
+   * what's ready green, whatever its colour.
    */
   tone?: MarkTone | null;
   /** Its role's outfit (`agentOutfit`), said as `data-outfit` only. */
   outfit?: AgentOutfit;
   /**
-   * A one-shot reaction to a turn's end or a reply: a happy hop when it
-   * completed, a slump when it failed, a blink, a nod or a lean.
+   * A one-shot reaction to a turn's end or a reply: a happy face and a hop
+   * when it completed, its eyes going red when it failed or was stopped, a
+   * nod or a lean.
    */
   reaction?: MascotReactionKind | null;
   /** Identifies one reaction, so a new one restarts its motion. */
   reactionId?: string;
   /**
    * How far into its loops it starts, in seconds (`agentPhase`), so agents
-   * side by side bob and blink out of step.
+   * side by side look about and blink out of step.
    */
   phase?: number;
-  /** Its outline alone, faint: a place for a teammate still to come. */
+  /** Its screen alone, faint: a place for a teammate still to come. */
   vacant?: boolean;
   /** Sizes the mark (15px when not set). */
   className?: string;
@@ -55,13 +73,14 @@ type Props = {
 };
 
 /**
- * An agent's mark, Bot: a little robot drawn in the work dots' 5×5 grid
- * (`AGENT_ROWS`), in the agent's colour, with two glowing eyes and a light
- * on its antenna, the rest of the grid faint (see `AgentState`). The body
- * is one still SVG; only a few small parts move (the whole bot's bob, its
- * eyes, its light, and while it works one lit foot), each by transform or
- * opacity, so a page full of marks costs little and nothing runs per frame
- * in script.
+ * An agent's mark, Bot: a little screen of dots with a face lit on it (see
+ * `AgentState`), in the agent's colour. Its glass and face are still SVG;
+ * what moves are a few small layers, by transform and opacity only: the
+ * whole screen for a reaction (`.agent-bob`), its face (`.agent-eyes`), a
+ * prompt's cursor, the light running round its edge while it works
+ * (`.agent-comet`), and its frame and glow while it needs you or is ready.
+ * So a page full of marks costs little and nothing runs per frame in
+ * script.
  *
  * It is a `.dot-mark` too, so the sizes callers give their marks, and the
  * mark colour tokens, apply to it as they do to the other marks.
@@ -87,11 +106,13 @@ export const AgentMark = memo(function AgentMark({
           ...(phase ? { "--agent-phase": `${-phase}s` } : {}),
         } as CSSProperties)
       : style;
+  const face = reactionFace(reaction) ?? AGENT_STATE_FACES[state];
   return (
     <span
       key={reaction ? (reactionId ?? reaction) : undefined}
       className={`dot-mark agent-mark ${className}`}
       data-agent={state}
+      data-face={face}
       data-tone={tone && tone !== "grey" ? tone : undefined}
       data-outfit={outfit}
       data-reaction={reaction ?? undefined}
@@ -100,24 +121,36 @@ export const AgentMark = memo(function AgentMark({
       aria-hidden
     >
       <span className="agent-bob">
-        <svg
-          className="agent-body"
-          viewBox={DOT_VIEW_BOX}
-          aria-hidden
-          focusable="false"
-        >
-          <path className="agent-grid" d={AGENT_DOTS.grid} />
-          <path className="agent-head" d={AGENT_DOTS.head} />
-        </svg>
-        {vacant ? null : (
-          <span className="agent-eyes" data-mood={MOODS[state]}>
-            <svg viewBox={DOT_VIEW_BOX} aria-hidden focusable="false">
-              <path className="agent-eye" d={AGENT_DOTS.eyes} />
-            </svg>
-          </span>
-        )}
-        <i className="agent-light" />
-        {state === "working" && !vacant ? <i className="agent-key" /> : null}
+        {state === "working" && !vacant ? <i className="agent-comet" /> : null}
+        <span className="agent-screen">
+          <i className="agent-glow" />
+          <svg
+            className="agent-body"
+            viewBox={VIEW_BOX}
+            aria-hidden
+            focusable="false"
+          >
+            <path className="agent-head agent-glass" d={AGENT_GLASS} />
+          </svg>
+          {vacant ? null : (
+            <span className="agent-eyes" data-mood={face}>
+              <svg viewBox={VIEW_BOX} aria-hidden focusable="false">
+                {GRIDS.map((grid) => (
+                  <g key={grid} className={`agent-face agent-face-${grid}`}>
+                    <path className="agent-eye" d={PATHS[grid][face].lit} />
+                    {PATHS[grid][face].cursor ? (
+                      <path
+                        className="agent-cursor"
+                        d={PATHS[grid][face].cursor}
+                      />
+                    ) : null}
+                  </g>
+                ))}
+              </svg>
+            </span>
+          )}
+          <i className="agent-ring" />
+        </span>
       </span>
     </span>
   );

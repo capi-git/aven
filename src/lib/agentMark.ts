@@ -1,22 +1,23 @@
 import type { BotStatus } from "./projectBots";
 import type { CrewStatus } from "./crewView";
-import { dotsPath } from "./dotSigils";
 import { crewMemberTone, type MarkTone } from "./markTones";
 
 /**
- * Every agent's mark, Bot: a little robot drawn in dots, the work dots'
- * 5×5 grid, in the agent's colour, with two glowing eyes and a light on its
- * antenna.
+ * Every agent's mark, Bot: a little screen of dots with a face lit on it,
+ * in the agent's colour, that changes with what it's doing.
  *
- * - `still`: eyes open, not moving (a mark used as a label: a post's
+ * - `still`: two square eyes, not moving (a mark used as a label: a post's
  *   author, a picker, a header).
- * - `resting`: eyes dimmed shut, its light dim, a slow bob.
- * - `watching`: eyes drifting side to side, blinking now and then.
- * - `working`: a light stepping from one foot to the other, as it walks,
- *   its light pulsing white, a quick small bob.
- * - `needs`: bouncing, eyes amber and wide, its light pulsing amber.
+ * - `resting`: a `>_` prompt in grey, its cursor blinking.
+ * - `watching`: two square eyes looking about, blinking now and then.
+ * - `working`: narrow eyes scanning side to side while a light runs round
+ *   the screen's edge in its colour.
+ * - `needs`: a `>` nudging you, in a breathing amber frame.
+ * - `ready`: its eyes in a green frame, winking now and then: its work is
+ *   ready for you.
  */
-export type AgentState = "still" | "resting" | "watching" | "working" | "needs";
+export type AgentState =
+  "still" | "resting" | "watching" | "working" | "needs" | "ready";
 
 /**
  * Its role's outfit, by name: Avos a headset, the Builder a hard hat, the
@@ -52,43 +53,170 @@ export function agentOutfit(role: string | undefined): AgentOutfit | undefined {
 }
 
 /**
- * Bot's drawing: the work dots' own 5×5 grid (`dotSigils`), row by row from
- * the top: the light on its antenna, its head, two eyes in its head, its
- * head again, and two feet. The rest of the grid shows faintly, so it reads
- * as a square of dots with a robot lit in it.
+ * Bot's drawing: a little screen of dots, its face lit on a faint grid, a
+ * face for each state (`AGENT_STATE_FACES`). It is drawn at three
+ * densities, by the mark's size (`AGENT_GRIDS`): 13 by 9 dots from 36 px,
+ * 7 by 5 from 20 px, and 5 by 5 below that, so a face stays clear in a
+ * sidebar row. `#` is a lit dot, `u` its cursor (it blinks), `.` unlit.
  */
-export const AGENT_ROWS = [
-  "..l..",
-  "hhhhh",
-  "heheh",
-  "hhhhh",
-  ".h.h.",
-] as const;
+export type AgentFace =
+  "prompt" | "squares" | "narrow" | "chevron" | "happy" | "cross";
 
-/** The cells of one part of the drawing, as [row, column]. */
-export function agentCells(part: "." | "l" | "h" | "e"): [number, number][] {
-  const cells: [number, number][] = [];
-  AGENT_ROWS.forEach((row, y) =>
-    [...row].forEach((kind, x) => {
-      if (kind === part) cells.push([y, x]);
-    }),
-  );
-  return cells;
+export type AgentGrid = "large" | "medium" | "small";
+
+export const AGENT_FACES: Readonly<
+  Record<AgentGrid, Readonly<Record<AgentFace, readonly string[]>>>
+> = {
+  large: {
+    prompt: [
+      ".............",
+      ".............",
+      "..##.........",
+      "...##........",
+      "....##.......",
+      "...##........",
+      "..##..uuuuu..",
+      ".............",
+      ".............",
+    ],
+    squares: [
+      ".............",
+      ".............",
+      "..####.####..",
+      "..####.####..",
+      "..####.####..",
+      "..####.####..",
+      "..####.####..",
+      ".............",
+      ".............",
+    ],
+    narrow: [
+      ".............",
+      ".............",
+      "....##.##....",
+      "....##.##....",
+      "....##.##....",
+      "....##.##....",
+      "....##.##....",
+      ".............",
+      ".............",
+    ],
+    chevron: [
+      ".............",
+      ".............",
+      "....##.......",
+      ".....##......",
+      "......##.....",
+      ".....##......",
+      "....##.......",
+      ".............",
+      ".............",
+    ],
+    happy: [
+      ".............",
+      ".............",
+      ".............",
+      "...#.....#...",
+      "..#.#...#.#..",
+      ".#...#.#...#.",
+      ".............",
+      ".............",
+      ".............",
+    ],
+    cross: [
+      ".............",
+      ".............",
+      ".#...#.#...#.",
+      "..#.#...#.#..",
+      "...#.....#...",
+      "..#.#...#.#..",
+      ".#...#.#...#.",
+      ".............",
+      ".............",
+    ],
+  },
+  medium: {
+    prompt: [".......", ".#.....", "..#....", ".#.uuu.", "......."],
+    squares: [".......", ".##.##.", ".##.##.", ".##.##.", "......."],
+    narrow: [".......", "..#.#..", "..#.#..", "..#.#..", "......."],
+    chevron: [".......", "..#....", "...#...", "..#....", "......."],
+    happy: [".......", ".......", ".#...#.", "#.#.#.#", "......."],
+    cross: [".......", "#.#.#.#", ".#...#.", "#.#.#.#", "......."],
+  },
+  small: {
+    prompt: [".....", ".#...", "..#..", ".#.uu", "....."],
+    squares: [".....", "##.##", "##.##", ".....", "....."],
+    narrow: [".....", ".#.#.", ".#.#.", ".#.#.", "....."],
+    chevron: [".....", ".#...", "..#..", ".#...", "....."],
+    happy: [".....", ".....", ".#.#.", "#.#.#", "....."],
+    cross: [".....", "#.#.#", ".#.#.", "#.#.#", "....."],
+  },
+};
+
+/** Where each grid's dots sit in the mark's 100-unit square, and how big. */
+export const AGENT_GRIDS: Readonly<
+  Record<AgentGrid, { cols: number; rows: number; pitch: number; dot: number }>
+> = {
+  large: { cols: 13, rows: 9, pitch: 6.6, dot: 4.4 },
+  medium: { cols: 7, rows: 5, pitch: 12, dot: 8 },
+  small: { cols: 5, rows: 5, pitch: 15.5, dot: 10.4 },
+};
+
+/** The face each state shows; a reaction's face shows over it a moment. */
+export const AGENT_STATE_FACES: Readonly<Record<AgentState, AgentFace>> = {
+  still: "squares",
+  resting: "prompt",
+  watching: "squares",
+  working: "narrow",
+  needs: "chevron",
+  ready: "squares",
+};
+
+/** A cell's centre in the 100-unit square: [x, y]. */
+export function agentCellCentre(
+  grid: AgentGrid,
+  row: number,
+  col: number,
+): [number, number] {
+  const { cols, rows, pitch } = AGENT_GRIDS[grid];
+  const n = (value: number) => Math.round(value * 1000) / 1000;
+  return [
+    n(50 + (col - (cols - 1) / 2) * pitch),
+    n(50 + (row - (rows - 1) / 2) * pitch),
+  ];
 }
 
-/** The drawing's parts, as paths over the dots' 100-unit square. */
-export const AGENT_DOTS = {
-  grid: dotsPath(agentCells(".")),
-  head: dotsPath(agentCells("h")),
-  eyes: dotsPath(agentCells("e")),
-} as const;
+/** One face's lit dots (and its cursor's, apart), as zero-length paths. */
+export function agentFacePaths(
+  grid: AgentGrid,
+  face: AgentFace,
+): { lit: string; cursor: string } {
+  const lit: string[] = [];
+  const cursor: string[] = [];
+  AGENT_FACES[grid][face].forEach((row, y) =>
+    [...row].forEach((kind, x) => {
+      if (kind === ".") return;
+      const [cx, cy] = agentCellCentre(grid, y, x);
+      (kind === "u" ? cursor : lit).push(`M${cx} ${cy}h0.01`);
+    }),
+  );
+  return { lit: lit.join(""), cursor: cursor.join("") };
+}
 
 /**
- * Each dot's size in the 100-unit square, as the other dot marks draw
- * theirs (DotMark.css): bigger below 24 px, so a small mark stays clear.
+ * The screen's glass at the large size: a faint honeycomb of dots across
+ * all of it, offset every other row.
  */
-export const AGENT_DOT = 13;
-export const AGENT_DOT_SMALL = 14.6;
+export const AGENT_GLASS = (() => {
+  const dots: string[] = [];
+  const step = 4.4;
+  for (let y = 4, row = 0; y < 98; y += step * 0.87, row++)
+    for (let x = row % 2 ? 4 + step / 2 : 4; x < 98; x += step)
+      dots.push(
+        `M${Math.round(x * 100) / 100} ${Math.round(y * 100) / 100}h0.01`,
+      );
+  return dots.join("");
+})();
 
 /**
  * How far into its loops each agent starts, in seconds, so helpers side
@@ -119,6 +247,7 @@ export function crewAgentState(
 ): AgentState {
   if (status === "needs-you") return "needs";
   if (active || status === "working") return "working";
+  if (status === "ready") return "ready";
   if (status === "watching") return "watching";
   // Switched off, it doesn't bob.
   if (status === "paused") return "still";
@@ -129,8 +258,9 @@ export function crewAgentState(
 export function botAgentState(status: BotStatus | undefined): AgentState {
   if (status === "needs-you") return "needs";
   if (status === "working") return "working";
+  if (status === "fix-ready") return "ready";
   if (status === "watching") return "watching";
-  // Paused, it doesn't bob; a fix ready for you rests.
+  // Paused, it doesn't move.
   if (status === "paused") return "still";
   return "resting";
 }

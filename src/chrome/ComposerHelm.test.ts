@@ -244,22 +244,21 @@ describe("the agent at the helm", () => {
   const css = (file: string) =>
     readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("is Bot, a head of dots with eyes and a light, at rest and working", async () => {
+  it("is Bot, a screen with a face, at rest and working", async () => {
     await render();
     expect(mark().classList.contains("agent-mark")).toBe(true);
     expect(mark().querySelector(".agent-head")).not.toBeNull();
-    expect(mark().querySelector(".agent-grid")).not.toBeNull();
-    expect(mark().querySelectorAll(".agent-light")).toHaveLength(1);
-    // Resting, its eyes are closed.
+    expect(mark().querySelector(".agent-glass")).not.toBeNull();
+    // Resting, it shows its prompt.
     expect(mark().querySelector<HTMLElement>(".agent-eyes")?.dataset.mood).toBe(
-      "closed",
+      "prompt",
     );
     // The project's symbol stands for the project, not the agent.
     expect(mark().querySelector(".dot-mark-lit")).toBeNull();
     props.busy = true;
     await render();
     expect(mark().dataset.agent).toBe("working");
-    expect(mark().querySelector(".agent-key")).not.toBeNull();
+    expect(mark().querySelector(".agent-comet")).not.toBeNull();
   });
 
   it("is 25px, past the small marks' bigger dots", () => {
@@ -386,7 +385,7 @@ describe("the mark's states", () => {
     await render();
     expect(helm().dataset.pose).toBe("running");
     expect(mark().dataset.agent).toBe("working");
-    expect(mark().querySelector(".agent-bob > .agent-key")).not.toBeNull();
+    expect(mark().querySelector(".agent-bob > .agent-comet")).not.toBeNull();
     const bubble = host.querySelector<HTMLElement>(
       '[data-helm-say="running"]',
     )!;

@@ -383,18 +383,18 @@ function homeAgentTile(path: string): HTMLElement | null {
 
 /**
  * Why an agent's Bot is not working as it should, or null: in its working
- * state, walking (its lit foot stepping from one foot to the other)
- * unless reduced motion keeps it still.
+ * state, its eyes scanning side to side unless reduced motion keeps it
+ * still.
  */
 function workingAgentProblem(mark: HTMLElement | null): string | null {
   if (!mark) return "is missing";
   if (mark.dataset.agent !== "working")
     return `is ${mark.dataset.agent ?? "not an agent's Bot"}, not working`;
-  const key = mark.querySelector(".agent-key");
-  if (!key) return "has no lit key";
+  const key = mark.querySelector(".agent-eyes");
+  if (!key) return "has no face";
   return animationProblem(
     getComputedStyle(key).animationName,
-    "agent-type",
+    "agent-scan",
     prefersReducedMotion(),
   );
 }
