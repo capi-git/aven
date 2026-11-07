@@ -1,7 +1,8 @@
 import { memo, type CSSProperties } from "react";
 import {
+  AGENT_FACES,
   AGENT_GLASS,
-  AGENT_STATE_FACES,
+  agentFace,
   agentFacePaths,
   type AgentFace,
   type AgentGrid,
@@ -30,9 +31,10 @@ const PATHS = Object.fromEntries(
   GRIDS.map((grid) => [
     grid,
     Object.fromEntries(
-      (
-        ["prompt", "squares", "narrow", "chevron", "happy", "cross"] as const
-      ).map((face) => [face, agentFacePaths(grid, face)]),
+      (Object.keys(AGENT_FACES[grid]) as AgentFace[]).map((face) => [
+        face,
+        agentFacePaths(grid, face),
+      ]),
     ),
   ]),
 ) as Record<AgentGrid, Record<AgentFace, { lit: string; cursor: string }>>;
@@ -111,7 +113,7 @@ export const AgentMark = memo(function AgentMark({
           ...(phase ? { "--agent-phase": `${-phase}s` } : {}),
         } as CSSProperties)
       : style;
-  const face = reactionFace(reaction) ?? AGENT_STATE_FACES[state];
+  const face = reactionFace(reaction) ?? agentFace(state, outfit);
   return (
     <span
       key={reaction ? (reactionId ?? reaction) : undefined}

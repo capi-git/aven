@@ -11,7 +11,6 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { WorkDots } from "../chrome/WorkDots";
 import { MoveUp, X } from "../chrome/icons";
 import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
 import {
@@ -542,9 +541,18 @@ function LiveText({
   dots: "think" | "tool";
 }) {
   const writing = useCrewLiveReply(project, memberId);
+  // Avos's own line wears its little working screen (its reply has no
+  // mark); a helper's row has its mark already.
   const status = (
     <span className="team-live-status">
-      <WorkDots work={writing ? "write" : dots} />
+      {dots === "think" ? (
+        <CrewCritter
+          path={project}
+          role="lead"
+          state="working"
+          className="team-live-mark"
+        />
+      ) : null}
       {writing ? null : <span>{line || "Thinking"}</span>}
     </span>
   );

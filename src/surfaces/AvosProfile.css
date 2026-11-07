@@ -252,3 +252,21 @@ button.avos-profile-helper:hover {
   gap: 18px;
   font-size: var(--text-ui-label);
 }
+/* Open: the chevron turns down, and what the helpers did opens under it. */
+.avos-profile-finished[aria-expanded="true"] .avos-profile-finished-chevron {
+  transform: rotate(90deg);
+}
+.avos-profile-activity {
+  margin: 6px -4px 0;
+}
+.avos-profile-activity-note {
+  margin: 0 4px 4px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+.avos-profile-activity .crew-feed {
+  padding: 0;
+}
+.avos-profile-activity .crew-feed-scroll {
+  max-height: min(48vh, 420px);
+}

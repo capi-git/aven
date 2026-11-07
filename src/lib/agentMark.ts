@@ -59,7 +59,19 @@ export function agentOutfit(role: string | undefined): AgentOutfit | undefined {
  * `#` is a lit dot, `u` its cursor (it blinks), `.` unlit.
  */
 export type AgentFace =
-  "prompt" | "squares" | "narrow" | "chevron" | "happy" | "cross";
+  | "prompt"
+  | "squares"
+  | "narrow"
+  | "chevron"
+  | "happy"
+  | "cross"
+  | "code"
+  | "check"
+  | "diamond"
+  | "question"
+  | "star"
+  | "shield"
+  | "wrench";
 
 export type AgentGrid = "large";
 
@@ -133,6 +145,84 @@ export const AGENT_FACES: Readonly<
       ".............",
       ".............",
     ],
+    // A role's own face, at rest or watching (`AGENT_ROLE_FACES`).
+    code: [
+      ".............",
+      ".............",
+      "....#...#....",
+      "...#.....#...",
+      "..#.......#..",
+      "...#.....#...",
+      "....#...#....",
+      ".............",
+      ".............",
+    ],
+    check: [
+      ".............",
+      ".............",
+      ".........#...",
+      "........#....",
+      "...#...#.....",
+      "....#.#......",
+      ".....#.......",
+      ".............",
+      ".............",
+    ],
+    diamond: [
+      ".............",
+      ".............",
+      "......#......",
+      ".....#.#.....",
+      "....#...#....",
+      ".....#.#.....",
+      "......#......",
+      ".............",
+      ".............",
+    ],
+    question: [
+      ".............",
+      ".....###.....",
+      "....#...#....",
+      "........#....",
+      ".......#.....",
+      "......#......",
+      ".............",
+      "......#......",
+      ".............",
+    ],
+    star: [
+      ".............",
+      ".............",
+      "......#......",
+      ".....###.....",
+      "...#######...",
+      ".....###.....",
+      "......#......",
+      ".............",
+      ".............",
+    ],
+    shield: [
+      ".............",
+      "....#####....",
+      "....#...#....",
+      "....#...#....",
+      "....#...#....",
+      ".....#.#.....",
+      "......#......",
+      ".............",
+      ".............",
+    ],
+    wrench: [
+      ".............",
+      ".......#...#.",
+      ".......#####.",
+      "......###....",
+      ".....###.....",
+      "....###......",
+      "...###.......",
+      "..##.........",
+      ".............",
+    ],
   },
 };
 
@@ -152,6 +242,34 @@ export const AGENT_STATE_FACES: Readonly<Record<AgentState, AgentFace>> = {
   needs: "chevron",
   ready: "squares",
 };
+
+/**
+ * Each role's own face, shown at rest, as a label and while watching, so a
+ * Builder reads as a Builder: Avos its prompt, the Builder `< >`, the
+ * Checker a tick, the Scout a diamond, the Researcher a question, the
+ * Designer a star, Security a shield, the project's bot (the Fixer) a
+ * wrench. Working,
+ * needing you and ready show the state's face instead, the same for all.
+ */
+export const AGENT_ROLE_FACES: Readonly<Record<AgentOutfit, AgentFace>> = {
+  headset: "prompt",
+  hat: "code",
+  tick: "check",
+  diamond: "diamond",
+  glasses: "question",
+  beret: "star",
+  shield: "shield",
+  plus: "wrench",
+};
+
+/** The face an agent shows: its role's while calm, else its state's. */
+export function agentFace(
+  state: AgentState,
+  outfit: AgentOutfit | undefined,
+): AgentFace {
+  const calm = state === "still" || state === "resting" || state === "watching";
+  return calm && outfit ? AGENT_ROLE_FACES[outfit] : AGENT_STATE_FACES[state];
+}
 
 /** A cell's centre in the 100-unit square: [x, y]. */
 export function agentCellCentre(

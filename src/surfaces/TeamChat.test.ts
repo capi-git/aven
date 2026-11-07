@@ -416,15 +416,17 @@ describe("the team chat", () => {
       helpers.map((helper) => [
         helper.querySelector(".avos-profile-helper-name")?.textContent,
         helper.dataset.state,
+        // Its own screen says it works: no dots box beside it.
+        helper.querySelector<HTMLElement>(".agent-mark")?.dataset.agent,
         !!helper.querySelector(".helm-work-dots"),
         helper.querySelector(".avos-profile-helper-word")?.textContent ?? null,
       ]),
     ).toEqual([
-      ["Builder", "resting", false, null],
-      ["Designer", "resting", false, null],
-      ["Checker", "working", true, null],
-      ["Security", "resting", false, null],
-      ["Scout", "resting", false, null],
+      ["Builder", "resting", "resting", false, null],
+      ["Designer", "resting", "resting", false, null],
+      ["Checker", "working", "working", false, null],
+      ["Security", "resting", "resting", false, null],
+      ["Scout", "resting", "resting", false, null],
     ]);
     // What it's doing, under its name, while it works.
     expect(
@@ -516,11 +518,16 @@ describe("the team chat", () => {
     expect(
       thread.querySelector('[data-team-live="checker"] .team-post-text')
         ?.textContent,
-      // Its work dots say it's still at it: no "…".
+      // Its working screen says it's still at it: no "…", no dots box.
     ).toBe("Checking Timer screen · round 2");
     expect(
+      thread.querySelector<HTMLElement>(
+        '[data-team-live="checker"] .agent-mark',
+      )?.dataset.agent,
+    ).toBe("working");
+    expect(
       thread.querySelector('[data-team-live="checker"] .helm-work-dots'),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(thread.textContent).not.toMatch(/[{}[\]]"/);
   });
 

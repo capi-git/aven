@@ -157,7 +157,10 @@ it("shows a logo instead of the Stack when one is set, open or not", async () =>
     /^asset:\/\/localhost\/logos\/aven\.png/,
   );
   expect(mark.querySelector(".stack-mark")).toBeNull();
-  // A logo stays still too, with the running dot.
+  // Open, the agent's own row says it works: the project's row doesn't.
+  expect(host.querySelector(".personal-project-running")).toBeNull();
+  // Folded, a logo stays still too, with its agent's working screen.
+  await render({ running: 1, waiting: 0, unread: 0 }, false);
   expect(host.querySelector(".personal-project-running")).not.toBeNull();
 });
 

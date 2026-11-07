@@ -54,7 +54,7 @@ import {
   AvosSections,
   type AvosProfileProps,
 } from "./AvosProfile";
-import { CrewAnswerBox, CrewFeed } from "./CrewBoard";
+import { CrewAnswerBox } from "./CrewBoard";
 import { AvosReview } from "./AvosReview";
 import { BatchCard, CrewBatchSheet } from "./TeamBatch";
 import { TeamCardButton } from "../chrome/TeamCard";
@@ -125,7 +125,6 @@ export function TeamScreen({
   // sets the view itself): nothing on screen leads there.
   const [saved, save] = useTeamView(project);
   const [reviewing, setReviewing] = useState(false);
-  const [activity, setActivity] = useState(false);
   const [notes, setNotes] = useState(false);
   // The narrow header's profile, in a sheet.
   const [profile, setProfile] = useState(false);
@@ -310,10 +309,8 @@ export function TeamScreen({
       setProfile(false);
       setNotes(true);
     },
-    onActivity: () => {
-      setProfile(false);
-      setActivity(true);
-    },
+    name,
+    limits: view.limits,
   };
   return (
     <section
@@ -476,16 +473,6 @@ export function TeamScreen({
                 ))}
             </div>
           </div>
-        </Modal>
-      ) : null}
-      {activity ? (
-        <Modal
-          onClose={() => setActivity(false)}
-          title="Activity"
-          description={`${projectDisplayName(project, labels)}'s Avos · ${view.limits}`}
-          className="crew-activity"
-        >
-          <CrewFeed crew={crew} name={name} />
         </Modal>
       ) : null}
     </section>

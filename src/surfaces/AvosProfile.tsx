@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
 import { ChevronDown, ChevronRight, MoreHorizontal } from "../chrome/icons";
-import { WorkDots } from "../chrome/WorkDots";
+import { CrewFeed } from "./CrewBoard";
 import { helperWord, type AvosGlance, type AvosWeekRow } from "../lib/avos";
 import { avosFinishedToday, avosRemembers } from "../lib/avosProfile";
 import {
@@ -45,8 +45,10 @@ export type AvosProfileProps = {
   onHelper: (id: string) => void;
   /** Everything it remembers, in a sheet. */
   onNotes: () => void;
-  /** Everything the helpers did, from what finished today. */
-  onActivity: () => void;
+  /** A member's name, by its id or role, for what the helpers did. */
+  name: (who: string) => string;
+  /** The day's limits, over what the helpers did. */
+  limits: string;
 };
 
 export function AvosProfile(props: AvosProfileProps) {
@@ -172,7 +174,8 @@ export function AvosSections({
   onOpen,
   onHelper,
   onNotes,
-  onActivity,
+  name,
+  limits,
 }: Pick<
   AvosProfileProps,
   | "project"
@@ -183,10 +186,13 @@ export function AvosSections({
   | "onOpen"
   | "onHelper"
   | "onNotes"
-  | "onActivity"
+  | "name"
+  | "limits"
 >) {
   const remembers = avosRemembers(crew);
   const finished = avosFinishedToday(crew, now);
+  // What the helpers did opens under its line, not in a window of its own.
+  const [activityOpen, setActivityOpen] = useState(false);
   // What the helpers did, folded into one line: what finished today, else
   // all of it.
   const activity = finished
@@ -252,14 +258,11 @@ export function AvosSections({
                     </span>
                   ) : null}
                 </span>
-                {/* Only what applies: its dots while it works, or that it
-                    needs you; nothing at rest. */}
+                {/* Only that it needs you: its screen says it's working. */}
                 {state === "needs" ? (
                   <span className="avos-profile-helper-word" data-needs-you>
                     Needs you
                   </span>
-                ) : state === "working" ? (
-                  <WorkDots work="tool" className="avos-profile-helper-dots" />
                 ) : null}
               </button>
             );
@@ -289,7 +292,6 @@ export function AvosSections({
                   </span>
                 ) : null}
               </span>
-              <WorkDots work="tool" className="avos-profile-helper-dots" />
             </p>
           ))}
           {activity ? (
@@ -297,7 +299,8 @@ export function AvosSections({
               type="button"
               className="avos-profile-more avos-profile-finished"
               data-avos-finished
-              onClick={onActivity}
+              aria-expanded={activityOpen}
+              onClick={() => setActivityOpen((open) => !open)}
             >
               {activity}
               <ChevronRight
@@ -305,6 +308,17 @@ export function AvosSections({
                 aria-hidden
               />
             </button>
+          ) : null}
+          {activity && activityOpen ? (
+            <div
+              className="crew-activity avos-profile-activity"
+              data-avos-activity
+            >
+              {limits ? (
+                <p className="avos-profile-activity-note">{limits}</p>
+              ) : null}
+              <CrewFeed crew={crew} name={name} />
+            </div>
           ) : null}
         </section>
       ) : null}

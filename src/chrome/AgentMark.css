@@ -24,7 +24,9 @@
   container-type: inline-size;
 }
 
-.agent-mark[data-agent="resting"] {
+/* At rest a plain chat's prompt is grey; an agent with a colour keeps it,
+   so a Builder at rest still reads as the Builder. */
+.agent-mark[data-agent="resting"]:not([data-tone]) {
   --agent-face: var(--agent-rest);
 }
 .agent-mark[data-agent="needs"] {
@@ -180,6 +182,11 @@
     animation: agent-blink 1.1s linear infinite;
     animation-delay: var(--agent-phase, 0s);
   }
+  /* A role's own face at rest breathes, slowly. */
+  .agent-mark[data-agent="resting"]:not([data-face="prompt"]) .agent-eyes {
+    animation: agent-rest 3.2s ease-in-out infinite alternate;
+    animation-delay: var(--agent-phase, 0s);
+  }
   /* Watching: looks one way, blinks, looks the other way, blinks. */
   .agent-mark[data-agent="watching"] .agent-eyes {
     animation: agent-look 7.4s infinite;
@@ -235,6 +242,14 @@
   }
 }
 
+@keyframes agent-rest {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
 @keyframes agent-blink {
   0%,
   48% {

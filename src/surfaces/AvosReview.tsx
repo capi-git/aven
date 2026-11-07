@@ -147,6 +147,10 @@ export function AvosReview({
   const title = single ? single.title : plural(order.length, "change");
   const last = order.at(-1);
   const building = cardInCopy(crew);
+  // A job still being built or checked in Avos's copy: running or taking
+  // its work waits until that's checked, so the buttons wait too.
+  const copyBusy =
+    building?.stage === "building" || building?.stage === "checking";
 
   const apply = async () => {
     if (!review || !shown) return;
@@ -497,6 +501,11 @@ export function AvosReview({
         <p className="avos-review-problem" role="alert">
           {problem}
         </p>
+      ) : copyBusy ? (
+        <p className="avos-review-wait" role="status" data-avos-review-wait>
+          Avos is still working in its copy. You can try or apply this once
+          that's checked.
+        </p>
       ) : null}
       <footer className="avos-review-foot">
         <form className="avos-review-ask" onSubmit={askForChanges}>
@@ -517,7 +526,7 @@ export function AvosReview({
         {IS_MAC ? (
           <TeamCardButton
             className="avos-review-try"
-            disabled={!!busy || !shown}
+            disabled={!!busy || !shown || copyBusy}
             title="Run Avos's version and open it in a browser tab"
             onClick={() => void tryIt()}
           >
@@ -529,7 +538,7 @@ export function AvosReview({
             variant="primary"
             className="avos-review-apply-main"
             data-avos-review-apply
-            disabled={!!busy || !shown}
+            disabled={!!busy || !shown || copyBusy}
             onClick={() => void apply()}
           >
             {applyLabel}
@@ -541,7 +550,7 @@ export function AvosReview({
               aria-label="Other ways to take it"
               aria-haspopup="menu"
               aria-expanded={menu?.which === "apply"}
-              disabled={!!busy}
+              disabled={!!busy || copyBusy}
               onClick={(event) =>
                 setMenu(
                   menu?.which === "apply"

@@ -213,6 +213,7 @@ export function PersonalProjectRow({
           </span>
           <ProjectRowStatus
             path={path}
+            folded={!expanded}
             status={status}
             memoryUpdated={memoryUnseen}
           />
@@ -326,15 +327,22 @@ export function PersonalProjectRow({
  */
 function ProjectRowStatus({
   path,
+  folded,
   status,
   memoryUpdated = false,
 }: {
   /** Its project: an agent at work there wears its colour. */
   path: string;
+  /**
+   * Folded, its row is the only place to say an agent works there; open,
+   * the agent's own row says it, once.
+   */
+  folded: boolean;
   status?: ProjectStatus;
   memoryUpdated?: boolean;
 }) {
-  const { running, waiting, unread, files } = status ?? {};
+  const { waiting, unread, files } = status ?? {};
+  const running = folded && status?.running;
   if (!running && !waiting && !unread && !files && !memoryUpdated) return null;
   return (
     <span className="personal-project-status" aria-hidden>

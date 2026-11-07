@@ -416,8 +416,10 @@
   font-size: var(--text-ui-body);
 }
 
-.team-live-status .helm-work-dots {
+.team-live-status .dot-mark.team-live-mark {
   flex: none;
+  width: 22px;
+  height: 22px;
 }
 
 /* A handoff: who passed it, and to whom. */
