@@ -41,6 +41,7 @@ import {
   parseBackgroundShellTaskIds,
   parseControlCancelId,
   parseControlRequest,
+  parseControlResponse,
   parseJsonLine,
   parseTaskNotification,
   parseTaskProgress,
@@ -65,6 +66,7 @@ import {
   turnStatusFromResult,
   type ClaudeCliSettings,
   type ClaudeControlRequest,
+  type ClaudeControlResponse,
 } from "./claudeProtocol";
 import { elicitationPrompt, elicitationResult } from "../mcpElicitation";
 import { isAgentToolName } from "./preview";
@@ -166,6 +168,8 @@ type Live = {
   activeTurn: boolean;
   initDone: (() => void) | null;
   initialized: boolean;
+  /** Control requests waiting on their answer, by request id. */
+  controlWaits: Map<string, (response: ClaudeControlResponse | null) => void>;
   emittedAssistant: string;
   streamingMessageId?: string;
   messageText: Map<string, string>;
@@ -466,6 +470,24 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     existing.runtimeMode = effectiveRuntimeMode(input);
     return existing;
   }
+  // A new model while a background shell runs (a dev server the agent
+  // started): switched in the running CLI, since a new one would end the
+  // shell with it. Anything else, or a switch it refuses, starts afresh.
+  if (
+    existing &&
+    !existing.apiErrorReported &&
+    !existing.retired &&
+    existing.backgroundShells.size > 0 &&
+    existing.cwd === input.cwd &&
+    existing.planning === planning &&
+    onlyModelChanged(existing.settingsKey, settingsKey) &&
+    (await switchModel(input.sessionId, existing, input))
+  ) {
+    existing.settingsKey = settingsKey;
+    existing.onEvent = input.onEvent;
+    existing.runtimeMode = effectiveRuntimeMode(input);
+    return existing;
+  }
   // A new process takes a moment before it answers; the chat says so.
   input.onEvent({ type: "turn.waiting", set: { starting: Date.now() } });
   if (existing) {
@@ -538,6 +560,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     activeTurn: false,
     initDone: null,
     initialized: false,
+    controlWaits: new Map(),
     emittedAssistant: "",
     messageText: new Map(),
     completedMessages: new Set(),
@@ -761,6 +784,12 @@ function handleLine(sessionId: string, live: Live, line: string): void {
 
   if (type === "control_response") {
     markInitialized(live);
+    const response = parseControlResponse(rec);
+    const wait = response && live.controlWaits.get(response.requestId);
+    if (wait) {
+      live.controlWaits.delete(response.requestId);
+      wait(response);
+    }
     return;
   }
 
@@ -1353,6 +1382,9 @@ function waitQuestion(
  * mark the live retired first; its waiting handlers then stay silent.
  */
 function retirePendingRequests(live: Live): void {
+  const waits = [...live.controlWaits.values()];
+  live.controlWaits.clear();
+  for (const wait of waits) wait(null);
   const approvals = [...live.approvals];
   const questions = [...live.questions];
   live.approvals.clear();
@@ -1842,6 +1874,58 @@ function waitForInit(live: Live, timeoutMs: number): Promise<void> {
       resolve();
     };
   });
+}
+
+/** How long a running CLI has to answer a model switch. */
+const SWITCH_TIMEOUT_MS = 5_000;
+
+/**
+ * Whether two settings keys (`claudeSettingsKey`) differ in their model
+ * alone, with the effort the CLI launched with unchanged for the new one.
+ */
+function onlyModelChanged(before: string, after: string): boolean {
+  const [model, effort, ...rest] = before.split("|");
+  const [nextModel, nextEffort, ...nextRest] = after.split("|");
+  return (
+    model !== nextModel &&
+    effort === nextEffort &&
+    rest.join("|") === nextRest.join("|") &&
+    normalizeClaudeCliEffort(effort || undefined, model) ===
+      normalizeClaudeCliEffort(effort || undefined, nextModel)
+  );
+}
+
+/** Ask the running CLI to use the chat's model now; false if it didn't. */
+async function switchModel(
+  sessionId: string,
+  live: Live,
+  input: HarnessSessionInput,
+): Promise<boolean> {
+  const model = launchOptions(input, undefined, live.claudeSessionId).model;
+  if (!model) return false;
+  const id = nextControlId(live);
+  const answered = new Promise<ClaudeControlResponse | null>((resolve) => {
+    const timer = setTimeout(() => {
+      live.controlWaits.delete(id);
+      resolve(null);
+    }, SWITCH_TIMEOUT_MS);
+    live.controlWaits.set(id, (response) => {
+      clearTimeout(timer);
+      resolve(response);
+    });
+  });
+  try {
+    await writeJson(
+      sessionId,
+      buildControlRequest(id, { subtype: "set_model", model }),
+    );
+  } catch {
+    live.controlWaits.get(id)?.(null);
+    live.controlWaits.delete(id);
+    return false;
+  }
+  const response = await answered;
+  return !!response?.ok && !live.retired;
 }
 
 function nextControlId(live: Live): string {
