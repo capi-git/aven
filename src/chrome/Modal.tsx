@@ -1,7 +1,6 @@
 import { X } from "./icons";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { LAYER } from "../lib/layers";
 import "./Overlays.css";
 
@@ -143,7 +142,6 @@ export function ModalPanel({
     typeof document === "undefined" ? null : document.activeElement,
   );
   const popoversRef = useRef(new Set<HTMLElement>());
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const uid = useId();
   const titleId = `${uid}-title`;
   const descriptionId = description ? `${uid}-desc` : undefined;
@@ -264,10 +262,7 @@ export function ModalPanel({
             <X className="size-3.5" strokeWidth={1.75} />
           </button>
         </header>
-        <div
-          ref={lockOverscroll}
-          className="modal-panel-content min-h-0 flex-1 overflow-y-auto overscroll-none"
-        >
+        <div className="modal-panel-content min-h-0 flex-1 overflow-y-auto overscroll-none">
           {children}
         </div>
       </div>

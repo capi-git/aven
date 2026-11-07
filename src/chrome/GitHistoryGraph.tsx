@@ -6,7 +6,6 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { ChevronDown, ChevronRight, GitBranch } from "./icons";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useGitHistory } from "../hooks/useGitHistory";
 import { setDragCursor, suppressTextSelection } from "../lib/drag";
 import type { GitHistoryCommit } from "../lib/fs";
@@ -47,7 +46,6 @@ export function GitHistoryGraph({
   onToggleExpanded,
   onOpenCommit,
 }: Props) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const { commits, loaded } = useGitHistory(cwd, enabled && expanded);
   const rows = useMemo(() => layoutGitGraph(commits), [commits]);
   const showAuthors =
@@ -87,10 +85,7 @@ export function GitHistoryGraph({
         )}
       </button>
       {expanded ? (
-        <div
-          ref={lockOverscroll}
-          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none"
-        >
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none">
           {!cwd || cwd === "~" ? (
             <p className="px-3 py-2 text-ui-label text-content/45">
               No project folder

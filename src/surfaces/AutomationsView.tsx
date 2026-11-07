@@ -15,7 +15,6 @@ import { ProjectMark } from "../chrome/ProjectMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   automationFolderKey,
@@ -166,8 +165,6 @@ export function AutomationsView({
   onReviewAction,
   onOpenConnections,
 }: Props) {
-  const detailLock = useLockOverscroll<HTMLDivElement>();
-  const listLock = useLockOverscroll<HTMLDivElement>();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const { selection, setSelection, editor, setEditor } =
@@ -419,10 +416,7 @@ export function AutomationsView({
               <CheckCheck className="size-3.5" strokeWidth={1.75} />
             </button>
           </div>
-          <div
-            ref={listLock}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-none"
-          >
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-none">
             {folders.length === 0 ? (
               <p className="automation-empty-note automation-list-note">
                 No automations yet
@@ -459,7 +453,6 @@ export function AutomationsView({
           />
         </div>
         <div
-          ref={detailLock}
           className={`min-h-0 min-w-0 flex-1 overscroll-none ${
             run && current && !editor
               ? "flex flex-col overflow-hidden"

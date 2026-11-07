@@ -55,7 +55,6 @@ import {
   currentDotPointerBlock,
   subscribeDotPointerBlock,
 } from "../lib/dotPointer";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import {
   applySidebarOpacity,
@@ -266,15 +265,7 @@ export function SettingsView({
   onOpenWhatsNew,
   onTakeTour,
 }: Props) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const setScrollRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      scrollRef.current = node;
-      lockOverscroll(node);
-    },
-    [lockOverscroll],
-  );
   const [localSection, setLocalSection] = useState(requestedSection);
   const section = onSelectSection ? requestedSection : localSection;
   // A fresh object per pick, so choosing the same result again still reveals it.
@@ -379,7 +370,7 @@ export function SettingsView({
             </p>
           </aside>
         ) : null}
-        <div ref={setScrollRef} className="settings-scroll">
+        <div ref={scrollRef} className="settings-scroll">
           <div key={section} className="settings-content">
             <div className="settings-page-top">
               <PageHeader

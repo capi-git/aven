@@ -26,7 +26,6 @@ import {
 import { orchestrationStatusWord } from "../lib/orchestrationSummary";
 import { useOrchestrationRun } from "../hooks/useOrchestrationRun";
 import { resizeComposer } from "../lib/composerResize";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { OrchestrationActions } from "./OrchestrationActions";
 import { RoleBadge, RolePicker } from "./AgentRoles";
 import { HarnessIcon } from "./HarnessIcon";
@@ -58,7 +57,6 @@ function AssignmentModel({
   const anchor = useRef<HTMLButtonElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
-  const listOverscroll = useLockOverscroll<HTMLDivElement>();
   const selected = choices.find(
     (choice) => choice.harness === task.harness && choice.model === task.model,
   );
@@ -165,7 +163,6 @@ function AssignmentModel({
             </label>
           </div>
           <div
-            ref={listOverscroll}
             role="listbox"
             aria-label="Assignment models"
             className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"
@@ -263,7 +260,6 @@ function InstructionsField({
   onChange(value: string): void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const lockOverscroll = useLockOverscroll<HTMLTextAreaElement>();
   // The same growth the composer uses: fit the text, stop at `max-h-40` and
   // scroll from there. The value is controlled, so one layout effect covers
   // typing and edits that arrive from the lead alike.
@@ -272,10 +268,7 @@ function InstructionsField({
   }, [value]);
   return (
     <textarea
-      ref={(el) => {
-        ref.current = el;
-        lockOverscroll(el);
-      }}
+      ref={ref}
       rows={1}
       aria-label={label}
       className={`${className} max-h-40 resize-none overscroll-none`}

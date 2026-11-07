@@ -249,4 +249,74 @@ describe("one header per pane", () => {
       container.querySelector('button[title="Scroll tabs right"]'),
     ).not.toBeNull();
   });
+
+  it("keeps one slot for its lent row, so the toolbar's portal adds no wheel listener", async () => {
+    // React listens on every new container a portal draws into, wheel
+    // included: a slot made again at each lend added two.
+    const slot = () =>
+      header().querySelector<HTMLElement>(".aven-pane-header-slot");
+    const toolbar = () => container.querySelector('form[aria-label="Toolbar"]');
+    const both = [tab("a", "Page"), tab("b", "Chat")];
+    await render({ tabs: [tab("a", "Page")] });
+    const first = slot()!;
+    expect(first.contains(toolbar())).toBe(true);
+    const wheelListeners = countWheelListeners();
+    for (let index = 0; index < 2; index += 1) {
+      await render({ tabs: both });
+      expect(slot()).toBe(first);
+      expect(first.hidden).toBe(true);
+      expect(header().querySelector("[data-pane-header-slot]")).toBeNull();
+      expect(first.contains(toolbar())).toBe(false);
+      await render({ tabs: [tab("a", "Page")] });
+      expect(slot()).toBe(first);
+      expect(first.hidden).toBe(false);
+      expect(first.dataset.paneHeaderSlot).toBe("a");
+      expect(first.contains(toolbar())).toBe(true);
+    }
+    expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
+  });
+
+  it("lends its row and takes it back without adding or removing a wheel listener", async () => {
+    // In WebKit each wheel listener added or removed restyles the whole page,
+    // and the strip mounts and unmounts as the pane lends its header. Only
+    // the title bar here: React listens on a new portal container, as the
+    // lent row's slot is, the first time content portals into it.
+    const strip = () => container.querySelector(".aven-tab-strip");
+    const show = (tabs: Tab[]) =>
+      act(async () =>
+        root.render(createElement(TitleBar, { ...props, tabs, activeId: "a" })),
+      );
+    const both = [tab("a", "Page"), tab("b", "Chat")];
+    await show(both);
+    expect(strip()).not.toBeNull();
+    const wheelListeners = countWheelListeners();
+    await show([tab("a", "Page")]);
+    expect(header().dataset.titleLayout).toBe("lone");
+    expect(header().querySelector("[data-pane-header-slot]")).not.toBeNull();
+    expect(strip()).toBeNull();
+    await show(both);
+    expect(strip()).not.toBeNull();
+    await act(async () => root.unmount());
+    expect(header()).toBeNull();
+    expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
+  });
 });
+
+/**
+ * Wheel listeners added and removed from now on, on any element, the
+ * document or the window. happy-dom's nodes inherit them from its own
+ * EventTarget, not the global one, and the window's are bound copies.
+ */
+function countWheelListeners() {
+  const node = Object.getPrototypeOf(Node.prototype) as EventTarget;
+  const spies = (method: "addEventListener" | "removeEventListener") => [
+    vi.spyOn(node, method),
+    vi.spyOn(window, method),
+  ];
+  const added = spies("addEventListener");
+  const removed = spies("removeEventListener");
+  const wheel = (list: typeof added) =>
+    list.flatMap((spy) => spy.mock.calls).filter(([type]) => type === "wheel")
+      .length;
+  return () => ({ added: wheel(added), removed: wheel(removed) });
+}

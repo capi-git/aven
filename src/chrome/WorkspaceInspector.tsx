@@ -1,6 +1,5 @@
 import { memo, Suspense, useId, useRef, type KeyboardEvent } from "react";
 import type { GitFileDiffKind, GitHistoryCommit } from "../lib/fs";
-import { useLockOverscrollWithin } from "../hooks/useLockOverscroll";
 import { retryableLazy } from "../lib/retryableLazy";
 import type { OpenFileFn } from "../lib/search";
 import type { HarnessId } from "../lib/session";
@@ -83,12 +82,6 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
   const active = props.active;
   const lastVisible = useRef<WorkspaceInspectorProps | null>(null);
   if (active) lastVisible.current = props;
-  // The file tree is made again for each project; the panel holds its wheel
-  // listener instead (see useLockOverscrollWithin).
-  const lockFilesOverscroll = useLockOverscrollWithin<HTMLDivElement>(
-    lastVisible.current?.tab === "files" &&
-      !lastVisible.current.filesSearchOpen,
-  );
   // Keep the warmed view and scroll position, as the left sidebar does. Hidden
   // project/tab changes must not mount a new tree or start background work.
   if (!lastVisible.current) return null;
@@ -173,7 +166,6 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
       </header>
       <div
         id={`${id}-panel`}
-        ref={lockFilesOverscroll}
         role="tabpanel"
         aria-labelledby={`${id}-${props.tab}`}
         className="workspace-inspector-content"

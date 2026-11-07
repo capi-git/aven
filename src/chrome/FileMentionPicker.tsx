@@ -9,7 +9,6 @@ import {
 } from "react";
 import type { RankedFile } from "../lib/fileIndex";
 import { isNoteMentionPath } from "../lib/notes";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { MatchText } from "./MatchText";
 
@@ -40,7 +39,6 @@ export const FileMentionPicker = memo(function FileMentionPicker({
   avos,
 }: Props) {
   const offset = avos ? 1 : 0;
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
   const pointer = useRef({ x: Number.NaN, y: Number.NaN, allow: false });
   const fromPointer = useRef(false);
@@ -87,7 +85,6 @@ export const FileMentionPicker = memo(function FileMentionPicker({
         </p>
       ) : (
         <div
-          ref={lockOverscroll}
           role="listbox"
           aria-label={includeNotes ? "Files and notes" : "Files and folders"}
           onMouseMove={onListMouseMove}

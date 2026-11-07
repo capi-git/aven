@@ -182,3 +182,90 @@ it("opens on Favorites when it was left there and holds the chat's model", async
     expect.stringContaining(current.name),
   ]);
 });
+
+it("opens, filters, moves its highlight and closes without adding or removing a wheel listener", async () => {
+  // In WebKit each wheel listener added or removed restyles the whole page.
+  storage.set("monocode.modelPickerTab", "claude");
+  // A model the search below leaves out, so only the highlight is lit.
+  const current = modelsFor("claude").find(
+    (item) => !/sonnet/i.test(item.name),
+  )!;
+  await act(async () =>
+    root.render(createElement(Opener, { model: current.id })),
+  );
+  const open = () =>
+    act(async () =>
+      host.querySelector<HTMLButtonElement>("button[aria-haspopup]")!.click(),
+    );
+  const close = () =>
+    act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+  const listbox = () =>
+    document.querySelector<HTMLElement>(
+      '[role="listbox"][aria-label="Models"]',
+    );
+  const rows = () => listbox()?.querySelectorAll('[role="option"]').length ?? 0;
+  // React listens on a portal's container the first time one mounts there.
+  await open();
+  await close();
+  expect(listbox()).toBeNull();
+
+  const wheelListeners = countWheelListeners();
+  await open();
+  const all = rows();
+  expect(all).toBeGreaterThan(1);
+  const search = document.querySelector<HTMLInputElement>(
+    'input[aria-label="Search models"]',
+  )!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(search, "sonnet");
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(rows()).toBeGreaterThan(1);
+  expect(rows()).toBeLessThan(all);
+  const highlighted = () =>
+    [...listbox()!.children].findIndex(
+      (row) => row.getAttribute("data-active") === "true",
+    );
+  expect(highlighted()).toBe(0);
+  await act(async () => {
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  expect(highlighted()).toBe(1);
+  // The browser scrolls the list and keeps the wheel in it.
+  expect(listbox()!.classList.contains("overscroll-none")).toBe(true);
+  await close();
+  expect(listbox()).toBeNull();
+  expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
+});
+
+/**
+ * Wheel listeners added and removed from now on, on any element, the
+ * document or the window. happy-dom's nodes inherit them from its own
+ * EventTarget, not the global one, and the window's are bound copies.
+ */
+function countWheelListeners() {
+  const node = Object.getPrototypeOf(Node.prototype) as EventTarget;
+  const spies = (method: "addEventListener" | "removeEventListener") => [
+    vi.spyOn(node, method),
+    vi.spyOn(window, method),
+  ];
+  const added = spies("addEventListener");
+  const removed = spies("removeEventListener");
+  const wheel = (list: typeof added) =>
+    list.flatMap((spy) => spy.mock.calls).filter(([type]) => type === "wheel")
+      .length;
+  return () => ({ added: wheel(added), removed: wheel(removed) });
+}

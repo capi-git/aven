@@ -341,6 +341,10 @@
   margin-right: 32px;
   cursor: var(--aven-cursor-default);
 }
+/* Kept under Settings, so the window's strip portals back into it. */
+.workspace-status-strip[hidden] {
+  display: none;
+}
 .workspace-status-strip-content {
   display: flex;
   flex: 1 1 auto;
