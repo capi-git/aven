@@ -12,8 +12,7 @@ import type {
 import { agentGitInstructions } from "./gitPreference";
 import { agentFilesFolder, agentFilesInstructions } from "./chatDownloads";
 import { isRaceLanePath } from "./recents";
-import { appearanceTone, type MarkTone } from "./markTones";
-import { hasProjectAppearance, projectAppearance } from "./projectAppearance";
+import type { MarkTone } from "./markTones";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
 import { agentBrowserWeb } from "./projectBotPermissions";
@@ -22,10 +21,10 @@ export type AgentBrowserContext = {
   sessionId: string;
   cwd: string;
   /**
-   * The chat's project folder, whose colour its Bot wears on the desktop
-   * bar and pointer; `cwd` may be a copy of the project.
+   * The chat's project colour, which its Bot wears on the desktop bar and
+   * pointer (from the project's folder; `cwd` may be a copy of it).
    */
-  project?: string;
+  tone?: MarkTone;
   harness?: string;
   title?: string;
 };
@@ -338,14 +337,10 @@ function actorFor(
   context: AgentBrowserContext,
   harness: string,
 ): NonNullable<BindArgs["actor"]> {
-  const project = context.project ?? context.cwd;
-  const tone = hasProjectAppearance(project)
-    ? appearanceTone(projectAppearance(project))
-    : undefined;
   return {
     harness,
     title: context.title,
-    ...(tone ? { tone } : {}),
+    ...(context.tone ? { tone: context.tone } : {}),
   };
 }
 
@@ -722,7 +717,7 @@ async function withBrowserGuidance(
   const stored = previous?.cwd === context.cwd ? previous : context;
   stored.harness = context.harness ?? stored.harness;
   stored.title = context.title ?? stored.title;
-  stored.project = context.project ?? stored.project;
+  stored.tone = context.tone ?? stored.tone;
   contexts.set(context.sessionId, stored);
   try {
     await hostReady;

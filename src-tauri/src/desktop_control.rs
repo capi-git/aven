@@ -1377,6 +1377,12 @@ pub(crate) fn shutdown() {
     platform::presence_shutdown();
 }
 
+/// Dev builds only: draws the bar and pointer into PNG files, off screen.
+#[cfg(all(debug_assertions, target_os = "macos"))]
+pub(crate) fn snapshot(folder: &Path) -> Result<(), String> {
+    platform::snapshot(folder)
+}
+
 /// Visual-only QA in Aven Dev. No agent grant, input, capture or permission
 /// changes are made; release builds do not contain this preview entry point.
 #[cfg(all(debug_assertions, target_os = "macos"))]
@@ -1505,10 +1511,13 @@ user's Mac session is not on screen"); a lock also
 stops an action in progress and cancels an open prompt. Keep working in Aven's
 browser or code, or wait; observe again after the user unlocks. App consent is on by default and asked once per chat.
 Settings can turn it off; shared input always asks. Interrupted drags release
-their held button. The provider-coloured ring and name tag glide between
-targets, including windows the agent reads, and stay on screen while the agent
-works, fading about 30 seconds after its last action or look. Both overlays are excluded from agent
-screenshots/window lists and cannot be agent input targets. Typed content,
+their held button. A soft dot with a tag naming the agent and its step glides
+between targets, including windows the agent reads; a thin white frame sits
+behind the window it uses. The bar shows one row per agent; each row's dots
+stop that agent. The dot, frame and row stay while the agent works, fading
+about 30 seconds after its last action or look, or when its reply ends. The
+bar, dot and frames are excluded from agent screenshots/window lists and
+cannot be agent input targets. Typed content,
 values and key names are never shown in the bar.
 Modifiers: cmd, shift, option, control. Use type for literal Unicode text.
 Scroll deltaX/deltaY are each limited to +/-2000; positive scrolls right/down.

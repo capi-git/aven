@@ -236,6 +236,85 @@ pub(super) fn set_dots(root: &CALayer, mode: Dots, hover: bool, reduce_motion: b
     }
 }
 
+/// Dev builds only: draws `layer` (`size` points, at 2×) over a flat
+/// `background` into a PNG at `path`. Off screen: nothing is shown. Blur
+/// behind glass is not drawn; its tint is.
+#[cfg(debug_assertions)]
+pub(super) fn write_png(
+    layer: &CALayer,
+    size: NSSize,
+    background: [f64; 3],
+    path: &std::path::Path,
+) -> Result<(), String> {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::msg_send;
+    use objc2::rc::Allocated;
+    use objc2::runtime::AnyObject;
+    use std::ffi::c_void;
+
+    #[repr(transparent)]
+    #[derive(Clone, Copy)]
+    struct Context(*mut c_void);
+    unsafe impl Encode for Context {
+        const ENCODING: Encoding = Encoding::Pointer(&Encoding::Struct("CGContext", &[]));
+    }
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGContextScaleCTM(context: Context, x: f64, y: f64);
+        fn CGContextSetRGBFillColor(context: Context, r: f64, g: f64, b: f64, a: f64);
+        fn CGContextFillRect(context: Context, rect: NSRect);
+    }
+    const SCALE: f64 = 2.0;
+    unsafe {
+        let (width, height) = (
+            (size.width * SCALE).ceil() as isize,
+            (size.height * SCALE).ceil() as isize,
+        );
+        let rep: Allocated<AnyObject> = msg_send![objc2::class!(NSBitmapImageRep), alloc];
+        let space = NSString::from_str("NSDeviceRGBColorSpace");
+        let rep: Option<Retained<AnyObject>> = msg_send![
+            rep,
+            initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>(),
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8_isize,
+            samplesPerPixel: 4_isize,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: &*space,
+            bytesPerRow: 0_isize,
+            bitsPerPixel: 0_isize
+        ];
+        let rep = rep.ok_or("Could not make an image.")?;
+        let graphics: Option<Retained<AnyObject>> = msg_send![
+            objc2::class!(NSGraphicsContext),
+            graphicsContextWithBitmapImageRep: &*rep
+        ];
+        let graphics = graphics.ok_or("Could not draw into the image.")?;
+        let context: Context = msg_send![&*graphics, CGContext];
+        CGContextScaleCTM(context, SCALE, SCALE);
+        CGContextSetRGBFillColor(context, background[0], background[1], background[2], 1.0);
+        CGContextFillRect(context, rect(0.0, 0.0, size.width, size.height));
+        let _: () = msg_send![layer, renderInContext: context];
+        let _: () = msg_send![&*graphics, flushGraphics];
+        let properties: Retained<AnyObject> = msg_send![objc2::class!(NSDictionary), dictionary];
+        // NSBitmapImageFileTypePNG
+        let data: Option<Retained<AnyObject>> = msg_send![
+            &*rep,
+            representationUsingType: 4_usize,
+            properties: &*properties
+        ];
+        let data = data.ok_or("Could not encode the image.")?;
+        let file = NSString::from_str(&path.to_string_lossy());
+        let written: bool = msg_send![&*data, writeToFile: &*file, atomically: true];
+        if written {
+            Ok(())
+        } else {
+            Err(format!("Could not write {}", path.display()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

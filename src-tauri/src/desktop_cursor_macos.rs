@@ -1480,6 +1480,56 @@ pub(super) fn follow(scope: &str, point: Point, released: bool, revoked: Arc<Ato
     });
 }
 
+/// Dev builds only: draws the pointer, acting and at rest, into PNG files,
+/// off screen, over a light page and a dark one.
+#[cfg(debug_assertions)]
+pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
+    let mtm = MainThreadMarker::new().ok_or("Run the snapshot on the main thread.")?;
+    set_actor(
+        "Claude",
+        crate::desktop_presence::tone_color(Some("purple")),
+    );
+    let mut overlay = Overlay::create(mtm);
+    overlay.reduce_motion = true;
+    // Fully transparent and far off screen, so its layers are drawn.
+    overlay.panel.setAlphaValue(0.0);
+    overlay
+        .panel
+        .setFrameOrigin(NSPoint::new(-30_000.0, -30_000.0));
+    overlay.panel.orderFrontRegardless();
+    let size = NSSize::new(WIDTH, HEIGHT);
+    let root = overlay.view.layer().ok_or("no layer")?;
+    for (name, background) in [("light", [0.96, 0.96, 0.95]), ("dark", [0.17, 0.23, 0.19])] {
+        overlay.style = None;
+        overlay.resting = false;
+        overlay.refresh_style(Some(
+            "Clicking \u{201c}Next\u{2026}\u{201d} in Pages".into(),
+        ));
+        overlay.lay_tag(false);
+        overlay.panel.display();
+        CATransaction::flush();
+        marks::write_png(
+            &root,
+            size,
+            background,
+            &folder.join(format!("pointer-{name}.png")),
+        )?;
+        overlay.reduce_motion = true;
+        overlay.rest_tag();
+        CATransaction::flush();
+        marks::write_png(
+            &root,
+            size,
+            background,
+            &folder.join(format!("pointer-rest-{name}.png")),
+        )?;
+    }
+    reset_actor();
+    overlay.panel.orderOut(None);
+    overlay.panel.close();
+    Ok(())
+}
+
 /// What the chat's agent is doing, as its row on the bar says it.
 fn pointer_step(scope: &str) -> Option<String> {
     crate::desktop_presence::with(|state| state.pointer_text(scope))

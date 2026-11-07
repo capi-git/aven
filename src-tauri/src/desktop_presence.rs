@@ -1702,7 +1702,7 @@ impl Presence {
                 ),
                 Pause::ByUser => (
                     "Paused".to_owned(),
-                    format!("{name} can still look at the screen, but won\u{2019}t click, type or use your other tabs until you resume"),
+                    format!("{name} can still look, but won\u{2019}t click, type or use your other tabs"),
                 ),
             };
             let mut buttons = vec![BarButton {

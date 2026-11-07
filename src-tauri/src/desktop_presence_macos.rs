@@ -48,7 +48,7 @@ const CARD_HEIGHT: f64 = 56.0;
 const CARD_BOT: f64 = 24.0;
 const CARD_TEXT_X: f64 = 14.0 + CARD_BOT + 12.0;
 const CARD_MIN: f64 = 320.0;
-const CARD_MAX: f64 = 600.0;
+const CARD_MAX: f64 = 640.0;
 /// Each further line (an upload's files) adds this much height.
 const LINE_HEIGHT: f64 = 16.0;
 const BUTTON_HEIGHT: f64 = 24.0;
@@ -190,6 +190,9 @@ struct RowViews {
     bot_view: Retained<NSView>,
     tone: [f64; 3],
     button: Retained<DotsButton>,
+    /// The dots sit in a plain view behind their button: a button's own
+    /// layer is flipped, which would turn the dots upside down.
+    dots_view: Retained<NSView>,
     dots: Retained<CALayer>,
     mode: Dots,
     hover: bool,
@@ -760,13 +763,11 @@ impl Bar {
                 let _: () = msg_send![&*button, setToolTip: &*tip];
                 let _: () = msg_send![&*button, setAccessibilityLabel: &*tip];
             }
-            button.setWantsLayer(true);
             let dots = marks::dots();
             dots.setFrame(rect(2.0, 2.0, marks::DOTS_SIZE, marks::DOTS_SIZE));
-            if let Some(layer) = button.layer() {
-                layer.addSublayer(&dots);
-            }
             marks::set_dots(&dots, row.dots, false, self.reduce_motion);
+            let dots_view = host(mtm, &dots, rect(0.0, 0.0, DOTS_BUTTON, DOTS_BUTTON));
+            content.addSubview(&dots_view);
             track(&button);
             content.addSubview(&button);
             let name = label(mtm, &row.name, 13.0, 0.23, INK);
@@ -778,6 +779,7 @@ impl Bar {
                 bot_view,
                 tone: row.tone,
                 button,
+                dots_view,
                 dots,
                 mode: row.dots,
                 hover: false,
@@ -846,12 +848,14 @@ impl Bar {
             let middle = height - PAD - ROW * (index as f64 + 0.5);
             view.bot_view
                 .setFrame(rect(10.0, middle - BOT / 2.0, BOT, BOT));
-            view.button.setFrame(rect(
+            let dots = rect(
                 10.0 + BOT + 7.0,
                 middle - DOTS_BUTTON / 2.0,
                 DOTS_BUTTON,
                 DOTS_BUTTON,
-            ));
+            );
+            view.dots_view.setFrame(dots);
+            view.button.setFrame(dots);
             let name_width = text_width(&view.name);
             let name_height = view.name.frame().size.height;
             view.name.setFrame(rect(
@@ -1301,6 +1305,90 @@ pub(super) fn preview() {
     std::thread::sleep(Duration::from_secs(12));
     presence::with(|state| state.forget(None));
     changed();
+}
+
+/// Dev builds only: draws the bar's states into PNG files, off screen,
+/// over a green like the user's wallpaper. The views are made exactly as on
+/// screen; only the blur behind the glass is missing.
+#[cfg(debug_assertions)]
+pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
+    use presence::{ActorInput, Presence, Step};
+    let mtm = MainThreadMarker::new().ok_or("Run the snapshot on the main thread.")?;
+    let now = Instant::now();
+    let bind = |state: &mut Presence, scope: &str, harness: &str, tone: &str, title: &str| {
+        state.bind(
+            scope,
+            Some(presence::resolve_actor(&ActorInput {
+                harness: Some(harness.into()),
+                title: Some(title.into()),
+                tone: Some(tone.into()),
+            })),
+        );
+    };
+    let mut cases: Vec<(&str, BarModel, bool)> = Vec::new();
+    let mut state = Presence::default();
+    bind(&mut state, "a", "claude", "purple", "Export the report");
+    bind(&mut state, "b", "codex", "teal", "Check the app");
+    let app = presence::AppIdentity::new("com.apple.iWork.Pages:1", "Pages");
+    if let presence::Admission::Ask(id) = state.admit("a", true, Some(&app), true, true, now) {
+        cases.push(("bar-ask", state.model(now).ok_or("no prompt")?, false));
+        state.answer(id, true);
+        state.take_outcome(id, now);
+    }
+    let a = state.begin("a", Step::Clicking, Some("Pages".into()), now);
+    state.set_element(&a, Some("Next\u{2026}".into()));
+    cases.push(("bar-one", state.model(now).ok_or("no bar")?, false));
+    cases.push(("bar-one-pointed", state.model(now).ok_or("no bar")?, true));
+    let b = state.begin("b", Step::Typing, Some("Simulator".into()), now);
+    state.set_element(&b, Some("Search".into()));
+    cases.push(("bar-two", state.model(now).ok_or("no bar")?, false));
+    state.end(&a, now);
+    state.end(&b, now);
+    cases.push(("bar-thinking", state.model(now).ok_or("no bar")?, false));
+    state.pause(presence::Pause::ByUser);
+    cases.push(("bar-paused", state.model(now).ok_or("no bar")?, false));
+    state.resume();
+    state.stop("a", now);
+    cases.push(("bar-stopped", state.model(now).ok_or("no bar")?, false));
+    for (name, model, pointed) in cases {
+        let mut bar = Bar::new(mtm);
+        bar.reduce_motion = true; // a still picture of each mode
+        bar.hovering = pointed;
+        let size = if model.kind == BarKind::Acting {
+            bar.build_pill(mtm, &model);
+            bar.update_pill(&model.rows)
+        } else {
+            bar.build_card(mtm, &model)
+        };
+        if pointed {
+            if let Some(row) = bar.rows.first_mut() {
+                row.hover = true;
+                marks::set_dots(&row.dots, row.mode, true, true);
+            }
+        }
+        // Fully transparent and far off screen: AppKit assembles the
+        // layers only for a window taking part in drawing.
+        bar.panel.setAlphaValue(0.0);
+        bar.panel
+            .setFrame_display(rect(-30_000.0, -30_000.0, size.width, size.height), false);
+        bar.panel.orderFrontRegardless();
+        let content = bar.panel.contentView().ok_or("no content")?;
+        content.setFrame(rect(0.0, 0.0, size.width, size.height));
+        content.layoutSubtreeIfNeeded();
+        bar.panel.display();
+        objc2_quartz_core::CATransaction::flush();
+        let layer = content.layer().ok_or("no layer")?;
+        let written = marks::write_png(
+            &layer,
+            size,
+            [0.17, 0.23, 0.19],
+            &folder.join(format!("{name}.png")),
+        );
+        bar.panel.orderOut(None);
+        bar.panel.close();
+        written?;
+    }
+    Ok(())
 }
 
 pub(super) fn covers(point: super::Point) -> Result<bool, String> {

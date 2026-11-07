@@ -85,6 +85,12 @@ pub(super) fn session_alive(scope: &str) -> bool {
         .is_ok_and(|s| !s.revoked.load(Ordering::Acquire))
 }
 #[cfg(debug_assertions)]
+pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    presence_ui::snapshot(folder)?;
+    agent_cursor::snapshot(folder)
+}
+#[cfg(debug_assertions)]
 pub(super) fn preview_presence() {
     presence_ui::preview();
 }
