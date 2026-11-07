@@ -23,7 +23,6 @@ import {
   wellFormedFileName,
   type NameIssue,
 } from "../lib/fileName";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
   createParentOf,
   dirsTouchedByCreate,
@@ -242,7 +241,6 @@ export const FileTree = memo(function FileTree({
   const creatingRef = useRef(creating);
   creatingRef.current = creating;
   const rootRef = useRef<HTMLDivElement>(null);
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const name = basename(cwd);
   const rootOpen = expanded.has(cwd);
 
@@ -700,8 +698,10 @@ export const FileTree = memo(function FileTree({
             </span>
           </button>
         </div>
+        {/* Its host (the side panel) contains the wheel at its edges, so
+            a tree made for each project adds no wheel listener. */}
         <div
-          ref={lockOverscroll}
+          data-lock-overscroll=""
           className="min-h-0 flex-1 overflow-y-auto overscroll-none"
         >
           {opError ? (

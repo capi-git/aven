@@ -26,6 +26,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import { AttachmentChip } from "../chrome/AttachmentChip";
@@ -271,6 +272,15 @@ function AgentTranscriptComponent({
   const lastScrollExtent = useRef<ScrollExtent | undefined>(undefined);
   // Until this time, a trackpad gesture with no direction yet owns the pin.
   const wheelHold = useRef(0);
+  // The shown transcript's wheel handling. React's own wheel listener at the
+  // root calls it: in WebKit, adding or removing a wheel listener restyles
+  // the whole page (~35 ms), so showing or hiding a chat must not.
+  const onWheelRef = useRef<((event: WheelEvent) => void) | null>(null);
+  const onScrollerWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) =>
+      onWheelRef.current?.(event.nativeEvent),
+    [],
+  );
   // When the reader last used a wheel, trackpad, scroll key or the scrollbar
   // here, to tell their scrolling from the browser moving the offset.
   const readerInputAt = useRef(Number.NEGATIVE_INFINITY);
@@ -525,7 +535,7 @@ function AgentTranscriptComponent({
       }
     };
     scrollerEl.addEventListener("scroll", onScroll, { passive: true });
-    scrollerEl.addEventListener("wheel", onWheel, { passive: true });
+    onWheelRef.current = onWheel;
     scrollerEl.addEventListener("keydown", onKeyDown);
     scrollerEl.addEventListener("pointerdown", onPointerDown, {
       passive: true,
@@ -538,7 +548,7 @@ function AgentTranscriptComponent({
       clearTimeout(release);
       wheelHold.current = 0;
       scrollerEl.removeEventListener("scroll", onScroll);
-      scrollerEl.removeEventListener("wheel", onWheel);
+      if (onWheelRef.current === onWheel) onWheelRef.current = null;
       scrollerEl.removeEventListener("keydown", onKeyDown);
       scrollerEl.removeEventListener("pointerdown", onPointerDown);
       scrollerEl.removeEventListener("pointermove", onPointerMove);
@@ -774,6 +784,7 @@ function AgentTranscriptComponent({
         <div
           id={scrollerId}
           ref={setScroller}
+          onWheel={onScrollerWheel}
           data-transcript-layout={transcriptLayout}
           className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-ui-body leading-5"
         >

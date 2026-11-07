@@ -770,10 +770,17 @@ def print_long_frames(scenarios, sources):
             continue
         print(f'Longest frames, {item["name"]}:')
         calls = (item.get('hotCalls') or {}).get('slowLayouts', [])
+        wheels = (item.get('hotCalls') or {}).get('wheelListeners', [])
         for frame in sorted(frames, key=lambda entry: -entry['ms'])[:6]:
             inside = [call for call in calls if frame['at'] <= call['at'] <= frame['at'] + frame['ms']]
             named = ', '.join(f'{call["ms"]:g} {sources.get(call["where"], call["where"])}' for call in inside[:4])
-            print(f'  {frame["ms"]:g} ms; forced layout {sum(call["ms"] for call in inside):.0f} ms: {named}')
+            line = f'  {frame["ms"]:g} ms; forced layout {sum(call["ms"] for call in inside):.0f} ms: {named}'
+            # Each one restyles the whole page in WebKit (devPerf.ts).
+            changed = [call for call in wheels if frame['at'] <= call['at'] <= frame['at'] + frame['ms']]
+            if changed:
+                line += f'; wheel listeners {len(changed)}: ' + ', '.join(
+                    f'{call["change"]} {sources.get(call["where"], call["where"])}' for call in changed[:4])
+            print(line)
 
 
 def print_motion(checks):
@@ -864,7 +871,8 @@ def report_perf(root, launched_at, compare):
                     | {where.split(' ← ', 1)[-1] for item in scenarios
                        for where in ((item.get('hotCalls') or {}).get('dom') or {}).get('byKind', {})}
                     | {call['where'] for item in scenarios
-                       for call in (item.get('hotCalls') or {}).get('slowLayouts', [])})
+                       for key in ('slowLayouts', 'wheelListeners')
+                       for call in (item.get('hotCalls') or {}).get(key, [])})
     sources = {}
     if labels:
         try:
