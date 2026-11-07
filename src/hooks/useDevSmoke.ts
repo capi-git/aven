@@ -62,6 +62,7 @@ import {
 } from "../lib/devSmokeOrchestration";
 import {
   checkDesigner,
+  checkReviewLook,
   checkResearcher,
   checkTeamAccess,
   checkMeetAvos,
@@ -3769,11 +3770,27 @@ export async function runDevSmoke(
   // screen, at a phone's and a desktop's size (the Look tab's pictures).
   if (IS_MAC && pageUrl)
     await step(
-      "Avos's Review pictures a page at phone and desktop size",
+      "Avos's Review pictures a page at phone and desktop size, with its spots",
       async () => {
         const sizes: string[] = [];
         for (const size of ["phone", "desktop"] as const) {
-          const shot = await takePagePicture(pageUrl, size);
+          // The check page's heading as a spot, and one it doesn't have.
+          const shot = await takePagePicture(pageUrl, size, [
+            "h1",
+            ".aven-check-missing",
+          ]);
+          const [heading, missing] = shot.spots ?? [];
+          if (!heading || missing !== null)
+            throw new Error(
+              `The ${size} picture's spots are ${JSON.stringify(shot.spots)}: the heading should be found and the missing one not`,
+            );
+          const named = shot.parts?.find(
+            (part) => part.what === "heading “Aven check page”",
+          );
+          if (!named || named.element !== "h1")
+            throw new Error(
+              `The ${size} picture doesn't name its heading: ${JSON.stringify(shot.parts?.slice(0, 4))}`,
+            );
           if (
             !shot.src.startsWith("data:image/png;base64,") ||
             shot.width < 100
@@ -3786,7 +3803,9 @@ export async function runDevSmoke(
             throw new Error(
               `The ${size} picture is ${shot.width}×${shot.height}`,
             );
-          sizes.push(`${size} ${shot.width}×${shot.height}`);
+          sizes.push(
+            `${size} ${shot.width}×${shot.height}, heading at ${heading.map((n) => n.toFixed(2)).join(",")}`,
+          );
         }
         return sizes.join(", ");
       },
@@ -4141,6 +4160,11 @@ export async function runDevSmoke(
     await step(
       "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
       () => checkDesigner(get, config, crew),
+    );
+  if (safe && crew && IS_MAC)
+    await step(
+      "Avos changes a page, and its Review runs Avos's version, pictures it with the spot it named, and sends a note left on it",
+      () => checkReviewLook(config, crew),
     );
   if (safe && crew)
     await step(

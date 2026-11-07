@@ -694,6 +694,31 @@ class BuildEntrypointTests(unittest.TestCase):
         self.assertIn('No valid Developer ID', result.stderr)
         self.assertNotIn('BUILD WORK WAS REACHED', result.stdout + result.stderr)
 
+    def test_build_stage_needs_no_identity_and_sign_stage_still_does(self):
+        # The build stage looks for no key (the release workflow imports it
+        # only after the build); it stops later, at the inert CEF fixture.
+        built = self.run_entrypoint(['--stage', 'build'])
+        self.assertNotEqual(built.returncode, 0)
+        self.assertNotIn('No valid Developer ID', built.stderr)
+        self.assertNotIn('BUILD WORK WAS REACHED', built.stdout + built.stderr)
+        signed = self.run_entrypoint(['--stage', 'sign'])
+        self.assertNotEqual(signed.returncode, 0)
+        self.assertIn('No valid Developer ID', signed.stderr)
+        self.assertNotIn('BUILD WORK WAS REACHED', signed.stdout + signed.stderr)
+
+    def test_unknown_stage_is_refused(self):
+        for arguments in (['--stage', 'all-of-it'], ['--stage'], ['--sign']):
+            with self.subTest(arguments=arguments):
+                result = self.run_entrypoint(arguments)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('Usage:', result.stderr)
+
+    def test_sign_stage_signs_only_what_the_build_stage_built(self):
+        script = (ROOT / 'scripts/build-release.sh').read_text()
+        guard = script.index('No unsigned build of Aven')
+        self.assertLess(script.index('printf \'%s %s\\n\' "$task_version" "$task_head" > "$task_built"'), guard)
+        self.assertLess(guard, script.index('python3 scripts/package-chromium.py'))
+
     def test_ad_hoc_build_refuses_notarization_credentials_before_any_work(self):
         for name, value in (('APPLE_API_KEY_ID', 'ABC123DEFG'),
                             ('APPLE_API_KEY_P8_BASE64', FIXTURE_CREDENTIALS['APPLE_API_KEY_P8_BASE64']),

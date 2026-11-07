@@ -550,3 +550,11 @@
   :is(.agent-bob, .agent-eyes, .agent-light, .agent-key) {
   animation-play-state: paused;
 }
+
+/* Left alone for a minute, Aven's resting and watching agents settle
+   (idleMotion.ts); working and needing you keep moving. */
+:root[data-still]
+  .agent-mark:is([data-agent="resting"], [data-agent="watching"])
+  :is(.agent-bob, .agent-eyes, .agent-light, .agent-key) {
+  animation-play-state: paused;
+}

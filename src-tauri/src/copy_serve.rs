@@ -206,6 +206,27 @@ pub(crate) fn serve_args(script: &DevScript, port: u16) -> Vec<String> {
     args
 }
 
+/// Where to find the user's tools: their login shell's folders first, then
+/// the ones Aven was started with (a Node set up for Aven's own process, as
+/// on a build machine, isn't on the login shell's), each folder once.
+fn search_path(login: Option<&str>, own: Option<&str>) -> String {
+    let mut folders: Vec<&str> = Vec::new();
+    for folder in login
+        .into_iter()
+        .chain(own)
+        .flat_map(|path| path.split(':'))
+    {
+        if !folder.is_empty() && !folders.contains(&folder) {
+            folders.push(folder);
+        }
+    }
+    if folders.is_empty() {
+        "/usr/bin:/bin:/usr/sbin:/sbin".into()
+    } else {
+        folders.join(":")
+    }
+}
+
 /// The environment it runs with: the user's tools on PATH and the basics a
 /// dev server needs, and nothing else from Aven's own (no keys, no tokens).
 fn serve_env(port: u16, path: Option<String>) -> Vec<(String, String)> {
@@ -215,8 +236,7 @@ fn serve_env(port: u16, path: Option<String>) -> Vec<(String, String)> {
         .collect();
     env.push((
         "PATH".into(),
-        path.or_else(|| std::env::var("PATH").ok())
-            .unwrap_or_else(|| "/usr/bin:/bin:/usr/sbin:/sbin".into()),
+        search_path(path.as_deref(), std::env::var("PATH").ok().as_deref()),
     ));
     for (key, value) in [
         ("PORT", port.to_string()),
@@ -817,11 +837,32 @@ mod tests {
     }
 
     #[test]
+    fn finds_tools_in_the_login_shell_s_folders_then_aven_s_own() {
+        assert_eq!(
+            search_path(
+                Some("/opt/homebrew/bin:/usr/bin"),
+                Some("/usr/bin:/runner/node/bin")
+            ),
+            "/opt/homebrew/bin:/usr/bin:/runner/node/bin"
+        );
+        assert_eq!(
+            search_path(None, Some("/runner/node/bin")),
+            "/runner/node/bin"
+        );
+        assert_eq!(search_path(None, None), "/usr/bin:/bin:/usr/sbin:/sbin");
+        assert_eq!(
+            search_path(Some("::"), Some("")),
+            "/usr/bin:/bin:/usr/sbin:/sbin"
+        );
+    }
+
+    #[test]
     fn runs_without_aven_s_own_keys() {
         std::env::set_var("AVEN_TEST_SECRET_TOKEN", "x");
         let env = serve_env(4000, Some("/opt/bin".into()));
         assert!(env.iter().all(|(key, _)| key != "AVEN_TEST_SECRET_TOKEN"));
-        assert!(env.contains(&("PATH".into(), "/opt/bin".into())));
+        let path = &env.iter().find(|(key, _)| key == "PATH").unwrap().1;
+        assert!(path.starts_with("/opt/bin"));
         assert!(env.contains(&("PORT".into(), "4000".into())));
         std::env::remove_var("AVEN_TEST_SECRET_TOKEN");
     }

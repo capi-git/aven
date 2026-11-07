@@ -6,6 +6,7 @@ import {
 import {
   CREW_MEMORY_MAX,
   appPages,
+  appSpots,
   readFinding,
   readRan,
   type CrewFinding,
@@ -128,6 +129,9 @@ export function parseHandoff(text: string): CrewHandoff | null {
   if (!fields) return null;
   const question = botLine(fields.question, 400);
   const pages = appPages(fields.pages);
+  const spots = appSpots(fields.spots, pages)
+    .map((spot) => ({ ...spot, note: botLine(spot.note, 120) }))
+    .filter((spot) => spot.note);
   return {
     summary: botLine(fields.summary, 600),
     howToCheck: botLines(fields.howToCheck, HOW_TO_CHECK_MAX),
@@ -138,6 +142,7 @@ export function parseHandoff(text: string): CrewHandoff | null {
     })),
     ...(question ? { question } : {}),
     ...(pages.length ? { pages } : {}),
+    ...(spots.length ? { spots } : {}),
   };
 }
 
