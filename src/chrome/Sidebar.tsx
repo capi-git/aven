@@ -4,7 +4,6 @@ import { usePanelDockHandoff } from "../hooks/usePanelDockHandoff";
 import { useChromeProps } from "../hooks/useChromeProps";
 import {
   Archive,
-  Check,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -154,6 +153,8 @@ import { MotionList } from "./MotionList";
 import { useTurnEndFlash } from "../hooks/useTurnEndFlash";
 import type { WorkConflict, WorkConflictMap } from "../lib/workConflicts";
 import type { ChatStatusWord } from "../lib/chatStatus";
+import { AgentMark } from "./AgentMark";
+import { CrewCritter } from "./CrewCritter";
 import { ChatStatusPill } from "./ChatStatusPill";
 import { BotCritter, BotStatusPill } from "./BotCritter";
 import { type SidebarCrew } from "./SidebarCrews";
@@ -1148,10 +1149,25 @@ function SidebarComponent({
         {talk ? (
           <DiscussionTalkMark harness={session.harness} talk={talk} />
         ) : busySessionIds.has(session.id) ? (
-          <span
-            className="personal-task-working-dot"
-            aria-label={runningLabel}
-          />
+          // Its agent's little screen, working, in the project's colour.
+          <span className="personal-task-agent" aria-label={runningLabel}>
+            <CrewCritter
+              path={session.cwd}
+              role="lead"
+              state="working"
+              className="personal-task-agent-mark"
+            />
+          </span>
+        ) : chatStatus[session.id] === "review" ? (
+          // Done, with something for you to look at: its screen, ready.
+          <span className="personal-task-agent" aria-label="Ready for you">
+            <CrewCritter
+              path={session.cwd}
+              role="lead"
+              state="ready"
+              className="personal-task-agent-mark"
+            />
+          </span>
         ) : null}
       </span>
     );
@@ -2700,9 +2716,13 @@ function FolderRow({
         {!expanded && needsApproval ? (
           <CircleAlert className="size-3 text-amber-400" strokeWidth={1.75} />
         ) : !expanded && busy ? (
-          <span className="personal-task-working-dot" aria-label="Working" />
+          <span className="personal-task-agent" aria-label="Working">
+            <AgentMark state="working" className="personal-task-agent-mark" />
+          </span>
         ) : !expanded && done ? (
-          <Check className="size-3 text-emerald-400" strokeWidth={2.25} />
+          <span className="personal-task-agent" aria-label="Done">
+            <AgentMark state="ready" className="personal-task-agent-mark" />
+          </span>
         ) : null}
         <span>{count}</span>
       </span>
@@ -2894,7 +2914,9 @@ function SessionCard({
           </>
         ) : busy ? (
           <>
-            <span className="personal-task-working-dot" aria-hidden />
+            <span className="personal-task-agent" aria-hidden>
+              <AgentMark state="working" className="personal-task-agent-mark" />
+            </span>
             <span className="sr-only">Working</span>
           </>
         ) : (
