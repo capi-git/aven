@@ -21,8 +21,8 @@ import {
   type BotFix,
 } from "../lib/projectBots";
 import { botIntroLine } from "../lib/projectBotWake";
-import { LazyUnifiedDiffView, prepareDiffView } from "./LazyUnifiedDiffView";
-import type { UnifiedDiffFileModel } from "./UnifiedDiffView";
+import { buildUnifiedFile } from "../lib/unifiedDiff";
+import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
 import "./BotChat.css";
 
@@ -158,7 +158,6 @@ function FixReview({ path, fix }: { path: string; fix: BotFix }) {
   useEffect(() => {
     if (!copy) return;
     let live = true;
-    const builder = prepareDiffView();
     void (async () => {
       const diff = await botCopyHost.diff(copy, fix.base);
       // Its copy changed since the card was made: record what is there now,
@@ -168,7 +167,6 @@ function FixReview({ path, fix }: { path: string; fix: BotFix }) {
         if (problem && live) setFiles([]);
         return;
       }
-      const buildUnifiedFile = await builder;
       const models = await Promise.all(
         diff.files.slice(0, 30).map(async (file) => {
           const texts = await botCopyHost
@@ -210,7 +208,7 @@ function FixReview({ path, fix }: { path: string; fix: BotFix }) {
     return <p className="bot-fix-note">Couldn't read its changes.</p>;
   return (
     <div className="bot-fix-review">
-      <LazyUnifiedDiffView
+      <UnifiedDiffView
         files={files}
         fill={false}
         fileLayout="cards"

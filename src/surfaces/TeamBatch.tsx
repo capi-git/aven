@@ -11,9 +11,9 @@ import { reviewFileNotes, type PipelineBatch } from "../lib/crewPipeline";
 import { cardInCopy, stackedCards, type Crew } from "../lib/crews";
 import { errorText, logError } from "../lib/errors";
 import { botCopyHost, type BotDiff } from "../lib/projectBotCopy";
+import { buildUnifiedFile } from "../lib/unifiedDiff";
 import { plural } from "../lib/words";
-import { LazyUnifiedDiffView, prepareDiffView } from "./LazyUnifiedDiffView";
-import type { UnifiedDiffFileModel } from "./UnifiedDiffView";
+import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
 import "./TeamBatch.css";
 
@@ -190,7 +190,6 @@ export function CrewBatchSheet({
     readTop.current = top;
     setReview(null);
     setFiles(null);
-    const builder = prepareDiffView();
     void reviewCrewBatch(project, upTo)
       .then(async (found) => {
         if (!live) return;
@@ -202,8 +201,6 @@ export function CrewBatchSheet({
         }
         setReview(found);
         if (!copy) return;
-        const buildUnifiedFile = await builder;
-        if (!live) return;
         const models = await Promise.all(
           found.diff.files
             .filter((file) => !file.binary && file.newMode !== "120000")
@@ -368,7 +365,7 @@ export function CrewBatchSheet({
         {files ? (
           files.length ? (
             <div className="crew-sheet-diff">
-              <LazyUnifiedDiffView
+              <UnifiedDiffView
                 files={files}
                 fill={false}
                 fileLayout="cards"
