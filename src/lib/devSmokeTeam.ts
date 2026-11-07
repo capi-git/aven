@@ -1564,7 +1564,18 @@ export async function checkReviewLook(
         ),
       5_000,
       "the note box",
-    );
+    ).catch((error: unknown) => {
+      // Say what happened to the Review the click landed on.
+      const now = document.querySelectorAll<HTMLElement>("[data-avos-review]");
+      const seen = [
+        `the Review ${review.isConnected ? "stayed" : "was replaced"} (${now.length} now)`,
+        `the picture's button ${hit.isConnected ? "stayed" : "went"}${hit.disabled ? ", disabled" : ""}`,
+        `clicked at ${Math.round(at.left + at.width / 2)},${Math.round(at.top + at.height / 2)} on a ${Math.round(hit.getBoundingClientRect().width)}×${Math.round(hit.getBoundingClientRect().height)} button`,
+        `a note box ${document.querySelector("input[aria-label='Note for Avos']") ? "elsewhere" : "nowhere"}`,
+        `Look says "${look()?.querySelector("[role='status']")?.textContent ?? ""}"`,
+      ];
+      throw new Error(`${errorText(error)}: ${seen.join("; ")}`);
+    });
     if (!note.placeholder.includes(`button “${SMOKE_PAGE_BUTTON}”`))
       throw new Error(`The note box asks "${note.placeholder}"`);
     typeInto(note, "Make it green");
