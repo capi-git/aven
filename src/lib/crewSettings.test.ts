@@ -300,6 +300,21 @@ describe("adding and removing members", () => {
 });
 
 describe("changing a member", () => {
+  it("lets Avos choose a Builder's model until you pick one, and Let Avos choose hands it back", () => {
+    crewWith();
+    const builder = () => crewMemberById(getCrew(PATH)!, "builder")!;
+    expect(builder().chosen).toBeUndefined();
+    expect(updateCrewMember(PATH, "builder", { effort: "high" })).toBeNull();
+    expect(builder()).toMatchObject({ effort: "high", chosen: true });
+    expect(updateCrewMember(PATH, "builder", { chosen: false })).toBeNull();
+    expect(builder().chosen).toBeUndefined();
+    // Its usual model stays, for jobs Avos picks nothing for.
+    expect(builder().effort).toBe("high");
+    // Clearing a choice isn't picking one.
+    expect(updateCrewMember(PATH, "builder", { effort: null })).toBeNull();
+    expect(builder().chosen).toBeUndefined();
+  });
+
   it("runs only on an app that keeps its rules; a new app starts from its own model", () => {
     crewWith({
       members: [

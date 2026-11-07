@@ -150,7 +150,7 @@ function app(flaws: Flaws = {}) {
   };
   // A project's agent (Home's tiles): Bot, typing while it works.
   const mark = (working: boolean) =>
-    `<span class="dot-mark agent-mark" data-agent="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><span class="agent-bob"><svg class="agent-body"><path class="agent-head"></path></svg>${working ? `<i class="agent-key" style="animation-name: ${flaws.stillWhileWorking ? "none" : "agent-type"}"></i>` : ""}</span></span>`;
+    `<span class="dot-mark agent-mark" data-agent="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><span class="agent-bob"><svg class="agent-body"><path class="agent-head"></path></svg>${working ? `<i class="agent-eyes" style="animation-name: ${flaws.stillWhileWorking ? "none" : "agent-scan"}"></i>` : ""}</span></span>`;
   function draw() {
     const working = state.sessions.some((session) => session.busy);
     document.body.innerHTML = `
@@ -294,7 +294,7 @@ describe("the real-app check's motion steps", () => {
     const home = named(await check({ stillWhileWorking: true }), "Home shows");
     expect(home.passed).toBe(false);
     expect(home.detail).toBe(
-      "On Home, the working agent's mark its animation is none, expected agent-type",
+      "On Home, the working agent's mark its animation is none, expected agent-scan",
     );
   });
 

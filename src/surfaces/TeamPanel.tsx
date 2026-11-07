@@ -32,31 +32,19 @@ export function TeamNotes({ crew }: { crew: Crew }) {
     );
   return (
     <div className="team-notes-pages" data-avos-notes>
-      {kept.length ? (
-        <section aria-label="What they remember">
-          <h3 className="team-notes-heading">What they remember</h3>
-          <ul className="team-notes" role="list">
-            {kept.map((member) => (
-              <li key={member.id}>
-                <button
-                  type="button"
-                  onClick={() => workspace?.openSettings(crew.path, member.id)}
-                >
-                  <b>{crewMemberName(crew, member.id)}</b>
-                  <span>{member.memory}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {/* Yours first: each rule with when you gave it, and Forget. */}
       {crew.notes.length ? (
-        <section aria-label="For every card">
-          <h3 className="team-notes-heading">For every card</h3>
+        <section aria-label="Your rules">
+          <h3 className="team-notes-heading">Your rules</h3>
           <ul className="team-notes" role="list">
             {crew.notes.map((note) => (
               <li key={note.id} className="team-notes-rule" data-avos-rule>
-                <span>{note.text}</span>
+                <span>
+                  {note.text}
+                  <small className="team-notes-from">
+                    You, {noteDay(note.at)}
+                  </small>
+                </span>
                 <button
                   type="button"
                   className="team-notes-forget"
@@ -73,8 +61,34 @@ export function TeamNotes({ crew }: { crew: Crew }) {
           </ul>
         </section>
       ) : null}
+      {kept.length ? (
+        <section aria-label="What it learned">
+          <h3 className="team-notes-heading">What it learned</h3>
+          <ul className="team-notes" role="list">
+            {kept.map((member) => (
+              <li key={member.id}>
+                <button
+                  type="button"
+                  onClick={() => workspace?.openSettings(crew.path, member.id)}
+                >
+                  <b>{crewMemberName(crew, member.id)}</b>
+                  <span>{member.memory}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
+}
+
+/** "5 Nov": the day you gave a rule. */
+function noteDay(at: number): string {
+  return new Date(at).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
 }
 
 /** When the team works by itself. */

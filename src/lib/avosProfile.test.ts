@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { avosForYouLine, avosRemembers } from "./avosProfile";
+import {
+  avosFinishedToday,
+  avosForYouLine,
+  avosRemembers,
+} from "./avosProfile";
 import type { Crew } from "./crews";
 
 describe("Avos's line over what waits for you", () => {
@@ -74,5 +78,28 @@ describe("what Avos remembers, in its profile", () => {
       lines: [],
       total: 0,
     });
+  });
+});
+
+describe("what Avos's helpers finished today", () => {
+  it("counts helpers' answers and jobs that came back, today only", () => {
+    const now = new Date(2026, 10, 7, 15).getTime();
+    const today = new Date(2026, 10, 7, 9).getTime();
+    const yesterday = new Date(2026, 10, 6, 18).getTime();
+    const entry = (at: number, kind: string, who?: string) =>
+      ({ id: `${at}${kind}`, at, kind, who, text: "" }) as Crew["feed"][number];
+    const feed = [
+      entry(yesterday, "ready", "checker"),
+      entry(today, "say", "helper"),
+      entry(today, "ready", "checker"),
+      entry(today, "findings", "researcher"),
+      entry(today, "mockup", "designer"),
+      // Avos talking, a handoff and a note aren't something finished.
+      entry(today, "say", "lead"),
+      entry(today, "handoff", "builder"),
+      entry(today, "note", "aven"),
+    ];
+    expect(avosFinishedToday({ feed }, now)).toBe(4);
+    expect(avosFinishedToday({ feed: [] }, now)).toBe(0);
   });
 });

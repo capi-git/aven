@@ -915,7 +915,7 @@ describe("Avos answering you", () => {
       crew.feed.filter((entry) => entry.kind === "note").map((e) => e.text),
     ).toEqual(
       expect.arrayContaining([
-        "Lead will remember for every card: Always use pnpm",
+        "Lead will remember: Always use pnpm",
         "Lead will work towards: Ship the sign-up flow",
       ]),
     );

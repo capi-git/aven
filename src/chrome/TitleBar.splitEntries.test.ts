@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -756,4 +757,25 @@ describe("dragging with splits", () => {
       expect(props.onAddToSplit).toHaveBeenCalledExactlyOnceWith(SPLIT, "hero");
     });
   });
+});
+
+it("gives a split on the window's row a tab's width per pane, so each keeps its name", () => {
+  const css = readFileSync("src/chrome/TitleBar.css", "utf8").replace(
+    /\s+/g,
+    " ",
+  );
+  // A single tab there is held to 224px by a rule four classes deep; the
+  // split's slot matches it too, so its own rule needs one class more.
+  expect(css).toContain(
+    ".workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-slot:not([data-pinned]) { flex: 0 1 224px;",
+  );
+  const split = css.match(
+    /\.workspace-status-strip \.aven-tab-strip\[data-tab-track\] \.aven-tab-slot\.aven-split-entry \{([^}]*)\}/,
+  );
+  expect(split?.[1]).toContain(
+    "flex: 0 1 calc(var(--aven-split-panes, 2) * 200px)",
+  );
+  expect(split?.[1]).toContain(
+    "min-width: calc(var(--aven-split-panes, 2) * 88px)",
+  );
 });

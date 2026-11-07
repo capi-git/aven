@@ -610,3 +610,110 @@ describe("Avos offering Set up Git", () => {
     });
   });
 });
+
+describe("Avos's work in its chat", () => {
+  const withLead = (feed: Omit<CrewFeedEntry, "id">[]) => {
+    const crew = crewWith(feed);
+    return {
+      ...crew,
+      members: [...crew.members, { id: "lead", role: "lead" as const }],
+    } satisfies Crew;
+  };
+
+  it("draws a helper starting and finishing as lines of Avos's work, by the helper's name", () => {
+    const crew = withLead([
+      {
+        at: DAY,
+        kind: "say",
+        who: "lead",
+        member: "lead",
+        text: "Avos started a helper: Audit the Users page",
+      },
+      {
+        at: DAY + MIN,
+        kind: "say",
+        who: "helper",
+        text: "Helper “Audit the Users page”: Roles can be changed by anyone.",
+      },
+      {
+        at: DAY + 2 * MIN,
+        kind: "say",
+        who: "helper",
+        text: "Helper “Audit provider setup” didn't finish.",
+      },
+    ]);
+    const posts = teamPosts(crew, nameOf(crew)).filter(
+      (post): post is Extract<TeamPost, { kind: "post" }> =>
+        post.kind === "post",
+    );
+    expect(
+      posts.map((post) => [post.author.role, post.author.name, post.text]),
+    ).toEqual([
+      ["helper", "Audit the Users page", "Started"],
+      ["helper", "Audit the Users page", "Roles can be changed by anyone."],
+      ["helper", "Audit provider setup", "Didn't finish"],
+    ]);
+    expect(posts.every((post) => post.work)).toBe(true);
+  });
+
+  it("says messages that didn't go through for one reason once", () => {
+    const why = "Couldn't make Avos's copy: Bots need a Git project.";
+    const crew = withLead([
+      {
+        at: DAY,
+        kind: "note",
+        who: "aven",
+        text: `A message to Audit the Users page didn't go through: ${why}`,
+      },
+      {
+        at: DAY,
+        kind: "note",
+        who: "aven",
+        text: `A message to Audit provider setup didn't go through: ${why}`,
+      },
+      {
+        at: DAY + MIN,
+        kind: "note",
+        who: "aven",
+        text: "A message to Checker didn't go through: It timed out.",
+      },
+    ]);
+    const events = teamPosts(crew, nameOf(crew))
+      .filter((post) => post.kind === "event")
+      .map((post) => post.text);
+    expect(events).toEqual([
+      `Messages to Audit the Users page and Audit provider setup didn't go through: ${why}`,
+      "A message to Checker didn't go through: It timed out.",
+    ]);
+  });
+});
+
+describe("what Avos will remember", () => {
+  it("offers Undo on the line while the rule is kept, and not once it's gone", () => {
+    const base = crewWith([
+      {
+        at: DAY,
+        kind: "note",
+        who: "aven",
+        member: "lead",
+        text: "Avos will remember: Keep surfaces grey",
+      },
+    ]);
+    const crew = {
+      ...base,
+      notes: [{ id: "n1", at: DAY, text: "Keep surfaces grey" }],
+    } satisfies Crew;
+    const line = () =>
+      teamPosts(crew, nameOf(crew)).find((post) => post.kind === "event");
+    expect(line()).toMatchObject({
+      text: "Avos will remember: Keep surfaces grey",
+      forget: "n1",
+    });
+    const forgotten = { ...crew, notes: [] } satisfies Crew;
+    expect(
+      teamPosts(forgotten, nameOf(forgotten)).find(
+        (post) => post.kind === "event",
+      ),
+    ).not.toHaveProperty("forget");
+  });
+});

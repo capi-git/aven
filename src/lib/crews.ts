@@ -194,6 +194,12 @@ export type CrewMember = {
   harness?: "claude" | "codex";
   model?: string;
   /**
+   * You picked its model and effort yourself. Until you do, Avos picks them
+   * for each job it hands it ("Let Avos choose"), and these are only what it
+   * runs on when Avos picks nothing.
+   */
+  chosen?: true;
+  /**
    * The app it runs on for now instead (a Checker that couldn't be locked
    * down on Codex here runs on Claude). Cleared when Aven starts again, so
    * Codex gets one more try each session.
@@ -620,7 +626,28 @@ export type CrewIdea = {
   autoStarted?: boolean;
   /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
   by?: "security" | "researcher" | "setup" | "lead";
+  /** Avos's pick of the Builder's model and effort for it, and why. */
+  pick?: CrewPick;
 };
+
+/** A stored pick, as data: its words cut to size, or none. */
+function readPick(value: unknown): CrewPick | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const model = text(raw.model, 200);
+  const effort = text(raw.effort, 40);
+  const why = text(raw.why, 120);
+  return model || effort
+    ? {
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        ...(why ? { why } : {}),
+      }
+    : undefined;
+}
+
+/** A model and effort Avos picked for a job, and why, in a few words. */
+export type CrewPick = { model?: string; effort?: string; why?: string };
 
 export type CrewFeedKind =
   | "start"
@@ -821,6 +848,11 @@ export type CrewTalk = {
   routine?: true;
   /** A helper's one job. */
   helper?: true;
+  /**
+   * A job Avos handed out finished (ready, or stuck): what came of it, for
+   * Avos to tell you in its own words. Nothing goes back for it.
+   */
+  report?: true;
   /** Who it's from in words: a helper is gone by the time its answer arrives. */
   fromName?: string;
   /** Set once it went: the window carrying it, and its turn. */
@@ -1604,6 +1636,7 @@ function readMember(value: unknown):
       ? { harness: raw.harness }
       : {}),
     ...(model ? { model } : {}),
+    ...(raw.chosen === true ? { chosen: true as const } : {}),
     ...(fallback?.harness === "claude" && typeof fallback.at === "number"
       ? {
           fallback: {
@@ -1728,6 +1761,7 @@ export function readCrew(value: unknown): Crew | null {
         idea.by === "lead"
           ? { by: idea.by }
           : {}),
+        ...(readPick(idea.pick) ? { pick: readPick(idea.pick)! } : {}),
       };
     }
   const ideas = keptIdeas(read);
@@ -1948,6 +1982,7 @@ function readTalks(value: unknown): CrewTalk[] {
         ...(entry.answer === true ? { answer: true as const } : {}),
         ...(entry.routine === true ? { routine: true as const } : {}),
         ...(entry.helper === true ? { helper: true as const } : {}),
+        ...(entry.report === true ? { report: true as const } : {}),
         ...(text(entry.fromName, 60)
           ? { fromName: text(entry.fromName, 60) }
           : {}),
@@ -3081,7 +3116,7 @@ export function withNote(
           kind: "note",
           who: "aven",
           member: by.member,
-          text: `${by.name} will remember for every card: ${clean}`,
+          text: `${by.name} will remember: ${clean}`,
         }
       : { at: now, kind: "note", who: "you", text: clean },
   );
