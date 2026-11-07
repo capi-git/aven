@@ -18,6 +18,7 @@
 - **Avos's chat reads like any chat.** Its answers have no mark or name over them, a helper's work is one quiet line under its name, and messages that didn't go through for one reason are said once.
 - **Avos's profile is simpler.** Helpers show their screens, what finished today folds into one line that opens Activity under it, and ⋯ is just Pause and Settings.
 - **The effort picker is a row of dots,** one per level the model has, weakest first, lit up to the one you chose.
+- **The message box shows its agent's screen while it works,** in place of the dots box. Point at it to stop the turn.
 - **The message box's settings open out of its agent,** on the agents' dotted glass.
 - **Dragging a chat from the sidebar moves like dragging a tab:** it lifts into the same floating chip, shrinks over the panes and lands where you let go.
 
