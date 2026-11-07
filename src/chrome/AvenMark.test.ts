@@ -31,6 +31,23 @@ describe("AvenMark", () => {
     expect(markup).toContain('class="size-[15px]"');
   });
 
+  it("climbs from the bottom step when asked, and is still otherwise", () => {
+    const still = renderToStaticMarkup(createElement(AvenMark));
+    const climbing = renderToStaticMarkup(
+      createElement(AvenMark, { climb: true }),
+    );
+
+    expect(still).not.toContain("aven-mark-climb");
+    expect(climbing.match(/class="aven-mark-climb"/g)).toHaveLength(15);
+    // The bottom row lights first, the top dot last.
+    expect(climbing).toContain(
+      'cy="4.5" r="0.34" class="aven-mark-climb" style="animation-delay:0ms"',
+    );
+    expect(climbing).toContain(
+      'cy="0.5" r="0.34" class="aven-mark-climb" style="animation-delay:440ms"',
+    );
+  });
+
   it("is a 5 × 5 staircase, one more dot on each row down", () => {
     expect(AVEN_MARK_GRID).toEqual({ width: 5, height: 5 });
     AVEN_MARK_ROWS.forEach((row, index) => {
@@ -52,7 +69,7 @@ describe("AvenMark", () => {
         `<circle cx="${cx}" cy="${cy}" r="${AVEN_MARK_DOT_RADIUS}"/>`,
       );
     expect(svg).not.toContain("crispEdges");
-    // On smoky glass the wallpaper shows through.
-    expect(svg).toContain('fill="#2a2b30" fill-opacity="0.7"');
+    // On the agents' dark glass, as the app icon is.
+    expect(svg).toContain('fill="#1d1d23" fill-opacity="0.94"');
   });
 });

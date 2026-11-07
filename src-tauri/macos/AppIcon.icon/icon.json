@@ -1,43 +1,54 @@
 {
-  "fill" : {
-    "linear-gradient" : [
-      "extended-srgb:0.23500,0.23500,0.25500,1.00000",
-      "extended-srgb:0.07500,0.07500,0.09000,1.00000"
+  "fill": {
+    "linear-gradient": [
+      "extended-srgb:0.15000,0.15000,0.17500,1.00000",
+      "extended-srgb:0.09000,0.09000,0.11000,1.00000"
     ],
-    "orientation" : {
-      "start" : { "x" : 0.5, "y" : 0 },
-      "stop" : { "x" : 0.5, "y" : 0.7 }
+    "orientation": {
+      "start": {
+        "x": 0.5,
+        "y": 0
+      },
+      "stop": {
+        "x": 0.5,
+        "y": 0.7
+      }
     }
   },
-  "groups" : [
+  "groups": [
     {
-      "layers" : [
+      "layers": [
         {
-          "blend-mode" : "normal",
-          "fill" : "none",
-          "glass" : false,
-          "hidden" : false,
-          "image-name" : "icon.png",
-          "name" : "icon",
-          "opacity" : 1,
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [0, 0]
+          "blend-mode": "normal",
+          "fill": "none",
+          "glass": false,
+          "hidden": false,
+          "image-name": "icon.png",
+          "name": "icon",
+          "opacity": 1,
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
           }
         }
       ],
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
       },
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
       }
     }
   ],
-  "supported-platforms" : {
-    "circles" : ["watchOS"],
-    "squares" : "shared"
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
   }
 }
