@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { CrewCritter } from "../chrome/CrewCritter";
 import { TeamCardButton } from "../chrome/TeamCard";
 import type { BatchRange } from "../hooks/useTeamPipeline";
 import { avosForYouLine, type AvosAskKind } from "../lib/avosProfile";
@@ -39,7 +38,6 @@ const IDEAS_SHOWN = 4;
  * waits; ideas you said Not now to wait behind one quiet line.
  */
 export function AvosForYou({
-  project,
   crew,
   asks,
   range,
@@ -47,6 +45,7 @@ export function AvosForYou({
   onReview,
   onAct,
 }: {
+  /** Its project (its chat's, too). */
   project: string;
   crew: Crew;
   asks: readonly AvosAsk[];
@@ -95,17 +94,9 @@ export function AvosForYou({
   return (
     <ol className="team-posts" aria-label="For you" data-avos-for-you>
       {waiting.length ? (
-        <li className="team-post avos-for-you">
-          <CrewCritter
-            path={project}
-            role="lead"
-            state="needs"
-            className="team-post-mark"
-          />
+        // Avos's own reply, as the rest of its answers read: no mark or name.
+        <li className="team-reply avos-for-you">
           <div className="team-post-body">
-            <p className="team-post-head">
-              <b>Avos</b>
-            </p>
             <p className="team-post-text">
               {avosForYouLine(waiting.map((ask) => ask.kind))}
             </p>

@@ -329,6 +329,97 @@
   color: var(--color-content);
 }
 
+/* Avos's answer, as any chat's agent answers: its words alone. */
+.team-reply {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.team-reply .team-post-text {
+  color: var(--color-content);
+  font-size: var(--text-ui-reading);
+}
+
+.team-reply[data-live] .team-post-text[data-team-live-reply] {
+  color: var(--color-content);
+}
+
+/* The work behind its answers: one quiet line each, under a small Bot. */
+.team-work {
+  --dot-mark-surface: var(--color-background-base);
+  display: flex;
+  min-width: 0;
+  max-width: 760px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: var(--text-ui-body);
+}
+
+.dot-mark.team-work-mark {
+  width: 16px;
+  height: 16px;
+}
+
+.team-work-name {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-post-text.team-work-text {
+  min-width: 0;
+  flex: 0 1 auto;
+  margin: 0;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-work-label {
+  flex: none;
+  color: var(--team-faint);
+  font-size: var(--text-ui-label);
+}
+
+.team-work-label::before {
+  margin-right: 8px;
+  content: "·";
+}
+
+/* What waits for you is said in full. */
+.team-work[data-needs-you] {
+  flex-wrap: wrap;
+}
+
+.team-work[data-needs-you] .team-post-text.team-work-text {
+  color: var(--color-content);
+  white-space: normal;
+}
+
+/* What it's doing now: the work dots, as in the message box, and a few
+   muted words. */
+.team-live-status {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-body);
+}
+
+.team-live-status .helm-work-dots {
+  flex: none;
+}
+
 /* A handoff: who passed it, and to whom. */
 .team-handoff {
   --dot-mark-surface: var(--color-background-base);

@@ -508,7 +508,11 @@ describe("the team chat", () => {
     expect(
       thread.querySelector('[data-team-live="checker"] .team-post-text')
         ?.textContent,
-    ).toBe("Checking Timer screen · round 2…");
+      // Its work dots say it's still at it: no "…".
+    ).toBe("Checking Timer screen · round 2");
+    expect(
+      thread.querySelector('[data-team-live="checker"] .helm-work-dots'),
+    ).not.toBeNull();
     expect(thread.textContent).not.toMatch(/[{}[\]]"/);
   });
 
@@ -517,7 +521,9 @@ describe("the team chat", () => {
     const forYou = thread().querySelector<HTMLElement>("[data-avos-for-you]")!;
     // After everything else in the chat, as Avos's own message.
     expect(thread().lastElementChild).toBe(forYou);
-    expect(forYou.querySelector(".team-post-head b")?.textContent).toBe("Avos");
+    // Its words alone, as its other answers read: no mark or name.
+    expect(forYou.querySelector(".team-post-head")).toBeNull();
+    expect(forYou.querySelector(".agent-mark")).toBeNull();
     expect(forYou.querySelector(".team-post-text")?.textContent).toBe(
       "This is ready for you to look at.",
     );
@@ -588,11 +594,11 @@ describe("the team chat", () => {
     const live = () =>
       chat().querySelector('[data-team-live="checker"] .team-post-text')
         ?.textContent;
-    expect(live()).toBe("Checking Timer screen · round 2…");
+    expect(live()).toBe("Checking Timer screen · round 2");
     act(() => setCrewLiveReply(PROJECT, "checker", "The ring looks right"));
     expect(live()).toBe("The ring looks right");
     act(() => setCrewLiveReply(PROJECT, "checker", null));
-    expect(live()).toBe("Checking Timer screen · round 2…");
+    expect(live()).toBe("Checking Timer screen · round 2");
   });
 
   it("@ picks one teammate from the keyboard, and sends only to its chat", async () => {
