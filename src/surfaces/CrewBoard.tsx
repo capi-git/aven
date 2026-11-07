@@ -49,10 +49,7 @@ import {
 } from "../lib/feedFollow";
 import { plural } from "../lib/words";
 import { homeElapsed } from "../lib/workspaceHome";
-import {
-  LazyUnifiedDiffView,
-  loadUnifiedFileBuilder,
-} from "./LazyUnifiedDiffView";
+import { LazyUnifiedDiffView, prepareDiffView } from "./LazyUnifiedDiffView";
 import type { UnifiedDiffFileModel } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
 import { teamWording } from "../lib/teamThread";
@@ -518,6 +515,7 @@ function CrewDiff({
   useEffect(() => {
     if (!copy || !fix) return;
     let live = true;
+    const builder = prepareDiffView();
     void (async () => {
       const diff = await botCopyHost.diff(copy, fix.base);
       // The copy moved since its check: it is never shown as this card's
@@ -526,7 +524,7 @@ function CrewDiff({
         await markCrewFixChanged(path, card.id);
         return;
       }
-      const buildUnifiedFile = await loadUnifiedFileBuilder();
+      const buildUnifiedFile = await builder;
       const models = await Promise.all(
         diff.files.slice(0, 30).map(async (file) => {
           const texts = await botCopyHost
