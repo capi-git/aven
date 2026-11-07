@@ -328,7 +328,7 @@
   margin-top: 12px;
 }
 
-/* Remove from team, quietly; how it works, beside it. */
+/* Remove helper; how it works, beside it. */
 .teammate-foot {
   display: flex;
   flex-wrap: wrap;
@@ -339,7 +339,7 @@
   border-top: 1px solid var(--aven-line);
 }
 
-.teammate-foot > .crew-settings-remove-link {
+.teammate-foot > [data-crew-remove-member] {
   margin-right: auto;
 }
 

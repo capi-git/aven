@@ -2030,7 +2030,7 @@ describe("a member's line ends with its turn", () => {
     const crew = getCrew(PATH)!;
     expect(crewMember(crew, "builder")?.doing).toBeUndefined();
     expect(crewStatus(crew)).toBe("watching");
-    expect(removeCrewMember(PATH, "builder")).toBeNull();
+    expect(await removeCrewMember(PATH, "builder")).toBeNull();
     h.runner.stop();
   });
 

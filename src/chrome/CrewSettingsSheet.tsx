@@ -60,6 +60,7 @@ import {
 import { Check, ChevronLeft, ChevronRight, ChevronUp, Plus, X } from "./icons";
 import { Modal } from "./Modal";
 import { ProjectMark } from "./ProjectMark";
+import { RemoveHelperConfirm } from "./RemoveHelper";
 import { TeamBuilder } from "./TeamBuilder";
 import { MemberMark, TeammateBody, teammateSubtitle } from "./TeammatePage";
 import "./TeamCard.css";
@@ -125,6 +126,8 @@ export function CrewSettingsSheet({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [confirmingOff, setConfirmingOff] = useState(false);
+  // The helper whose Remove was pressed in the list: asked once, in place.
+  const [removing, setRemoving] = useState<string | null>(null);
   useEffect(() => {
     // The agent lists say which apps are installed.
     void probeHarnessAvailability();
@@ -334,7 +337,19 @@ export function CrewSettingsSheet({
         </span>
       ),
     };
-    body = confirmingOff ? (
+    const removingMember = removing
+      ? crewMemberById(crew, removing)
+      : undefined;
+    body = removingMember ? (
+      <div className="bot-sheet-body">
+        <RemoveHelperConfirm
+          crew={crew}
+          id={removingMember.id}
+          name={crewMemberName(crew, removingMember.id, fixerName)}
+          onCancel={() => setRemoving(null)}
+        />
+      </div>
+    ) : confirmingOff ? (
       <div className="bot-sheet-body">
         <p className="bot-sheet-question">Turn the team off?</p>
         <p className="bot-sheet-note">
@@ -369,6 +384,7 @@ export function CrewSettingsSheet({
         fixerName={fixerName}
         problem={problem}
         onOpenMember={(id) => toPage({ kind: "member", id, from: "crew" })}
+        onRemoveMember={setRemoving}
         onAdd={() => toPage({ kind: "add" })}
         onClose={onClose}
       />
@@ -422,6 +438,7 @@ function CrewBody({
   fixerName,
   problem,
   onOpenMember,
+  onRemoveMember,
   onAdd,
   onClose,
 }: {
@@ -431,6 +448,8 @@ function CrewBody({
   /** Why the team couldn't turn on. */
   problem: string | null;
   onOpenMember: (id: string) => void;
+  /** Ask to remove a helper (never Avos or the Fixer). */
+  onRemoveMember: (id: string) => void;
   onAdd: () => void;
   onClose: () => void;
 }) {
@@ -439,31 +458,45 @@ function CrewBody({
   return (
     <div className="bot-sheet-body" data-crew-settings={path}>
       <Section title="Helpers">
-        {members.map((member) => (
-          <button
-            key={member.id}
-            type="button"
-            className="bot-sheet-row crew-settings-member"
-            data-crew-member-row={member.id}
-            onClick={() => onOpenMember(member.id)}
-          >
-            <CrewCritter
-              path={path}
-              role={member.role}
-              {...(member.critter ? { critter: memberCritter(member) } : {})}
-            />
-            <span>
-              <strong>
-                <MemberTitle
-                  name={crewMemberName(crew, member.id, fixerName)}
-                  title={memberLabel(member)}
+        {members.map((member) => {
+          const name = crewMemberName(crew, member.id, fixerName);
+          return (
+            <div key={member.id} className="crew-settings-member-line">
+              <button
+                type="button"
+                className="bot-sheet-row crew-settings-member"
+                data-crew-member-row={member.id}
+                onClick={() => onOpenMember(member.id)}
+              >
+                <CrewCritter
+                  path={path}
+                  role={member.role}
+                  {...(member.critter
+                    ? { critter: memberCritter(member) }
+                    : {})}
                 />
-              </strong>
-              <small>{memberDetail(member)}</small>
-            </span>
-            <ChevronRight className="crew-settings-chevron size-3.5" />
-          </button>
-        ))}
+                <span>
+                  <strong>
+                    <MemberTitle name={name} title={memberLabel(member)} />
+                  </strong>
+                  <small>{memberDetail(member)}</small>
+                </span>
+                <ChevronRight className="crew-settings-chevron size-3.5" />
+              </button>
+              {member.role === "lead" || member.role === "fixer" ? null : (
+                <button
+                  type="button"
+                  className="crew-settings-row-remove"
+                  data-crew-remove-row={member.id}
+                  aria-label={`Remove ${name}`}
+                  onClick={() => onRemoveMember(member.id)}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          );
+        })}
         <button
           type="button"
           className="crew-settings-add"

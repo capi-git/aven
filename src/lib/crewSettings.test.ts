@@ -5,6 +5,7 @@ import {
   crewRoutesFor,
   crewScopeList,
   giveCardToCrew,
+  installCrewWorkspace,
   removeCrewMember,
   setCrewLimit,
   setCrewRoutes,
@@ -36,6 +37,7 @@ import {
   updateCrew,
   withCard,
   type Crew,
+  type CrewCard,
 } from "./crews";
 import { queueCard } from "./crewLoop";
 import { memoryStorage } from "./devSmoke";
@@ -235,7 +237,7 @@ describe("adding and removing members", () => {
     ).toBeUndefined();
   });
 
-  it("removes a member: its rules and default go, its cards go back to the rules, its chat is retired", () => {
+  it("removes a member: its rules and default go, its cards go back to the rules, its chat is retired", async () => {
     crewWith({
       members: [
         { id: "builder", role: "builder" },
@@ -262,7 +264,7 @@ describe("adding and removing members", () => {
       ),
     );
     expect(crewForChat("mole-chat")?.member.id).toBe("builder-2");
-    expect(removeCrewMember(PATH, "builder-2")).toBeNull();
+    expect(await removeCrewMember(PATH, "builder-2")).toBeNull();
     const crew = getCrew(PATH)!;
     expect(crewMemberById(crew, "builder-2")).toBeUndefined();
     expect(crew.routes).toBeUndefined();
@@ -275,27 +277,100 @@ describe("adding and removing members", () => {
     });
   });
 
-  it("keeps the last Builder and Checker, one at work, and the Fixer", () => {
+  it("keeps Avos, the last Builder and Checker, and the Fixer, and says why", async () => {
+    crewWith({
+      members: [
+        { id: "lead", role: "lead" },
+        { id: "builder", role: "builder" },
+        { id: "builder-2", role: "builder" },
+        { id: "checker", role: "checker" },
+        { id: "fixer", role: "fixer" },
+      ],
+    });
+    expect(await removeCrewMember(PATH, "lead")).toMatch(/^Avos stays\./);
+    expect(await removeCrewMember(PATH, "checker")).toBe(
+      "Avos needs a Checker. Add another Checker first, or switch this one off.",
+    );
+    expect(await removeCrewMember(PATH, "fixer")).toMatch(/project's bot/);
+    expect(await removeCrewMember(PATH, "builder")).toBeNull();
+    // Now the last Builder: it stays.
+    expect(await removeCrewMember(PATH, "builder-2")).toMatch(
+      /^Avos needs a Builder\./,
+    );
+    expect(getCrew(PATH)!.members.map((member) => member.id)).toEqual([
+      "lead",
+      "builder-2",
+      "checker",
+      "fixer",
+    ]);
+  });
+
+  it("stops one at work, hands its card on, and ends its chat's process", async () => {
+    const stopped: string[] = [];
+    const ended: string[] = [];
+    const uninstall = installCrewWorkspace({
+      openChat: () => {},
+      openCrew: () => {},
+      openSettings: () => {},
+      stop: async (sessionId) => void stopped.push(sessionId),
+      end: async (sessionId, harness) =>
+        void ended.push(`${harness}:${sessionId}`),
+    });
     crewWith({
       members: [
         { id: "builder", role: "builder" },
         {
           id: "builder-2",
           role: "builder",
+          sessionId: "b2-chat",
+          harness: "codex",
           doing: { at: 1, text: "Building" },
         },
         { id: "checker", role: "checker" },
-        { id: "fixer", role: "fixer" },
       ],
     });
-    expect(removeCrewMember(PATH, "checker")).toBe("Avos needs a Checker.");
-    expect(removeCrewMember(PATH, "builder-2")).toBe(
-      "It's working on a card. Stop the card first.",
+    updateCrew(PATH, (crew) =>
+      withCard(crew, {
+        ...queueCard(
+          {
+            id: "c",
+            title: "Fix the header",
+            brief: "c",
+            from: "you",
+            maxRounds: 3,
+            builderId: "builder-2",
+          },
+          NOW,
+        ),
+        stage: "building",
+        holder: "builder",
+        turn: {
+          sessionId: "b2-chat",
+          turnId: "t1",
+          role: "builder",
+          sentAt: NOW,
+        },
+      } as CrewCard),
     );
-    expect(removeCrewMember(PATH, "fixer")).toMatch(/project's bot/);
-    expect(removeCrewMember(PATH, "builder")).toBeNull();
-    // Now the last Builder: it stays either way.
-    expect(removeCrewMember(PATH, "builder-2")).toBe("Avos needs a Builder.");
+    try {
+      expect(await removeCrewMember(PATH, "builder-2", NOW)).toBeNull();
+    } finally {
+      uninstall();
+    }
+    const crew = getCrew(PATH)!;
+    expect(crewMemberById(crew, "builder-2")).toBeUndefined();
+    // Its turn stopped: the card waits for you, with the other Builder.
+    expect(stopped).toEqual(["b2-chat"]);
+    expect(crewCard(crew, "c")).toMatchObject({
+      stage: "stuck",
+      builderId: "builder",
+    });
+    expect(crewCard(crew, "c")?.turn).toBeUndefined();
+    // Its process ended too, on its own app.
+    expect(ended).toEqual(["codex:b2-chat"]);
+    // It stays removed after a restart.
+    resetCrewsCache();
+    expect(crewMemberById(getCrew(PATH)!, "builder-2")).toBeUndefined();
   });
 });
 

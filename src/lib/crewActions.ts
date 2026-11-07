@@ -1,6 +1,7 @@
 import { holdIdeaStarts } from "./crewLimits";
 import { useSyncExternalStore } from "react";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
+import { helperRemoval, withHelperRemoved } from "./crewRemoval";
 import { claudeCheckerModel } from "./crewModels";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
 import {
@@ -41,7 +42,6 @@ import {
   CREW_INSTRUCTIONS_MAX,
   crewAgentsFor,
   CREW_LIMIT_RANGES,
-  CREW_ROLE_INFO,
   crewMemberById,
   memberCritter,
   newMemberId,
@@ -58,7 +58,6 @@ import {
   crewLead,
   CREW_MESSAGE_MAX,
   withoutCard,
-  withoutMember,
   type Crew,
   type CrewAccess,
   type CrewAgent,
@@ -2706,39 +2705,45 @@ export function addCrewPreset(
 }
 
 /**
- * Remove a member. The last Builder or Checker stays (a crew needs one of
- * each), and one at work stays until its card is stopped. Its chat stays
- * the crew's and never starts again. Resolves with why it couldn't, or null.
+ * Remove a helper. Avos itself, the Fixer and the last Builder or Checker
+ * stay (see `helperRemoval`). A turn it is taking stops (its card waits for
+ * you), cards given to it go to whoever takes its work now, and its chat's
+ * process ends, with anything it left running there, such as a dev server.
+ * Its chat stays the crew's and never starts again. Resolves with why it
+ * couldn't, or null.
  */
-export function removeCrewMember(path: string, id: string): string | null {
+export async function removeCrewMember(
+  path: string,
+  id: string,
+  now = Date.now(),
+): Promise<string | null> {
   const crew = getCrew(path);
   const member = crew ? crewMemberById(crew, id) : undefined;
-  if (!crew || !member) return null;
-  if (member.role === "fixer")
-    return "The Fixer is the project's bot: turn it off in its own settings.";
-  if (
-    (member.role === "builder" || member.role === "checker") &&
-    crew.members.filter((entry) => entry.role === member.role).length <= 1
-  )
-    return `Avos needs a ${CREW_ROLE_INFO[member.role].label}.`;
-  const working =
-    !!member.doing ||
-    crew.cards.some(
-      (card) => !!card.turn && card.turn.sessionId === member.sessionId,
-    );
-  if (working) return "It's working on a card. Stop the card first.";
-  // A card in the copy keeps who built and checked it (and so its scope).
-  const holding = crew.cards.find(
-    (card) =>
-      (card.stage === "building" ||
-        card.stage === "checking" ||
-        card.stage === "ready" ||
-        card.stage === "stuck") &&
-      (card.builderId === id || card.checkerId === id),
-  );
-  if (holding)
-    return `“${holding.title}” is still in Avos's copy. Apply it, send it back to Ideas or throw it away first.`;
-  updateCrew(path, (current) => withoutMember(current, id));
+  const plan = crew ? helperRemoval(crew, id) : null;
+  if (!crew || !member || !plan) return null;
+  if (!plan.ok) return `${plan.title}. ${plan.text}`;
+  if (plan.stops) await stopCrewCard(path, plan.stops.id, now);
+  else if (plan.busy && member.sessionId)
+    await crewWorkspace()
+      ?.stop(member.sessionId)
+      .catch((error) => logError("Stop a removed helper", error));
+  let why: string | null = null;
+  updateCrew(path, (current) => {
+    // Checked again: another window may have changed the team meanwhile.
+    const again = helperRemoval(current, id);
+    if (!again) return current;
+    if (!again.ok) {
+      why = `${again.title}. ${again.text}`;
+      return current;
+    }
+    return withHelperRemoved(current, id);
+  });
+  if (why) return why;
+  // Best effort: a chat that never started has no process to end.
+  if (member.sessionId)
+    await crewWorkspace()
+      ?.end?.(member.sessionId, member.harness ?? "claude")
+      .catch(() => undefined);
   return null;
 }
 
@@ -2860,6 +2865,11 @@ export type CrewWorkspace = {
   openSettings: (path: string, page?: string) => void;
   /** Stop a chat's turn, and wait until it has. */
   stop: (sessionId: string) => Promise<void>;
+  /**
+   * End a removed helper's chat process, and with it anything it left
+   * running in the background (a dev server). Its chat stays in history.
+   */
+  end?: (sessionId: string, harness: "claude" | "codex") => Promise<void>;
   /**
    * Send your words to a member's own chat, as a message you typed there
    * (the Fixer's is the project bot's). Resolves with why it couldn't, or
