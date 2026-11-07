@@ -383,8 +383,8 @@ function homeAgentTile(path: string): HTMLElement | null {
 
 /**
  * Why an agent's Bot is not working as it should, or null: in its working
- * state, typing (its lit key stepping along its three keys) unless reduced
- * motion keeps it still.
+ * state, walking (its lit foot stepping from one foot to the other)
+ * unless reduced motion keeps it still.
  */
 function workingAgentProblem(mark: HTMLElement | null): string | null {
   if (!mark) return "is missing";

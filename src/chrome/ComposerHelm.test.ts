@@ -244,11 +244,11 @@ describe("the agent at the helm", () => {
   const css = (file: string) =>
     readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("is Bot, a head with a face, eyes and a light, at rest and working", async () => {
+  it("is Bot, a head of dots with eyes and a light, at rest and working", async () => {
     await render();
     expect(mark().classList.contains("agent-mark")).toBe(true);
     expect(mark().querySelector(".agent-head")).not.toBeNull();
-    expect(mark().querySelector(".agent-plate")).not.toBeNull();
+    expect(mark().querySelector(".agent-grid")).not.toBeNull();
     expect(mark().querySelectorAll(".agent-light")).toHaveLength(1);
     // Resting, its eyes are closed.
     expect(mark().querySelector<HTMLElement>(".agent-eyes")?.dataset.mood).toBe(
@@ -262,7 +262,7 @@ describe("the agent at the helm", () => {
     expect(mark().querySelector(".agent-key")).not.toBeNull();
   });
 
-  it("is 25px: bolts and its own face, but no outfit (that's 28px and up)", () => {
+  it("is 25px, past the small marks' bigger dots", () => {
     const helm = css("src/chrome/ComposerHelm.css");
     const rule = /\.composer-helm \.dot-mark\.helm-critter \{([^}]*)\}/.exec(
       helm,

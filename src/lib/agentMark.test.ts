@@ -1,40 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_GEOMETRY,
-  AGENT_SMALL_SCALE,
-  OUTFIT_PATHS,
+  AGENT_DOTS,
+  AGENT_ROWS,
+  agentCells,
   agentMemberTone,
   agentOutfit,
   agentPhase,
   botAgentState,
   crewAgentState,
-  eyesPath,
 } from "./agentMark";
+import { DOT_GRID, dotsPath } from "./dotSigils";
 
 describe("Bot's drawing", () => {
-  it("keeps everything inside its 64-unit box", () => {
-    const { head, bolts, light } = AGENT_GEOMETRY;
-    expect(head.x).toBeGreaterThan(0);
-    expect(head.x + head.w).toBeLessThan(64);
-    expect(head.y + head.h).toBeLessThan(64);
-    for (const bolt of bolts) {
-      expect(bolt.x).toBeGreaterThan(0);
-      expect(bolt.x + bolt.w).toBeLessThan(64);
-    }
-    expect(light.y - light.r * AGENT_SMALL_SCALE).toBeGreaterThan(0);
-  });
-
-  it("draws bigger eyes when small, and a mood for each state", () => {
-    const radius = (path: string) => Number(/a([\d.]+) /.exec(path)![1]);
-    expect(radius(eyesPath("open", true))).toBeCloseTo(
-      radius(eyesPath("open")) * AGENT_SMALL_SCALE,
+  it("is the work dots' 5×5 grid: a light, a head with two eyes, two feet", () => {
+    expect(AGENT_ROWS).toHaveLength(DOT_GRID);
+    for (const row of AGENT_ROWS) expect(row).toHaveLength(DOT_GRID);
+    expect(agentCells("l")).toEqual([[0, 2]]);
+    expect(agentCells("e")).toEqual([
+      [2, 1],
+      [2, 3],
+    ]);
+    // Symmetric, so its look and blink read the same either way.
+    for (const row of AGENT_ROWS) expect([...row].reverse().join("")).toBe(row);
+    // Every cell is one part, and the faint rest fills the square.
+    const parts = (["l", "h", "e", "."] as const).map(
+      (part) => agentCells(part).length,
     );
-    expect(radius(eyesPath("wide"))).toBeCloseTo(AGENT_GEOMETRY.eyes.r * 1.15);
-    // Closed eyes are two curves, not shapes.
-    expect(eyesPath("closed")).not.toContain("Z");
-    expect(eyesPath("closed").match(/q/g)).toHaveLength(2);
-    // Squinting, they look down.
-    expect(eyesPath("squint")).toContain(`${AGENT_GEOMETRY.eyes.y + 1.3}`);
+    expect(parts.reduce((a, b) => a + b)).toBe(DOT_GRID * DOT_GRID);
+    expect(AGENT_DOTS.head).toBe(dotsPath(agentCells("h")));
+    expect(AGENT_DOTS.grid).toBe(dotsPath(agentCells(".")));
   });
 });
 
@@ -50,14 +44,6 @@ describe("what each agent wears", () => {
     expect(agentOutfit("fixer")).toBe("plus");
     expect(agentOutfit("helper")).toBeUndefined();
     expect(agentOutfit(undefined)).toBeUndefined();
-  });
-
-  it("gives every badge its dark disc and a glyph", () => {
-    for (const outfit of ["tick", "shield", "diamond", "plus"] as const) {
-      const kinds = OUTFIT_PATHS[outfit].map((part) => part.kind);
-      expect(kinds[0]).toBe("badge");
-      expect(kinds.some((kind) => kind.startsWith("glyph"))).toBe(true);
-    }
   });
 
   it("starts each helper somewhere else in its loops, Avos at the start", () => {

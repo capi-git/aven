@@ -1,34 +1,26 @@
-/* Bot, every agent's mark (AgentMark.tsx): a little robot in the agent's
-   colour with a dark face plate, two glowing eyes and a light on its
-   antenna. It is also a `.dot-mark`, so it takes the marks' sizes (15px
-   when not set), their container and their colour tokens
-   (`--dot-mark-tint`) from DotMark.css.
+/* Bot, every agent's mark (AgentMark.tsx): a little robot drawn in the
+   work dots' 5×5 grid (AGENT_ROWS in src/lib/agentMark.ts), in the agent's
+   colour, with two glowing eyes and a light on its antenna, and the rest of
+   the grid faint. It is also a `.dot-mark`, so it takes the marks' sizes
+   (15px when not set), their container and their colour tokens
+   (`--dot-mark-tint`) from DotMark.css, and draws its dots as they do: a
+   zero-length round stroke, 13 units across in the 100-unit square, 14.6
+   below 24 px (AGENT_DOT, AGENT_DOT_SMALL; AgentMark.test.ts checks them).
 
-   The numbers here come from AGENT_GEOMETRY in src/lib/agentMark.ts, in
-   its 64-unit box (AgentMark.test.ts checks them). The body is one still
-   SVG. What moves are small HTML layers, by transform and opacity only:
-   the whole bot's bob (`.agent-bob`), its eyes (`.agent-eyes`), its light
-   (`.agent-light`) and, while it works, one lit key (`.agent-key`).
-
-   The colours of its face, eyes and outfits are its own, like a provider
-   icon's, and the same in light and dark. Outfits are greys, or a darker
-   shade of the agent's own colour (the beret), never yellow, green or
-   red: those say what's happening, and only its eyes and light do. */
+   The body is one still SVG. What moves are small HTML layers, by transform
+   and opacity only: the whole bot's bob (`.agent-bob`), its eyes
+   (`.agent-eyes`), its light (`.agent-light`) and, while it works, one lit
+   foot (`.agent-key`). Only its eyes and light say what's happening. */
 
 .agent-mark {
   --agent-body: var(--dot-mark-tint, currentColor);
-  --agent-plate: #17171a;
   --agent-glow: #f7f7f5;
-  --agent-hat: #cfcfd4;
-  --agent-brim: #b4b4ba;
-  --agent-lamp: #8e8e95;
-  --agent-beret: #b85c95;
-  --agent-metal: #9a9aa2;
-  --agent-cup: #3a3a40;
-  --agent-badge: #222226;
-  --agent-badge-ring: #0c0c0e;
-  --agent-frame: #e8e8ea;
-  --agent-z: #a8a8ae;
+  --agent-dot: 13;
+  /* A light's box and offset: one dot, centred on its cell. */
+  --agent-size: 13%;
+  --agent-inset: 6.5%;
+  /* Two cells, in the lit foot's own widths. */
+  --agent-step: 307.692%;
 }
 
 .agent-bob,
@@ -45,135 +37,54 @@
   width: 100%;
   height: 100%;
   overflow: visible;
-}
-
-.agent-bolts,
-.agent-head,
-.agent-glyph {
-  fill: var(--agent-body);
-}
-
-.agent-bolts {
-  opacity: 0.75;
-}
-
-.agent-plate {
-  fill: var(--agent-plate);
-}
-
-.agent-stalk,
-.agent-z,
-.agent-band,
-.agent-boom,
-.agent-frame,
-.agent-glyph-line,
-.agent-eyes[data-mood="closed"] path {
   fill: none;
   stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-width: var(--agent-dot);
 }
 
-.agent-stalk {
+.agent-head {
   stroke: var(--agent-body);
-  stroke-width: 2.6;
 }
 
-/* The three keys it types on while it works, unlit. */
-.agent-keys {
-  fill: var(--agent-glow);
-  opacity: 0.25;
+/* The rest of the square, faint, as the other dot marks draw theirs. */
+.agent-grid {
+  stroke: currentColor;
+  opacity: var(--dot-mark-unlit, 0.065);
 }
 
-.agent-z {
-  display: none;
-  stroke: var(--agent-z);
-  stroke-width: 1.4;
-  opacity: 0.7;
-}
-
-/* Outfits: at 28 px and up only. */
-.agent-outfit {
-  display: none;
-}
-
-.agent-band,
-.agent-boom {
-  stroke: var(--agent-metal);
-}
-
-.agent-band {
-  stroke-width: 2.4;
-}
-
-.agent-boom {
-  stroke-width: 1.8;
-}
-
-.agent-cup {
-  fill: var(--agent-cup);
-}
-
-.agent-hat {
-  fill: var(--agent-hat);
-}
-
-.agent-brim {
-  fill: var(--agent-brim);
-}
-
-.agent-beret {
-  fill: var(--agent-beret);
-}
-
-.agent-frame {
-  stroke: var(--agent-frame);
-  stroke-width: 1.6;
-}
-
-.agent-badge {
-  fill: var(--agent-badge);
-  stroke: var(--agent-badge-ring);
-  stroke-width: 1.6;
-}
-
-.agent-glyph-line {
-  stroke: var(--agent-body);
-  stroke-width: 2;
-}
-
-/* Its eyes, about the line they sit on, so a blink closes them in place. */
+/* Its eyes, about the row they sit on, so a blink closes them in place. */
 .agent-eyes {
-  transform-origin: 50% 57.8125%;
+  transform-origin: 50% 50%;
 }
 
-.agent-eyes path {
-  fill: var(--agent-glow);
-}
-
-.agent-eyes[data-mood="closed"] path {
+.agent-eye {
   stroke: var(--agent-glow);
-  stroke-width: 1.8;
 }
 
-.agent-eyes[data-mood="wide"] path {
-  fill: var(--aven-needs-you);
+/* Shut while it rests: dim, not gone. */
+.agent-eyes[data-mood="closed"] .agent-eye {
+  opacity: 0.35;
 }
 
-.agent-eye-small {
-  display: none;
+.agent-eyes[data-mood="wide"] .agent-eye {
+  stroke: var(--aven-needs-you);
 }
 
-/* The light on its antenna: its colour, dim at rest, white while it
-   works, amber while it needs you. */
-.agent-light {
+/* The light on its antenna, the top row's middle dot: its colour, dim at
+   rest, white while it works, amber while it needs you. */
+.agent-light,
+.agent-key {
   position: absolute;
-  left: 43.75%;
-  top: 9.375%;
-  width: 12.5%;
-  height: 12.5%;
+  width: var(--agent-size);
+  height: var(--agent-size);
   border-radius: 50%;
-  background: var(--agent-body);
   pointer-events: none;
+}
+
+.agent-light {
+  left: calc(50% - var(--agent-inset));
+  top: calc(10% - var(--agent-inset));
+  background: var(--agent-body);
 }
 
 .agent-mark[data-agent="resting"] .agent-light {
@@ -188,16 +99,11 @@
   background: var(--aven-needs-you);
 }
 
-/* The key it is on, lit, over the first of the three. */
+/* The foot it is on, lit, over the left foot. */
 .agent-key {
-  position: absolute;
-  left: 41.796875%;
-  top: 67.109375%;
-  width: 3.90625%;
-  height: 3.90625%;
-  border-radius: 50%;
+  left: calc(30% - var(--agent-inset));
+  top: calc(90% - var(--agent-inset));
   background: var(--agent-glow);
-  pointer-events: none;
 }
 
 /* At rest it sits a little lower. */
@@ -210,77 +116,14 @@
   opacity: 0.26;
 }
 
-/* Small marks (lists, rails, tabs): no bolts or outfits, and bigger eyes,
-   antenna and strokes, so it stays clear. */
+/* Small marks (lists, rails, tabs): bigger dots, so it stays clear. The
+   mark is its own container, so this sets them on the layer inside it. */
 @container (max-width: 23.5px) {
-  .agent-bolts,
-  .agent-eye-big {
-    display: none;
-  }
-
-  .agent-eye-small {
-    display: inline;
-  }
-
-  .agent-stalk {
-    stroke-width: 3.38;
-  }
-
-  .agent-eyes[data-mood="closed"] path {
-    stroke-width: 2.34;
-  }
-
-  .agent-light {
-    left: 41.875%;
-    top: 7.5%;
-    width: 16.25%;
-    height: 16.25%;
-  }
-}
-
-/* Dressed, at 28 px and up: its outfit, and a "z" while it rests. A hard
-   hat's lamp or a beret's nub replaces the antenna and is its light: the
-   lamp unlit grey until it works (white) or needs you (amber). */
-@container (min-width: 27.5px) {
-  .agent-outfit,
-  .agent-mark[data-agent="resting"] .agent-z {
-    display: inline;
-  }
-
-  .agent-mark[data-hatted] .agent-stalk {
-    display: none;
-  }
-
-  .agent-mark[data-outfit="hat"] .agent-light {
-    left: 45.625%;
-    top: 24.53125%;
-    width: 8.75%;
-    height: 8.75%;
-  }
-
-  .agent-mark[data-outfit="beret"] .agent-light {
-    left: 47.8125%;
-    top: 12.65625%;
-    width: 7.5%;
-    height: 7.5%;
-  }
-
-  .agent-mark[data-outfit="hat"]:not(
-      [data-agent="working"],
-      [data-agent="needs"]
-    )
-    .agent-light {
-    background: var(--agent-lamp);
-    opacity: 1;
-  }
-
-  .agent-mark[data-outfit="beret"]:not(
-      [data-agent="working"],
-      [data-agent="needs"]
-    )
-    .agent-light {
-    background: var(--agent-beret);
-    opacity: 1;
+  .agent-bob {
+    --agent-dot: 14.6;
+    --agent-size: 14.6%;
+    --agent-inset: 7.3%;
+    --agent-step: 273.973%;
   }
 }
 
@@ -310,9 +153,9 @@
     animation-delay: var(--agent-phase, 0s);
   }
 
-  /* Typing: the lit key rests on each of the three in turn. */
+  /* Walking: the lit foot steps from one foot to the other. */
   .agent-mark[data-agent="working"] .agent-key {
-    animation: agent-type 900ms ease-in-out infinite;
+    animation: agent-type 640ms ease-in-out infinite;
     animation-delay: var(--agent-phase, 0s);
   }
 
@@ -444,38 +287,21 @@
   }
 }
 
-/* Four units to the next key, 160% of the key's own width. It rests on
-   each key and moves to the next in about 30ms, so it reads as typing;
-   from the last it fades, goes back unseen, and lights the first again. */
+/* Walking: the lit foot rests on one foot, then the other, two cells
+   (40 units) apart, a step in about 30ms. */
 @keyframes agent-type {
   0%,
-  30% {
+  47% {
     transform: none;
-    opacity: 1;
   }
-  33.333%,
-  63.333% {
-    transform: translateX(160%);
-  }
-  66.667%,
-  93% {
-    transform: translateX(320%);
-    opacity: 1;
-  }
-  96% {
-    transform: translateX(320%);
-    opacity: 0;
-  }
-  99% {
-    transform: none;
-    opacity: 0;
+  50%,
+  97% {
+    transform: translateX(var(--agent-step));
   }
   100% {
     transform: none;
-    opacity: 1;
   }
 }
-
 /* Done: one happy hop. */
 @keyframes agent-cheer {
   0%,

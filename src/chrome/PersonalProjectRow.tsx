@@ -36,6 +36,7 @@ import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
+import { WorkDots } from "./WorkDots";
 
 type Props = {
   path: string;
@@ -317,7 +318,7 @@ export function PersonalProjectRow({
  * Quiet, right-aligned status: a small brain after Aven updated the
  * project's memory (until it is opened), an amber dot while something waits
  * for the user, the unread reply count, and the changed-file count. A running
- * agent is a small dot: the project's mark stays still.
+ * agent is the work dots: the project's mark stays still.
  */
 function ProjectRowStatus({
   status,
@@ -337,7 +338,12 @@ function ProjectRowStatus({
           data-memory-updated
         />
       ) : null}
-      {running ? <span className="personal-project-running" /> : null}
+      {running ? (
+        // The work dots, as beside the Bot in the message box.
+        <span className="personal-project-running">
+          <WorkDots work="think" />
+        </span>
+      ) : null}
       {waiting ? <span className="personal-project-waiting" /> : null}
       {unread ? (
         <span className="personal-project-unread">{unread}</span>

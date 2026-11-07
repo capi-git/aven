@@ -175,8 +175,10 @@ export type AgentPanelFocus = "model" | "effort" | "access";
 
 const PANEL_FOCUS: Record<AgentPanelFocus, string> = {
   model: MODEL_SEARCH_FIELD,
+  // A group of radios is one tab stop, its chosen one: land there, not on
+  // the group's first level.
   effort:
-    "[data-agent-panel-side] :is(button, [role=radio], select, input):not(:disabled)",
+    "[data-agent-panel-side] :is(button:not([tabindex='-1']), select, input):not(:disabled)",
   access:
     "[data-access-options] :is([aria-checked=true], button):not(:disabled)",
 };

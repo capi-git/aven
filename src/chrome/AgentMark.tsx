@@ -1,13 +1,10 @@
 import { memo, type CSSProperties } from "react";
 import {
-  AGENT_BOX,
-  AGENT_PATHS,
-  HATS,
-  OUTFIT_PATHS,
-  eyesPath,
+  AGENT_DOTS,
   type AgentOutfit,
   type AgentState,
 } from "../lib/agentMark";
+import { DOT_VIEW_BOX } from "../lib/dotSigils";
 import type { MarkTone } from "../lib/markTones";
 import {
   MASCOT_REACTION_MS,
@@ -16,8 +13,6 @@ import {
 import "./AgentMark.css";
 
 export type { AgentOutfit, AgentState } from "../lib/agentMark";
-
-const VIEW_BOX = `0 0 ${AGENT_BOX} ${AGENT_BOX}`;
 
 type Mood = "open" | "wide" | "squint" | "closed";
 
@@ -29,14 +24,6 @@ const MOODS: Readonly<Record<AgentState, Mood>> = {
   needs: "wide",
 };
 
-/** Each mood's eyes, big and small, worked out once. */
-const EYES: Readonly<Record<Mood, readonly [string, string]>> = {
-  open: [eyesPath("open"), eyesPath("open", true)],
-  wide: [eyesPath("wide"), eyesPath("wide", true)],
-  squint: [eyesPath("squint"), eyesPath("squint", true)],
-  closed: [eyesPath("closed"), eyesPath("closed", true)],
-};
-
 type Props = {
   /** What the agent is doing (`still` when not set). */
   state?: AgentState;
@@ -46,7 +33,7 @@ type Props = {
    * amber while it needs you.
    */
   tone?: MarkTone | null;
-  /** What it wears at 28 px and up, by its role (`agentOutfit`). */
+  /** Its role's outfit (`agentOutfit`), said as `data-outfit` only. */
   outfit?: AgentOutfit;
   /**
    * A one-shot reaction to a turn's end or a reply: a happy hop when it
@@ -68,13 +55,13 @@ type Props = {
 };
 
 /**
- * An agent's mark, Bot: a little robot in the agent's colour with a dark
- * face plate, two glowing eyes and a light on its antenna (see
- * `AgentState`). Below 24 px its eyes and antenna are bigger and its bolts
- * go; at 28 px and up it wears its role's outfit. The body is one still
- * SVG; only three small parts move (the whole bot's bob, its eyes, its
- * light, and while it works one key), each by transform or opacity, so a
- * page full of marks costs little and nothing runs per frame in script.
+ * An agent's mark, Bot: a little robot drawn in the work dots' 5×5 grid
+ * (`AGENT_ROWS`), in the agent's colour, with two glowing eyes and a light
+ * on its antenna, the rest of the grid faint (see `AgentState`). The body
+ * is one still SVG; only a few small parts move (the whole bot's bob, its
+ * eyes, its light, and while it works one lit foot), each by transform or
+ * opacity, so a page full of marks costs little and nothing runs per frame
+ * in script.
  *
  * It is a `.dot-mark` too, so the sizes callers give their marks, and the
  * mark colour tokens, apply to it as they do to the other marks.
@@ -100,7 +87,6 @@ export const AgentMark = memo(function AgentMark({
           ...(phase ? { "--agent-phase": `${-phase}s` } : {}),
         } as CSSProperties)
       : style;
-  const mood = MOODS[state];
   return (
     <span
       key={reaction ? (reactionId ?? reaction) : undefined}
@@ -108,7 +94,6 @@ export const AgentMark = memo(function AgentMark({
       data-agent={state}
       data-tone={tone && tone !== "grey" ? tone : undefined}
       data-outfit={outfit}
-      data-hatted={outfit && HATS.has(outfit) ? "" : undefined}
       data-reaction={reaction ?? undefined}
       data-vacant={vacant || undefined}
       style={own}
@@ -117,33 +102,17 @@ export const AgentMark = memo(function AgentMark({
       <span className="agent-bob">
         <svg
           className="agent-body"
-          viewBox={VIEW_BOX}
+          viewBox={DOT_VIEW_BOX}
           aria-hidden
           focusable="false"
         >
-          <path className="agent-bolts" d={AGENT_PATHS.bolts} />
-          <path className="agent-head" d={AGENT_PATHS.head} />
-          <path className="agent-plate" d={AGENT_PATHS.plate} />
-          <path className="agent-stalk" d={AGENT_PATHS.stalk} />
-          {state === "working" && !vacant ? (
-            <path className="agent-keys" d={AGENT_PATHS.keys} />
-          ) : null}
-          {state === "resting" && !vacant ? (
-            <path className="agent-z" d={AGENT_PATHS.z} />
-          ) : null}
-          {outfit && !vacant ? (
-            <g className="agent-outfit">
-              {OUTFIT_PATHS[outfit].map((part, index) => (
-                <path key={index} className={`agent-${part.kind}`} d={part.d} />
-              ))}
-            </g>
-          ) : null}
+          <path className="agent-grid" d={AGENT_DOTS.grid} />
+          <path className="agent-head" d={AGENT_DOTS.head} />
         </svg>
         {vacant ? null : (
-          <span className="agent-eyes" data-mood={mood}>
-            <svg viewBox={VIEW_BOX} aria-hidden focusable="false">
-              <path className="agent-eye-big" d={EYES[mood][0]} />
-              <path className="agent-eye-small" d={EYES[mood][1]} />
+          <span className="agent-eyes" data-mood={MOODS[state]}>
+            <svg viewBox={DOT_VIEW_BOX} aria-hidden focusable="false">
+              <path className="agent-eye" d={AGENT_DOTS.eyes} />
             </svg>
           </span>
         )}
