@@ -1499,7 +1499,10 @@ fn activate(
         activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
     })?;
     // The app's front window, so the agent can go straight to appState.
-    if let Some(window) = windows()?
+    // Activation already succeeded; a failed window listing only leaves out
+    // the window id.
+    if let Some(window) = windows()
+        .unwrap_or_default()
         .into_iter()
         .find(|window| window.pid == attempt.pid)
     {
