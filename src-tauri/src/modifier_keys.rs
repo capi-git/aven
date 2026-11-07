@@ -20,7 +20,16 @@ fn held() -> Option<bool> {
     Some(flags & CONTROL != 0)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+fn held() -> Option<bool> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL};
+    // The keyboard's state now, whichever window has the keys: the high
+    // bit is set while the key is down.
+    let state = unsafe { GetAsyncKeyState(i32::from(VK_CONTROL)) };
+    Some(state < 0)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn held() -> Option<bool> {
     None
 }

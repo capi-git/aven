@@ -485,6 +485,18 @@ CREW_ENV = "AVEN_SMOKE_CREW_ENV"
 CREW_ROUND = re.compile(r"Round (\d+) of \d+")
 CREW_SECURITY = re.compile(r"passed round \d+ of \d+ by")
 CREW_CHECK = re.compile(r"finished round \d+ of \d+")
+# With "AVEN_SMOKE_PAGE" too, the Builder also changes the app's page
+# (index.html, served by the project's own dev script) and names it, with
+# a spot on what it changed, for Review's pictures.
+PAGE_WORD = "AVEN_SMOKE_PAGE"
+PAGE_FILE = "index.html"
+PAGE_BUTTON = "Start your free trial"
+PAGE_HTML = (
+    '<!doctype html><html><head><meta charset="utf-8"><title>Plans</title>'
+    '<style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:40px}'
+    '.cta{font-size:20px;padding:14px 28px}</style></head>'
+    f'<body><h1>Plans</h1><button class="cta">{PAGE_BUTTON}</button></body></html>\n'
+)
 
 
 def crew_fence(name, body):
@@ -605,10 +617,17 @@ def crew_turn(session, turn, text, args):
         round_number = found.group(1) if found else "1"
         log({"pid": os.getpid(), "crew": "builder", "round": round_number, "launch": launch})
         emit_write(session, turn, CREW_FILE, f"round {round_number}\n")
+        page = PAGE_WORD in text
+        if page:
+            emit_write(session, turn, PAGE_FILE, PAGE_HTML)
         return crew_fence("aven-handoff", {
             "summary": f"Wrote {CREW_FILE} for round {round_number}. {CREW_ENV} {launch}",
             "howToCheck": [f"Read {CREW_FILE}"],
             "ran": [{"command": "cat " + CREW_FILE, "ok": True}],
+            **({
+                "pages": ["/"],
+                "spots": [{"page": "/", "element": "button.cta", "note": "Clearer trial button"}],
+            } if page else {}),
         })
     return None
 

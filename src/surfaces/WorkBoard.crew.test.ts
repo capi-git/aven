@@ -82,11 +82,25 @@ const actions = vi.hoisted(() => ({
   askAvosForChanges: vi.fn(async () => null as string | null),
   tryCrewBatch: vi.fn(async () => ({ url: "http://127.0.0.1:5190" })),
   stopCrewTry: vi.fn(async () => undefined),
-  takePagePicture: vi.fn(async (url: string, size: string) => ({
-    src: `data:image/png;base64,${btoa(`${size} ${url}`)}`,
-    width: 390,
-    height: 844,
-  })),
+  takePagePicture: vi.fn(
+    async (url: string, size: string, marks: readonly string[] = []) => ({
+      src: `data:image/png;base64,${btoa(`${size} ${url}`)}`,
+      width: 390,
+      height: 844,
+      // A spot the page doesn't have comes back as null.
+      spots: marks.map((mark) =>
+        mark.includes("gone") ? null : ([0.1, 0.2, 0.3, 0.1] as const),
+      ),
+      parts: [
+        { box: [0, 0, 1, 1] as const, what: "section", element: "main" },
+        {
+          box: [0.1, 0.2, 0.3, 0.1] as const,
+          what: "button “Start trial”",
+          element: "main > button.cta",
+        },
+      ],
+    }),
+  ),
   openInAppUrl: vi.fn(async () => undefined),
 }));
 vi.mock("../lib/crewActions", async (original) => {
@@ -1620,6 +1634,7 @@ describe("the team view: the Board with the team on it", () => {
     expect(actions.takePagePicture).toHaveBeenCalledWith(
       "http://127.0.0.1:5190/pricing",
       "phone",
+      [],
     );
     const shot = review().querySelector<HTMLImageElement>(
       "[data-avos-review-look] img",
@@ -1638,6 +1653,7 @@ describe("the team view: the Board with the team on it", () => {
     expect(actions.takePagePicture).toHaveBeenLastCalledWith(
       "http://127.0.0.1:5190/pricing",
       "desktop",
+      [],
     );
     // Code shows the change instead of the pictures.
     await act(async () => button(review(), "Code")!.click());
@@ -1661,6 +1677,145 @@ describe("the team view: the Board with the team on it", () => {
     );
     await settle();
     expect(actions.stopCrewTry).not.toHaveBeenCalled();
+  });
+
+  it("numbers the spots Avos named on its version, and sends the notes you leave by clicking it", async () => {
+    await setUp((boards) => (crew) => {
+      const withOne = withPage(boards)(crew);
+      return {
+        ...withOne,
+        cards: withOne.cards.map((card) => ({
+          ...card,
+          rounds: card.rounds.map((round) =>
+            round.handoff?.pages
+              ? {
+                  ...round,
+                  handoff: {
+                    ...round.handoff,
+                    spots: [
+                      {
+                        page: "/pricing",
+                        element: "main .cta",
+                        note: "Bigger trial button",
+                      },
+                      {
+                        page: "/pricing",
+                        element: ".gone",
+                        note: "Old banner",
+                      },
+                    ],
+                  },
+                }
+              : round,
+          ),
+        })),
+      };
+    });
+    const review = await openReview();
+    await act(async () => button(review(), "Run Avos's version")!.click());
+    await settle();
+    // The page is asked where Avos's spots are.
+    expect(actions.takePagePicture).toHaveBeenCalledWith(
+      "http://127.0.0.1:5190/pricing",
+      "phone",
+      ["main .cta", ".gone"],
+    );
+    // The one it found is numbered on the picture; both are listed.
+    expect(
+      review().querySelector("[data-avos-review-spot='1']"),
+    ).not.toBeNull();
+    expect(review().querySelector("[data-avos-review-spot='2']")).toBeNull();
+    const listed = review().querySelectorAll("[data-avos-review-spots] li");
+    expect([...listed].map((item) => item.textContent)).toEqual([
+      "1Bigger trial button",
+      "2Old banner",
+    ]);
+    expect(listed[1]!.hasAttribute("data-missing")).toBe(true);
+    // Clicking the picture names what's there and takes a note on it.
+    const hit = review().querySelector<HTMLButtonElement>(
+      "[data-avos-review-note-here]",
+    )!;
+    hit.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 100, height: 100 }) as DOMRect;
+    await act(async () =>
+      hit.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          clientX: 20,
+          clientY: 25,
+          detail: 1,
+        }),
+      ),
+    );
+    const note = review().querySelector<HTMLInputElement>(
+      "input[aria-label='Note for Avos']",
+    )!;
+    expect(note.placeholder).toBe("Note on the button “Start trial”…");
+    const type = (input: HTMLInputElement, value: string) => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    await act(async () => type(note, "Make it green"));
+    await act(async () =>
+      note.form!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(
+      review().querySelector("input[aria-label='Note for Avos']"),
+    ).toBeNull();
+    expect(
+      review().querySelector("[data-avos-review-notes]")!.textContent,
+    ).toContain("Make it green");
+    expect(review().querySelectorAll(".avos-review-pin")).toHaveLength(1);
+    // Escape on a note puts the note away, not the Review.
+    await act(async () =>
+      hit.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          clientX: 50,
+          clientY: 90,
+          detail: 1,
+        }),
+      ),
+    );
+    const second = review().querySelector<HTMLInputElement>(
+      "input[aria-label='Note for Avos']",
+    )!;
+    // Only the page itself there: nothing in particular is named.
+    expect(second.placeholder).toBe("Note for Avos…");
+    await act(async () =>
+      second.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+    expect(document.querySelector("[data-avos-review]")).not.toBeNull();
+    expect(
+      review().querySelector("input[aria-label='Note for Avos']"),
+    ).toBeNull();
+    // Sending: the notes go with your words, saying where each was left.
+    const ask = review().querySelector<HTMLInputElement>(
+      "input[aria-label='Ask Avos for changes']",
+    )!;
+    expect(ask.placeholder).toBe("Send 1 note to Avos, or add more…");
+    await act(async () =>
+      ask.form!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      ),
+    );
+    await settle();
+    expect(actions.askAvosForChanges).toHaveBeenCalledWith(
+      PROJECT,
+      "Notes on the pictures of your version:\n1. On /pricing (phone), at the button “Start trial” (`main > button.cta`): Make it green",
+      [expect.any(String)],
+    );
   });
 
   it("offers no pictures and no Try it off a Mac, where Avos's version can't run yet", async () => {

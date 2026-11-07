@@ -1,4 +1,12 @@
-import { PAGES_MAX, type CrewCard, type CrewRound } from "./crews";
+import {
+  PAGES_MAX,
+  SPOTS_MAX,
+  type CrewCard,
+  type CrewRound,
+  type CrewSpot,
+  CREW_NOTE_MAX,
+} from "./crews";
+import type { PictureSize } from "./pagePictures";
 
 /**
  * What Avos's Review says about the work it shows: a short list of what
@@ -130,4 +138,63 @@ export function reviewPages(cards: readonly CrewCard[]): string[] {
     (card) => currentRound(card)?.handoff?.pages ?? [],
   );
   return [...new Set(pages)].slice(0, PAGES_MAX);
+}
+
+/** What the Builders said they changed on `page`, in order, a few at most. */
+export function reviewSpots(
+  cards: readonly CrewCard[],
+  page: string,
+): CrewSpot[] {
+  return cards
+    .flatMap((card) => currentRound(card)?.handoff?.spots ?? [])
+    .filter((spot) => spot.page === page)
+    .slice(0, SPOTS_MAX);
+}
+
+/** A note you left by clicking a picture of Avos's version. */
+export type PictureNote = {
+  page: string;
+  size: PictureSize;
+  /** What you clicked, as the page described it ("button “Sign up”"). */
+  what?: string;
+  /** A selector for it, for Avos to find it by. */
+  element?: string;
+  /** Where on the picture, as fractions of it. */
+  at?: readonly [number, number];
+  text: string;
+};
+
+/** Notes kept for one ask at most: they share one card's note. */
+export const PICTURE_NOTES_MAX = 6;
+
+/**
+ * What goes to Avos when you ask for changes: your words, then the notes
+ * you left on the pictures, each saying where it was left. It must fit in
+ * a card's note (`max`): selectors are left out if that makes it fit, and
+ * null means it can't.
+ */
+export function askWithNotes(
+  words: string,
+  notes: readonly PictureNote[],
+  max = CREW_NOTE_MAX,
+): string | null {
+  const said = words.trim();
+  if (!notes.length) return said.length <= max ? said : null;
+  const write = (selectors: boolean) =>
+    [
+      ...(said ? [said, ""] : []),
+      "Notes on the pictures of your version:",
+      ...notes.slice(0, PICTURE_NOTES_MAX).map((note, index) => {
+        const where = [
+          `On ${note.page} (${note.size})`,
+          note.what ? `, at the ${note.what}` : "",
+          selectors && note.element ? ` (\`${note.element}\`)` : "",
+        ].join("");
+        return `${index + 1}. ${where}: ${note.text.trim()}`;
+      }),
+    ].join("\n");
+  const full = write(true);
+  if (full.length <= max) return full;
+  const short = write(false);
+  return short.length <= max ? short : null;
 }

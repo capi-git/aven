@@ -5,10 +5,58 @@
 //! saved cookies or storage (a private data store), no access to Aven (its
 //! label has no capability) and no address but a local one, then WebKit
 //! snapshots it and the window goes. Nothing is written to disk.
+//!
+//! Before the picture, a script in a WebKit world of Aven's own (the page's
+//! scripts can't see it) reads where things are: the spots the Builder
+//! named, and what you might click to leave Avos a note.
 
 use crate::browser_snapshot::PageCapture;
 use tauri::AppHandle;
 use tauri::Url;
+
+/// Spots looked up on a page at most, and a selector's longest.
+const MARKS_MAX: usize = 6;
+const MARK_CHARS: usize = 200;
+/// The layout's largest reply from the page.
+const LAYOUT_BYTES: usize = 256 * 1024;
+
+/// A picture and where things are in it.
+#[derive(Debug, serde::Serialize)]
+pub struct PagePicture {
+    #[serde(flatten)]
+    capture: PageCapture,
+    /// `{spots, parts}` from `page_picture.js`, or null when unreadable.
+    layout: serde_json::Value,
+}
+
+/// The selectors to look up: a few, each one line and not too long.
+fn marks(selectors: Option<Vec<String>>) -> Result<Vec<String>, String> {
+    let selectors = selectors.unwrap_or_default();
+    if selectors.len() > MARKS_MAX
+        || selectors
+            .iter()
+            .any(|mark| mark.is_empty() || mark.chars().count() > MARK_CHARS || mark.contains('\n'))
+    {
+        return Err("Invalid spots for a picture".into());
+    }
+    Ok(selectors)
+}
+
+/// The page's answer, if it is the shape `page_picture.js` returns.
+fn layout(reply: &str) -> serde_json::Value {
+    if reply.len() > LAYOUT_BYTES {
+        return serde_json::Value::Null;
+    }
+    match serde_json::from_str::<serde_json::Value>(reply) {
+        Ok(value)
+            if value.get("spots").is_some_and(|v| v.is_array())
+                && value.get("parts").is_some_and(|v| v.is_array()) =>
+        {
+            value
+        }
+        _ => serde_json::Value::Null,
+    }
+}
 
 /// Sizes a picture may be, in CSS pixels.
 const WIDTH: std::ops::RangeInclusive<u32> = 320..=1600;
@@ -36,24 +84,32 @@ pub async fn page_picture(
     url: String,
     width: u32,
     height: u32,
-) -> Result<PageCapture, String> {
+    marks: Option<Vec<String>>,
+) -> Result<PagePicture, String> {
     let url = local_page(&url)?;
     if !WIDTH.contains(&width) || !HEIGHT.contains(&height) {
         return Err("Invalid picture size".into());
     }
+    let marks = self::marks(marks)?;
     #[cfg(target_os = "macos")]
     {
-        take(app, url, width, height).await
+        take(app, url, width, height, marks).await
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, url);
+        let _ = (app, url, marks);
         Err("Pictures of pages are only taken on macOS".into())
     }
 }
 
 #[cfg(target_os = "macos")]
-async fn take(app: AppHandle, url: Url, width: u32, height: u32) -> Result<PageCapture, String> {
+async fn take(
+    app: AppHandle,
+    url: Url,
+    width: u32,
+    height: u32,
+    marks: Vec<String>,
+) -> Result<PagePicture, String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
     use tauri::webview::PageLoadEvent;
@@ -97,17 +153,96 @@ async fn take(app: AppHandle, url: Url, width: u32, height: u32) -> Result<PageC
         let webview = app
             .get_webview(&label)
             .ok_or("The page closed before its picture")?;
+        // Where things are, then the picture: nothing moves in between.
+        let reply = read_layout(webview.clone(), &marks).await;
         let data_url = crate::browser_snapshot::capture(webview).await?;
-        crate::browser_snapshot::page_capture(&serde_json::Value::String(data_url))
+        Ok(PagePicture {
+            capture: crate::browser_snapshot::page_capture(&serde_json::Value::String(data_url))?,
+            layout: reply
+                .as_deref()
+                .map(layout)
+                .unwrap_or(serde_json::Value::Null),
+        })
     }
     .await;
     let _ = window.destroy();
     result
 }
 
+#[cfg(target_os = "macos")]
+thread_local! {
+    // WebKit keeps named worlds weakly: hold ours between pictures.
+    static WORLD: std::cell::RefCell<Option<objc2::rc::Retained<objc2::runtime::AnyObject>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// `page_picture.js` run on the page, in Aven's own world; None when the
+/// page wouldn't answer (the picture is still taken).
+#[cfg(target_os = "macos")]
+async fn read_layout(view: tauri::Webview, marks: &[String]) -> Option<String> {
+    use block2::RcBlock;
+    use objc2::{msg_send, runtime::AnyClass, runtime::AnyObject};
+    use objc2_foundation::{NSError, NSString};
+    use std::{sync::mpsc, time::Duration};
+
+    let marks = serde_json::to_string(marks).ok()?;
+    let script = format!("{}({})", include_str!("page_picture.js"), marks);
+    let (sender, receiver) = mpsc::channel::<Option<String>>();
+    view.with_webview(move |platform| unsafe {
+        let wk = &*platform.inner().cast::<AnyObject>();
+        let world = WORLD.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.is_none() {
+                let class = AnyClass::get(c"WKContentWorld")?;
+                let name = NSString::from_str("com.capi.aven.review-picture");
+                *slot = Some(msg_send![class, worldWithName: &*name]);
+            }
+            slot.clone()
+        });
+        let Some(world) = world else {
+            let _ = sender.send(None);
+            return;
+        };
+        let script = NSString::from_str(&script);
+        let completion = RcBlock::new(move |result: *mut AnyObject, error: *mut NSError| {
+            let reply = (error.is_null() && !result.is_null())
+                .then(|| (*(result.cast::<NSString>())).to_string());
+            let _ = sender.send(reply);
+        });
+        let frame: *const AnyObject = std::ptr::null();
+        let _: () = msg_send![wk, evaluateJavaScript: &*script, inFrame: frame, inContentWorld: &*world, completionHandler: &*completion];
+    })
+    .ok()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receiver.recv_timeout(Duration::from_secs(3)).ok().flatten()
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::local_page;
+    use super::{layout, local_page, marks};
+
+    #[test]
+    fn looks_up_a_few_one_line_spots() {
+        assert_eq!(marks(None).unwrap(), Vec::<String>::new());
+        assert!(marks(Some(vec!["main .cta".into()])).is_ok());
+        assert!(marks(Some(vec!["a".into(); 7])).is_err());
+        assert!(marks(Some(vec!["a\nb".into()])).is_err());
+        assert!(marks(Some(vec!["x".repeat(201)])).is_err());
+        assert!(marks(Some(vec![String::new()])).is_err());
+    }
+
+    #[test]
+    fn keeps_only_a_layout_of_the_expected_shape() {
+        assert!(layout(r#"{"spots":[null],"parts":[]}"#).is_object());
+        assert!(layout(r#"{"spots":1,"parts":[]}"#).is_null());
+        assert!(layout("not json").is_null());
+        let big = format!(r#"{{"spots":[],"parts":["{}"]}}"#, "x".repeat(300 * 1024));
+        assert!(layout(&big).is_null());
+    }
 
     #[test]
     fn takes_pictures_of_local_apps_only() {
