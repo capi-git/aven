@@ -821,6 +821,11 @@ export type CrewTalk = {
   routine?: true;
   /** A helper's one job. */
   helper?: true;
+  /**
+   * A job Avos handed out finished (ready, or stuck): what came of it, for
+   * Avos to tell you in its own words. Nothing goes back for it.
+   */
+  report?: true;
   /** Who it's from in words: a helper is gone by the time its answer arrives. */
   fromName?: string;
   /** Set once it went: the window carrying it, and its turn. */
@@ -1948,6 +1953,7 @@ function readTalks(value: unknown): CrewTalk[] {
         ...(entry.answer === true ? { answer: true as const } : {}),
         ...(entry.routine === true ? { routine: true as const } : {}),
         ...(entry.helper === true ? { helper: true as const } : {}),
+        ...(entry.report === true ? { report: true as const } : {}),
         ...(text(entry.fromName, 60)
           ? { fromName: text(entry.fromName, 60) }
           : {}),

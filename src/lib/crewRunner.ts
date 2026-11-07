@@ -2,7 +2,9 @@ import { addAvosJob } from "./avosJobs";
 import { setCrewLiveReply } from "./crewLiveReply";
 import { avosTalkModel } from "./crewModels";
 import {
+  TALK_HOPS,
   TALK_TEXT_MAX,
+  jobReport,
   parseTalk,
   talkAnswerText,
   talkMayAddJob,
@@ -110,6 +112,7 @@ import {
   withHelper,
   withoutHelper,
   withTalk,
+  crewLead,
   withCrewRun,
   withMemberMemory,
   securityReviewBy,
@@ -2507,6 +2510,40 @@ export class CrewRunner {
     next = withMemberId(next, memberId, (member) =>
       member.doing ? { ...member, doing: undefined } : member,
     );
+    // What came of it goes back to Avos, which tells you in its own words,
+    // over the buttons to review it. A question asks you itself.
+    const lead = crewLead(next);
+    if (
+      lead &&
+      memberOn(lead) &&
+      next.on &&
+      (event.kind === "ready" || event.kind === "stuck")
+    )
+      next = withTalk(next, {
+        at: now,
+        from: memberId,
+        fromName:
+          role === "builder"
+            ? builder
+            : role === "checker"
+              ? checker
+              : security,
+        to: lead.id,
+        text: jobReport({
+          title: card.title,
+          outcome:
+            event.kind === "ready"
+              ? { ready: event.round }
+              : { stopped: event.text },
+          builder,
+          checker,
+          ...(round ? { round } : {}),
+        }),
+        // Nothing is passed on for it, and nothing comes back.
+        hop: TALK_HOPS,
+        answer: true,
+        report: true,
+      });
     return next;
   }
 
