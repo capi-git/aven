@@ -1313,6 +1313,15 @@ impl Presence {
         moved
     }
 
+    /// What the chat's agent is doing now, for the tag beside its pointer:
+    /// its row's words while an action runs.
+    pub(crate) fn pointer_text(&self, scope: &str) -> Option<String> {
+        self.activities
+            .iter()
+            .find(|activity| activity.scope == scope && activity.in_flight && !activity.stopped)
+            .map(Activity::row_text)
+    }
+
     fn activity_mut(&mut self, scope: &str) -> Option<&mut Activity> {
         self.activities
             .iter_mut()
