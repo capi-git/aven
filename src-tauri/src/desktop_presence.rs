@@ -179,6 +179,7 @@ pub(crate) enum Step {
     SettingValue,
     SelectingText,
     OpeningMenu,
+    ChoosingMenuItem,
     /// In a browser tab that is not the chat's own (see `begin_tab`).
     ReadingPage,
     SavingPage,
@@ -208,6 +209,7 @@ impl Step {
             Self::SettingValue => "Setting a value",
             Self::SelectingText => "Selecting text",
             Self::OpeningMenu => "Opening a menu",
+            Self::ChoosingMenuItem => "Choosing a menu item",
             Self::ReadingPage => "Reading the page",
             Self::SavingPage => "Saving the page into the project",
             Self::CapturingPage => "Taking a screenshot of the page",
@@ -229,6 +231,7 @@ impl Step {
             Self::SettingValue => format!("Setting \u{201c}{element}\u{201d}"),
             Self::SelectingText => format!("Selecting text in \u{201c}{element}\u{201d}"),
             Self::OpeningMenu => format!("Opening the menu for \u{201c}{element}\u{201d}"),
+            Self::ChoosingMenuItem => format!("Choosing \u{201c}{element}\u{201d}"),
             _ => self.label().into(),
         }
     }
@@ -237,9 +240,10 @@ impl Step {
 pub(crate) fn step_for(request: &Request) -> Option<Step> {
     Some(match request {
         Request::Status {} => return None,
-        Request::Windows {} | Request::Screenshot { .. } | Request::AppState { .. } => {
-            Step::Looking
-        }
+        Request::Windows {}
+        | Request::Screenshot { .. }
+        | Request::AppState { .. }
+        | Request::ReadText { .. } => Step::Looking,
         Request::Move { .. } => Step::Moving,
         Request::Click { .. } => Step::Clicking,
         Request::Type { .. } | Request::TypeText { .. } => Step::Typing,
@@ -250,6 +254,7 @@ pub(crate) fn step_for(request: &Request) -> Option<Step> {
         Request::SetValue { .. } => Step::SettingValue,
         Request::SelectText { .. } => Step::SelectingText,
         Request::SecondaryAction { .. } => Step::OpeningMenu,
+        Request::Menu { .. } => Step::ChoosingMenuItem,
     })
 }
 
