@@ -2,6 +2,31 @@
 
 ## [Unreleased]
 
+## [0.1.173] - 2026-11-07
+
+### Added
+
+- **Agents are little dotted screens.** Every agent shows a face that says what it's doing: a `>_` prompt at rest, eyes that look about while it watches, scanning eyes with a light running round the edge while it works, an amber `>` in a breathing frame when it needs you, and winking eyes in a green frame when its work is ready. Each role has its own face at rest: the Builder `< >`, the Checker a tick, the Scout a diamond, the Researcher `?`, the Designer a star, Security a shield and the Fixer a wrench.
+- **See what's working and what's done in the sidebar.** A chat, folder or folded project shows its agent's little working screen while it works, and the green ready screen when its work is waiting for you.
+- **Let Avos choose.** Avos picks the Builder's model and effort for each job from that provider's own list, until you pick one yourself. The Builder's page has the switch.
+- **A plan before big jobs.** When Avos proposes two or more jobs, its message lays them out with the model it picked for each, with Go and Change.
+- **Jobs report back.** When a job is ready or stops, Avos tells you in a sentence or two what came of it, over the buttons to review it.
+- **Avos will remember.** When Avos saves a rule you gave it, a quiet line says so, with Undo. What Avos remembers shows your rules first, then what it learned.
+
+### Changed
+
+- **Avos's chat reads like any chat.** Its answers have no mark or name over them, a helper's work is one quiet line under its name, and messages that didn't go through for one reason are said once.
+- **Avos's profile is simpler.** Helpers show their screens, what finished today folds into one line that opens Activity under it, and ⋯ is just Pause and Settings.
+- **The effort picker is a row of dots,** one per level the model has, weakest first, lit up to the one you chose.
+- **The message box's settings open out of its agent,** on the agents' dotted glass.
+- **Dragging a chat from the sidebar moves like dragging a tab:** it lifts into the same floating chip, shrinks over the panes and lands where you let go.
+
+### Fixed
+
+- **Avos's helpers work in projects without Git.** They read your folder as Avos does, read-only, instead of failing to make a copy.
+- **Joined tabs keep their names** when several are open.
+- **Review's file headers stay at the top** when you scroll the code, and Try it and Apply wait quietly while Avos is still working in its copy.
+
 ## [0.1.172] - 2026-11-07
 
 ### Added
