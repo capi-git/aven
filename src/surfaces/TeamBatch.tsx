@@ -1,19 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Modal } from "../chrome/Modal";
 import { TeamCardButton } from "../chrome/TeamCard";
+import { useCrewBatchReview } from "../hooks/useCrewBatchReview";
 import { useBatchActions, type BatchRange } from "../hooks/useTeamPipeline";
-import {
-  applyCrewBatch,
-  dropStackedCard,
-  reviewCrewBatch,
-} from "../lib/crewActions";
+import { applyCrewBatch, dropStackedCard } from "../lib/crewActions";
 import { reviewFileNotes, type PipelineBatch } from "../lib/crewPipeline";
 import { cardInCopy, stackedCards, type Crew } from "../lib/crews";
-import { errorText, logError } from "../lib/errors";
-import { botCopyHost, type BotDiff } from "../lib/projectBotCopy";
-import { buildUnifiedFile } from "../lib/unifiedDiff";
+import { errorText } from "../lib/errors";
 import { plural } from "../lib/words";
-import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
+import { UnifiedDiffView } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
 import "./TeamBatch.css";
 
@@ -150,9 +145,6 @@ export function BatchButtons({
 // ---------------------------------------------------------------------------
 // The batch's Review
 
-/** Text files shown line by line in a Review; every file is named either way. */
-const PREVIEWED = 40;
-
 /**
  * Review the batch: the combined change it would land in your files, each
  * card's part of it, Apply all, Apply up to a card, and taking the last
@@ -168,88 +160,11 @@ export function CrewBatchSheet({
   onClose: () => void;
 }) {
   const [upTo, setUpTo] = useState<string | undefined>();
-  const [review, setReview] = useState<{
-    diff: BotDiff;
-    from: string;
-    to: string;
-    cards: { id: string; title: string }[];
-  } | null>(null);
-  const [files, setFiles] = useState<UnifiedDiffFileModel[] | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { review, files, problem, setProblem, rereading, shown, order } =
+    useCrewBatchReview(crew, project, upTo);
   const [busy, setBusy] = useState(false);
-  const copy = crew.copy?.path;
-  // The branch's top: a card stacked while this is open is read again.
-  const top = stackedCards(crew).at(-1)?.stacked?.commit;
-  const readTop = useRef(top);
-  const [rereading, setRereading] = useState(false);
-  useEffect(() => {
-    let live = true;
-    // A new selection, or the branch moved: nothing is shown, so nothing
-    // can be applied, until its own change has been read.
-    setRereading(!upTo && readTop.current !== top);
-    readTop.current = top;
-    setReview(null);
-    setFiles(null);
-    void reviewCrewBatch(project, upTo)
-      .then(async (found) => {
-        if (!live) return;
-        setRereading(false);
-        if ("error" in found) {
-          setProblem(found.error);
-          setReview(null);
-          return;
-        }
-        setReview(found);
-        if (!copy) return;
-        const models = await Promise.all(
-          found.diff.files
-            .filter((file) => !file.binary && file.newMode !== "120000")
-            .slice(0, PREVIEWED)
-            .map(async (file) => {
-              const texts = await botCopyHost
-                .rangeFileDiff(copy, found.from, found.to, file.path)
-                .catch(() => null);
-              const unreadable =
-                !texts ||
-                file.binary ||
-                (texts.original == null && file.status !== "added") ||
-                (texts.current == null && file.status !== "deleted");
-              const unified = unreadable
-                ? null
-                : buildUnifiedFile(texts.original ?? "", texts.current ?? "");
-              return {
-                id: file.path,
-                path: file.path,
-                label: file.path,
-                binary: file.binary,
-                emptyMessage: unreadable
-                  ? "No text preview for this file."
-                  : undefined,
-                additions: unified?.additions ?? file.additions,
-                deletions: unified?.deletions ?? file.deletions,
-                blocks: unified?.blocks ?? [],
-              } satisfies UnifiedDiffFileModel;
-            }),
-        );
-        if (live) setFiles(models);
-      })
-      .catch((error) => {
-        logError("Crew batch review", error);
-        if (live) setFiles([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, [project, upTo, copy, top]);
   const ordered = review?.cards ?? [];
-  const last = stackedCards(crew).at(-1);
-  // The commit the selection ends at: Apply lands only a review of exactly it.
-  const selected = (
-    upTo
-      ? stackedCards(crew).find((card) => card.id === upTo)
-      : stackedCards(crew).at(-1)
-  )?.stacked?.commit;
-  const shown = !!review && review.to === selected;
+  const last = order.at(-1);
   const apply = async () => {
     if (!review || !shown) return;
     setBusy(true);
@@ -276,7 +191,6 @@ export function CrewBatchSheet({
     else if (stackedCards(crew).length <= 1) onClose();
     else setUpTo(undefined);
   };
-  const order = stackedCards(crew);
   return (
     <Modal
       onClose={onClose}

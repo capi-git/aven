@@ -9,6 +9,11 @@
   flex: 1 1 0;
   grid-template-columns: minmax(0, 1fr) auto;
 }
+/* Reviewing Avos's work: the review takes the profile's place, wider, so
+   the code has room beside the chat. */
+.team-screen[data-reviewing] {
+  grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);
+}
 
 .avos-main {
   display: flex;

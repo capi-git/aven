@@ -39,6 +39,32 @@ describe("the Builder's handoff note", () => {
     );
   });
 
+  it("reads the app's pages it changed, for Review's pictures", () => {
+    const text = reply("aven-handoff", {
+      summary: "Plans stack on phones.",
+      pages: [
+        "/pricing",
+        "/pricing",
+        "https://evil.example/",
+        "//evil.example/x",
+        "/javascript:alert(1)",
+        "/settings?tab=team",
+        "/a b",
+        "/plans",
+        "/more",
+      ],
+    });
+    // Paths on the app's own address only, each once, three at most.
+    expect(parseHandoff(text)?.pages).toEqual([
+      "/pricing",
+      "/settings?tab=team",
+      "/plans",
+    ]);
+    expect(
+      parseHandoff(reply("aven-handoff", { summary: "x" }))?.pages,
+    ).toBeUndefined();
+  });
+
   it("ignores a note that isn't last, a quoted one, or broken JSON", () => {
     expect(parseHandoff("No block here.")).toBeNull();
     expect(

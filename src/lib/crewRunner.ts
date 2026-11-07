@@ -215,6 +215,8 @@ export type CrewRunnerDeps = {
   /** Stop a chat's turn. */
   stopChat: (sessionId: string) => void;
   copy: {
+    /** Stop Try it running the copy: its files are about to change. */
+    serveStop?: (copy: string) => Promise<void>;
     /** Make the copy when missing; made again, it starts `at` the stack. */
     prepare: (
       cwd: string,
@@ -1561,6 +1563,8 @@ export class CrewRunner {
     } catch (error) {
       throw new Error(`Couldn't make Avos's copy: ${botCopyError(error)}`);
     }
+    // Work starts in the copy: Try it would show it half done.
+    await this.deps.copy.serveStop?.(copy.path).catch(() => {});
     const sources = await this.deps.copy
       .sources(copy.path)
       .catch(() => crew.copy?.sources);
