@@ -317,20 +317,25 @@
   gap: 6px;
   margin: 0;
 }
-.avos-review-figure img,
+.avos-review-shot,
 .avos-review-shot-wait {
   width: 100%;
   border: 1px solid var(--aven-line);
   border-radius: 10px;
   background: var(--aven-control-bg);
 }
-.avos-review-figure[data-size="phone"] img,
+.avos-review-figure[data-size="phone"] .avos-review-shot,
 .avos-review-figure[data-size="phone"] .avos-review-shot-wait {
   max-width: 220px;
   border-radius: 14px;
 }
-.avos-review-figure img {
+.avos-review-shot {
+  position: relative;
+  overflow: hidden;
+}
+.avos-review-shot img {
   display: block;
+  width: 100%;
   height: auto;
 }
 .avos-review-shot-wait {
@@ -342,6 +347,111 @@
 }
 .avos-review-figure[data-size="desktop"] .avos-review-shot-wait {
   aspect-ratio: 1280 / 800;
+}
+/* The whole picture is the button that leaves a note where you click. */
+.avos-review-shot-hit {
+  position: absolute;
+  inset: 0;
+  cursor: var(--aven-cursor-pointer);
+}
+.avos-review-shot-hit:disabled {
+  cursor: var(--aven-cursor-default);
+}
+.avos-review-shot-hit:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--aven-line);
+}
+/* Spots and pins sit on the app's own colours, which could be anything,
+   so they are white with a dark edge rather than theme colours. */
+.avos-review-spot {
+  position: absolute;
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 1.5px rgb(255 255 255 / 0.9),
+    0 0 0 3px rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+.avos-review-spot-num {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 0.9);
+  border-radius: 50%;
+  background: rgb(20 20 20 / 0.92);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  transform: translate(-50%, -50%);
+}
+.avos-review-pin {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgb(20 20 20 / 0.85);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.avos-review-pin[data-draft] {
+  background: rgb(255 255 255 / 0.6);
+}
+.avos-review-spots,
+.avos-review-notes ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-ui-body);
+  list-style: none;
+}
+.avos-review-spots li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.avos-review-spots li[data-missing] {
+  color: var(--aven-muted);
+}
+/* The note you are writing: like the ask box. */
+.avos-review-draft input {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  outline: none;
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-body);
+}
+.avos-review-draft input::placeholder {
+  color: var(--aven-muted);
+}
+.avos-review-draft input:focus-visible {
+  box-shadow: 0 0 0 1px var(--aven-line);
+}
+.avos-review-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.avos-review-notes li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.avos-review-note-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
 }
 .avos-review-figure figcaption {
   color: var(--aven-muted);

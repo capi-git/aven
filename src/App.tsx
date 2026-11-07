@@ -12,6 +12,7 @@ import { useWorkspaceViews } from "./hooks/useWorkspaceViews";
 import type { SortablePointerPosition } from "./hooks/useSortable";
 import { useUtilityViews } from "./hooks/useUtilityViews";
 import { whenIdle } from "./lib/idle";
+import { installIdleStill } from "./lib/idleMotion";
 import {
   useWorkspaceShortcuts,
   type WorkspaceActions,
@@ -3428,6 +3429,9 @@ export default function App({
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [flushHarnessEvents]);
+
+  // Left alone, the agents' ambient motion settles (idleMotion.ts).
+  useEffect(() => installIdleStill(), []);
 
   useEffect(() => {
     let unlistenClose: (() => void) | undefined;

@@ -346,6 +346,19 @@ class RealAppCheck(unittest.TestCase):
         self.root = runner.prepare_smoke_folder()
         self.addCleanup(lambda: runner.remove_smoke_folder(self.root))
 
+    def test_node_tools_are_only_node_npm_and_npx(self):
+        tools = self.root / 'fixture-bin'
+        tools.mkdir()
+        for name in ('node', 'npm', 'claude'):
+            (tools / name).write_text('#!/bin/sh\n')
+            (tools / name).chmod(0o755)
+        with mock.patch.dict(os.environ, {'PATH': str(tools)}):
+            added = runner.node_tools(self.root)
+        folder = self.root / 'node-tools'
+        self.assertEqual(added, f':{folder}')
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ['node', 'npm'])
+        self.assertEqual((folder / 'node').resolve(), (tools / 'node').resolve())
+
     def test_folder_puts_only_the_stand_in_on_the_login_shell_path(self):
         stand_in = self.root / 'home/.local/bin/claude'
         self.assertTrue((self.root / runner.SMOKE_MARKER).is_file())

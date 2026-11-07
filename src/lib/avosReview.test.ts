@@ -205,3 +205,49 @@ describe("the pages Review pictures", () => {
     );
   });
 });
+
+import { askWithNotes } from "./avosReview";
+
+describe("asking Avos with notes left on its pictures", () => {
+  it("adds each note after your words, saying where it was left", () => {
+    expect(
+      askWithNotes("Tighten the spacing", [
+        {
+          page: "/pricing",
+          size: "phone",
+          what: "button “Start trial”",
+          element: "main > button.cta",
+          text: "Make it green ",
+        },
+        { page: "/", size: "desktop", text: "Too busy" },
+      ]),
+    ).toBe(
+      [
+        "Tighten the spacing",
+        "",
+        "Notes on the pictures of your version:",
+        "1. On /pricing (phone), at the button “Start trial” (`main > button.cta`): Make it green",
+        "2. On / (desktop): Too busy",
+      ].join("\n"),
+    );
+    expect(askWithNotes("  Just words ", [])).toBe("Just words");
+  });
+
+  it("leaves selectors out to fit a card's note, and says when it can't", () => {
+    const note = {
+      page: "/",
+      size: "phone" as const,
+      what: "link “Docs”",
+      element: "nav > a.docs:nth-of-type(3)",
+      text: "Move it left",
+    };
+    const full = askWithNotes("", [note], 500)!;
+    expect(full).toContain("`nav > a.docs:nth-of-type(3)`");
+    const tight = askWithNotes("", [note], full.length - 1)!;
+    expect(tight).toBe(
+      "Notes on the pictures of your version:\n1. On / (phone), at the link “Docs”: Move it left",
+    );
+    expect(askWithNotes("", [note], 40)).toBeNull();
+    expect(askWithNotes("x".repeat(501), [])).toBeNull();
+  });
+});
