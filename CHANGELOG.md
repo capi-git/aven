@@ -20,6 +20,7 @@
 - **The effort picker is a row of dots,** one per level the model has, weakest first, lit up to the one you chose.
 - **The message box shows its agent's screen while it works,** in place of the dots box. Point at it to stop the turn.
 - **The message box's settings open out of its agent,** on the agents' dotted glass.
+- **A new icon.** Aven's staircase is lit on the agents' dark dotted glass, in the Dock, Finder and the browser tab. Inside Aven it climbs, lighting its steps from the bottom up, when it tells you Aven has updated.
 - **Dragging a chat from the sidebar moves like dragging a tab:** it lifts into the same floating chip, shrinks over the panes and lands where you let go.
 
 ### Fixed
