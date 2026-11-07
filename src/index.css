@@ -1382,3 +1382,20 @@ html.theme-light .popover-backdrop {
     var(--color-background-base)
   );
 }
+
+/* Aven's mark climbing: each step lights in turn from the bottom up, twice,
+   then it rests (AvenMark). */
+@media (prefers-reduced-motion: no-preference) {
+  .aven-mark-climb {
+    animation: aven-mark-climb 900ms ease-in-out 2 backwards;
+  }
+}
+@keyframes aven-mark-climb {
+  0% {
+    opacity: 0.25;
+  }
+  35%,
+  100% {
+    opacity: 1;
+  }
+}
