@@ -286,6 +286,24 @@ def add_check_page(root):
     return root / 'site'
 
 
+def node_tools(root):
+    """Node, npm and npx alone, last on the app's PATH, for Avos's Try it.
+
+    Avos's version of a small app runs with its own dev script; nothing else
+    the runner has (a real `claude`, say) may come before the stand-ins.
+    Returns ':<folder>' to append, or '' when this shell has no Node.
+    """
+    folder = root / 'node-tools'
+    folder.mkdir(exist_ok=True)
+    found = False
+    for name in ('node', 'npm', 'npx'):
+        tool = shutil.which(name)
+        if tool:
+            (folder / name).symlink_to(tool)
+            found = True
+    return f':{folder}' if found else ''
+
+
 def offer_check_page(root, page_url):
     """Tell the check where its local page is served."""
     (root / 'page.json').write_text(json.dumps({'pageUrl': page_url}))
@@ -348,7 +366,7 @@ def smoke(keep=False):
                 **child_env,
                 'HOME': str(root / 'home'),
                 'SHELL': '/bin/zsh',
-                'PATH': f'{root / "home/.local/bin"}:/usr/bin:/bin:/usr/sbin:/sbin',
+                'PATH': f'{root / "home/.local/bin"}:/usr/bin:/bin:/usr/sbin:/sbin{node_tools(root)}',
                 'AVEN_DEV_SMOKE_DIR': str(root),
             }
             # Launched directly: the check needs no privacy permission, and this
