@@ -18,7 +18,9 @@ import "./AgentMark.css";
 export type { AgentOutfit, AgentState } from "../lib/agentMark";
 
 const VIEW_BOX = "0 0 100 100";
-const GRIDS: readonly AgentGrid[] = ["large", "medium", "small"];
+// One face at every size: small marks draw its dots bigger, so they read
+// as the same shapes, bolder (AgentMark.css).
+const GRIDS: readonly AgentGrid[] = ["large"];
 
 /** Each face's paths at each density, worked out once. */
 const PATHS = Object.fromEntries(

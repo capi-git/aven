@@ -88,33 +88,20 @@
   stroke: var(--agent-face);
 }
 
-/* One face per density, by the mark's size. */
+/* One face at every size, the same shapes: below 36px its dots grow
+   until they nearly touch, so a small mark reads as the big one, bolder. */
 .agent-face {
-  display: none;
-}
-.agent-face-small {
-  display: inline;
-  stroke-width: 10.4;
-}
-.agent-face-medium {
-  stroke-width: 8;
-}
-.agent-face-large {
-  stroke-width: 4.4;
+  stroke-width: 6.1;
 }
 @container (min-width: 19.5px) {
-  .agent-face-small {
-    display: none;
-  }
-  .agent-face-medium {
-    display: inline;
+  .agent-face {
+    stroke-width: 5.6;
   }
 }
 @container (min-width: 35.5px) {
-  .agent-face-medium {
-    display: none;
+  .agent-face {
+    stroke-width: 4.4;
   }
-  .agent-face-large,
   .agent-glass {
     display: inline;
   }

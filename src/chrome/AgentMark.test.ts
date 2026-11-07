@@ -60,7 +60,7 @@ const motionBlock = blockAfter(
 );
 
 describe("AgentMark", () => {
-  it("is a screen: its glass, its face at three densities, its frame and glow", async () => {
+  it("is a screen: its glass, its face, its frame and glow", async () => {
     const mark = await draw({ state: "watching" });
     expect(mark.classList.contains("dot-mark")).toBe(true);
     expect(
@@ -68,10 +68,9 @@ describe("AgentMark", () => {
     ).toBe(AGENT_GLASS);
     expect(mark.dataset.face).toBe("squares");
     const faces = [...mark.querySelectorAll(".agent-eyes .agent-face")];
+    // One face, the same shapes at every size.
     expect(faces.map((face) => face.getAttribute("class"))).toEqual([
       "agent-face agent-face-large",
-      "agent-face agent-face-medium",
-      "agent-face agent-face-small",
     ]);
     expect(faces[0]!.querySelector(".agent-eye")!.getAttribute("d")).toBe(
       agentFacePaths("large", "squares").lit,
@@ -168,20 +167,20 @@ describe("AgentMark", () => {
     ).toBeNull();
   });
 
-  it("picks the face's density by size: 5×5 small, 7×5 from 20px, 13×9 and its glass from 36px", () => {
-    expect(rule(css, ".agent-face-small")).toContain("display: inline");
-    const medium = blockAfter(
-      css,
-      css.indexOf("@container (min-width: 19.5px)"),
-    );
-    expect(rule(medium, ".agent-face-medium")).toContain("display: inline");
+  it("draws the same face at every size, its dots bolder when small, its glass from 36px", () => {
+    const sizes = (from: string) =>
+      /stroke-width: ([\d.]+)/.exec(
+        from === "small"
+          ? rule(css, ".agent-face")
+          : blockAfter(css, css.indexOf(`@container (min-width: ${from})`)),
+      )?.[1];
+    expect(Number(sizes("small"))).toBeGreaterThan(Number(sizes("19.5px")));
+    expect(Number(sizes("19.5px"))).toBeGreaterThan(Number(sizes("35.5px")));
     const large = blockAfter(
       css,
       css.indexOf("@container (min-width: 35.5px)"),
     );
-    expect(large).toContain(
-      ".agent-face-large,\n  .agent-glass {\n    display: inline;",
-    );
+    expect(rule(large, ".agent-glass")).toContain("display: inline");
   });
 
   it("gives each state its own motion", () => {

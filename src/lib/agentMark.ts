@@ -54,15 +54,14 @@ export function agentOutfit(role: string | undefined): AgentOutfit | undefined {
 
 /**
  * Bot's drawing: a little screen of dots, its face lit on a faint grid, a
- * face for each state (`AGENT_STATE_FACES`). It is drawn at three
- * densities, by the mark's size (`AGENT_GRIDS`): 13 by 9 dots from 36 px,
- * 7 by 5 from 20 px, and 5 by 5 below that, so a face stays clear in a
- * sidebar row. `#` is a lit dot, `u` its cursor (it blinks), `.` unlit.
+ * face for each state (`AGENT_STATE_FACES`), 13 by 9 dots at every size:
+ * a small mark draws the same dots bigger, so it reads as the big one.
+ * `#` is a lit dot, `u` its cursor (it blinks), `.` unlit.
  */
 export type AgentFace =
   "prompt" | "squares" | "narrow" | "chevron" | "happy" | "cross";
 
-export type AgentGrid = "large" | "medium" | "small";
+export type AgentGrid = "large";
 
 export const AGENT_FACES: Readonly<
   Record<AgentGrid, Readonly<Record<AgentFace, readonly string[]>>>
@@ -135,22 +134,6 @@ export const AGENT_FACES: Readonly<
       ".............",
     ],
   },
-  medium: {
-    prompt: [".......", ".#.....", "..#....", ".#.uuu.", "......."],
-    squares: [".......", ".##.##.", ".##.##.", ".##.##.", "......."],
-    narrow: [".......", "..#.#..", "..#.#..", "..#.#..", "......."],
-    chevron: [".......", "..#....", "...#...", "..#....", "......."],
-    happy: [".......", ".......", ".#...#.", "#.#.#.#", "......."],
-    cross: [".......", "#.#.#.#", ".#...#.", "#.#.#.#", "......."],
-  },
-  small: {
-    prompt: [".....", ".#...", "..#..", ".#.uu", "....."],
-    squares: [".....", "##.##", "##.##", ".....", "....."],
-    narrow: [".....", ".#.#.", ".#.#.", ".#.#.", "....."],
-    chevron: [".....", ".#...", "..#..", ".#...", "....."],
-    happy: [".....", ".....", ".#.#.", "#.#.#", "....."],
-    cross: [".....", "#.#.#", ".#.#.", "#.#.#", "....."],
-  },
 };
 
 /** Where each grid's dots sit in the mark's 100-unit square, and how big. */
@@ -158,8 +141,6 @@ export const AGENT_GRIDS: Readonly<
   Record<AgentGrid, { cols: number; rows: number; pitch: number; dot: number }>
 > = {
   large: { cols: 13, rows: 9, pitch: 6.6, dot: 4.4 },
-  medium: { cols: 7, rows: 5, pitch: 12, dot: 8 },
-  small: { cols: 5, rows: 5, pitch: 15.5, dot: 10.4 },
 };
 
 /** The face each state shows; a reaction's face shows over it a moment. */
