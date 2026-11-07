@@ -30,6 +30,7 @@ import {
   isAgentTaskType,
   isClaudeUltracodeEffort,
   isReplayedTaskNotificationResult,
+  isShellTaskType,
   isSubagentMessage,
   isTerminalAgentTaskStatus,
   isTodoTool,
@@ -37,6 +38,7 @@ import {
   claudeWaitEvent,
   normalizeClaudeCliEffort,
   parseBackgroundAgentTasks,
+  parseBackgroundShellTaskIds,
   parseControlCancelId,
   parseControlRequest,
   parseJsonLine,
@@ -139,6 +141,12 @@ type Live = {
   toolsById: Map<string, InFlightTool>;
   agentTasks: Map<string, LiveAgentTask>;
   inactiveTaskIds: Set<string>;
+  /** Shell tasks still blocking their Bash call; they may move to the background. */
+  foregroundShells: Set<string>;
+  /** Shell tasks running in the background, such as a dev server. */
+  backgroundShells: Set<string>;
+  /** The background shell count last reported to the registry. */
+  reportedShells: number;
   /** TaskCreate/TaskUpdate items, keyed by Claude's task id. */
   claudeTasks: Map<string, TaskListItem>;
   turnResultSeen: boolean;
@@ -369,7 +377,11 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   }
   unwatchChild(sessionId);
   const stopping = killChild(sessionId).then(
-    () => live?.onEvent({ type: "agents.cleared" }),
+    () => {
+      // Its shells ended with its process group.
+      if (live) clearShells(live);
+      live?.onEvent({ type: "agents.cleared" });
+    },
     (error: unknown) => {
       if (live) {
         markAgentsUnknown(live, "Could not confirm the agent process stopped");
@@ -514,6 +526,9 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     toolsById: new Map(),
     agentTasks: new Map(),
     inactiveTaskIds: new Set(),
+    foregroundShells: new Set(),
+    backgroundShells: new Set(),
+    reportedShells: 0,
     claudeTasks,
     turnResultSeen: false,
     awaitingEcho: null,
@@ -563,6 +578,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
           current,
           "Claude Code exited before reporting the agent's final status",
         );
+        clearShells(current);
         current.onEvent({ type: "session.ended", code });
       }
       current?.turnFailed?.(new Error("Claude Code exited"));
@@ -1382,6 +1398,15 @@ function handleAgentLifecycle(
 ): boolean {
   const started = parseTaskStarted(rec);
   if (started) {
+    if (isShellTaskType(started.taskType) && !started.ambient) {
+      if (started.backgrounded) {
+        live.foregroundShells.delete(started.taskId);
+        live.backgroundShells.add(started.taskId);
+        reportShells(live);
+      } else {
+        live.foregroundShells.add(started.taskId);
+      }
+    }
     const linkedTool =
       started.toolUseId && live.toolsById.get(started.toolUseId);
     const isAgent =
@@ -1455,6 +1480,16 @@ function handleAgentLifecycle(
 
   const updated = parseTaskUpdated(rec);
   if (updated) {
+    if (isTerminalAgentTaskStatus(updated.status)) {
+      endShell(live, updated.taskId);
+    } else if (
+      updated.backgrounded === true &&
+      live.foregroundShells.delete(updated.taskId)
+    ) {
+      // Moved to the background (Ctrl+B, or a command that ran too long).
+      live.backgroundShells.add(updated.taskId);
+      reportShells(live);
+    }
     const task = live.agentTasks.get(updated.taskId);
     if (task && updated.backgrounded !== undefined) {
       task.backgrounded = updated.backgrounded;
@@ -1481,6 +1516,9 @@ function handleAgentLifecycle(
 
   const notice = parseTaskNotification(rec);
   if (notice) {
+    // A shell's end counts even when ambient: a stop can be reported that way.
+    // A resume's replay of an old task only ends one, never starts it.
+    endShell(live, notice.taskId);
     if (!notice.ambient) {
       completeAgentTask(
         live,
@@ -1494,6 +1532,13 @@ function handleAgentLifecycle(
 
   const liveTasks = parseBackgroundAgentTasks(rec);
   if (!liveTasks) return false;
+  const shells = parseBackgroundShellTaskIds(rec);
+  if (shells) {
+    // The whole set, so a missed start or end cannot keep a chat warm for good.
+    live.backgroundShells = new Set(shells);
+    for (const id of shells) live.foregroundShells.delete(id);
+    reportShells(live);
+  }
   const next = new Set(liveTasks.map((task) => task.taskId));
   // Apply the whole replacement before checking turn completion. Finishing
   // while removing the last old task can race a new worker in this payload.
@@ -1631,6 +1676,30 @@ function updateAgentTask(
     task.status === "running" ? "in_progress" : task.status,
     detail,
   );
+}
+
+/**
+ * Background shells run in this process's group, so parking the process would
+ * end a dev server an agent started. The registry hears how many run and keeps
+ * the chat warm meanwhile. Each process starts with none: a resume only replays
+ * old tasks as ended.
+ */
+function reportShells(live: Live): void {
+  const running = live.backgroundShells.size;
+  if (running === live.reportedShells) return;
+  live.reportedShells = running;
+  live.onEvent({ type: "shells.updated", running });
+}
+
+function endShell(live: Live, taskId: string): void {
+  live.foregroundShells.delete(taskId);
+  if (live.backgroundShells.delete(taskId)) reportShells(live);
+}
+
+function clearShells(live: Live): void {
+  live.foregroundShells.clear();
+  live.backgroundShells.clear();
+  reportShells(live);
 }
 
 function markAgentsUnknown(live: Live, detail: string): void {

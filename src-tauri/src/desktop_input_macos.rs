@@ -260,6 +260,10 @@ pub(super) fn target(
             _ => centre,
         }
     };
+    if let Request::Menu { path, .. } = request {
+        // The bar names the menu item ("File → Export…"), never anything typed.
+        label = accessibility::menu_label(path);
+    }
     let shared_input = mode == InputMode::Pointer;
     let identity = if shared_input && id.is_none() && !matches!(request, Request::Activate { .. }) {
         presence::AppIdentity::new("pointer:desktop", "your Mac")

@@ -101,7 +101,9 @@ describe("provider-aware skill catalog", () => {
       expect(prompt).toContain('"action":"openfile"');
       expect(prompt).toContain('"action":"screenshot","windowId":123');
       expect(prompt).toContain("Open the returned PNG");
-      expect(prompt).toContain("After each action, take a new screenshot");
+      expect(prompt).toContain(
+        "After each action, confirm the intended result",
+      );
       expect(prompt.endsWith("/aven-computer-use inspect the app")).toBe(true);
     },
   );

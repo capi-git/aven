@@ -277,6 +277,41 @@ describe("transcript native scrolling", () => {
     expect(el.scrollTop).toBe(1100);
   });
 
+  it("hears wheel input through React's listener, adding none as it hides and shows", async () => {
+    // In WebKit each wheel listener added or removed restyles the whole page,
+    // so switching chats must not add or remove one.
+    const added = vi.spyOn(HTMLElement.prototype, "addEventListener");
+    const removed = vi.spyOn(HTMLElement.prototype, "removeEventListener");
+    const wheelCalls = (spy: typeof added) =>
+      spy.mock.calls.filter(([type]) => type === "wheel").length;
+    const show = async (visible: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(AgentTranscript, {
+            blocks: answer("Starting the review."),
+            busy: true,
+            visible,
+            onJumpToBottomChange: showJump,
+          }),
+        );
+      });
+      return container.querySelector<HTMLElement>(".agent-transcript")!;
+    };
+    const el = await show(true);
+    scrollMetrics(el, 400, 1200);
+    await markAtBottom(el);
+    await show(false);
+    // Hidden: wheel input is not the reader leaving the end.
+    await wheel(el, -40);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    await show(true);
+    await markAtBottom(el);
+    await wheel(el, -40);
+    expect(showJump).toHaveBeenLastCalledWith(true);
+    expect(wheelCalls(added)).toBe(0);
+    expect(wheelCalls(removed)).toBe(0);
+  });
+
   it("keeps following after upward input that cannot scroll the transcript", async () => {
     const el = await render(answer("One"));
     const metrics = scrollMetrics(el, 400, 300);

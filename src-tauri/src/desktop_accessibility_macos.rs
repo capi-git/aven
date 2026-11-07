@@ -849,114 +849,180 @@ fn restore_unclaimed(restores: Vec<rules::Restore>) {
     restore_flags(restores);
 }
 
-/// Captures and stores an indexed tree of one window plus any open menus.
 /// Waits for WebKit to build Aven's own page tree on a first read.
 const OWN_TREE_RETRIES: usize = 4;
 const OWN_TREE_WAIT: Duration = Duration::from_millis(250);
 
+/// One bounded read of a window and any open menus, before indexes are
+/// assigned: the nodes, the capture roots, the outline and why it was cut.
+struct Tree {
+    nodes: Vec<rules::Captured<Element>>,
+    roots: Vec<Element>,
+    outline: String,
+    truncated: Option<&'static str>,
+    offscreen: usize,
+}
+
+unsafe fn capture_tree(
+    pid: i32,
+    window_id: u32,
+    window: Region,
+    max_nodes: u32,
+) -> Result<Tree, String> {
+    let mut source = Live::new(CAPTURE_BUDGET);
+    let root = window_element(pid, window_id, window, source.deadline)?;
+    let mut roots = vec![root.clone()];
+    let mut capture = rules::capture(&mut source, &[(root, Some(window))], max_nodes as usize);
+    // WebKit builds Aven's own page tree only after an assistive client
+    // first asks, so that first answer is just the window frame. Give it
+    // a moment on this worker; the main thread stays free to build it.
+    if pid == std::process::id() as i32 {
+        for _ in 0..OWN_TREE_RETRIES {
+            if capture
+                .nodes
+                .iter()
+                .any(|node| node.info.role == "AXWebArea")
+            {
+                break;
+            }
+            std::thread::sleep(OWN_TREE_WAIT);
+            source = Live::new(CAPTURE_BUDGET);
+            capture = rules::capture(
+                &mut source,
+                &[(roots[0].clone(), Some(window))],
+                max_nodes as usize,
+            );
+        }
+    }
+    // Most menus appear under the control that opened them. Some apps
+    // attach an open context menu to the application instead.
+    let has_menu = capture.nodes.iter().any(|node| node.info.role == "AXMenu");
+    let room = (max_nodes as usize).saturating_sub(capture.nodes.len());
+    if !has_menu && room > 0 && capture.truncated.is_none() {
+        let menus: Vec<_> = open_menus(pid, source.deadline)
+            .into_iter()
+            .map(|menu| (menu, None))
+            .collect();
+        if !menus.is_empty() {
+            let extra = rules::capture(&mut source, &menus, room);
+            capture.truncated = capture.truncated.or(extra.truncated);
+            capture.offscreen += extra.offscreen;
+            capture
+                .nodes
+                .extend(extra.nodes.into_iter().map(|mut node| {
+                    node.root += roots.len();
+                    node
+                }));
+            roots.extend(menus.into_iter().map(|(menu, _)| menu));
+        }
+    }
+    let (outline, cut) = rules::outline(&mut capture.nodes, (window.x, window.y));
+    Ok(Tree {
+        nodes: capture.nodes,
+        roots,
+        outline,
+        truncated: if cut {
+            Some("size limit")
+        } else {
+            capture.truncated
+        },
+        offscreen: capture.offscreen,
+    })
+}
+
+/// Captures and stores an indexed tree of one window plus any open menus.
+/// With a filter, `elements` lists only matching elements and their
+/// ancestors; the indexes are still those of the whole stored state.
 pub(super) fn capture_state(
     scope: &str,
     pid: i32,
     window_id: u32,
     window: Region,
     max_nodes: u32,
+    filter: Option<&rules::Filter>,
 ) -> Result<Value, String> {
     objc2::rc::autoreleasepool(|_| unsafe {
-        let mut source = Live::new(CAPTURE_BUDGET);
-        let root = window_element(pid, window_id, window, source.deadline)?;
-        let mut roots = vec![root.clone()];
-        let mut capture = rules::capture(&mut source, &[(root, Some(window))], max_nodes as usize);
-        // WebKit builds Aven's own page tree only after an assistive client
-        // first asks, so that first answer is just the window frame. Give it
-        // a moment on this worker; the main thread stays free to build it.
-        if pid == std::process::id() as i32 {
-            for _ in 0..OWN_TREE_RETRIES {
-                if capture
-                    .nodes
-                    .iter()
-                    .any(|node| node.info.role == "AXWebArea")
-                {
-                    break;
-                }
-                std::thread::sleep(OWN_TREE_WAIT);
-                source = Live::new(CAPTURE_BUDGET);
-                capture = rules::capture(
-                    &mut source,
-                    &[(roots[0].clone(), Some(window))],
-                    max_nodes as usize,
-                );
-            }
-        }
-        // Most menus appear under the control that opened them. Some apps
-        // attach an open context menu to the application instead.
-        let has_menu = capture.nodes.iter().any(|node| node.info.role == "AXMenu");
-        let room = (max_nodes as usize).saturating_sub(capture.nodes.len());
-        if !has_menu && room > 0 && capture.truncated.is_none() {
-            let menus: Vec<_> = open_menus(pid, source.deadline)
-                .into_iter()
-                .map(|menu| (menu, None))
-                .collect();
-            if !menus.is_empty() {
-                let extra = rules::capture(&mut source, &menus, room);
-                capture.truncated = capture.truncated.or(extra.truncated);
-                capture.offscreen += extra.offscreen;
-                capture
-                    .nodes
-                    .extend(extra.nodes.into_iter().map(|mut node| {
-                        node.root += roots.len();
-                        node
-                    }));
-                roots.extend(menus.into_iter().map(|(menu, _)| menu));
-            }
-        }
-        let (outline, cut) = rules::outline(&mut capture.nodes, (window.x, window.y));
-        let truncated = if cut {
-            Some("size limit")
-        } else {
-            capture.truncated
-        };
-        let count = capture.nodes.len();
+        let mut tree = capture_tree(pid, window_id, window, max_nodes)?;
+        let count = tree.nodes.len();
+        let digest = rules::outline_digest(&tree.outline);
         // Repeated and unlabelled elements record what surrounds them, so a
         // list that changes underneath an index is refused, not misread.
-        rules::assign_contexts(&mut Live::new(CONTEXT_BUDGET), &mut capture.nodes);
-        let ambiguous: Vec<usize> = capture
+        rules::assign_contexts(&mut Live::new(CONTEXT_BUDGET), &mut tree.nodes);
+        let ambiguous: Vec<usize> = tree
             .nodes
             .iter()
             .enumerate()
             .filter(|(_, node)| node.context == rules::Context::Ambiguous)
             .map(|(index, _)| index)
             .collect();
-        let focused = capture.nodes.iter().position(|node| node.info.focused);
+        let focused = tree.nodes.iter().position(|node| node.info.focused);
         // Menus appear under their control or, for some apps, the application.
-        let open_menus = capture
+        let open_menus = tree
             .nodes
             .iter()
             .filter(|node| node.info.role == "AXMenu")
             .count();
+        let filtered =
+            filter.map(|filter| rules::filtered_outline(&tree.nodes, (window.x, window.y), filter));
         let snapshot = rules::Snapshot {
             id: 0,
             pid,
             window_id,
             window,
-            roots,
-            nodes: capture.nodes,
+            roots: tree.roots,
+            nodes: tree.nodes,
             consumed: false,
+            digest,
+            max_nodes,
         };
         let id = lock_store().insert(scope, snapshot);
         let mut state = json!({
             "stateId": id,
-            "elements": outline,
+            "elements": tree.outline,
             "count": count,
             "focusedElement": focused,
             "openMenus": open_menus,
-            "offscreenOmitted": capture.offscreen,
-            "truncated": truncated,
+            "offscreenOmitted": tree.offscreen,
+            "truncated": tree.truncated,
         });
+        if let Some((elements, matches)) = filtered {
+            state["elements"] = json!(elements);
+            state["matches"] = json!(matches);
+        }
         if !ambiguous.is_empty() {
             state["ambiguous"] = json!(ambiguous);
         }
         Ok(state)
     })
+}
+
+/// A quick look at a window without storing it or assigning indexes: the
+/// outline's fingerprint and how many elements match `filter`.
+pub(super) fn probe(
+    pid: i32,
+    window_id: u32,
+    window: Region,
+    max_nodes: u32,
+    filter: Option<&rules::Filter>,
+) -> Result<(u64, usize), String> {
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let tree = capture_tree(pid, window_id, window, max_nodes)?;
+        let matches = filter.map_or(0, |filter| {
+            tree.nodes
+                .iter()
+                .filter(|node| filter.matches(&node.info))
+                .count()
+        });
+        Ok((rules::outline_digest(&tree.outline), matches))
+    })
+}
+
+/// The fingerprint and maxNodes of this chat's latest state of a window,
+/// used or not.
+pub(super) fn latest(scope: &str, window_id: u32) -> Option<(u64, u32)> {
+    lock_store()
+        .latest(scope, window_id)
+        .map(|snapshot| (snapshot.digest, snapshot.max_nodes))
 }
 
 /// Ends a window's indexes after an action in it.
@@ -1866,6 +1932,241 @@ pub(super) fn scroll(
             delta_x,
             delta_y,
         })
+    })
+}
+
+/// Menu-bar entries read for one level of a menu.
+const MENU_ITEMS: usize = 80;
+/// Budget for walking an app's menu bar down one path.
+const MENU_BUDGET: Duration = Duration::from_millis(3000);
+
+/// One item of a menu (or of the menu bar itself).
+struct MenuEntry {
+    element: Element,
+    title: Option<String>,
+    enabled: Option<bool>,
+    checked: bool,
+}
+
+unsafe fn menu_entry(element: Element, deadline: Instant) -> MenuEntry {
+    let title = copy(element.0, "AXTitle", deadline)
+        .and_then(|title| string_of(title.0, 512))
+        .filter(|title| !title.trim().is_empty());
+    let enabled = copy(element.0, "AXEnabled", deadline).and_then(|value| bool_of(value.0));
+    let checked = copy(element.0, "AXMenuItemMarkChar", deadline)
+        .and_then(|mark| string_of(mark.0, 8))
+        .is_some_and(|mark| !mark.trim().is_empty());
+    MenuEntry {
+        element,
+        title,
+        enabled,
+        checked,
+    }
+}
+
+/// The menu an item opens (a menu-bar title or a submenu item), if any.
+unsafe fn submenu(item: &Element, deadline: Instant) -> Option<Element> {
+    let children = copy(item.0, "AXChildren", deadline)?;
+    element_array(&children, 8).into_iter().find(|child| {
+        copy(child.0, "AXRole", deadline)
+            .and_then(|role| string_of(role.0, 64))
+            .is_some_and(|role| role == "AXMenu")
+    })
+}
+
+/// The items of a menu (or the menu bar's titles).
+unsafe fn menu_entries(menu: &Element, deadline: Instant) -> Vec<MenuEntry> {
+    copy(menu.0, "AXChildren", deadline)
+        .map(|children| element_array(&children, MENU_ITEMS))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|element| menu_entry(element, deadline))
+        .collect()
+}
+
+unsafe fn menu_bar(pid: i32, deadline: Instant) -> Result<Element, String> {
+    let app = application(pid)?;
+    copy(app.0, "AXMenuBar", deadline)
+        .and_then(|bar| Element::owned(bar))
+        .ok_or_else(|| "That app does not show a menu bar through Accessibility.".to_string())
+}
+
+/// Walks `path` from the menu bar. Returns the last entry and the entries of
+/// the level it was found in.
+unsafe fn walk_menu(pid: i32, path: &[String], deadline: Instant) -> Result<MenuEntry, String> {
+    let mut menu = menu_bar(pid, deadline)?;
+    let mut found = None;
+    for (depth, wanted) in path.iter().enumerate() {
+        if depth > 0 {
+            let parent: &MenuEntry = found.as_ref().ok_or(NO_WINDOW)?;
+            menu = submenu(&parent.element, deadline).ok_or_else(|| {
+                format!(
+                    "{} has no submenu; the path ends there.",
+                    parent.title.as_deref().unwrap_or("That item")
+                )
+            })?;
+        }
+        let mut entries = menu_entries(&menu, deadline);
+        let titles: Vec<Option<String>> = entries.iter().map(|entry| entry.title.clone()).collect();
+        let index = rules::menu_match(wanted, &titles)?;
+        found = Some(entries.swap_remove(index));
+    }
+    found.ok_or_else(|| "A menu path needs at least one title.".into())
+}
+
+/// The top-level titles of an app's menu bar (observation).
+pub(super) fn menu_bar_titles(pid: i32) -> Vec<String> {
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let deadline = Instant::now() + LOOKUP_BUDGET;
+        let Ok(bar) = menu_bar(pid, deadline) else {
+            return Vec::new();
+        };
+        menu_entries(&bar, deadline)
+            .into_iter()
+            .filter_map(|entry| entry.title.and_then(|title| rules::clean(&title, 60)))
+            .collect()
+    })
+}
+
+/// The items of one menu of the app's menu bar, named by its path from the
+/// menu bar (observation; nothing is opened).
+pub(super) fn menu_items(pid: i32, path: &[String]) -> Result<Vec<String>, String> {
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let deadline = Instant::now() + MENU_BUDGET;
+        let entry = walk_menu(pid, path, deadline)?;
+        let menu = submenu(&entry.element, deadline).ok_or_else(|| {
+            "That is a menu item, not a menu; use the menu action to choose it.".to_string()
+        })?;
+        let items: Vec<String> = menu_entries(&menu, deadline)
+            .into_iter()
+            .filter_map(|item| {
+                let has_submenu = submenu(&item.element, deadline).is_some();
+                rules::menu_item_line(
+                    item.title.as_deref(),
+                    item.enabled,
+                    item.checked,
+                    has_submenu,
+                )
+            })
+            .collect();
+        if items.is_empty() {
+            return Err(
+                "That menu lists no items yet; some apps fill a menu only when it opens.".into(),
+            );
+        }
+        Ok(items)
+    })
+}
+
+/// Chooses a menu item by its path from the menu bar, through Accessibility,
+/// without opening the menu or bringing the app forward.
+pub(super) fn choose_menu(pid: i32, path: &[String], gate: Gate) -> Result<Value, String> {
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let deadline = Instant::now() + MENU_BUDGET;
+        let entry = walk_menu(pid, path, deadline)?;
+        let title = entry.title.clone().unwrap_or_default();
+        if path.len() == 1 {
+            return Err(format!(
+                "{title} is a menu; add the item to choose from it (appState with \"menu\":[\"{title}\"] lists its items). No input was sent."
+            ));
+        }
+        if entry.enabled == Some(false) {
+            return Err(format!(
+                "{title} is disabled in that menu; no input was sent."
+            ));
+        }
+        if submenu(&entry.element, deadline).is_some() {
+            return Err(format!(
+                "{title} opens a submenu; add the item to choose from it. No input was sent."
+            ));
+        }
+        match perform(&entry.element, "AXPress", gate)? {
+            Some(outcome) => Ok(result_json(
+                json!({"chosen": path, "method": "AXPress"}),
+                outcome,
+            )),
+            None => Err(format!(
+                "The app does not let {title} be chosen through Accessibility; no input was sent."
+            )),
+        }
+    })
+}
+
+/// Elements read, at most, to gather the text under a container.
+const TEXT_ELEMENTS: usize = 3000;
+/// The longest text readText copies from an app at once (UTF-16 units).
+const TEXT_LIMIT: usize = 5_000_000;
+
+/// The text under a container that has no text value of its own (a web area,
+/// a group of messages), one element per line, in reading order.
+unsafe fn descendant_text(element: &Element, deadline: Instant) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut stack = vec![element.clone()];
+    let mut visits = 0;
+    let mut size = 0;
+    while let Some(current) = stack.pop() {
+        if visits >= TEXT_ELEMENTS || size >= TEXT_LIMIT || Instant::now() >= deadline {
+            break;
+        }
+        visits += 1;
+        let role = copy(current.0, "AXRole", deadline).and_then(|role| string_of(role.0, 64));
+        let subrole = copy(current.0, "AXSubrole", deadline).and_then(|role| string_of(role.0, 64));
+        // Secure text is never read, here or anywhere else.
+        if rules::is_secure(role.as_deref().unwrap_or_default(), subrole.as_deref()) {
+            continue;
+        }
+        let text = copy(current.0, "AXValue", deadline)
+            .and_then(|value| string_of(value.0, TEXT_LIMIT))
+            .or_else(|| {
+                (role.as_deref() == Some("AXStaticText"))
+                    .then(|| {
+                        copy(current.0, "AXTitle", deadline).and_then(|t| string_of(t.0, 4096))
+                    })
+                    .flatten()
+            })
+            .filter(|text| !text.trim().is_empty());
+        if let Some(text) = text {
+            size += text.len();
+            lines.push(text);
+            // A text value already holds its children's text.
+            continue;
+        }
+        if let Some(children) = copy(current.0, "AXChildren", deadline) {
+            let mut children = element_array(&children, rules::MAX_CHILDREN);
+            children.reverse();
+            stack.extend(children);
+        }
+    }
+    lines.join("\n")
+}
+
+/// The full text of an element, paged: its own text value, else the text of
+/// the elements inside it. Secure fields are refused.
+pub(super) fn read_text(located: &Located, offset: usize, length: usize) -> Result<Value, String> {
+    if located.info.is_secure() {
+        return Err("That is a secure text field; its value is never read.".into());
+    }
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let deadline = Instant::now() + CAPTURE_BUDGET;
+        let element = &located.element;
+        let own = copy(element.0, "AXValue", deadline).and_then(|value| {
+            (CFGetTypeID(value.0) == CFStringGetTypeID()
+                && usize::try_from(CFStringGetLength(value.0)).ok()? <= TEXT_LIMIT)
+                .then(|| string_of(value.0, usize::MAX))
+                .flatten()
+        });
+        let (text, source) = match own.filter(|text| !text.is_empty()) {
+            Some(text) => (text, "value"),
+            None => (descendant_text(element, deadline), "contents"),
+        };
+        let (page, total, next) = rules::text_page(&text, offset, length);
+        Ok(json!({
+            "text": page,
+            "offset": offset,
+            "total": total,
+            "nextOffset": next,
+            "source": source,
+        }))
     })
 }
 

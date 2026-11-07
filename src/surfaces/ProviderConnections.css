@@ -245,10 +245,22 @@
 /* At rest a row shows its state, and every status lines up on the right.
    Under the pointer or the keyboard its actions take the status's place.
    A row that needs you keeps its fix in view beside the status; its menu
-   joins it then. */
-.mcp-row:not([data-pinned]):not(:hover, :focus-within, [data-open])
+   joins it then. The pointer and keyboard states name the row's class:
+   WebKit indexes a :hover or :focus-within rule by the class beside it, and
+   one with none is checked against everything under each element whose
+   focus changes (a whole chat, ~6 ms a tab switch). */
+.mcp-row:not([data-pinned]):not(
+    :where(.mcp-row:hover),
+    :where(.mcp-row:focus-within),
+    [data-open]
+  )
   .mcp-row-actions,
-.mcp-row[data-pinned]:not(:hover, :focus-within, [data-open]) .mcp-more {
+.mcp-row[data-pinned]:not(
+    :where(.mcp-row:hover),
+    :where(.mcp-row:focus-within),
+    [data-open]
+  )
+  .mcp-more {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -256,7 +268,11 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.mcp-row:not([data-pinned], [data-busy]):is(:hover, :focus-within, [data-open])
+.mcp-row:not([data-pinned], [data-busy]):is(
+    :where(.mcp-row:hover),
+    :where(.mcp-row:focus-within),
+    [data-open]
+  )
   .mcp-row-status {
   display: none;
 }

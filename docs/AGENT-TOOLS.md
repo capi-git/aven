@@ -614,14 +614,29 @@ forward, and covered windows work.
 ```
 
 `appState` returns a `stateId`, the window's bounds, an indexed outline of its
-controls and any open menu, and a fresh window image (`image`). Each outline line
+controls and any open menu, the app's menu-bar titles (`menuBar`), and a fresh
+window image (`image`; `"image": false` leaves it out, and `maxWidth` shrinks it). Each outline line
 lists the role, title, description, placeholder, value, disabled/focused/selected
 state, available actions and frame in window-screenshot points, for example
 `[7] Button "Send" @412,560 64x28 actions=Press`. Values of secure text fields are
 never read; they always appear as `<redacted>`. The outline is bounded (250
 elements by default, `maxNodes` 20 to 1000, a three-second read budget and a size
 limit); `truncated` reports a cut. Slack, Notion, VS Code, Chrome, Finder, Mail,
-Messages, Music and Spotify include short `tips`.
+Messages, Music and Spotify include short `tips`, once per chat for each app
+(`"tips": true` sends them again).
+
+To find something in a large window, `query` (text in a label or value, any case)
+and `role` (such as `Button` or `Row`) narrow `elements` to the matches and their
+ancestors, with `matches` counting them. The indexes are those of the whole state,
+so they work as usual. A search reads up to 1,000 elements unless `maxNodes` says
+otherwise. `"menu": ["File"]` adds that menu's items (`menuItems`) without opening
+it, each marked `checked`, `disabled` or `submenu` where that applies.
+
+Instead of calling `appState` in a loop, an agent can wait: `waitMs` (100 to
+10,000) with `"untilChanged": true` returns once the window differs from this
+chat's latest state of it, and `waitMs` with a `query` or `role` returns once a
+match appears. `changed` says whether that happened and `waitedMs` how long it
+took. A wait holds desktop control for every chat, so it is capped at 10 seconds.
 
 Element actions take the same `windowId`, an `element` index and the `stateId`:
 
@@ -656,14 +671,38 @@ Element actions take the same `windowId`, an `element` index and the `stateId`:
 - `selectText` selects `text`, or `start` and `length` in UTF-16 units.
 - `secondaryAction` opens the element's menu, or runs one allow-listed action such
   as `Increment` or `ShowAlternateUI`.
+- `readText` returns an element's full text in pages (`offset` and `length` in
+  characters, up to 20,000 per page): its own value, or else the text of the
+  elements inside it. `total` and `nextOffset` say what is left. It only reads, so
+  it needs no consent and does not use up indexes. Secure fields are refused.
+
+Menu-bar commands use `menu` with the item's path from the menu bar down:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-desktop '{"action":"menu","windowId":123,"path":["File","Export To","PDF…"]}'
+```
+
+Aven finds the item through the app's accessibility menu bar and presses it in the
+background, without opening the menu or bringing the app forward. Titles match in
+any case, `...` matches `…`, and a missing trailing `…` is accepted when only one
+item fits. Disabled items, and paths that end at a menu or submenu, are refused
+with nothing sent; the error lists the items there. `menu` counts as input: it uses
+the same consent, Pause, Stop and lock rules as every element action, and Aven's
+own menus are never chosen. The bar shows the item, for example “Choosing “File →
+Export…””.
 
 A control the app reports as disabled is refused by every element action, including
 `selectText` and every `pressKey` key. Without an `element`, a disabled default or
 cancel button refuses Enter or Escape with an error that names that button.
 
-Indexes belong to that state only, and any action in the window uses them up, so
-agents call `appState` again before each element action. A newer `appState` of the
-same window also replaces them. An element is refused with "State changed; call
+Indexes belong to that state only, and any action in the window uses them up. So
+that agents do not need an `appState` after every step, each element action and
+`menu` waits briefly (about 150 ms), reads the window again and returns that fresh
+state under `state`: a new `stateId`, the outline and the window bounds, plus an
+image only when the action asked with `"image": true`. Its indexes are the ones to
+use next. When the window closed or could not be read, the result carries
+`stateError` instead and the agent calls `appState` first. A newer `appState` of the
+same window also replaces the indexes. An element is refused with "State changed; call
 appState again" when its role, label or place in the window changed. Elements that
 are unlabelled or repeated (untitled rows, a "More actions" button on every
 message) also record the text around them, so a list that changed underneath an
@@ -697,18 +736,34 @@ those switches off again when the same app process is still running.
 
 Element actions count as input: they use the same per-app consent, appear in the bar
 with the control's title (for example “Clicking “Send””, never a typed value),
-follow Pause, Stop and yield, and move the agent's dot to the control. `appState` is
+follow Pause and Stop, and move the agent's dot to the control. Like app-directed
+input they keep running while you work, even in the same app; only shared-pointer
+input pauses when you take the mouse or keyboard. `appState` is
 observation and remains available while paused.
 
 ### Coordinates (fallback)
 
 When an element is missing or does not respond, the agent checks status once,
-selects an observed window, and takes a `screenshot` with its `windowId`. The result is `{path,width,height,originX,originY}`; the agent
-must open the PNG at `path` with an image or file reader before acting. A successful
+selects an observed window, and takes a `screenshot` with its `windowId`. The result is `{path,width,height,originX,originY,scale}`; the agent
+must open the PNG at `path` with an image or file reader before acting.
+Image pixels equal points (`scale` 1) unless the agent passes `maxWidth` to shrink
+a large image or `"native": true` for full-resolution detail of a small region;
+then `scale` is image pixels per point, `pointWidth` and `pointHeight` give the
+size in points, and image coordinates are divided by `scale`. `windows` lists each
+window's `display`, the `displays` themselves and the `frontmostApp`, and
+`screenshot` with `display` captures another screen. A window screenshot (and the
+image in `appState`) records only that window, so Aven's dot and bar stay on
+screen; a region or full-display screenshot hides them for the moment of capture.
+Images are scaled inside Aven rather than by a second program. A successful
 JSON response alone is not visual verification. It then uses `move`, `click`,
 `drag`, `type`, `press`, `scroll`, or `activate` as needed and takes and opens a new screenshot to
 verify each result. Include the observed `windowId` for all input, including typing
-and key presses. Coordinates are in screenshot points relative to that window.
+and key presses. Keys include letters, digits, Enter, Tab, Escape, the arrows,
+Home/End/Page Up/Page Down, Space, F1–F12 and the punctuation keys
+`,` `.` `/` `;` `'` `[` `]` `-` `=` and backslash and backtick, at their US
+positions; `type` enters any other text. `activate` with the name of an app
+that is not running opens it, waits briefly for its first window and returns
+that `windowId`. Coordinates are in screenshot points relative to that window.
 The default `inputMode: "app"` delivers events to the target app without moving
 the user's pointer or activating another app. Accessible single-click controls
 use their semantic press action when available. Keys require that app's focused
