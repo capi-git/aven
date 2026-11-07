@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   firstSentence,
   prBranch,
+  fitBytes,
+  PR_BODY_MAX_BYTES,
+  PR_TITLE_MAX,
   prText,
   reviewChecks,
   reviewPages,
@@ -154,6 +157,27 @@ describe("the pull request", () => {
       "- **Fix the pricing table**: Plans stack on phones.",
     );
     expect(body).toContain("- Checker ran npm test");
+  });
+
+  it("fits the limits Aven sends it with: title in characters, body in bytes", () => {
+    const { title } = prText([card("a", "🚀".repeat(250))]);
+    expect(Array.from(title)).toHaveLength(PR_TITLE_MAX);
+    expect(title.endsWith("🚀")).toBe(true);
+    const many = Array.from({ length: 400 }, (_, index) =>
+      card(`c${index}`, `Änderung ${index} ${"é".repeat(60)}`, {
+        summary: `${"ü".repeat(100)}.`,
+      }),
+    );
+    const { body } = prText(many);
+    const bytes = new TextEncoder().encode(body).length;
+    expect(bytes).toBeLessThanOrEqual(PR_BODY_MAX_BYTES);
+    expect(bytes).toBeGreaterThan(PR_BODY_MAX_BYTES - 8);
+    expect(body.endsWith("…")).toBe(true);
+    // A short body is left as it is.
+    expect(fitBytes("Made by Avos", PR_BODY_MAX_BYTES)).toBe("Made by Avos");
+    // Cut between characters, never inside one.
+    expect(fitBytes("ab🚀🚀", 8)).toBe("ab\n…");
+    expect(fitBytes("ab🚀🚀c", 10)).toBe("ab🚀\n…");
   });
 
   it("goes out on an avos/ branch named after it", () => {

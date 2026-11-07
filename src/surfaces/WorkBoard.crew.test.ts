@@ -109,6 +109,13 @@ vi.mock("../lib/crewActions", async (original) => {
     stopCrewTry: actions.stopCrewTry,
   };
 });
+const platform = vi.hoisted(() => ({ mac: true }));
+vi.mock("../lib/platform", async (original) => ({
+  ...(await original<typeof import("../lib/platform")>()),
+  get IS_MAC() {
+    return platform.mac;
+  },
+}));
 vi.mock("../lib/pagePictures", async (original) => ({
   ...(await original<typeof import("../lib/pagePictures")>()),
   takePagePicture: actions.takePagePicture,
@@ -352,6 +359,7 @@ beforeEach(() => {
     draft: vi.fn(() => "drafted"),
   });
   for (const fn of Object.values(actions)) fn.mockClear();
+  platform.mac = true;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -1561,8 +1569,9 @@ describe("the team view: the Board with the team on it", () => {
     expect(actions.applyCrewBatch).not.toHaveBeenCalled();
   });
 
-  it("pictures a change to what people see: before and after, at phone or desktop size, and Try it", async () => {
-    await setUp((boards) => (crew) => {
+  const withPage =
+    (boards: FeatureCard[]) =>
+    (crew: Crew): Crew => {
       const card = crewCardFor(boards[3], "ready");
       return {
         ...withCard(crew, {
@@ -1576,18 +1585,34 @@ describe("the team view: the Board with the team on it", () => {
         }),
         stack: { base: "a".repeat(40) },
       };
-    });
+    };
+  const openReview = async () => {
     await settle();
     await act(async () =>
       button(container.querySelector("[data-crew-batch]")!, "Review")!.click(),
     );
     await settle();
-    const review = () =>
-      document.querySelector<HTMLElement>("[data-avos-review]")!;
-    // Look comes first: Avos's copy runs for the pictures.
+    return () => document.querySelector<HTMLElement>("[data-avos-review]")!;
+  };
+
+  it("pictures a change to what people see once you run Avos's version: before and after, at phone or desktop size, and Try it", async () => {
+    await setUp(withPage);
+    const review = await openReview();
+    // Look comes first, but Avos's copy runs only when you ask.
     expect(
       review().querySelector("[role='tab'][aria-selected='true']")!.textContent,
     ).toBe("Look");
+    expect(actions.tryCrewBatch).not.toHaveBeenCalled();
+    expect(actions.takePagePicture).not.toHaveBeenCalled();
+    expect(review().querySelector("[data-avos-review-look] img")).toBeNull();
+    // Switching size doesn't start it either.
+    await act(async () => button(review(), "Desktop")!.click());
+    await act(async () => button(review(), "Phone")!.click());
+    await settle();
+    expect(actions.tryCrewBatch).not.toHaveBeenCalled();
+    await act(async () => button(review(), "Run Avos's version")!.click());
+    await settle();
+    expect(actions.tryCrewBatch).toHaveBeenCalledTimes(1);
     expect(actions.tryCrewBatch).toHaveBeenCalledWith(PROJECT, {
       to: "2".repeat(40),
       hash: "h-reviewed",
@@ -1602,6 +1627,7 @@ describe("the team view: the Board with the team on it", () => {
     expect(atob(shot.src.split(",")[1]!)).toBe(
       "phone http://127.0.0.1:5190/pricing",
     );
+    expect(button(review(), "Run Avos's version")).toBeFalsy();
     // Your app isn't running here: only Avos's version, and how to get before.
     expect(review().textContent).toContain(
       "Start your app to see how it looked before.",
@@ -1635,6 +1661,18 @@ describe("the team view: the Board with the team on it", () => {
     );
     await settle();
     expect(actions.stopCrewTry).not.toHaveBeenCalled();
+  });
+
+  it("offers no pictures and no Try it off a Mac, where Avos's version can't run yet", async () => {
+    platform.mac = false;
+    await setUp(withPage);
+    const review = await openReview();
+    expect(review().querySelector("[role='tab']")).toBeNull();
+    expect(review().querySelector("[data-avos-review-look]")).toBeNull();
+    expect(review().querySelector("[data-avos-review-code]")).not.toBeNull();
+    expect(button(review(), "Try it")).toBeFalsy();
+    expect(button(review(), "Run Avos's version")).toBeFalsy();
+    expect(actions.tryCrewBatch).not.toHaveBeenCalled();
   });
 
   it("makes “Research: …” in the box the Researcher's card at once, never an idea for the Builder", async () => {

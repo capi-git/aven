@@ -60,6 +60,24 @@ export function reviewChecks(cards: readonly CrewCard[]): string {
   return `Checker ran ${shown}${ran.length > 3 ? ` and ${ran.length - 3} more` : ""}`;
 }
 
+/**
+ * The longest pull request Aven sends (see `publish_range`): its title in
+ * characters, its body in UTF-8 bytes.
+ */
+export const PR_TITLE_MAX = 200;
+export const PR_BODY_MAX_BYTES = 20_000;
+
+/** `text`, cut at a whole character to fit `max` UTF-8 bytes, ending in "…". */
+export function fitBytes(text: string, max: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).length <= max) return text;
+  const end = "\n…";
+  const room = Math.max(0, max - encoder.encode(end).length);
+  // Never writes part of a character: `read` ends between two.
+  const { read } = encoder.encodeInto(text, new Uint8Array(room));
+  return `${text.slice(0, read)}${end}`;
+}
+
 /** The pull request's title and body for these cards. */
 export function prText(cards: readonly CrewCard[]): {
   title: string;
@@ -83,7 +101,11 @@ export function prText(cards: readonly CrewCard[]): {
     "## Checks",
     `- ${reviewChecks(cards)}`,
   ].join("\n");
-  return { title: title.slice(0, 200), body };
+  return {
+    // By character, as Aven checks it: never half of an emoji.
+    title: Array.from(title).slice(0, PR_TITLE_MAX).join(""),
+    body: fitBytes(body, PR_BODY_MAX_BYTES),
+  };
 }
 
 /** The branch a pull request goes out on: `avos/`, the title, and a stamp. */

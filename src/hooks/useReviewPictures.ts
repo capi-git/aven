@@ -10,9 +10,10 @@ import {
 
 /**
  * Before and after pictures of the pages Avos changed, for its Review's
- * Look tab: after from Avos's copy, run for it (see `tryCrewBatch`), and
- * before from your own app, when it is running. Taken once per change,
- * page and size, and kept while Aven runs.
+ * Look tab: after from Avos's copy, run for it (see `tryCrewBatch`) only
+ * once you've asked for it (`run`), and before from your own app, when it
+ * is running. Taken once per change, page and size, and kept while Aven
+ * runs.
  */
 
 /** A picture, or null when it couldn't be taken. */
@@ -22,7 +23,11 @@ export type ReviewPair = {
 };
 
 export type ReviewPictures = {
-  status: "idle" | "working" | "ready" | "failed";
+  /**
+   * `idle` waits for you to run Avos's version; `starting` while it starts,
+   * `working` while the pictures are taken.
+   */
+  status: "idle" | "starting" | "working" | "ready" | "failed";
   /** Why there are no pictures (Avos's copy didn't run, say). */
   problem?: string;
   /** Your app isn't running, so there's nothing to picture as before. */
@@ -50,12 +55,14 @@ export function useReviewPictures(input: {
   project: string;
   /** Only while the Look tab shows, and the change shown is the one read. */
   active: boolean;
+  /** You asked to run Avos's version of this change: never started without. */
+  run: boolean;
   to: string | undefined;
   hash: string | undefined;
   pages: readonly string[];
   size: PictureSize;
 }): ReviewPictures {
-  const { project, active, to, hash, size } = input;
+  const { project, active, run, to, hash, size } = input;
   const pages = input.pages.join("\n");
   const [state, setState] = useState<ReviewPictures>({
     status: "idle",
@@ -78,7 +85,11 @@ export function useReviewPictures(input: {
       setState({ status: "ready", noBefore: !own, pairs: known() });
       return;
     }
-    setState({ status: "working", noBefore: !own, pairs: known() });
+    if (!run) {
+      setState({ status: "idle", noBefore: !own, pairs: known() });
+      return;
+    }
+    setState({ status: "starting", noBefore: !own, pairs: known() });
     void (async () => {
       const tried = await tryCrewBatch(project, { to, hash });
       if (!live) return;
@@ -86,6 +97,7 @@ export function useReviewPictures(input: {
         setState({ status: "failed", problem: tried.error, pairs: {} });
         return;
       }
+      setState((current) => ({ ...current, status: "working" }));
       for (const page of list) {
         if (kept.has(key(page))) continue;
         const after = await takePagePicture(
@@ -114,6 +126,6 @@ export function useReviewPictures(input: {
     return () => {
       live = false;
     };
-  }, [active, to, hash, pages, size, project]);
+  }, [active, run, to, hash, pages, size, project]);
   return state;
 }

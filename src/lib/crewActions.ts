@@ -2037,10 +2037,12 @@ export async function openCrewBatchPr(
 }
 
 /**
- * Try it: run Avos's copy, while it holds exactly the change you reviewed
- * (`to`, `hash`) and nothing Apply would refuse, on its own port. Aven runs
- * it, not an agent, with none of your keys or `.env` files. Resolves with
- * its address once it answers, or why it couldn't.
+ * Try it: run Avos's version, while its copy holds exactly the change you
+ * reviewed (`to`, `hash`) and nothing Apply would refuse, on its own port.
+ * Aven runs it, not an agent, from a fresh checkout of that commit with
+ * freshly installed packages: nothing git ignores in the copy, and none of
+ * your keys or `.env` files. Only on a Mac for now. Resolves with its
+ * address once it answers, or why it couldn't.
  */
 export async function tryCrewBatch(
   path: string,

@@ -27,6 +27,7 @@ import {
   type PagePicture,
   type PictureSize,
 } from "../lib/pagePictures";
+import { IS_MAC } from "../lib/platform";
 import { plural } from "../lib/words";
 import { UnifiedDiffView } from "./UnifiedDiffView";
 import "./AvosReview.css";
@@ -88,20 +89,25 @@ export function AvosReview({
     ? order.slice(0, order.findIndex((card) => card.id === upTo) + 1)
     : order;
   // A change to what people see is pictured: Look first, then the code.
-  const pages = reviewPages(included);
+  // Picturing runs Avos's version, which only a Mac can do for now.
+  const pages = IS_MAC ? reviewPages(included) : [];
   const [tab, setTab] = useState<"look" | "code">("look");
   const look = tab === "look" && pages.length > 0;
   const [size, setSize] = useState<PictureSize>("phone");
+  // The change you asked to run Avos's version of (Run, or Try it): it
+  // never starts by itself.
+  const [ranFor, setRanFor] = useState<string | undefined>();
   const pictures = useReviewPictures({
     project,
     active: look && shown,
+    run: !!review && ranFor === review.to,
     to: shown ? review?.to : undefined,
     hash: shown ? review?.diff.hash : undefined,
     pages,
     size,
   });
-  // Avos's copy runs only while it's needed: for pictures while this is
-  // open, or after Try it until its change lands or Avos works again.
+  // Avos's copy runs only once you ask: for pictures while this is open,
+  // or after Try it until its change lands or Avos works again.
   const tried = useRef(false);
   useEffect(
     () => () => {
@@ -141,6 +147,7 @@ export function AvosReview({
     setBusy(null);
     if ("error" in run) return setProblem(run.error);
     tried.current = true;
+    setRanFor(review.to);
     void openInAppUrl(pageAddress(run.url, pages[0] ?? "/")).catch(() => {});
   };
   const sendPr = async () => {
@@ -330,7 +337,22 @@ export function AvosReview({
         </section>
         {look ? (
           <section className="avos-review-section" data-avos-review-look>
-            {pictures.status === "failed" ? (
+            {pictures.status === "idle" ? (
+              <div className="avos-review-run">
+                <TeamCardButton
+                  data-avos-review-run
+                  disabled={!!busy || !shown}
+                  title="Run Avos's version here to picture the pages it changed"
+                  onClick={() => setRanFor(review?.to)}
+                >
+                  Run Avos's version
+                </TeamCardButton>
+              </div>
+            ) : pictures.status === "starting" ? (
+              <p className="avos-review-note" role="status">
+                Starting Avos's version…
+              </p>
+            ) : pictures.status === "failed" ? (
               <p className="avos-review-note" role="status">
                 No pictures: {pictures.problem}
               </p>
@@ -345,7 +367,8 @@ export function AvosReview({
                 />
               ))
             )}
-            {pictures.noBefore && pictures.status !== "failed" ? (
+            {pictures.noBefore &&
+            (pictures.status === "working" || pictures.status === "ready") ? (
               <p className="avos-review-note">
                 Start your app to see how it looked before.
               </p>
@@ -413,14 +436,16 @@ export function AvosReview({
             onChange={(event) => setAsk(event.target.value)}
           />
         </form>
-        <TeamCardButton
-          className="avos-review-try"
-          disabled={!!busy || !shown}
-          title="Run Avos's version and open it in a browser tab"
-          onClick={() => void tryIt()}
-        >
-          {busy === "try" ? "Starting…" : "Try it"}
-        </TeamCardButton>
+        {IS_MAC ? (
+          <TeamCardButton
+            className="avos-review-try"
+            disabled={!!busy || !shown}
+            title="Run Avos's version and open it in a browser tab"
+            onClick={() => void tryIt()}
+          >
+            {busy === "try" ? "Starting…" : "Try it"}
+          </TeamCardButton>
+        ) : null}
         <div className="avos-review-apply">
           <TeamCardButton
             variant="primary"

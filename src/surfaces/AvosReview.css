@@ -183,6 +183,12 @@
   font-size: var(--text-ui-label);
 }
 
+.avos-review-run {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+}
+
 .avos-review-problem {
   max-height: 96px;
   margin: 0;
