@@ -2,12 +2,13 @@
 
 ## [Unreleased]
 
-## [0.1.172] - 2026-11-06
+## [0.1.172] - 2026-11-07
 
 ### Added
 
 - **Switch tabs with ⌃⇥.** Hold ⌃ and tap ⇥ to see a project's tabs as a cascade of glass cards, last used in front. Each ⇥ steps back, ⇧ starts from the oldest, and letting go of ⌃ opens the card in front. A quick tap flips straight to the previous tab.
 - **Review what Avos changed before you take it.** When Avos changes something you can see, Review opens on a **Look** tab with before and after pictures of the pages it changed, at phone or desktop size. **Try it** opens Avos's version in a browser tab. Avos's version runs only when you ask, from a clean copy of exactly the change you're reviewing, without your `.env` files or keys. Mac only for now.
+- **Review points at what changed, and takes notes.** Numbers on Avos's version mark the spots it says it changed, or where the pictures differ, with a list underneath. Click anywhere on Avos's version to leave a note; Review names what you clicked, and your notes go to Avos with your next ask.
 - **Agents can use an app's menu bar.** An agent can choose a menu item such as File › Export To › PDF… in the background, without opening the menu. Greyed-out items and the Apple menu are off limits.
 
 ### Changed
@@ -20,13 +21,17 @@
 - **Agents using your Mac are quicker.** After each click or key press they get the window's new state at once, can read an element's full text, wait for a window to change, and use punctuation and F-keys. Window screenshots no longer make the bar and pointer blink.
 - **The dot pointer shows over all of Aven,** including labels, check boxes, sliders and the code editor's buttons.
 - **Open in browser uses your default browser** on every Mac instead of assuming Brave.
+- **Resting agent marks settle** after a minute without you touching Aven, and start again as soon as you do.
+- **Release builds are safer.** The app is built and tested before the signing key ever reaches the build machine, and the key is locked again once signing is done.
 
 ### Fixed
 
 - **Swiping between workspaces glides** without stopping halfway; the other workspace appears when the pages come to rest.
 - **Switching chats and workspaces is faster:** about a third of the time it took to show a chat tab.
 - **Pickers, menus and panels open and close faster,** without restyling the whole window each time.
-- **A dev server an agent started keeps running** while its chat sits idle.
+- **A dev server an agent started keeps running** while its chat sits idle, and when you change the chat's Claude model.
+- **⌃⇥ on Windows** opens the card in front when you let go of Ctrl, even while a web page has the keyboard.
+- **Try it finds Node** when Aven is opened from a terminal or another app, not only from the Dock.
 
 ## [0.1.171] - 2026-11-06
 
