@@ -298,15 +298,16 @@
 }
 .personal-shell .personal-navigation .personal-project-running {
   display: inline-block;
-  width: 15px;
-  height: 15px;
-  color: var(--color-content);
+  width: 18px;
+  height: 18px;
 }
-/* 15px: cells of 3px, each dot 2px across. */
-.personal-shell .personal-navigation .personal-project-running .helm-work-dots {
-  width: 15px;
-  height: 15px;
-  stroke-width: 13.5;
+.personal-shell
+  .personal-navigation
+  .personal-project-running
+  .dot-mark.personal-project-running-mark {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 .personal-shell .personal-navigation .personal-project-memory {
   display: none;

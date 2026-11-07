@@ -6,8 +6,8 @@ import { crewMemberTone, type MarkTone } from "./markTones";
  * Every agent's mark, Bot: a little screen of dots with a face lit on it,
  * in the agent's colour, that changes with what it's doing.
  *
- * - `still`: two square eyes, not moving (a mark used as a label: a post's
- *   author, a picker, a header).
+ * - `still`: its `>_` prompt, not moving (a mark used as a label: a post's
+ *   author, a picker, a header), as it looks at rest.
  * - `resting`: a `>_` prompt in grey, its cursor blinking.
  * - `watching`: two square eyes looking about, blinking now and then.
  * - `working`: narrow eyes scanning side to side while a light runs round
@@ -145,7 +145,7 @@ export const AGENT_GRIDS: Readonly<
 
 /** The face each state shows; a reaction's face shows over it a moment. */
 export const AGENT_STATE_FACES: Readonly<Record<AgentState, AgentFace>> = {
-  still: "squares",
+  still: "prompt",
   resting: "prompt",
   watching: "squares",
   working: "narrow",

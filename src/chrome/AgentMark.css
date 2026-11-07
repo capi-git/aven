@@ -18,7 +18,10 @@
   --agent-ready: #5fd3a0;
   --agent-happy: #c4a0ff;
   --agent-failed: #ff6b6b;
-  border-radius: 26%;
+  /* Its own box, as every mark's: what's inside is placed in it and sized
+     by it. */
+  position: relative;
+  container-type: inline-size;
 }
 
 .agent-mark[data-agent="resting"] {
@@ -49,9 +52,12 @@
   pointer-events: none;
 }
 
+/* A screen wider than it is tall, in the middle of the mark's square, as a
+   little display: its 13 by 9 face fills it. */
 .agent-bob {
+  inset: 14% 0;
   overflow: hidden;
-  border-radius: 26%;
+  border-radius: 20cqw;
 }
 
 /* The glass: dark, lit softly from above and darker at the bottom. */
@@ -156,7 +162,7 @@
 }
 .agent-mark[data-agent="working"] .agent-screen {
   inset: max(1px, 5cqw);
-  border-radius: 22%;
+  border-radius: 15cqw;
 }
 
 /* A place for a teammate still to come: its screen alone, faint. */

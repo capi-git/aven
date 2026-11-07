@@ -90,9 +90,10 @@ describe("AgentMark", () => {
         comet: !!mark.querySelector(".agent-comet"),
       };
     };
+    // At rest or as a label, it shows its prompt; only resting blinks.
     expect(await shown("still")).toEqual({
-      face: "squares",
-      cursor: false,
+      face: "prompt",
+      cursor: true,
       comet: false,
     });
     expect(await shown("resting")).toEqual({

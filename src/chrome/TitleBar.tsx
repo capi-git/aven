@@ -91,7 +91,7 @@ import { WindowControls } from "./WindowControls";
 import { ALT, CTRL, IS_MAC, MOD, SHIFT } from "../lib/platform";
 import type { RecentProject } from "../lib/recents";
 import { ExplorerMenu, type ExplorerMenuItem } from "./ExplorerMenu";
-import { DotMark } from "./DotMark";
+import { AgentMark } from "./AgentMark";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import type { DotSigil } from "../lib/dotSigils";
 import { appearanceTone } from "../lib/markTones";
@@ -521,9 +521,8 @@ function TabDeck({ children }: { children: ReactNode }) {
 
 /** A tab's mark as the strip draws it: its agents, a board, a file, a terminal. */
 /**
- * A pinned chat wears a dot mark of its own in its project's colour: the strip
- * holds one project's tabs, so neither the project's mark nor a row of the same
- * provider's could tell one pin from another. It sweeps while the chat works.
+ * A pinned chat wears an agent's screen in its project's colour, as every
+ * agent does: its prompt at rest, working while the chat works.
  */
 function PinnedIdentity({
   tab,
@@ -545,8 +544,7 @@ function PinnedIdentity({
     return <TabIdentity tab={tab} active={active} />;
   return (
     <span className="personal-title-tab-identity">
-      <DotMark
-        sigil={sigil}
+      <AgentMark
         tone={appearance ? appearanceTone(appearance) : "grey"}
         state={tab.busyHarnesses.length > 0 ? "working" : "still"}
         className="aven-tab-pinned-mark"

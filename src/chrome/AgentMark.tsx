@@ -13,11 +13,14 @@ import {
   MASCOT_REACTION_MS,
   type MascotReactionKind,
 } from "../lib/mascotReactions";
+// The marks' shared box, sizes and colour tokens, wherever one is drawn.
+import "./DotMark.css";
 import "./AgentMark.css";
 
 export type { AgentOutfit, AgentState } from "../lib/agentMark";
 
-const VIEW_BOX = "0 0 100 100";
+// The middle band of the 100-unit square: the screen is wider than tall.
+const VIEW_BOX = "0 14 100 72";
 // One face at every size: small marks draw its dots bigger, so they read
 // as the same shapes, bolder (AgentMark.css).
 const GRIDS: readonly AgentGrid[] = ["large"];

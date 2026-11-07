@@ -36,7 +36,7 @@ import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
-import { WorkDots } from "./WorkDots";
+import { CrewCritter } from "./CrewCritter";
 
 type Props = {
   path: string;
@@ -211,7 +211,11 @@ export function PersonalProjectRow({
           <span ref={labelRef} className="personal-project-label">
             {label}
           </span>
-          <ProjectRowStatus status={status} memoryUpdated={memoryUnseen} />
+          <ProjectRowStatus
+            path={path}
+            status={status}
+            memoryUpdated={memoryUnseen}
+          />
         </button>
         <button
           type="button"
@@ -318,12 +322,15 @@ export function PersonalProjectRow({
  * Quiet, right-aligned status: a small brain after Aven updated the
  * project's memory (until it is opened), an amber dot while something waits
  * for the user, the unread reply count, and the changed-file count. A running
- * agent is the work dots: the project's mark stays still.
+ * agent is its little working screen: the project's mark stays still.
  */
 function ProjectRowStatus({
+  path,
   status,
   memoryUpdated = false,
 }: {
+  /** Its project: an agent at work there wears its colour. */
+  path: string;
   status?: ProjectStatus;
   memoryUpdated?: boolean;
 }) {
@@ -339,9 +346,14 @@ function ProjectRowStatus({
         />
       ) : null}
       {running ? (
-        // The work dots, as beside the Bot in the message box.
+        // An agent at work: its little screen, in the project's colour.
         <span className="personal-project-running">
-          <WorkDots work="think" />
+          <CrewCritter
+            path={path}
+            role="lead"
+            state="working"
+            className="personal-project-running-mark"
+          />
         </span>
       ) : null}
       {waiting ? <span className="personal-project-waiting" /> : null}

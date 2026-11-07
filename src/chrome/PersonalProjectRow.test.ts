@@ -126,19 +126,19 @@ it("shows the project as its Stack in its colour, fanned only while it is open",
   expect(stack().hasAttribute("data-open")).toBe(false);
 });
 
-it("keeps the Stack still while an agent runs: the work dots say so", async () => {
+it("keeps the Stack still while an agent runs: its little working screen says so", async () => {
   await render({ running: 1, waiting: 0, unread: 0 });
   const mark = host.querySelector<HTMLElement>(".project-mark")!;
   expect(mark.dataset.kind).toBe("stack");
   expect(mark.hasAttribute("data-active")).toBe(false);
-  expect(host.querySelector(".dot-mark")).toBeNull();
+  expect(host.querySelector(".dot-mark-lit")).toBeNull();
   expect(host.querySelector(".personal-project-running")).not.toBeNull();
-  // The message box's 5×5 dots, rippling, with no Stop of their own here.
-  const dots = host.querySelector(".personal-project-running .helm-work-dots")!;
-  expect(dots).not.toBeNull();
-  expect(dots.querySelectorAll(".helm-work-ripple")).toHaveLength(3);
-  expect(dots.querySelector(".helm-work-stop-dots")).toBeNull();
-  // The stylesheet shows the dots beside any mark, not only a logo.
+  // An agent's screen, working, beside the project's own still mark.
+  const agent = host.querySelector<HTMLElement>(
+    ".personal-project-running .agent-mark",
+  )!;
+  expect(agent.dataset.agent).toBe("working");
+  // The stylesheet shows it beside any mark, not only a logo.
   const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
   expect(css).toMatch(
     /\.personal-navigation \.personal-project-running \{\s*display: inline-block;/,
