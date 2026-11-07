@@ -545,6 +545,63 @@ describe("helpers", () => {
     runner.stop();
   });
 
+  it("waits for Avos's copy before a helper starts, so it runs in the copy", async () => {
+    team();
+    let turns = 0;
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        turns++ === 0
+          ? talk({
+              line: "Looking.",
+              helpers: [{ title: "Read it", task: "Read the project." }],
+            })
+          : talk({ line: "Got it." }),
+      helper: () => talk({ line: "Read it." }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Is it fine?", "lead", NOON);
+    await settle();
+    expect(sent.some((turn) => turn.memberId.startsWith("helper-"))).toBe(true);
+    // Avos's first message read your folder; the helper's made the copy.
+    expect(getCrew(PATH)!.copy?.path).toBe(COPY);
+    expect(lines()).toContain("Got it.");
+    runner.stop();
+  });
+
+  it("lets a helper read your folder where no copy can be made (no Git)", async () => {
+    team();
+    let turns = 0;
+    const prepare = vi.fn(async () => {
+      throw new Error("not a git repository");
+    });
+    const { runner, sent, settle } = harness(
+      {
+        lead: () =>
+          turns++ === 0
+            ? talk({
+                line: "Looking.",
+                helpers: [{ title: "Read it", task: "Read the project." }],
+              })
+            : talk({ line: "Got it." }),
+        helper: () => talk({ line: "Read it." }),
+      },
+      { copy: { prepare } as never },
+    );
+    runner.start();
+    await tellTeam(PATH, "Is it fine?", "lead", NOON);
+    await settle();
+    expect(prepare).toHaveBeenCalled();
+    expect(sent.some((turn) => turn.memberId.startsWith("helper-"))).toBe(true);
+    expect(getCrew(PATH)!.copy).toBeUndefined();
+    expect(lines()).toContain("Got it.");
+    expect(
+      getCrew(PATH)!.feed.some((entry) =>
+        entry.text.includes("didn't go through"),
+      ),
+    ).toBe(false);
+    runner.stop();
+  });
+
   it("keeps to the limit for one teammate, and notes the rest", async () => {
     team();
     const { runner, sent, settle } = harness({
