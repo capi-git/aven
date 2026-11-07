@@ -49,6 +49,7 @@ import {
 import { paneDropFromPoint, setExternalPaneDrop } from "../lib/paneDrop";
 import type { PaneEdge } from "../lib/layout";
 import { suppressTextSelection } from "../lib/drag";
+import { SortableMotion } from "../lib/sortableMotion";
 import {
   compareSessionSummaries,
   filterSessionsByArchive,
@@ -2865,6 +2866,9 @@ function SessionCard({
   const skipClickUntil = useRef(0);
   const cancelDrag = useRef<(() => void) | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
+  // The tabs' own lift: the card becomes a floating chip that follows the
+  // pointer, smaller over the panes, and lands or flies home as a tab does.
+  const motion = useRef<SortableMotion | null>(null);
   useTurnEndFlash(rowRef, session.id);
   const listDropRef = useRef(onListDrop);
   listDropRef.current = onListDrop;
@@ -2957,6 +2961,24 @@ function SessionCard({
     let lastList: SessionListDropTarget | null = null;
     handle.setPointerCapture(pointerId);
     const restoreSelection = suppressTextSelection();
+    const row = rowRef.current;
+    const nodes = row ? new Map([[session.id, row]]) : null;
+    const lift = nodes ? (motion.current ??= new SortableMotion()) : null;
+    if (lift && nodes)
+      lift.begin(nodes, session.id, { x: startX, y: startY }, "y");
+    /** Whether the pointer is still over the sidebar: there it's the chip. */
+    const inSidebar = (x: number, y: number) => {
+      const box = handle
+        .closest<HTMLElement>(".personal-navigation")
+        ?.getBoundingClientRect();
+      return (
+        !!box &&
+        x >= box.left &&
+        x <= box.right &&
+        y >= box.top &&
+        y <= box.bottom
+      );
+    };
 
     const setListTarget = (next: SessionListDropTarget | null) => {
       if (
@@ -2978,6 +3000,7 @@ function SessionCard({
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
         active = true;
         setDragging(true);
+        lift?.activate({ x: ev.clientX, y: ev.clientY });
         if (onPlaceOnPane) {
           setExternalPaneDrop({
             fromId: session.id,
@@ -2986,6 +3009,12 @@ function SessionCard({
           });
         }
       }
+      lift?.move(
+        [session.id],
+        { x: ev.clientX, y: ev.clientY },
+        0,
+        inSidebar(ev.clientX, ev.clientY),
+      );
       setListTarget(
         sessionListDropFromPoint(
           ev.clientX,
@@ -3046,23 +3075,35 @@ function SessionCard({
       } catch {
         /* already released */
       }
-      if (!active) return;
+      if (!active) {
+        lift?.cancel();
+        return;
+      }
       skipClickUntil.current = performance.now() + 400;
+      const listOver = commit
+        ? sessionListDropFromPoint(lastX, lastY, session.id, sourceFolderId)
+        : null;
+      const over = commit && !listOver ? paneDropFromPoint(lastX, lastY) : null;
+      const placed = !!over && over.id !== session.id;
+      // Its chip lands as a tab's does: taken by a pane, it fades where it
+      // is; otherwise it flies to the card's place (new or old).
+      if (lift && nodes) {
+        lift.release(null, nodes);
+        lift.land(
+          placed
+            ? { kind: "fade" }
+            : { kind: "fly", velocity: lift.releaseVelocity() },
+        );
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => lift.settle(null, nodes)),
+        );
+      }
       if (!commit) return;
-      const listOver = sessionListDropFromPoint(
-        lastX,
-        lastY,
-        session.id,
-        sourceFolderId,
-      );
       if (listOver) {
         listDropRef.current?.(session.id, listOver);
         return;
       }
-      const over = paneDropFromPoint(lastX, lastY);
-      if (over && over.id !== session.id) {
-        onPlaceOnPane?.(session.id, over.id, over.edge);
-      }
+      if (placed) onPlaceOnPane?.(session.id, over!.id, over!.edge);
     }
 
     cancelDrag.current = () => finish(false);
@@ -3184,6 +3225,7 @@ function SessionCard({
         aria-current={isActive ? "true" : undefined}
         aria-pressed={isSelected}
         data-session-card={session.id}
+        data-sortable-motion
         data-discussion-row={talk ? session.id : undefined}
         data-session-selected={isSelected ? "true" : undefined}
         data-needs-approval={needsApproval || undefined}
@@ -3198,7 +3240,7 @@ function SessionCard({
         onKeyDown={onKeyDown}
         className={`personal-task-card relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${
           compact ? "py-1.5" : "py-2"
-        } ${dragging ? "opacity-40" : ""} ${
+        } ${
           dropTarget
             ? "text-content border-transparent"
             : isSelected
