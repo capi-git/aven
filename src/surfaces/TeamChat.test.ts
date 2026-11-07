@@ -1115,7 +1115,7 @@ describe("the team chat", () => {
       [...notes.querySelectorAll(".team-notes-heading")].map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["What they remember", "For every card"]);
+    ).toEqual(["Your rules", "What it learned"]);
     expect(notes.textContent).toContain("Tests live in src/__tests__.");
     const rule = notes.querySelector<HTMLElement>("[data-avos-rule]")!;
     expect(rule.textContent).toContain("Use pnpm, not npm");

@@ -422,8 +422,8 @@ export function TeamScreen({
       {notes ? (
         <Modal
           onClose={() => setNotes(false)}
-          title="Notes"
-          description="What Avos and its helpers remember"
+          title="What Avos remembers"
+          description="Your rules, and what it learned about this project"
           className="avos-notes-sheet"
         >
           <div className="avos-sheet-body">
