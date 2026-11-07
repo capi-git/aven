@@ -29,7 +29,7 @@ export function workspaceShortcutDisposition(
   state: { overlay: boolean; utility: boolean; workspace: boolean },
 ): "run" | "dismiss-utility" | "block" {
   const paneCommand =
-    /^(close|close-others|split-right|split-down|next|prev|activate-|focus-|prev-session|next-session|prev-project|next-project|archive-session)/.test(
+    /^(close|close-others|split-right|split-down|next|prev|recent-|activate-|focus-|prev-session|next-session|prev-project|next-project|archive-session)/.test(
       command,
     );
   const startsWork =
