@@ -53,7 +53,7 @@ import { AvosReview } from "./AvosReview";
 import { BatchCard, CrewBatchSheet } from "./TeamBatch";
 import { TeamCardButton } from "../chrome/TeamCard";
 import { TeamChat } from "./TeamChat";
-import { TeamNotes, TeamSchedule } from "./TeamPanel";
+import { TeamNotes } from "./TeamPanel";
 import type { BoardTop } from "./WorkBoard";
 import "./TeamScreen.css";
 
@@ -120,7 +120,6 @@ export function TeamScreen({
   const [saved, save] = useTeamView(project);
   const [reviewing, setReviewing] = useState(false);
   const [activity, setActivity] = useState(false);
-  const [schedule, setSchedule] = useState(false);
   const [notes, setNotes] = useState(false);
   // The narrow header's profile, in a sheet.
   const [profile, setProfile] = useState(false);
@@ -287,6 +286,7 @@ export function TeamScreen({
     watching: week.watching,
     members,
     dailyCap,
+    now,
     onOpen: open,
     onHelper: (id) => {
       setProfile(false);
@@ -297,8 +297,10 @@ export function TeamScreen({
       setProfile(false);
       setNotes(true);
     },
-    onSchedule: () => setSchedule(true),
-    onActivity: () => setActivity(true),
+    onActivity: () => {
+      setProfile(false);
+      setActivity(true);
+    },
   };
   return (
     <section
@@ -422,18 +424,6 @@ export function TeamScreen({
           project={project}
           onClose={() => setReviewing(false)}
         />
-      ) : null}
-      {schedule ? (
-        <Modal
-          onClose={() => setSchedule(false)}
-          title="Schedule"
-          description="When Avos and its helpers work"
-          className="avos-schedule-sheet"
-        >
-          <div className="avos-sheet-body">
-            <TeamSchedule crew={crew} />
-          </div>
-        </Modal>
       ) : null}
       {answeringCard ? (
         <Modal

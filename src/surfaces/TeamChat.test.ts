@@ -406,7 +406,7 @@ describe("the team chat", () => {
     expect(chat().closest<HTMLElement>(".avos-body")!.hidden).toBe(false);
   });
 
-  it("lists who's helping in Avos's profile, each with its Bot and one word, and a helper shows its posts", async () => {
+  it("lists who's helping in Avos's profile: its dots while it works, nothing at rest, and a helper shows its posts", async () => {
     await setUp();
     const profile = container.querySelector<HTMLElement>("[data-crew-header]")!;
     const helpers = [
@@ -415,15 +415,23 @@ describe("the team chat", () => {
     expect(
       helpers.map((helper) => [
         helper.querySelector(".avos-profile-helper-name")?.textContent,
-        helper.querySelector(".avos-profile-helper-word")?.textContent,
+        helper.dataset.state,
+        !!helper.querySelector(".helm-work-dots"),
+        helper.querySelector(".avos-profile-helper-word")?.textContent ?? null,
       ]),
     ).toEqual([
-      ["Builder", "Resting"],
-      ["Designer", "Resting"],
-      ["Checker", "Working"],
-      ["Security", "Resting"],
-      ["Scout", "Resting"],
+      ["Builder", "resting", false, null],
+      ["Designer", "resting", false, null],
+      ["Checker", "working", true, null],
+      ["Security", "resting", false, null],
+      ["Scout", "resting", false, null],
     ]);
+    // What it's doing, under its name, while it works.
+    expect(
+      profile.querySelector(
+        '[data-avos-helper="checker"] .avos-profile-helper-line',
+      )?.textContent,
+    ).toBe("Checking Timer screen · round 2");
     // The Checker's Bot types while it works, in the Checker's colour.
     const checker = profile.querySelector<HTMLElement>(
       '[data-avos-helper="checker"] .agent-mark',
@@ -1050,7 +1058,7 @@ describe("the team chat", () => {
     );
   });
 
-  it("opens a helper's chat and settings from its posts, and Add a helper is in ⋯", async () => {
+  it("opens a helper's chat and settings from its posts, and ⋯ holds only Pause and Settings", async () => {
     await setUp();
     const checker = container.querySelector<HTMLButtonElement>(
       '[data-crew-header] [data-avos-helper="checker"]',
@@ -1068,13 +1076,15 @@ describe("the team chat", () => {
         .querySelector<HTMLButtonElement>('[aria-label="More for Avos"]')!
         .click(),
     );
+    expect(
+      [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Pause Avos", "Settings…"]);
     await act(async () =>
-      button(
-        document.querySelector('[role="menu"]')!,
-        "Add a helper…",
-      )!.click(),
+      button(document.querySelector('[role="menu"]')!, "Settings…")!.click(),
     );
-    expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "add");
+    expect(workspace.openSettings).toHaveBeenLastCalledWith(PROJECT);
   });
 
   it("shows what Avos remembers in its profile, and all of it in Notes, with Forget", async () => {

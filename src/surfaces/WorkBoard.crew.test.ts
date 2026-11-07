@@ -338,6 +338,11 @@ const teamMenu = async () =>
       .querySelector<HTMLButtonElement>('[aria-label="More for Avos"]')!
       .click(),
   );
+/** What the helpers did, from its line under them in Avos's profile. */
+const openActivity = async () =>
+  act(async () =>
+    container.querySelector<HTMLButtonElement>("[data-avos-finished]")!.click(),
+  );
 const pickMenu = async (label: string) =>
   act(async () =>
     button(document.querySelector("[data-menu]")!, label)!.click(),
@@ -438,8 +443,7 @@ describe("the team view: the Board with the team on it", () => {
       "Built one by one, top first, while you're away",
     );
     // Activity, in ⋯, opens the whole Feed, with the day's limits.
-    await teamMenu();
-    await pickMenu("Activity");
+    await openActivity();
     const feed = document.querySelector<HTMLElement>("[data-crew-feed]")!;
     expect(feed.textContent).toContain("Builder → Checker · round 1");
     expect(feed.textContent).toContain(
@@ -548,11 +552,6 @@ describe("the team view: the Board with the team on it", () => {
     });
     const feed = () =>
       document.querySelector<HTMLElement>("[data-crew-feed-scroll]")!;
-    /** The Feed is in Activity, from the team's ⋯. */
-    const openActivity = async () => {
-      await teamMenu();
-      await pickMenu("Activity");
-    };
     const add = async (text: string, grow = 100) => {
       metrics.scrollHeight += grow;
       await act(async () => {
@@ -569,6 +568,8 @@ describe("the team view: the Board with the team on it", () => {
 
     it("opens at the newest entry and stays there while you're at the bottom", async () => {
       await setUp(() => (crew) => crew);
+      // Something done, so Avos's profile offers what the helpers did.
+      await add("Earlier work", 0);
       await openActivity();
       expect(feed().scrollTop).toBe(700);
       await add("A handoff");
@@ -580,6 +581,8 @@ describe("the team view: the Board with the team on it", () => {
 
     it("doesn't jump while you read further up; N new takes you down", async () => {
       await setUp(() => (crew) => crew);
+      // Something done, so Avos's profile offers what the helpers did.
+      await add("Earlier work", 0);
       await openActivity();
       await scrollTo(120);
       await add("One");
@@ -604,6 +607,8 @@ describe("the team view: the Board with the team on it", () => {
 
     it("folds a long entry to a few lines with Show more", async () => {
       await setUp(() => (crew) => crew);
+      // Something done, so Avos's profile offers what the helpers did.
+      await add("Earlier work", 0);
       await openActivity();
       const long = `Owl's turn didn't finish: ${"Codex couldn't be locked down here. ".repeat(12)}`;
       await add(long);
@@ -888,10 +893,16 @@ describe("the team view: the Board with the team on it", () => {
       expect(sentence().textContent).toBe(
         "2 ideas wait for you to press Build it.",
       );
-      // Add a helper is in ⋯ beside Avos's name.
+      // ⋯ beside Avos's name holds only Pause and Settings: you ask Avos
+      // for a helper, or add one in Settings.
       await teamMenu();
-      await pickMenu("Add a helper…");
-      expect(openSettings).toHaveBeenCalledWith(PROJECT, "add");
+      expect(
+        [...document.querySelectorAll("[data-menu] button")].map(
+          (item) => item.textContent,
+        ),
+      ).toEqual(["Pause Avos", "Settings…"]);
+      await pickMenu("Settings…");
+      expect(openSettings).toHaveBeenCalledWith(PROJECT);
       // With a Scout too; with work, another sentence.
       await act(async () =>
         updateCrew(PROJECT, (crew) => ({
@@ -1916,10 +1927,8 @@ describe("Avos's message on what needs you, in place of the Board", () => {
       (item) => item.textContent,
     );
     expect(items).not.toContain("Board");
-    expect(items).toContain("Schedule");
-    // Schedule opens as a sheet over the chat.
-    await pickMenu("Schedule");
-    expect(document.querySelector(".avos-schedule-sheet")).not.toBeNull();
+    // Schedules are asked for in the chat, and quiet hours are in Settings.
+    expect(items).not.toContain("Schedule");
     expect(container.querySelector("[data-team-chat]")).not.toBeNull();
   });
 
