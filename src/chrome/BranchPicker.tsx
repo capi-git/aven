@@ -16,7 +16,6 @@ import {
   notifyGitChanged,
   type GitBranchInfo,
 } from "../lib/fs";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useProjectBranchesState } from "../hooks/useProjectBranches";
 import "./Menu.css";
 import { Popover } from "./Popover";
@@ -417,7 +416,6 @@ function BranchList({
   onActive: (index: number) => void;
   onPick: (row: Row) => void;
 }) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -434,7 +432,6 @@ function BranchList({
 
   return (
     <div
-      ref={lockOverscroll}
       role="listbox"
       aria-label="Branches"
       className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"

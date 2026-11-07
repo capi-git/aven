@@ -47,7 +47,7 @@ Aven's own documents (main window, detached workspaces, session pop-outs and pan
 Running at twice the frame rate would also double per-frame work tied to animation frames. Streamed transcript events are therefore flushed at most about every 32 ms instead of every frame. Other changes in the same pass reduce work that competes with the frame budget:
 
 - The workspace snapshot is not rebuilt and serialized while only transcripts change.
-- Overscroll containment checks nested scrollers only when a container is at an edge.
+- Scrollers contain the wheel at their ends with CSS `overscroll-behavior`, not a wheel listener. Measured in WKWebView on 2026-11-06 with trackpad events, it contains a scroller's ends as the old JavaScript lock did, on the scrolling thread and when a non-passive listener sends the event to the main thread first; neither contains a list too short to scroll, and `overscroll-none` also holds a sideways swipe over a vertical list (use `overscroll-y-none` to leave it). In WebKit each wheel listener added or removed restyles the whole page (about 35 ms with 7,000 elements), and React listens, wheel included, on every new container a portal draws into, so menus, pickers, tab strips and the live tool trail hold no wheel listener, and portal hosts that come and go stay mounted, hidden.
 - The terminal spinner updates its glyph without React renders and pauses while hidden.
 - Pinned diff headers, approval toasts and detached composers use solid surfaces instead of backdrop blur.
 - The browser loading bar animates `transform` instead of `left`.
@@ -156,10 +156,10 @@ Cut for cost:
 
 Measured on October 17 with `npm run perf:app -- --perf-only "switching chat tabs,between a chat,Settings"`, alternating main (origin/main) and this work, two runs each, after the switch fade was removed (main → this work, per run):
 
-| Scenario | p50 input to frame (ms) | p95 (ms) | CPU (%) |
-|---|---|---|---|
-| Switching chat tabs | 29, 30 → 30, 30 | 31, 31 → 32, 32 | 85.6, 90.9 → 85.5, 90.5 |
-| Settings open and close | 43, 43 → 42, 44 | 48, 47 → 48, 48 | 67.3, 65.6 → 65.2, 65.9 |
-| Chat and browser | 33, 32 → 34, 32 | 34, 33 → 35, 35 | 56.7, 65.5 → 56.3, 65.1 |
+| Scenario                | p50 input to frame (ms) | p95 (ms)        | CPU (%)                 |
+| ----------------------- | ----------------------- | --------------- | ----------------------- |
+| Switching chat tabs     | 29, 30 → 30, 30         | 31, 31 → 32, 32 | 85.6, 90.9 → 85.5, 90.5 |
+| Settings open and close | 43, 43 → 42, 44         | 48, 47 → 48, 48 | 67.3, 65.6 → 65.2, 65.9 |
+| Chat and browser        | 33, 32 → 34, 32         | 34, 33 → 35, 35 | 56.7, 65.5 → 56.3, 65.1 |
 
 Medians and CPU are within run-to-run noise. The work compared also contains everything else on `next`, which renders App more often while switching (101 → 121 React commits over the run); the motion code adds no React state, so that, and the remaining 1–2 ms at p95, were not attributed to motion. Idle wakeups during these active scenarios varied between runs of the same build (10–20 per second on main, 16–32 here) as they did before. Source checks: the frontend suite and type check pass, lint stays at 152 warnings, and tests cover reduced motion starting nothing and zeroing every token, a sent message being in the transcript in the same render, a switch with unchanged rows reading no layout, FLIP keeping React's order and focus, and switches showing panes at once.

@@ -14,7 +14,6 @@ import {
   sameProjectPath,
   type RecentProject,
 } from "../lib/recents";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { LAYER } from "../lib/layers";
 import "./Menu.css";
 import { Popover } from "./Popover";
@@ -73,7 +72,6 @@ export function CwdPicker({
   const root = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
   const closeMoreTimer = useRef<number | null>(null);
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -269,10 +267,7 @@ export function CwdPicker({
           data-cwd-picker
           className="flex flex-col overflow-hidden"
         >
-          <div
-            ref={lockOverscroll}
-            className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"
-          >
+          <div className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none">
             {folderError ? (
               <p role="alert" className="aven-menu-note">
                 Could not open the folder picker. Try again.

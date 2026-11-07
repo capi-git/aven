@@ -15,7 +15,6 @@ import {
   type Skill,
   type SkillMatch,
 } from "../lib/skills";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { MatchText } from "./MatchText";
 
 type Props = {
@@ -109,7 +108,6 @@ const SkillList = memo(function SkillList({
   onStartCreate: () => void;
   onStartAdd: () => void;
 }) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
   const pointer = useRef({ x: Number.NaN, y: Number.NaN, allow: false });
   const fromPointer = useRef(false);
@@ -159,10 +157,7 @@ const SkillList = memo(function SkillList({
         onMouseMove={onListMouseMove}
       >
         {skills.length > 0 ? (
-          <div
-            ref={lockOverscroll}
-            className="aven-menu max-h-[min(240px,40vh)] overflow-y-auto overscroll-none"
-          >
+          <div className="aven-menu max-h-[min(240px,40vh)] overflow-y-auto overscroll-none">
             {skills.map(({ skill, positions, descriptionPositions }, index) => {
               const highlighted = index === active;
               return (

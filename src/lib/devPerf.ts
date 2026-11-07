@@ -316,9 +316,11 @@ export function recordHotCalls() {
     }
   };
   const restores: (() => void)[] = [];
-  const caller = () => {
+  // WebKit's stacks have no message line, so `skip` counts this function
+  // and the recorder's frames above the app's.
+  const caller = (skip = 3) => {
     // The first app frame below this file names who forced layout.
-    const lines = (new Error().stack ?? "").split("\n").slice(3);
+    const lines = (new Error().stack ?? "").split("\n").slice(skip);
     const line = lines.find((entry) => !entry.includes("devPerf")) ?? "";
     return line
       .replace(/^\s*at\s+/, "")
@@ -488,7 +490,8 @@ export function recordHotCalls() {
         (totals.wheelListeners ??= []).push({
           at: round(performance.now()),
           change,
-          where: caller() || "unknown",
+          // This function and the patched method sit above the app's frame.
+          where: caller(2) || "unknown",
         });
       return (original as (...args: unknown[]) => unknown).call(
         this,

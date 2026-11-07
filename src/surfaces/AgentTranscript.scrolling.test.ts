@@ -8,10 +8,24 @@ import type { Block } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
 import { setTranscriptScrollDragging } from "../lib/transcriptScrollIntent";
 
-vi.mock("./AgentMarkdown", () => ({
-  AgentMarkdown: ({ text }: { text: string }) =>
-    createElement("div", null, text),
-}));
+vi.mock("./AgentMarkdown", async () => {
+  const { createPortal } = await import("react-dom");
+  return {
+    // A reply starting "Portal:" also draws a menu outside the transcript.
+    AgentMarkdown: ({ text }: { text: string }) =>
+      text.startsWith("Portal:")
+        ? createElement(
+            "div",
+            null,
+            text,
+            createPortal(
+              createElement("div", { "data-portal-menu": "" }, text),
+              document.body,
+            ),
+          )
+        : createElement("div", null, text),
+  };
+});
 
 let root: Root;
 let container: HTMLDivElement;
@@ -415,6 +429,54 @@ describe("transcript native scrolling", () => {
     outerMetrics.grow(100);
     await render([...blocks, tool("three"), tool("four")]);
     expect(el.scrollTop).toBe(900);
+  });
+
+  it("starts and ends a live tool trail while streaming without adding or removing a wheel listener", async () => {
+    // In WebKit each wheel listener added or removed restyles the whole page,
+    // and a live phase starts and ends many times as the agent works.
+    const tool = (id: string, status: string): Block => ({
+      id,
+      role: "tool",
+      text: `Inspect ${id}`,
+      tool: { kind: "shell", status },
+    });
+    const el = await render([prompt]);
+    scrollMetrics(el, 400, 1200);
+    await markAtBottom(el);
+    const wheelListeners = countWheelListeners();
+    await render([prompt, tool("one", "running")]);
+    await render([prompt, tool("one", "running"), tool("two", "running")]);
+    const trail = container.querySelector<HTMLElement>(".zen-phase-live")!;
+    expect(trail).not.toBeNull();
+    // Upward input the trail can take stays with it.
+    scrollMetrics(trail, 100, 500);
+    trail.scrollTop = 200;
+    showJump.mockClear();
+    expect((await wheel(trail, -40)).defaultPrevented).toBe(false);
+    expect(showJump).not.toHaveBeenCalled();
+    // The tools finish and the reply follows.
+    await render([
+      prompt,
+      tool("one", "completed"),
+      tool("two", "completed"),
+      { id: "answer", role: "assistant", text: "Both checks pass." },
+    ]);
+    expect(container.querySelector(".zen-phase-live")).toBeNull();
+    expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
+  });
+
+  it("hears wheel input over the transcript, not from a menu it draws elsewhere", async () => {
+    // React bubbles a portal's events through the component that drew it.
+    const el = await render(answer("Portal: a menu over the chat"));
+    scrollMetrics(el, 400, 1200);
+    await markAtBottom(el);
+    const menu =
+      document.body.querySelector<HTMLElement>("[data-portal-menu]")!;
+    expect(el.contains(menu)).toBe(false);
+    await wheel(menu, -40);
+    expect(showJump).not.toHaveBeenCalledWith(true);
+    await wheel(el, -40);
+    expect(showJump).toHaveBeenLastCalledWith(true);
   });
 
   it("keeps streaming updates from repinning an active scrollbar drag and follows after release at the end", async () => {
@@ -862,3 +924,22 @@ describe("transcript bottom following", () => {
     expect(showJump).not.toHaveBeenLastCalledWith(true);
   });
 });
+
+/**
+ * Wheel listeners added and removed from now on, on any element, the
+ * document or the window. happy-dom's nodes inherit them from its own
+ * EventTarget, not the global one, and the window's are bound copies.
+ */
+function countWheelListeners() {
+  const node = Object.getPrototypeOf(Node.prototype) as EventTarget;
+  const spies = (method: "addEventListener" | "removeEventListener") => [
+    vi.spyOn(node, method),
+    vi.spyOn(window, method),
+  ];
+  const added = spies("addEventListener");
+  const removed = spies("removeEventListener");
+  const wheel = (list: typeof added) =>
+    list.flatMap((spy) => spy.mock.calls).filter(([type]) => type === "wheel")
+      .length;
+  return () => ({ added: wheel(added), removed: wheel(removed) });
+}

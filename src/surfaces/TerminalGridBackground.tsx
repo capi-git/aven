@@ -580,8 +580,6 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
 
     const root = rootRef.current;
     root?.focus();
-    const onWheel = (event: WheelEvent) => event.preventDefault();
-    root?.addEventListener("wheel", onWheel, { passive: false });
 
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) {
@@ -610,13 +608,16 @@ export function TerminalGridBackground({ visible }: { visible: boolean }) {
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      root?.removeEventListener("wheel", onWheel);
     };
   }, [visible, documentVisible, playing, releaseControl]);
 
   return (
     <div
       ref={rootRef}
+      // While a game is played the welcome screen under it holds still
+      // (EmptySession.css). A wheel listener would do the same, but in WebKit
+      // adding or removing one restyles the whole page (~35 ms).
+      data-arcade-playing={playing || undefined}
       tabIndex={playing ? 0 : -1}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}

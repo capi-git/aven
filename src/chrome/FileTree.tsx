@@ -698,12 +698,7 @@ export const FileTree = memo(function FileTree({
             </span>
           </button>
         </div>
-        {/* Its host (the side panel) contains the wheel at its edges, so
-            a tree made for each project adds no wheel listener. */}
-        <div
-          data-lock-overscroll=""
-          className="min-h-0 flex-1 overflow-y-auto overscroll-none"
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-none">
           {opError ? (
             <p className="px-3 py-1 text-ui-label leading-4 text-red-400">
               {opError}

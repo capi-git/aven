@@ -73,7 +73,6 @@ import {
 import { generatePrContent } from "../lib/harness";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { currentCopyLabel, GitCopies } from "./GitCopies";
 import { GitHousekeeping } from "./GitHousekeeping";
 import { gitPrSquashMerge } from "../lib/gitHousekeeping";
@@ -380,7 +379,6 @@ function ChangedFiles({
   onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onMutated: (paths?: string[]) => void;
 }) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const [busy, setBusy] = useState<string | null>(null);
   // Ship it's commit message. It is kept here, so a draft is still there when
   // Ship it is closed and opened again.
@@ -671,7 +669,6 @@ function ChangedFiles({
         ) : null}
       </div>
       <div
-        ref={lockOverscroll}
         className={`min-h-0 overflow-y-auto overscroll-none py-1 ${
           fill ? "flex-1" : "shrink"
         }`}

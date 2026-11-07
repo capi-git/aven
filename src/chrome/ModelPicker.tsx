@@ -47,7 +47,6 @@ import {
   HARNESS_TITLE,
   type HarnessId,
 } from "../lib/session";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { HarnessIcon } from "./HarnessIcon";
 import "./Menu.css";
 import { MOD } from "../lib/platform";
@@ -451,13 +450,7 @@ function ModelList({
   onToggleFavorite: (id: string) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLDivElement>(null);
-
-  const setListRef = (el: HTMLDivElement | null) => {
-    listRef.current = el;
-    lockOverscroll(el);
-  };
 
   // Before paint, so an opening picker never shows a frame scrolled to the
   // top before jumping to the highlighted row.
@@ -482,19 +475,6 @@ function ModelList({
     return () => observer.disconnect();
   }, [hasRows]);
 
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.stopPropagation();
-      if (el.scrollHeight <= el.clientHeight + 1) return;
-      el.scrollTop += e.deltaY;
-      e.preventDefault();
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [models.length]);
-
   if (models.length === 0) {
     return (
       <div className="aven-menu">
@@ -504,8 +484,12 @@ function ModelList({
   }
 
   return (
+    // The browser scrolls the list, and overscroll-none keeps the wheel in it
+    // at either end, so it holds no wheel listener: in WebKit adding or
+    // removing one restyles the whole page (~35 ms) as the picker opens,
+    // closes or filters.
     <div
-      ref={setListRef}
+      ref={listRef}
       role="listbox"
       aria-label="Models"
       className="aven-menu min-h-0 flex-1 overflow-y-auto overscroll-none"

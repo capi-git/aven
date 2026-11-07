@@ -17,7 +17,6 @@ import {
 } from "../lib/fileIndex";
 import { LAYER } from "../lib/layers";
 import { looksLikeProject } from "../lib/recents";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { MatchText } from "./MatchText";
 
@@ -249,7 +248,6 @@ function FileList({
   onActive: (index: number) => void;
   onPick: (file: RankedFile) => void;
 }) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const activeRef = useRef<HTMLButtonElement>(null);
   const pointer = useRef({ x: Number.NaN, y: Number.NaN, allow: false });
   const fromPointer = useRef(false);
@@ -282,7 +280,6 @@ function FileList({
 
   return (
     <div
-      ref={lockOverscroll}
       role="listbox"
       aria-label="Files"
       onMouseMove={onListMouseMove}
