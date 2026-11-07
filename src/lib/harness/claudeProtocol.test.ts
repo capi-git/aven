@@ -21,6 +21,7 @@ import {
   listModelsFromControlResponse,
   normalizeClaudeCliEffort,
   parseBackgroundAgentTasks,
+  parseBackgroundShellTaskIds,
   parseClaudeVersion,
   parseControlRequest,
   parseControlResponse,
@@ -1310,6 +1311,36 @@ describe("subagent messages", () => {
     ).toEqual([
       { taskId: "t1", taskType: "local_agent", description: "Explore" },
     ]);
+    expect(
+      parseBackgroundShellTaskIds({
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [
+          { task_id: "t1", task_type: "local_agent", description: "Explore" },
+          {
+            task_id: "dev",
+            task_type: "local_bash",
+            description: "npm run dev",
+          },
+          {
+            task_id: "quiet",
+            task_type: "local_bash",
+            description: "git fetch",
+            ambient: true,
+          },
+        ],
+      }),
+    ).toEqual(["dev"]);
+    // Only a well-formed snapshot replaces the set.
+    expect(
+      parseBackgroundShellTaskIds({
+        type: "system",
+        subtype: "background_tasks_changed",
+      }),
+    ).toBeNull();
+    expect(
+      parseBackgroundShellTaskIds({ type: "system", subtype: "task_started" }),
+    ).toBeNull();
     expect(
       parseToolProgress({
         type: "tool_progress",
