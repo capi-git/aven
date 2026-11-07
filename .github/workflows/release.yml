@@ -89,11 +89,13 @@ jobs:
         with:
           key: release-macos
           cache-on-failure: true
-      - name: Import Developer ID into an isolated signing keychain
+      # Fail now, not after an hour of building, when the Developer ID
+      # secrets are missing or malformed. Nothing is imported here.
+      - name: Check Developer ID secrets
         env:
           APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
           APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
-        run: python3 -B scripts/ci-signing-keychain.py
+        run: python3 -B scripts/ci-signing-keychain.py --check
       - name: Install native build tools
         run: |
           command -v cmake >/dev/null || brew install cmake
@@ -112,16 +114,28 @@ jobs:
             "$task_cef_archive" | shasum -a 256 -c -
           tar -xjf "$task_cef_archive" -C "$RUNNER_TEMP"
           printf 'CEF_ROOT=%s\n' "$RUNNER_TEMP/$task_cef_name" >> "$GITHUB_ENV"
-      # Notarizes and staples before the ZIP is made when all three App Store
-      # Connect secrets exist. Without them the candidate stays signed only and
-      # signing-verification.json says so. build-release.sh hides these values
-      # from dependency installs and compilation.
-      - name: Test, build, notarize, and package candidate
+      # Dependency installs, tests and compiling run other people's code, so
+      # they finish before any signing key reaches this runner.
+      - name: Test and build candidate before any signing key is on the runner
+        run: ./scripts/build-release.sh --stage build
+      - name: Import Developer ID into an isolated signing keychain
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+        run: python3 -B scripts/ci-signing-keychain.py
+      # Signs the build above, then notarizes and staples before the ZIP is
+      # made when all three App Store Connect secrets exist. Without them the
+      # candidate stays signed only and signing-verification.json says so.
+      # Only Aven's own scripts and Apple's tools run here.
+      - name: Sign, notarize, and package candidate
         env:
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-        run: ./scripts/build-release.sh
+        run: ./scripts/build-release.sh --stage sign
+      # Signed: the key can't be used again, by the updater signer or anything.
+      - name: Lock the signing keychain
+        run: python3 -B scripts/ci-signing-keychain.py --lock
       - name: Sign final Chromium update archive
         if: inputs.publish
         env:

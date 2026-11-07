@@ -206,14 +206,9 @@ def append_public_environment(path, directory, fingerprint):
                       'AVEN_RELEASE_SIGNING_IDENTITY=' + fingerprint + '\n').encode())
 
 
-def setup(environment):
-    require(environment.get('GITHUB_ACTIONS') == 'true',
-            'Signing keychain setup is restricted to disposable GitHub Actions runners.')
-    directory = directory_for(environment)
-    require(not directory.exists() and not directory.is_symlink(),
-            'Signing directory already exists; run cleanup before retrying setup.')
+def identity_secret(environment):
+    """The Developer ID secrets, decoded and checked; never imported here."""
     require(all(environment.get(key) for key in SECRET_NAMES), 'Both Apple Developer ID secrets are required.')
-    require(public_path(environment.get('GITHUB_ENV', '')), 'GITHUB_ENV is required.')
     password = environment[SECRET_NAMES[1]]
     require('\0' not in password, 'The certificate password contains an unsupported character.')
     try:
@@ -224,6 +219,26 @@ def setup(environment):
         raise SigningError('The PKCS12 secret is not valid base64.') from None
     require(0 < len(p12_bytes) <= MAX_P12_BYTES and p12_bytes.startswith(b'\x30'),
             'The PKCS12 secret is empty, malformed, or too large.')
+    return p12_bytes, password
+
+
+def lock(environment):
+    """Lock the keychain once signing is done: its key can't be used again."""
+    directory = directory_for(environment)
+    keychain = directory / KEYCHAIN
+    require(not keychain.is_symlink(), 'Refusing a symlinked temporary keychain.')
+    require(keychain.is_file(), 'There is no temporary signing keychain to lock.')
+    run_security(['lock-keychain', keychain], 'Lock temporary signing keychain')
+
+
+def setup(environment):
+    require(environment.get('GITHUB_ACTIONS') == 'true',
+            'Signing keychain setup is restricted to disposable GitHub Actions runners.')
+    directory = directory_for(environment)
+    require(not directory.exists() and not directory.is_symlink(),
+            'Signing directory already exists; run cleanup before retrying setup.')
+    require(public_path(environment.get('GITHUB_ENV', '')), 'GITHUB_ENV is required.')
+    p12_bytes, password = identity_secret(environment)
     try:
         team_id = json.loads(POLICY.read_text())['teamId']
     except (OSError, ValueError, KeyError, TypeError):
@@ -285,7 +300,11 @@ def setup(environment):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--cleanup', action='store_true', help='Restore search list and delete only the owned runner keychain')
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument('--cleanup', action='store_true', help='Restore search list and delete only the owned runner keychain')
+    action.add_argument('--check', action='store_true',
+                        help='Check the Developer ID secrets are present and well formed, without importing them')
+    action.add_argument('--lock', action='store_true', help='Lock the owned runner keychain once signing is done')
     arguments = parser.parse_args(argv)
     try:
         require(sys.platform == 'darwin', 'CI signing keychain operations require macOS.')
@@ -293,6 +312,10 @@ def main(argv=None):
                 'Signing keychain operations are restricted to disposable GitHub Actions runners.')
         if arguments.cleanup:
             cleanup_directory(directory_for(os.environ))
+        elif arguments.check:
+            identity_secret(os.environ)
+        elif arguments.lock:
+            lock(os.environ)
         else:
             setup(os.environ)
     except Exception:
@@ -302,7 +325,10 @@ def main(argv=None):
         print(str(error) if isinstance(error, SigningError)
               else 'Signing keychain operation failed; sensitive diagnostics suppressed.', file=sys.stderr)
         return 1
-    print('Temporary signing keychain cleaned up.' if arguments.cleanup else 'Temporary Developer ID signing keychain is ready.')
+    print('Temporary signing keychain cleaned up.' if arguments.cleanup
+          else 'Developer ID secrets are present and well formed.' if arguments.check
+          else 'Temporary signing keychain locked.' if arguments.lock
+          else 'Temporary Developer ID signing keychain is ready.')
     return 0
 
 
