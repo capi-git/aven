@@ -1024,6 +1024,18 @@ fn menu_key(title: &str) -> String {
         .to_lowercase()
 }
 
+/// Hides the system's Apple menu from a menu bar's top-level titles. It is
+/// always the bar's first item and holds Sleep, Restart, Shut Down, Log Out,
+/// Lock Screen and Force Quit, which act on the whole Mac rather than the app
+/// an agent was allowed to use, so agents can neither list nor choose it.
+pub(crate) fn hide_system_menu(titles: &mut [Option<String>]) {
+    for (index, title) in titles.iter_mut().enumerate() {
+        if index == 0 || title.as_deref().is_some_and(|t| menu_key(t) == "apple") {
+            *title = None;
+        }
+    }
+}
+
 /// Menu titles listed in an error, at most.
 const MENU_TITLES_LISTED: usize = 40;
 
@@ -2712,6 +2724,25 @@ mod tests {
             &Filter::new(Some("nothing"), None).unwrap(),
         );
         assert_eq!((text.as_str(), matches), ("", 0));
+    }
+
+    #[test]
+    fn the_apple_menu_is_never_matched_or_listed() {
+        let mut titles = vec![
+            Some("Apple".to_string()),
+            Some("TextEdit".to_string()),
+            Some("File".to_string()),
+        ];
+        hide_system_menu(&mut titles);
+        assert_eq!(titles[0], None);
+        assert_eq!(menu_match("File", &titles), Ok(2));
+        let refused = menu_match("Apple", &titles).unwrap_err();
+        let listed = refused.split("Items:").nth(1).unwrap_or_default();
+        assert!(!listed.contains("Apple"), "{refused}");
+        // Even if the system menu were not first, its title is hidden.
+        let mut moved = vec![Some("File".to_string()), Some("apple".to_string())];
+        hide_system_menu(&mut moved);
+        assert_eq!(moved, vec![None, None]);
     }
 
     #[test]

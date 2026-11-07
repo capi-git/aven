@@ -2007,7 +2007,11 @@ unsafe fn walk_menu(pid: i32, path: &[String], deadline: Instant) -> Result<Menu
             })?;
         }
         let mut entries = menu_entries(&menu, deadline);
-        let titles: Vec<Option<String>> = entries.iter().map(|entry| entry.title.clone()).collect();
+        let mut titles: Vec<Option<String>> =
+            entries.iter().map(|entry| entry.title.clone()).collect();
+        if depth == 0 {
+            rules::hide_system_menu(&mut titles);
+        }
         let index = rules::menu_match(wanted, &titles)?;
         found = Some(entries.swap_remove(index));
     }
@@ -2021,9 +2025,15 @@ pub(super) fn menu_bar_titles(pid: i32) -> Vec<String> {
         let Ok(bar) = menu_bar(pid, deadline) else {
             return Vec::new();
         };
-        menu_entries(&bar, deadline)
+        let mut titles: Vec<Option<String>> = menu_entries(&bar, deadline)
             .into_iter()
-            .filter_map(|entry| entry.title.and_then(|title| rules::clean(&title, 60)))
+            .map(|entry| entry.title)
+            .collect();
+        rules::hide_system_menu(&mut titles);
+        titles
+            .into_iter()
+            .flatten()
+            .filter_map(|title| rules::clean(&title, 60))
             .collect()
     })
 }
