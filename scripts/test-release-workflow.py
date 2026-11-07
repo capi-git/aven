@@ -478,19 +478,42 @@ class MacosNotarizationTests(WorkflowFixture):
     def logged(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
 
-    def test_notary_secrets_reach_only_the_build_step_which_runs_before_update_signing(self):
-        build = step_block('Test, build, notarize, and package candidate')
+    def test_notary_secrets_reach_only_the_sign_step_which_runs_before_update_signing(self):
+        sign = step_block('Sign, notarize, and package candidate')
         for name in NOTARY_SECRETS:
-            self.assertIn(name + ': ${{ secrets.' + name + ' }}', build)
-        self.assertIn('run: ./scripts/build-release.sh', build)
-        self.assertNotIn('TAURI_SIGNING', build)
+            self.assertIn(name + ': ${{ secrets.' + name + ' }}', sign)
+        self.assertIn('run: ./scripts/build-release.sh --stage sign', sign)
+        self.assertNotIn('TAURI_SIGNING', sign)
         workflow = WORKFLOW.read_text()
         for name in NOTARY_SECRETS:
             self.assertEqual(workflow.count('secrets.' + name), 1, name + ' must not reach other steps')
-        self.assertLess(workflow.index('- name: Test, build, notarize, and package candidate'),
+        self.assertLess(workflow.index('- name: Sign, notarize, and package candidate'),
                         workflow.index('- name: Sign final Chromium update archive'))
         self.assertLess(workflow.index('- name: Sign final Chromium update archive'),
                         workflow.index('- name: Upload candidate for manual review'))
+
+    def test_the_developer_id_key_reaches_the_runner_only_after_the_build_and_is_locked_after_signing(self):
+        workflow = WORKFLOW.read_text()
+        build = step_block('Test and build candidate before any signing key is on the runner')
+        self.assertIn('run: ./scripts/build-release.sh --stage build', build)
+        self.assertNotIn('secrets.', build)
+        order = [
+            '- name: Check Developer ID secrets',
+            '- name: Test and build candidate before any signing key is on the runner',
+            '- name: Import Developer ID into an isolated signing keychain',
+            '- name: Sign, notarize, and package candidate',
+            '- name: Lock the signing keychain',
+            '- name: Sign final Chromium update archive',
+        ]
+        places = [workflow.index(name) for name in order]
+        self.assertEqual(places, sorted(places))
+        self.assertIn('ci-signing-keychain.py --check', step_block('Check Developer ID secrets'))
+        self.assertIn('ci-signing-keychain.py --lock', step_block('Lock the signing keychain'))
+        # The p12 secrets reach only the check and the import, never a build.
+        for name in ('APPLE_DEVELOPER_ID_P12_BASE64', 'APPLE_DEVELOPER_ID_P12_PASSWORD'):
+            self.assertEqual(workflow.count('secrets.' + name), 2, name)
+            self.assertIn('secrets.' + name, step_block('Check Developer ID secrets'))
+            self.assertIn('secrets.' + name, step_block('Import Developer ID into an isolated signing keychain'))
 
     def test_notarized_update_archive_requires_the_stapled_ticket_first(self):
         self.write_report(NOTARIZED)

@@ -344,6 +344,36 @@ class SigningKeychainTests(unittest.TestCase):
                 self.assertEqual(ci.main(['--cleanup']), 1)
         self.process.assert_not_called()
 
+    def test_check_reads_the_secrets_without_any_keychain_or_security_call(self):
+        with mock.patch.dict(os.environ, self.environment), mock.patch.object(ci.sys, 'platform', 'darwin'):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(ci.main(['--check']), 0)
+        self.assertIn('present and well formed', output.getvalue())
+        self.process.assert_not_called()
+        self.assertFalse(self.directory.exists())
+        self.assertFalse(self.envfile.exists())
+        broken = dict(self.environment, APPLE_DEVELOPER_ID_P12_BASE64='@@invalid')
+        with mock.patch.dict(os.environ, broken), mock.patch.object(ci.sys, 'platform', 'darwin'):
+            with contextlib.redirect_stderr(io.StringIO()) as error:
+                self.assertEqual(ci.main(['--check']), 1)
+        self.assertNotIn(P12_PASSWORD, error.getvalue())
+        self.process.assert_not_called()
+
+    def test_lock_locks_only_the_owned_keychain_after_signing(self):
+        with mock.patch.dict(os.environ, self.environment):
+            ci.setup(self.environment)
+        self.commands.clear()
+        with mock.patch.dict(os.environ, self.environment), mock.patch.object(ci.sys, 'platform', 'darwin'):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ci.main(['--lock']), 0)
+        self.assertEqual(self.commands, [['/usr/bin/security', 'lock-keychain', str(self.directory / ci.KEYCHAIN)]])
+
+    def test_lock_without_a_keychain_fails_without_security_calls(self):
+        with mock.patch.dict(os.environ, self.environment), mock.patch.object(ci.sys, 'platform', 'darwin'):
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(ci.main(['--lock']), 1)
+        self.process.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
