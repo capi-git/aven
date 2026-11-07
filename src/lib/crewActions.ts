@@ -1,3 +1,4 @@
+import { avosPickOverride } from "./crewModels";
 import { holdIdeaStarts } from "./crewLimits";
 import { useSyncExternalStore } from "react";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
@@ -42,6 +43,7 @@ import {
   crewAgentsFor,
   CREW_LIMIT_RANGES,
   CREW_ROLE_INFO,
+  crewMember,
   crewMemberById,
   memberCritter,
   newMemberId,
@@ -763,7 +765,15 @@ export async function giveCardToCrew(
                     ...(chosen.effort ? { effort: chosen.effort } : {}),
                   },
                 }
-              : {}),
+              : (() => {
+                  // Let Avos choose: its pick for the Builder that takes it.
+                  const override = avosPickOverride(
+                    crewMemberById(current, chosen.builderId) ??
+                      crewMember(current, "builder"),
+                    idea?.pick,
+                  );
+                  return override ? { override } : {};
+                })()),
           },
           now,
         ),

@@ -1,6 +1,6 @@
 import { addAvosJob } from "./avosJobs";
 import { setCrewLiveReply } from "./crewLiveReply";
-import { avosTalkModel } from "./crewModels";
+import { avosPickChoices, avosPickOverride, avosTalkModel } from "./crewModels";
 import {
   TALK_HOPS,
   TALK_TEXT_MAX,
@@ -895,6 +895,13 @@ export class CrewRunner {
         mayAddJob: talkMayAddJob(talk, member.role),
         mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
         helpersOn: { mockup: !!cardDesigner(fresh) },
+        // Let Avos choose: it picks the Builder's model and effort per card.
+        ...(member.role === "lead" && talk.from === "you" && !talk.routine
+          ? (() => {
+              const picks = avosPickChoices(fresh);
+              return picks ? { picks } : {};
+            })()
+          : {}),
         guidance: crewGuidanceText({
           ...(member.instructions ? { instructions: member.instructions } : {}),
           ...(member.memory ? { memory: member.memory } : {}),
@@ -1133,6 +1140,15 @@ export class CrewRunner {
           size: asked.size,
           ...(asked.why ? { why: asked.why } : {}),
           ...(yours ? {} : { by: "lead" as const }),
+          // Avos's pick of the Builder's model and effort for it.
+          ...(asked.model || asked.effort
+            ? {
+                pick: {
+                  ...(asked.model ? { model: asked.model } : {}),
+                  ...(asked.effort ? { effort: asked.effort } : {}),
+                },
+              }
+            : {}),
         });
       });
       if (!member) return next;
@@ -1463,6 +1479,13 @@ export class CrewRunner {
             from: idea ? "scout" : "you",
             ...(idea ? { size: idea.size } : {}),
             maxRounds: crew.limits.roundsPerCard,
+            ...(() => {
+              const override = avosPickOverride(
+                crewMember(crew, "builder"),
+                idea?.pick,
+              );
+              return override ? { override } : {};
+            })(),
           },
           now,
         ),

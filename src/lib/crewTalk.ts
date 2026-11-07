@@ -46,7 +46,14 @@ const QUESTION_MAX = 200;
 export type TalkReply = {
   line: string;
   asks: { to: string; text: string }[];
-  cards: { title: string; why?: string; size: CrewIdeaSize }[];
+  cards: {
+    title: string;
+    why?: string;
+    size: CrewIdeaSize;
+    /** Avos's pick of the Builder's model and effort for it. */
+    model?: string;
+    effort?: string;
+  }[];
   helpers: { title: string; task: string }[];
   /**
    * Work that repeats or keeps watching, as an automation describes it: the
@@ -70,6 +77,19 @@ function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/**
+ * A model id or effort as Avos names it ("claude:opus-5-5", "xhigh"): an id
+ * alone, never words, so nothing in it can be read as an instruction. Its
+ * prose cleaning would take a "claude:" prefix for a speaker.
+ */
+function pickId(value: unknown, max: number): string {
+  return typeof value === "string" &&
+    value.length <= max &&
+    /^[a-z0-9][a-z0-9:._/-]*$/i.test(value)
+    ? value
+    : "";
 }
 
 /** The first thing it said, for a reply with no block of its own. */
@@ -107,11 +127,15 @@ export function parseTalk(text: string): TalkReply {
     const title = botLine(raw?.title, 120);
     const why = botLine(raw?.why, 300);
     const size = raw?.size;
+    const model = pickId(raw?.model, 80);
+    const effort = pickId(raw?.effort, 40);
     if (title && cards.length < TALK_CARDS_MAX)
       cards.push({
         title,
         ...(why ? { why } : {}),
         size: size === "small" || size === "medium" ? size : "large",
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
       });
   }
   const helpers: TalkReply["helpers"] = [];
@@ -215,6 +239,8 @@ function howToAnswer(input: {
   mayKeep?: boolean;
   /** The Designer this team has on now. */
   helpersOn?: { mockup: boolean };
+  /** The Builder's models and efforts, when Avos picks them per card. */
+  picks?: string;
 }): string {
   const fields = [
     `"line": "One line for the team chat, under ${TALK_LINE_MAX} characters."`,
@@ -223,7 +249,9 @@ function howToAnswer(input: {
       : []),
     ...(input.isLead
       ? [
-          `"cards": [{"title": "A short card title", "why": "One line.", "size": "small|medium|large"}]`,
+          input.picks
+            ? `"cards": [{"title": "A short card title", "why": "One line.", "size": "small|medium|large", "model": "<a model id>", "effort": "<its effort>"}]`
+            : `"cards": [{"title": "A short card title", "why": "One line.", "size": "small|medium|large"}]`,
         ]
       : []),
     ...(input.mayStartHelpers
@@ -262,6 +290,7 @@ function howToAnswer(input: {
     ...(input.isLead
       ? [
           "When the user asks for something built, put it under cards: your helpers build and check it, and it comes back to the user here in the chat when it's ready. Large work waits for the user. You never change files yourself. There is no Board or This week: don't mention one.",
+          ...(input.picks ? [input.picks] : []),
           ...(input.mayKeep
             ? [
                 'When the user tells you something to always or never do from now on ("always use pnpm", "don\'t touch the API"), put it under remember, in their words. When they set or change what the project is working towards, put it under goal. Say in your answer what you saved.',
@@ -314,6 +343,8 @@ export function talkMessage(input: {
   mayKeep?: boolean;
   /** The Designer this team has on now. */
   helpersOn?: { mockup: boolean };
+  /** The Builder's models and efforts, when Avos picks them per card. */
+  picks?: string;
   brief?: string;
   /** Its instructions and notes, as any turn carries them. */
   guidance?: string;
