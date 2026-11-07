@@ -806,9 +806,10 @@ export class CrewRunner {
     )
       return;
     try {
-      // Avos reads your folder until there's a copy (a project without Git
-      // has none): only a helper that works in the copy waits for one.
-      if (!crew.copy && member.role !== "lead") {
+      // Avos and the helpers it starts read your folder until there's a copy
+      // (a project without Git has none): only a teammate that works in the
+      // copy waits for one.
+      if (!crew.copy && member.role !== "lead" && member.role !== "helper") {
         const prepared = await this.prepareCopy(path, false);
         if (!prepared) return;
         crew = prepared.crew;
