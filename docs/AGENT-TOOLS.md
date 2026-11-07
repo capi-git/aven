@@ -736,7 +736,7 @@ those switches off again when the same app process is still running.
 
 Element actions count as input: they use the same per-app consent, appear in the bar
 with the control's title (for example “Clicking “Send””, never a typed value),
-follow Pause and Stop, and move the agent ring to the control. Like app-directed
+follow Pause and Stop, and move the agent's dot to the control. Like app-directed
 input they keep running while you work, even in the same app; only shared-pointer
 input pauses when you take the mouse or keyboard. `appState` is
 observation and remains available while paused.
@@ -752,7 +752,7 @@ then `scale` is image pixels per point, `pointWidth` and `pointHeight` give the
 size in points, and image coordinates are divided by `scale`. `windows` lists each
 window's `display`, the `displays` themselves and the `frontmostApp`, and
 `screenshot` with `display` captures another screen. A window screenshot (and the
-image in `appState`) records only that window, so Aven's ring and bar stay on
+image in `appState`) records only that window, so Aven's dot and bar stay on
 screen; a region or full-display screenshot hides them for the moment of capture.
 Images are scaled inside Aven rather than by a second program. A successful
 JSON response alone is not visual verification. It then uses `move`, `click`,
@@ -815,9 +815,16 @@ is visually absent or appears mouse-transparent, report its bounded metadata for
 investigation rather than assuming it is safe to ignore. Source changes to these
 diagnostics take effect only in a rebuilt development host or installed release.
 
-A provider-coloured ring and name tag mark the action point. The frosted bar
-identifies the agent and app, with **Pause/Resume** and **Stop**. Esc twice stops
-the active chat. Consent is on by default and asked once per chat; that answer
+A soft dot marks the action point, with a small tag showing Bot in the
+chat's project colour, the agent's name and its step; the tag shrinks to Bot
+alone when the agent stops acting. A thin white frame sits right behind the
+window an agent is using, so windows in front still cover it. The bar at the
+top of the screen gives each agent using the Mac a row: Bot, its work dots and
+what it is doing ("Clicking “Next…” in Pages"). Pointed at, an agent's dots
+light as a square: press them to stop that agent only. **Pause** shows when
+you point at the bar, and **Resume** while paused. A row stays about 30
+seconds after its agent's last action, or until its reply ends. Esc twice
+stops the agent that acted last. Consent is on by default and asked once per chat; that answer
 covers every app, shared control and activation. Shared control pauses once the user keeps using the mouse or keyboard for about 3 seconds; a brief bump is ignored. App-directed and
 element control keep running while the user works, even in the same app; only
 Pause, Stop or Esc twice stops them. Paused agents

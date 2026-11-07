@@ -987,11 +987,20 @@ import {
   useProjectBotsStore,
   type ProjectBot,
 } from "./lib/projectBots";
-import { projectAppearance } from "./lib/projectAppearance";
+import {
+  hasProjectAppearance,
+  projectAppearance,
+  projectToneAt,
+} from "./lib/projectAppearance";
 import { chatCardDrafts } from "./lib/workBoard";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
+
+/** A chat's project colour, which its Bot wears on the desktop bar. */
+function chatTone(project: string) {
+  return hasProjectAppearance(project) ? projectToneAt(project) : undefined;
+}
 
 function withPlanStatus(
   session: Session,
@@ -7389,6 +7398,7 @@ export default function App({
                     title: current.title,
                     sessionId,
                     cwd: workCwd,
+                    tone: chatTone(current.cwd),
                   },
                   // A bot never commits, so it gets no Git preference either.
                   {
@@ -7851,6 +7861,7 @@ export default function App({
                   title: current.title,
                   sessionId,
                   cwd: workCwd,
+                  tone: chatTone(current.cwd),
                 },
                 // A bot never commits, so it gets no Git preference either.
                 {

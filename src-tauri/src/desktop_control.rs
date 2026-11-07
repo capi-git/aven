@@ -1594,6 +1594,12 @@ pub(crate) fn shutdown() {
     platform::presence_shutdown();
 }
 
+/// Dev builds only: draws the bar and pointer into PNG files, off screen.
+#[cfg(all(debug_assertions, target_os = "macos"))]
+pub(crate) fn snapshot(folder: &Path) -> Result<(), String> {
+    platform::snapshot(folder)
+}
+
 /// Visual-only QA in Aven Dev. No agent grant, input, capture or permission
 /// changes are made; release builds do not contain this preview entry point.
 #[cfg(all(debug_assertions, target_os = "macos"))]
@@ -1749,7 +1755,7 @@ scale before using them. display takes an index from windows. With windowId,
 move/click/scroll x,y and drag from/to are that window's points. Without
 windowId, use global points: originX + x, originY + y from the screenshot used.
 Window screenshots and appState images record only that window, so Aven's
-ring and bar stay on screen; a region or display screenshot hides them briefly.
+dot and bar stay on screen; a region or display screenshot hides them briefly.
 App-directed input is the default (inputMode: "app"). Use an observed windowId
 for move, click, drag, scroll, type and press. Events go to that app without
 moving the system pointer or automatically activating it. Keys require that
@@ -1762,7 +1768,7 @@ per chat; that answer covers every app, the shared pointer and activation until
 the user presses Stop. Do not ask again.
 Aven's bar identifies the agent, app and control (for a menu, the item, such
 as "Choosing “File → Export…”"), with Pause/Resume and Stop. Esc twice stops
-the active chat. When the user keeps using the mouse or keyboard for about 3
+the agent that acted last. When the user keeps using the mouse or keyboard for about 3
 seconds, shared-pointer input pauses; app-directed and element input keep
 running while the user works, even in the same app, and stop only for Pause,
 Stop or Esc twice. On pause, stop, denial or timeout, wait for the user without
@@ -1773,11 +1779,13 @@ until the user unlocks" (or "The user's Mac session is not on screen"); a lock
 also stops an action in progress and cancels an open prompt. Keep working in
 Aven's browser or code, or wait; observe again after the user unlocks. App
 consent is on by default and asked once per chat. Settings can turn it off;
-shared input always asks. Interrupted drags release their held button. The
-provider-coloured ring and name tag glide between targets, including windows
-the agent reads, and stay on screen while the agent works, fading about 30
-seconds after its last action or look. Both overlays are excluded from agent
-screenshots/window lists and cannot be agent input targets. Typed content,
+shared input always asks. Interrupted drags release their held button. A soft
+dot with a tag naming the agent and its step glides between targets, including
+windows the agent reads; a thin white frame sits behind the window it uses. The
+bar shows one row per agent; each row's dots stop that agent. The dot, frame
+and row stay while the agent works, fading about 30 seconds after its last
+action or look, or when its reply ends. The bar, dot and frames are excluded
+from agent screenshots/window lists and cannot be agent input targets. Typed content,
 values and key names are never shown in the bar.
 Keys: Enter, Tab, Escape, Backspace, Delete, ArrowLeft, ArrowRight, ArrowDown,
 ArrowUp, Home, End, PageUp, PageDown, Space, a-z, 0-9, F1-F12 and
@@ -2796,7 +2804,7 @@ mod tests {
             "F1-F12",
             "chat per app (\"tips\":true sends them again)",
             "scale is image pixels per point",
-            "ring and bar stay on screen",
+            "dot and bar stay on screen",
             "untilChanged",
             "readText",
         ] {

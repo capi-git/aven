@@ -1,6 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    if let Some(code) = aven_lib::run_desktop_snapshot_cli() {
+        std::process::exit(code);
+    }
     if let Some(code) = aven_lib::run_startup_cli() {
         std::process::exit(code);
     }

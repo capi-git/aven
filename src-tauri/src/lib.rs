@@ -98,6 +98,25 @@ mod skill_install;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+
+/// Dev builds only: `--aven-desktop-snapshot <folder>` draws desktop
+/// control's bar and pointer into PNG files there, off screen, for checking
+/// their look. Nothing is shown and no app is touched.
+#[cfg(all(debug_assertions, target_os = "macos"))]
+pub fn run_desktop_snapshot_cli() -> Option<i32> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("--aven-desktop-snapshot") {
+        return None;
+    }
+    let folder = std::path::PathBuf::from(args.next()?);
+    match desktop_control::snapshot(&folder) {
+        Ok(()) => Some(0),
+        Err(error) => {
+            eprintln!("{error}");
+            Some(1)
+        }
+    }
+}
 mod system_pointer;
 mod team_watch;
 mod turn_shot_image;

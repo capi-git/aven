@@ -26,6 +26,8 @@ mod self_test;
 pub(super) fn preview_self_test(app: &AppHandle) {
     self_test::run(app);
 }
+#[path = "desktop_marks_macos.rs"]
+mod marks;
 #[path = "desktop_presence_macos.rs"]
 mod presence_ui;
 #[path = "desktop_session_macos.rs"]
@@ -67,7 +69,7 @@ pub(super) fn presence_shutdown() {
     presence_ui::shutdown();
 }
 pub(super) fn actor_changed(actor: &presence::Actor) {
-    agent_cursor::set_actor(&actor.name, actor.color);
+    agent_cursor::set_actor(&actor.name, actor.tone);
 }
 pub(super) fn session_state() -> presence::Session {
     session::current()
@@ -81,6 +83,12 @@ pub(super) fn observe_session() {
 pub(super) fn session_alive(scope: &str) -> bool {
     active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)
         .is_ok_and(|s| !s.revoked.load(Ordering::Acquire))
+}
+#[cfg(debug_assertions)]
+pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    presence_ui::snapshot(folder)?;
+    agent_cursor::snapshot(folder)
 }
 #[cfg(debug_assertions)]
 pub(super) fn preview_presence() {
@@ -512,7 +520,7 @@ fn windows() -> Result<Vec<DesktopWindow>, String> {
             }
             let Some(window_id) = number(item, kCGWindowNumber)
                 .and_then(|value| u32::try_from(value).ok())
-                .filter(|id| *id != 0)
+                .filter(|id| *id != 0 && !presence_ui::is_frame(*id))
             else {
                 continue;
             };
@@ -808,7 +816,9 @@ fn target_point_with_exemptions(
     for window in windows {
         // Only this exact mouse-transparent visualization is exempt. Dialogs,
         // menus and every other host-owned window still block targeted input.
-        if exemptions.cursor_window == Some(window.window_id) {
+        if exemptions.cursor_window == Some(window.window_id)
+            || presence_ui::is_frame(window.window_id)
+        {
             continue;
         }
         window
@@ -2379,7 +2389,7 @@ fn execute_admitted(
                 .ok_or(
                     "That window is no longer on screen. Run windows and call appState again.",
                 )?;
-            if presence_ui::window_id() == Some(id) || agent_cursor::window_id() == Some(id) {
+            if presence_ui::is_overlay(id) || agent_cursor::window_id() == Some(id) {
                 return Err("Aven's desktop controls cannot be inspected or targeted.".into());
             }
             session.require_admitted(guard)?;
@@ -2726,7 +2736,7 @@ fn app_state(
     .ok_or(
         "That window is no longer on screen. Run windows and retry with an observed windowId.",
     )?;
-    if presence_ui::window_id() == Some(window.window_id)
+    if presence_ui::is_overlay(window.window_id)
         || agent_cursor::window_id() == Some(window.window_id)
     {
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
@@ -2893,7 +2903,7 @@ fn wait_for_change(
 /// can follow where it is looking. Drawing only, on its own thread: nothing
 /// the agent asked for waits for the glide, and a failure changes nothing.
 fn look_at(app: &AppHandle, scope: &str, session: &CaptureSession, window: &DesktopWindow) {
-    if presence_ui::window_id() == Some(window.window_id)
+    if presence_ui::is_overlay(window.window_id)
         || agent_cursor::window_id() == Some(window.window_id)
     {
         return;

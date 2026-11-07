@@ -12,6 +12,7 @@ import type {
 import { agentGitInstructions } from "./gitPreference";
 import { agentFilesFolder, agentFilesInstructions } from "./chatDownloads";
 import { isRaceLanePath } from "./recents";
+import type { MarkTone } from "./markTones";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
 import { agentBrowserWeb } from "./projectBotPermissions";
@@ -19,6 +20,11 @@ import { agentBrowserWeb } from "./projectBotPermissions";
 export type AgentBrowserContext = {
   sessionId: string;
   cwd: string;
+  /**
+   * The chat's project colour, which its Bot wears on the desktop bar and
+   * pointer (from the project's folder; `cwd` may be a copy of it).
+   */
+  tone?: MarkTone;
   harness?: string;
   title?: string;
 };
@@ -66,7 +72,7 @@ type Binding = { executablePath: string; socketPath: string };
 type BindArgs = {
   sessionId: string;
   simulatorProject?: string;
-  actor?: { harness: string; title?: string };
+  actor?: { harness: string; title?: string; tone?: MarkTone };
   browserIds: string[];
   ownBrowserIds?: string[];
   anyTab: boolean;
@@ -302,7 +308,7 @@ function bind(
         sessionId: context.sessionId,
         ...(simulatorProject ? { simulatorProject } : {}),
         ...(userTurn && context.harness
-          ? { actor: { harness: context.harness, title: context.title } }
+          ? { actor: actorFor(context, context.harness) }
           : {}),
         browserIds,
         ...(ownBrowserIds.length ? { ownBrowserIds } : {}),
@@ -324,6 +330,18 @@ function bind(
     })
     .catch(() => {});
   return operation;
+}
+
+/** Who the desktop bar and pointer name, in the project's colour. */
+function actorFor(
+  context: AgentBrowserContext,
+  harness: string,
+): NonNullable<BindArgs["actor"]> {
+  return {
+    harness,
+    title: context.title,
+    ...(context.tone ? { tone: context.tone } : {}),
+  };
 }
 
 export function forgetAgentBrowser(
@@ -699,6 +717,7 @@ async function withBrowserGuidance(
   const stored = previous?.cwd === context.cwd ? previous : context;
   stored.harness = context.harness ?? stored.harness;
   stored.title = context.title ?? stored.title;
+  stored.tone = context.tone ?? stored.tone;
   contexts.set(context.sessionId, stored);
   try {
     await hostReady;

@@ -189,6 +189,20 @@ fn run(
         // never mistakes background input for shared mouse/keyboard control.
         state.set_delivery(&ticket, target.shared_input, target.pid);
         state.set_element(&ticket, target.label.clone());
+        state.set_window(
+            &ticket,
+            target.window_id.zip(target.bounds).map(|(id, bounds)| {
+                (
+                    id,
+                    presence::Frame {
+                        x: bounds.x,
+                        y: bounds.y,
+                        width: bounds.width,
+                        height: bounds.height,
+                    },
+                )
+            }),
+        );
         ticket
     });
     let guard = Guard {
@@ -284,7 +298,7 @@ mod tests {
             assert!(
                 self.store
                     .with(|state| {
-                        state.model(Instant::now() + presence::IDLE_FADE + Duration::from_secs(1))
+                        state.model(Instant::now() + presence::ROW_LINGER + Duration::from_secs(1))
                     })
                     .is_none(),
                 "the presence ticket is still in flight"
