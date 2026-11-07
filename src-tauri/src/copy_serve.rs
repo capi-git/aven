@@ -83,9 +83,7 @@ pub(crate) fn serve_args(script: &DevScript, port: u16) -> Vec<String> {
         script.name.clone(),
     ];
     let port = port.to_string();
-    let single = !script
-        .script
-        .contains(['&', ';', '|', '\n']);
+    let single = !script.script.contains(['&', ';', '|', '\n']);
     let tool = script.script.split_whitespace().next().unwrap_or("");
     let extra: Vec<&str> = if !single {
         vec![]
