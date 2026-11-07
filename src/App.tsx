@@ -7357,6 +7357,7 @@ export default function App({
                     title: current.title,
                     sessionId,
                     cwd: workCwd,
+                    project: current.cwd,
                   },
                   // A bot never commits, so it gets no Git preference either.
                   {
@@ -7819,6 +7820,7 @@ export default function App({
                   title: current.title,
                   sessionId,
                   cwd: workCwd,
+                  project: current.cwd,
                 },
                 // A bot never commits, so it gets no Git preference either.
                 {

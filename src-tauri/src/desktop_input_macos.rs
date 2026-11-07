@@ -152,7 +152,7 @@ pub(super) fn target(
     let id = request.input_window();
     let mut window = None;
     if let Some(id) = id {
-        if presence_ui::window_id() == Some(id) || agent_cursor::window_id() == Some(id) {
+        if presence_ui::is_overlay(id) || agent_cursor::window_id() == Some(id) {
             return Err("Agent input cannot target Aven's desktop controls.".into());
         }
         window = Some(

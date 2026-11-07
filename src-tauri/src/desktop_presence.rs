@@ -14,8 +14,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-/// The bar fades this long after an agent's last action.
+/// A tab use's row leaves the bar this long after its last step.
 pub(crate) const IDLE_FADE: Duration = Duration::from_secs(4);
+/// An agent's row stays on the bar this long after its last desktop action,
+/// as long as its pointer stays on screen: agents think between steps, and
+/// the bar (with Stop and Esc twice) must not vanish while they do. The end
+/// of its reply removes the row sooner.
+pub(crate) const ROW_LINGER: Duration = Duration::from_secs(30);
+/// The bar shows at most this many agents' rows.
+const MAX_ROWS: usize = 4;
 /// How long "Stopped" stays visible after the user stops an agent.
 pub(crate) const STOP_NOTICE: Duration = Duration::from_millis(2500);
 /// Genuine user input this soon after an agent action pauses agents.
@@ -70,7 +77,43 @@ const APP_NAME_LIMIT: usize = 60;
 /// Neutral for an unknown agent; near-white for monochrome provider marks.
 const NEUTRAL: [f64; 3] = [0.62, 0.64, 0.68];
 const MONOCHROME: [f64; 3] = [0.86, 0.86, 0.88];
-const PAUSED_COLOR: [f64; 3] = [1.0, 0.70, 0.25];
+/// Bot's colour when the chat's project has no colour of its own: the text
+/// grey, as the plain mark is drawn.
+const GREY_TONE: [f64; 3] = [0.80, 0.80, 0.82];
+
+/// A project's mark colour as Bot wears it on Aven's dark glass: the dark
+/// theme's `--aven-mark-*` values in src/index.css (hue, saturation and
+/// lightness). Grey and unknown names are the text grey.
+pub(crate) fn tone_color(tone: Option<&str>) -> [f64; 3] {
+    let hsl = match tone.map(str::trim) {
+        Some("blue") => (214.0, 0.74, 0.68),
+        Some("red") => (358.0, 0.70, 0.68),
+        Some("yellow") => (45.0, 0.68, 0.58),
+        Some("green") => (128.0, 0.36, 0.60),
+        Some("pink") => (334.0, 0.58, 0.72),
+        Some("purple") => (266.0, 0.66, 0.77),
+        Some("teal") => (184.0, 0.48, 0.52),
+        Some("orange") => (25.0, 0.80, 0.62),
+        _ => return GREY_TONE,
+    };
+    hsl_to_rgb(hsl.0, hsl.1, hsl.2)
+}
+
+fn hsl_to_rgb(hue: f64, saturation: f64, lightness: f64) -> [f64; 3] {
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let sector = hue / 60.0;
+    let x = chroma * (1.0 - (sector % 2.0 - 1.0).abs());
+    let (r, g, b) = match sector as u32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    let m = lightness - chroma / 2.0;
+    [r + m, g + m, b + m]
+}
 
 /// Harness ID, short name, and the colour used for its provider mark in
 /// src/assets/providers (Claude #D97757, the Codex gradient's middle stop
@@ -94,6 +137,9 @@ pub(crate) struct ActorInput {
     pub harness: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// The chat's project colour, a mark tone name ("blue", "grey"...).
+    #[serde(default)]
+    pub tone: Option<String>,
 }
 
 /// Who is acting: shown in the bar and (later) on the agent pointer.
@@ -103,16 +149,30 @@ pub(crate) struct Actor {
     pub name: String,
     /// The chat's title, when known.
     pub title: Option<String>,
-    /// sRGB components, 0 to 1.
+    /// The provider's colour (sRGB components, 0 to 1), for the in-page
+    /// browser pointer and the iPhone pane.
     pub color: [f64; 3],
+    /// Bot's colour on the desktop bar and pointer: the chat's project
+    /// colour, so agents look like they do everywhere else in Aven.
+    pub tone: [f64; 3],
 }
 
 impl Actor {
+    /// The name inside a sentence: "an agent" for one Aven can't name.
+    fn called(&self) -> String {
+        if self.name == FALLBACK_NAME {
+            FALLBACK_NAME.to_lowercase()
+        } else {
+            self.name.clone()
+        }
+    }
+
     pub(crate) fn fallback() -> Self {
         Self {
             name: FALLBACK_NAME.into(),
             title: None,
             color: NEUTRAL,
+            tone: GREY_TONE,
         }
     }
 }
@@ -161,6 +221,7 @@ pub(crate) fn resolve_actor(input: &ActorInput) -> Actor {
             .as_deref()
             .and_then(|title| clean_label(title, TITLE_LIMIT)),
         color,
+        tone: tone_color(input.tone.as_deref()),
     }
 }
 
@@ -545,9 +606,39 @@ struct Activity {
     input: bool,
     shared_input: bool,
     target_pid: Option<i32>,
+    /// The window the agent is using and its bounds (global top-left
+    /// points), which the bar's frame outlines.
+    window: Option<(u32, Frame)>,
     in_flight: bool,
     last: Instant,
     stopped: bool,
+}
+
+impl Activity {
+    /// Still on the bar: running, or within `ROW_LINGER` of its last step.
+    fn live(&self, now: Instant) -> bool {
+        !self.stopped && (self.in_flight || now.saturating_duration_since(self.last) < ROW_LINGER)
+    }
+
+    /// The row's words after the agent's name: the step and the app, or
+    /// only the app between steps.
+    fn row_text(&self) -> String {
+        let step = self.step.describe(self.element.as_deref());
+        let Some(app) = self.app.as_deref() else {
+            return if self.in_flight {
+                step
+            } else {
+                UNKNOWN_APP_NAME.into()
+            };
+        };
+        if !self.in_flight {
+            app.to_owned()
+        } else if self.step == Step::Looking {
+            format!("Looking at {app}")
+        } else {
+            format!("{step} in {app}")
+        }
+    }
 }
 
 /// Held by one admitted action. Input checks it before every native event.
@@ -555,6 +646,8 @@ struct Activity {
 pub(crate) struct Ticket {
     scope: String,
     epoch: u64,
+    /// Its chat's Stops so far: a Stop ends only that chat's actions.
+    stops: u64,
     input: bool,
 }
 
@@ -564,6 +657,7 @@ impl Ticket {
         Self {
             scope: scope.into(),
             epoch: 0,
+            stops: 0,
             input,
         }
     }
@@ -698,17 +792,60 @@ pub(crate) struct BarButton {
     pub style: ButtonStyle,
 }
 
+/// What an agent's work dots draw, as the message box's dots do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Dots {
+    /// A ripple from the middle: looking, or thinking between steps.
+    Ripple,
+    /// Lines filling in: typing.
+    Lines,
+    /// A sweep corner to corner: clicking, pressing, scrolling and the rest.
+    Sweep,
+    /// Breathing slowly: something holds it (a pause).
+    Breathe,
+}
+
+impl Dots {
+    fn for_step(step: Step) -> Self {
+        match step {
+            Step::Looking | Step::ReadingPage | Step::SavingPage | Step::CapturingPage => {
+                Self::Ripple
+            }
+            Step::Typing | Step::SettingValue => Self::Lines,
+            _ => Self::Sweep,
+        }
+    }
+}
+
+/// One agent on the bar: Bot in its project colour, its dots (which are
+/// its Stop), its name and what it is doing.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct BarRow {
+    pub name: String,
+    pub tone: [f64; 3],
+    /// After the name: "Clicking “Next…” in Pages". Never typed text.
+    pub text: String,
+    pub dots: Dots,
+    pub stop: ButtonAction,
+}
+
 /// Everything the native bar draws. Built from state; never from input text.
+///
+/// An `Acting` bar is its `rows`, one per agent, with Pause (or Resume) in
+/// `buttons`. The other kinds are one agent's sentence: `title`, `detail`,
+/// any `lines` and their `buttons`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BarModel {
     pub kind: BarKind,
-    pub color: [f64; 3],
+    /// Bot's colour for a one-agent bar.
+    pub tone: [f64; 3],
     pub title: String,
     pub detail: String,
     /// Further lines under the detail, one each (an upload's files).
     pub lines: Vec<String>,
     /// Left to right.
     pub buttons: Vec<BarButton>,
+    pub rows: Vec<BarRow>,
 }
 
 #[derive(Default)]
@@ -730,11 +867,14 @@ pub(crate) struct Presence {
     tab_uses: std::collections::BTreeMap<u64, TabActivity>,
     next_tab: u64,
     paused: Option<Pause>,
-    activity: Option<Activity>,
+    /// Desktop control's current activity, one per chat, the latest last.
+    activities: Vec<Activity>,
     prompt: Option<Prompt>,
     resolved: HashMap<u64, Outcome>,
     next_prompt: u64,
     epoch: u64,
+    /// How many times the user stopped each chat.
+    stops: HashMap<String, u64>,
     esc: EscDetector,
     session: Session,
     lock: LockLatch,
@@ -764,6 +904,9 @@ impl Presence {
     /// hold.
     pub(crate) fn turn_finished(&mut self, scope: &str) {
         self.tabs_paused.retain(|paused| paused != scope);
+        // Its row leaves the bar with its pointer. A "Stopped" notice stays.
+        self.activities
+            .retain(|activity| activity.scope != scope || activity.stopped || activity.in_flight);
     }
 
     /// Ends a chat's scope (unbind, window close), or all scopes with None.
@@ -773,6 +916,7 @@ impl Presence {
         self.allowed.retain(|id, _| !matches(id));
         self.denied.retain(|id, _| !matches(id));
         self.stopped.retain(|id| !matches(id));
+        self.stops.retain(|id, _| !matches(id));
         self.tabs_stopped.retain(|id| !matches(id));
         self.tabs_paused.retain(|id| !matches(id));
         self.tab_uses.retain(|_, tab| !matches(&tab.scope));
@@ -785,15 +929,13 @@ impl Presence {
                 self.resolved.insert(prompt.id, Outcome::Cancelled);
             }
         }
-        if self
-            .activity
-            .as_ref()
-            .is_some_and(|activity| matches(&activity.scope))
+        let before = self.activities.len();
+        self.activities.retain(|activity| !matches(&activity.scope));
+        if self.activities.len() != before
+            && self.activities.is_empty()
+            && self.paused == Some(Pause::UserActive)
         {
-            self.activity = None;
-            if self.paused == Some(Pause::UserActive) {
-                self.paused = None;
-            }
+            self.paused = None;
         }
         if scope.is_none() {
             self.paused = None;
@@ -970,21 +1112,25 @@ impl Presence {
         app: Option<String>,
         now: Instant,
     ) -> Ticket {
-        let app = app.or_else(|| {
-            self.activity
-                .as_ref()
-                .filter(|activity| activity.scope == scope)
-                .and_then(|activity| activity.app.clone())
-        });
+        let previous = self
+            .activities
+            .iter()
+            .position(|activity| activity.scope == scope);
+        let app = app.or_else(|| previous.and_then(|index| self.activities[index].app.clone()));
         let input = !step.observes();
         if step == Step::Looking && self.paused.is_some() {
             return Ticket {
                 scope: scope.into(),
                 epoch: self.epoch,
+                stops: self.stops_of(scope),
                 input: false,
             };
         }
-        self.activity = Some(Activity {
+        let window = previous.and_then(|index| self.activities[index].window);
+        if let Some(index) = previous {
+            self.activities.remove(index);
+        }
+        self.activities.push(Activity {
             scope: scope.into(),
             app,
             step,
@@ -992,6 +1138,7 @@ impl Presence {
             input,
             shared_input: true,
             target_pid: None,
+            window,
             in_flight: true,
             last: now,
             stopped: false,
@@ -999,8 +1146,13 @@ impl Presence {
         Ticket {
             scope: scope.into(),
             epoch: self.epoch,
+            stops: self.stops_of(scope),
             input,
         }
+    }
+
+    fn stops_of(&self, scope: &str) -> u64 {
+        self.stops.get(scope).copied().unwrap_or(0)
     }
 
     /// Whether the user's Pause holds this chat's use of other tabs, reading
@@ -1123,27 +1275,8 @@ impl Presence {
         live.into_iter().map(|(_, tab)| tab).collect()
     }
 
-    /// "Also: Codex is reading the tab “Inbox”" for the bar's other lines.
-    fn tab_lines(&self, tabs: &[&TabActivity]) -> Vec<String> {
-        tabs.iter()
-            .take(3)
-            .map(|tab| {
-                format!(
-                    "Also: {} \u{2014} {} ({})",
-                    self.actor(&tab.scope).name,
-                    tab.step.label().to_lowercase(),
-                    tab.tab
-                )
-            })
-            .collect()
-    }
-
     pub(crate) fn set_delivery(&mut self, ticket: &Ticket, shared: bool, pid: Option<i32>) {
-        if let Some(activity) = self
-            .activity
-            .as_mut()
-            .filter(|activity| activity.scope == ticket.scope)
-        {
+        if let Some(activity) = self.activity_mut(&ticket.scope) {
             activity.shared_input = shared;
             activity.target_pid = pid;
         }
@@ -1151,13 +1284,65 @@ impl Presence {
 
     /// Publishes the element an action targets. Only its title is shown.
     pub(crate) fn set_element(&mut self, ticket: &Ticket, element: Option<String>) {
-        if let Some(activity) = self
-            .activity
-            .as_mut()
-            .filter(|activity| activity.scope == ticket.scope)
-        {
+        if let Some(activity) = self.activity_mut(&ticket.scope) {
             activity.element = element;
         }
+    }
+
+    /// The window the action uses, for the frame around it. Observing the
+    /// whole screen keeps the window the chat used last.
+    pub(crate) fn set_window(&mut self, ticket: &Ticket, window: Option<(u32, Frame)>) {
+        if let Some(activity) = self.activity_mut(&ticket.scope) {
+            if window.is_some() {
+                activity.window = window;
+            }
+        }
+    }
+
+    /// A window the user moved or resized: the frame follows it.
+    pub(crate) fn move_window(&mut self, window_id: u32, bounds: Frame) -> bool {
+        let mut moved = false;
+        for activity in &mut self.activities {
+            if let Some((id, frame)) = activity.window.as_mut() {
+                if *id == window_id && *frame != bounds {
+                    *frame = bounds;
+                    moved = true;
+                }
+            }
+        }
+        moved
+    }
+
+    fn activity_mut(&mut self, scope: &str) -> Option<&mut Activity> {
+        self.activities
+            .iter_mut()
+            .find(|activity| activity.scope == scope)
+    }
+
+    /// Chats acting on the desktop, the latest first, while their rows show.
+    fn live_activities(&self, now: Instant) -> Vec<&Activity> {
+        self.activities
+            .iter()
+            .rev()
+            .filter(|activity| activity.live(now))
+            .collect()
+    }
+
+    /// The windows agents are using now, each to be outlined, while their
+    /// rows show and nothing holds them (a pause, the lock screen).
+    pub(crate) fn frames(&self, now: Instant) -> Vec<(u32, Frame)> {
+        if self.session != Session::Active || self.paused.is_some() || self.prompt.is_some() {
+            return vec![];
+        }
+        let mut frames: Vec<(u32, Frame)> = Vec::new();
+        for activity in self.live_activities(now) {
+            if let Some((id, frame)) = activity.window {
+                if !frames.iter().any(|(seen, _)| *seen == id) {
+                    frames.push((id, frame));
+                }
+            }
+        }
+        frames
     }
 
     /// Whether this chat may already use an app without asking: it was
@@ -1184,8 +1369,8 @@ impl Presence {
     }
 
     pub(crate) fn end(&mut self, ticket: &Ticket, now: Instant) {
-        if let Some(activity) = self.activity.as_mut() {
-            if activity.scope == ticket.scope && !activity.stopped {
+        if let Some(activity) = self.activity_mut(&ticket.scope) {
+            if !activity.stopped {
                 activity.in_flight = false;
                 activity.last = now;
             }
@@ -1279,7 +1464,7 @@ impl Presence {
         if let Some(pause) = self.paused {
             return Err(format!("{}{INTERRUPTED_SUFFIX}", pause.message()));
         }
-        if self.epoch != ticket.epoch {
+        if self.epoch != ticket.epoch || self.stops_of(&ticket.scope) != ticket.stops {
             return Err(INTERRUPTED.into());
         }
         Ok(())
@@ -1337,7 +1522,10 @@ impl Presence {
         self.stopped.insert(scope.into());
         self.stop_tabs(scope, now);
         self.allowed.remove(scope);
-        self.epoch = self.epoch.wrapping_add(1);
+        // Its actions under way end, even if the user allows it again before
+        // they next check; other chats' actions go on.
+        let stops = self.stops.entry(scope.into()).or_default();
+        *stops = stops.wrapping_add(1);
         // A pause caused by the user's own activity existed only to yield to
         // them; the agent it held back is now stopped. A manual pause stays.
         if self.paused == Some(Pause::UserActive) {
@@ -1353,20 +1541,18 @@ impl Presence {
                     .insert(prompt.id, Outcome::Declined(STOPPED.into()));
             }
         }
-        if let Some(activity) = self.activity.as_mut() {
-            if activity.scope == scope {
-                activity.stopped = true;
-                activity.in_flight = false;
-                activity.last = now;
-            }
+        if let Some(activity) = self.activity_mut(scope) {
+            activity.stopped = true;
+            activity.in_flight = false;
+            activity.last = now;
         }
     }
 
-    fn acting_recently(&self, now: Instant) -> bool {
-        self.activity.as_ref().is_some_and(|activity| {
-            !activity.stopped
-                && (activity.in_flight || now.saturating_duration_since(activity.last) < IDLE_FADE)
-        })
+    /// The chat Esc twice stops: the one that acted last while its row shows.
+    fn latest_acting(&self, now: Instant) -> Option<&Activity> {
+        self.live_activities(now)
+            .into_iter()
+            .max_by_key(|activity| (activity.in_flight, activity.last))
     }
 
     /// Genuine user input reported by the listen tap.
@@ -1385,13 +1571,20 @@ impl Presence {
         if self.session != Session::Active {
             return InputEffect::None;
         }
-        if event == UserEvent::Escape && (self.acting_recently(now) || self.paused.is_some()) {
-            if let Some(scope) = self
-                .activity
-                .as_ref()
-                .filter(|activity| !activity.stopped)
-                .map(|activity| activity.scope.clone())
-            {
+        if event == UserEvent::Escape {
+            let scope = self
+                .latest_acting(now)
+                .or_else(|| {
+                    // While paused, the last chat that acted, however long ago.
+                    self.paused.and_then(|_| {
+                        self.activities
+                            .iter()
+                            .filter(|activity| !activity.stopped)
+                            .max_by_key(|activity| activity.last)
+                    })
+                })
+                .map(|activity| activity.scope.clone());
+            if let Some(scope) = scope {
                 if self.esc.press(now) {
                     self.stop(&scope, now);
                     return InputEffect::Stopped(scope);
@@ -1416,7 +1609,7 @@ impl Presence {
         self.user_run = Some((started, now));
         let sustained = now.saturating_duration_since(started) >= SUSTAINED_INPUT;
         let yield_now = sustained
-            && self.activity.as_ref().is_some_and(|activity| {
+            && self.activities.iter().any(|activity| {
                 !activity.stopped
                     && activity.input
                     && activity.shared_input
@@ -1436,97 +1629,25 @@ impl Presence {
             return None;
         }
         if let Some(prompt) = &self.prompt {
-            let actor = self.actor(&prompt.scope);
-            if let PromptKind::Upload(upload) = &prompt.kind {
-                // The count and site always fit the title; every file is
-                // listed below with its folder.
-                let mut detail = vec![upload.size.clone()];
-                if upload.host != upload.site {
-                    detail.push(format!("on {}", upload.host));
-                }
-                detail.push("Only this upload".into());
-                if let Some(title) = &actor.title {
-                    detail.push(title.clone());
-                }
-                detail.retain(|part| !part.is_empty());
-                return Some(BarModel {
-                    kind: BarKind::Consent,
-                    color: actor.color,
-                    title: format!(
-                        "{} wants to upload {} to {}",
-                        actor.name,
-                        upload.count(),
-                        upload.site
-                    ),
-                    detail: detail.join(" \u{b7} "),
-                    lines: upload.lines(),
-                    buttons: vec![
-                        BarButton {
-                            label: "Don\u{2019}t Allow",
-                            action: ButtonAction::Deny(prompt.id),
-                            style: ButtonStyle::Plain,
-                        },
-                        BarButton {
-                            label: "Allow",
-                            action: ButtonAction::Allow(prompt.id),
-                            style: ButtonStyle::Prominent,
-                        },
-                    ],
-                });
-            }
-            let title = match &prompt.kind {
-                PromptKind::App(_) => format!("{} wants to use your Mac", actor.name),
-                PromptKind::Resume | PromptKind::Upload(_) => {
-                    format!("{} wants to use your Mac again", actor.name)
-                }
-            };
-            // One answer covers every app; name the one that asked first.
-            let start = match &prompt.kind {
-                PromptKind::App(app) if app.key.starts_with("pointer:") => {
-                    "Starting with your mouse and keyboard".to_string()
-                }
-                PromptKind::App(app) if app.key.starts_with("focus:") => {
-                    format!("Starting by bringing {} forward", app.name)
-                }
-                PromptKind::App(app) => format!("Starting with {}", app.name),
-                PromptKind::Resume | PromptKind::Upload(_) => {
-                    "Apps, mouse and keyboard".to_string()
-                }
-            };
-            return Some(BarModel {
-                lines: vec![],
-                kind: BarKind::Consent,
-                color: actor.color,
-                title,
-                detail: match actor.title {
-                    Some(title) => format!("{start} · For this chat · {title}"),
-                    None => format!("{start} · For this chat"),
-                },
-                buttons: vec![
-                    BarButton {
-                        label: "Don\u{2019}t Allow",
-                        action: ButtonAction::Deny(prompt.id),
-                        style: ButtonStyle::Plain,
-                    },
-                    BarButton {
-                        label: "Allow for chat",
-                        action: ButtonAction::Allow(prompt.id),
-                        style: ButtonStyle::Prominent,
-                    },
-                ],
-            });
+            return Some(self.prompt_model(prompt));
         }
-        if let Some(activity) = self.activity.as_ref().filter(|activity| {
-            activity.stopped && now.saturating_duration_since(activity.last) < STOP_NOTICE
-        }) {
+        let stopped = self
+            .activities
+            .iter()
+            .filter(|activity| {
+                activity.stopped && now.saturating_duration_since(activity.last) < STOP_NOTICE
+            })
+            .max_by_key(|activity| activity.last);
+        if let Some(activity) = stopped {
             let actor = self.actor(&activity.scope);
             return Some(BarModel {
-                lines: vec![],
                 kind: BarKind::Stopped,
-                color: actor.color,
-                title: format!("Stopped {}", actor.name),
+                tone: actor.tone,
+                title: format!("Stopped {}", actor.called()),
                 detail: "It can\u{2019}t use your Mac until you allow it again".into(),
+                lines: vec![],
                 buttons: vec![],
+                rows: vec![],
             });
         }
         if let Some(tab) = self
@@ -1537,20 +1658,29 @@ impl Presence {
         {
             let actor = self.actor(&tab.scope);
             return Some(BarModel {
-                lines: vec![],
                 kind: BarKind::Stopped,
-                color: actor.color,
-                title: format!("Stopped {}", actor.name),
+                tone: actor.tone,
+                title: format!("Stopped {}", actor.called()),
                 detail: "It can\u{2019}t use your other tabs until your next message".into(),
+                lines: vec![],
                 buttons: vec![],
+                rows: vec![],
             });
         }
-        let current = self.activity.as_ref().filter(|activity| !activity.stopped);
+        let acting = self.live_activities(now);
         let tabs = self.live_tabs(now);
         if let Some(pause) = self.paused {
             // Whoever the bar would show: desktop control first, else a tab.
-            let scope = current
+            let scope = acting
+                .first()
                 .map(|activity| activity.scope.clone())
+                .or_else(|| {
+                    self.activities
+                        .iter()
+                        .filter(|activity| !activity.stopped)
+                        .max_by_key(|activity| activity.last)
+                        .map(|activity| activity.scope.clone())
+                })
                 .or_else(|| tabs.first().map(|tab| tab.scope.clone()));
             let actor = scope.as_deref().map(|scope| self.actor(scope));
             let name = actor.as_ref().map_or(FALLBACK_NAME, |actor| &actor.name);
@@ -1572,10 +1702,14 @@ impl Presence {
                 style: ButtonStyle::Prominent,
             }];
             if let Some(scope) = scope {
+                let desktop = self
+                    .activities
+                    .iter()
+                    .any(|activity| activity.scope == scope && !activity.stopped);
                 buttons.push(BarButton {
                     label: "Stop",
                     // Stop on a tab's use ends only that use of tabs.
-                    action: if current.is_some() {
+                    action: if desktop {
                         ButtonAction::Stop(scope)
                     } else {
                         ButtonAction::StopTabs(scope)
@@ -1584,124 +1718,177 @@ impl Presence {
                 });
             }
             return Some(BarModel {
-                lines: vec![],
                 kind: BarKind::Paused,
-                color: PAUSED_COLOR,
+                tone: actor.map_or(GREY_TONE, |actor| actor.tone),
                 title,
                 detail,
+                lines: vec![],
                 buttons,
+                rows: vec![],
             });
         }
-        let buttons = |scope: &str| {
-            vec![
-                BarButton {
-                    label: "Pause",
-                    action: ButtonAction::Pause,
-                    style: ButtonStyle::Plain,
-                },
-                BarButton {
-                    label: "Stop",
-                    action: ButtonAction::Stop(scope.to_owned()),
-                    style: ButtonStyle::Destructive,
-                },
-            ]
-        };
-        if let Some(activity) = current.filter(|activity| {
-            activity.in_flight || now.saturating_duration_since(activity.last) < IDLE_FADE
-        }) {
-            let actor = self.actor(&activity.scope);
-            let app = activity.app.as_deref().unwrap_or(UNKNOWN_APP_NAME);
-            let step = activity.step.describe(activity.element.as_deref());
-            return Some(BarModel {
-                lines: self.tab_lines(&tabs),
-                kind: BarKind::Acting,
-                color: actor.color,
-                title: format!("{} is using {app}", actor.name),
-                detail: match &actor.title {
-                    Some(title) => format!("{step} \u{b7} {title}"),
-                    None => step,
-                },
-                buttons: buttons(&activity.scope),
-            });
-        }
-        // Chats whose use of tabs the user paused: one line each beside
-        // another chat's use, so that one keeps its own Pause and Stop.
-        let paused_lines: Vec<String> = self
-            .tabs_paused
+        let mut rows: Vec<BarRow> = acting
             .iter()
-            .map(|scope| format!("Also: {} \u{2014} paused", self.actor(scope).name))
+            .map(|activity| {
+                let actor = self.actor(&activity.scope);
+                BarRow {
+                    name: actor.name,
+                    tone: actor.tone,
+                    text: activity.row_text(),
+                    dots: if activity.in_flight {
+                        Dots::for_step(activity.step)
+                    } else {
+                        Dots::Ripple
+                    },
+                    stop: ButtonAction::Stop(activity.scope.clone()),
+                }
+            })
             .collect();
-        let resume = BarButton {
-            label: "Resume",
-            action: ButtonAction::Resume,
-            style: ButtonStyle::Prominent,
-        };
+        // Other chats' use of tabs: a row each, with a Stop that ends only
+        // that use. Desktop control is not paused or stopped by it.
         let running: Vec<&TabActivity> = tabs
             .iter()
             .copied()
             .filter(|tab| !self.tabs_paused.contains(&tab.scope))
             .collect();
-        let Some((tab, others)) = running.split_first() else {
-            let scope = self.tabs_paused.first()?;
-            let actor = self.actor(scope);
-            return Some(BarModel {
-                lines: paused_lines.into_iter().skip(1).take(3).collect(),
-                kind: BarKind::Paused,
-                color: PAUSED_COLOR,
-                title: format!("Paused {}", actor.name),
-                detail: match &actor.title {
-                    Some(title) => format!("It won\u{2019}t read or use your other tabs until you resume \u{b7} {title}"),
-                    None => "It won\u{2019}t read or use your other tabs until you resume".into(),
+        for tab in &running {
+            let actor = self.actor(&tab.scope);
+            let mut text = format!("{} in {}", tab.step.label(), tab.tab);
+            if let Some(place) = &tab.place {
+                text = format!("{text} \u{b7} {place}");
+            }
+            rows.push(BarRow {
+                name: actor.name,
+                tone: actor.tone,
+                text,
+                dots: if tab.in_flight {
+                    Dots::for_step(tab.step)
+                } else {
+                    Dots::Ripple
                 },
-                buttons: vec![
-                    resume,
-                    BarButton {
-                        label: "Stop",
-                        action: ButtonAction::StopTabs(scope.clone()),
-                        style: ButtonStyle::Destructive,
-                    },
-                ],
+                stop: ButtonAction::StopTabs(tab.scope.clone()),
             });
-        };
-        let actor = self.actor(&tab.scope);
-        // Only the tabs' use: desktop control is not paused or stopped.
-        // Pause holds a use still running; one that has ended has nothing
-        // left to hold.
+        }
+        for scope in &self.tabs_paused {
+            let actor = self.actor(scope);
+            rows.push(BarRow {
+                name: actor.name,
+                tone: actor.tone,
+                text: "Paused \u{b7} won\u{2019}t read or use your other tabs".into(),
+                dots: Dots::Breathe,
+                stop: ButtonAction::StopTabs(scope.clone()),
+            });
+        }
+        if rows.is_empty() {
+            return None;
+        }
+        rows.truncate(MAX_ROWS);
         let mut buttons = Vec::new();
         if !self.tabs_paused.is_empty() {
-            buttons.push(resume);
+            buttons.push(BarButton {
+                label: "Resume",
+                action: ButtonAction::Resume,
+                style: ButtonStyle::Prominent,
+            });
         }
-        if tab.in_flight {
+        // Pause holds desktop control and every chat's use of tabs; on a bar
+        // with only tab uses it holds those still running.
+        if !acting.is_empty() {
+            buttons.push(BarButton {
+                label: "Pause",
+                action: ButtonAction::Pause,
+                style: ButtonStyle::Plain,
+            });
+        } else if running.iter().any(|tab| tab.in_flight) {
             buttons.push(BarButton {
                 label: "Pause",
                 action: ButtonAction::PauseTabs,
                 style: ButtonStyle::Plain,
             });
         }
-        buttons.push(BarButton {
-            label: "Stop",
-            action: ButtonAction::StopTabs(tab.scope.clone()),
-            style: ButtonStyle::Destructive,
-        });
-        let mut lines = self.tab_lines(others);
-        lines.extend(paused_lines);
-        lines.truncate(3);
         Some(BarModel {
-            lines,
             kind: BarKind::Acting,
-            color: actor.color,
-            title: format!("{} is using {}", actor.name, tab.tab),
-            detail: [
-                Some(tab.step.label().to_owned()),
-                tab.place.clone(),
-                actor.title.clone(),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" \u{b7} "),
+            tone: rows[0].tone,
+            title: String::new(),
+            detail: String::new(),
+            lines: vec![],
             buttons,
+            rows,
         })
+    }
+
+    /// A question for the user: may this agent use the Mac (or upload)?
+    fn prompt_model(&self, prompt: &Prompt) -> BarModel {
+        let actor = self.actor(&prompt.scope);
+        let buttons = vec![
+            BarButton {
+                label: "Not now",
+                action: ButtonAction::Deny(prompt.id),
+                style: ButtonStyle::Plain,
+            },
+            BarButton {
+                label: "Allow",
+                action: ButtonAction::Allow(prompt.id),
+                style: ButtonStyle::Prominent,
+            },
+        ];
+        if let PromptKind::Upload(upload) = &prompt.kind {
+            // The count and site always fit the title; every file is
+            // listed below with its folder.
+            let mut detail = vec![upload.size.clone()];
+            if upload.host != upload.site {
+                detail.push(format!("on {}", upload.host));
+            }
+            detail.push("Only this upload".into());
+            if let Some(title) = &actor.title {
+                detail.push(title.clone());
+            }
+            detail.retain(|part| !part.is_empty());
+            return BarModel {
+                kind: BarKind::Consent,
+                tone: actor.tone,
+                title: format!(
+                    "Let {} upload {} to {}?",
+                    actor.called(),
+                    upload.count(),
+                    upload.site
+                ),
+                detail: detail.join(" \u{b7} "),
+                lines: upload.lines(),
+                buttons,
+                rows: vec![],
+            };
+        }
+        let title = match &prompt.kind {
+            PromptKind::App(_) => format!("Let {} use your Mac?", actor.called()),
+            PromptKind::Resume | PromptKind::Upload(_) => {
+                format!("Let {} use your Mac again?", actor.called())
+            }
+        };
+        // One answer covers every app, for this chat only; name the one that
+        // asked first.
+        let start = match &prompt.kind {
+            PromptKind::App(app) if app.key.starts_with("pointer:") => {
+                "starting with your mouse and keyboard".to_string()
+            }
+            PromptKind::App(app) if app.key.starts_with("focus:") => {
+                format!("starting by bringing {} forward", app.name)
+            }
+            PromptKind::App(app) => format!("starting in {}", app.name),
+            PromptKind::Resume | PromptKind::Upload(_) => "apps, mouse and keyboard".to_string(),
+        };
+        BarModel {
+            kind: BarKind::Consent,
+            tone: actor.tone,
+            title,
+            detail: match &actor.title {
+                Some(title) => format!("{title} \u{b7} {start}"),
+                None => format!("For this chat \u{b7} {start}"),
+            },
+            lines: vec![],
+            buttons,
+            rows: vec![],
+        }
     }
 
     /// When the model next changes without any event (fade, notice, expiry).
@@ -1710,11 +1897,11 @@ impl Presence {
         if let Some(prompt) = &self.prompt {
             due.push(prompt.deadline);
         }
-        if let Some(activity) = &self.activity {
+        for activity in &self.activities {
             if activity.stopped {
                 due.push(activity.last + STOP_NOTICE);
             } else if !activity.in_flight && self.paused.is_none() {
-                due.push(activity.last + IDLE_FADE);
+                due.push(activity.last + ROW_LINGER);
             }
         }
         for tab in self.tab_uses.values() {
@@ -1872,6 +2059,7 @@ mod tests {
         resolve_actor(&ActorInput {
             harness: Some(harness.into()),
             title: title.map(Into::into),
+            tone: None,
         })
     }
 
@@ -1903,6 +2091,7 @@ mod tests {
             ActorInput {
                 harness: Some("unknown-harness".into()),
                 title: Some("\u{202e}\u{200b}  ".into()),
+                tone: None,
             },
         ] {
             let resolved = resolve_actor(&input);
@@ -1930,8 +2119,11 @@ mod tests {
         let now = Instant::now();
         presence.begin("chat", Step::Clicking, Some("Safari".into()), now);
         let model = presence.model(now).unwrap();
-        assert_eq!(model.title, "Claude is using Safari");
-        assert_eq!(model.detail, "Clicking \u{b7} Plan trip");
+        assert_eq!(model.kind, BarKind::Acting);
+        assert_eq!(model.rows.len(), 1);
+        assert_eq!(model.rows[0].name, "Claude");
+        assert_eq!(model.rows[0].text, "Clicking in Safari");
+        assert_eq!(model.rows[0].stop, ButtonAction::Stop("chat".into()));
         presence.forget(Some("chat"));
         assert_eq!(presence.actor("chat"), Actor::fallback());
         assert!(presence.model(now).is_none());
@@ -2008,8 +2200,8 @@ mod tests {
         };
         let model = presence.model(now).unwrap();
         assert_eq!(model.kind, BarKind::Consent);
-        assert_eq!(model.title, "An agent wants to use your Mac");
-        assert!(model.detail.starts_with("Starting with Safari"));
+        assert_eq!(model.title, "Let an agent use your Mac?");
+        assert_eq!(model.detail, "For this chat \u{b7} starting in Safari");
         assert_eq!(model.buttons[1].action, ButtonAction::Allow(id));
         assert!(presence.take_outcome(id, now).is_none());
         assert!(!presence.answer(id + 1, true), "stale answers are ignored");
@@ -2115,7 +2307,7 @@ mod tests {
         };
         assert_eq!(
             presence.model(now).unwrap().title,
-            "An agent wants to use your Mac"
+            "Let an agent use your Mac?"
         );
     }
 
@@ -2156,8 +2348,13 @@ mod tests {
         presence.resume();
         // A pause and resume during the action still interrupts it.
         assert_eq!(presence.check(&ticket).unwrap_err(), INTERRUPTED);
+        // Stopping another chat leaves this one's action going; stopping
+        // this chat ends it, even if the user allows the chat again at once.
         let ticket = presence.begin("chat", Step::Typing, None, now);
         presence.stop("other", now);
+        assert!(presence.check(&ticket).is_ok());
+        presence.stop("chat", now);
+        presence.stopped.remove("chat");
         assert_eq!(presence.check(&ticket).unwrap_err(), INTERRUPTED);
         let ticket = presence.begin("chat", Step::Looking, None, now);
         presence.stop("chat", now);
@@ -2231,7 +2428,7 @@ mod tests {
         };
         let model = presence.model(now).unwrap();
         assert_eq!(model.kind, BarKind::Consent);
-        assert_eq!(model.title, "Claude wants to upload 1 file to framer.com");
+        assert_eq!(model.title, "Let Claude upload 1 file to framer.com?");
         assert_eq!(
             model.detail,
             "3 KB \u{b7} Only this upload \u{b7} Publish llms.txt"
@@ -2243,7 +2440,7 @@ mod tests {
                 .iter()
                 .map(|button| button.label)
                 .collect::<Vec<_>>(),
-            ["Don\u{2019}t Allow", "Allow"]
+            ["Not now", "Allow"]
         );
         assert_eq!(model.buttons[1].action, ButtonAction::Allow(id));
         // A second request waits for this answer instead of stacking prompts.
@@ -2387,10 +2584,7 @@ mod tests {
             Admission::Ask(_)
         ));
         let model = presence.model(Instant::now()).unwrap();
-        assert_eq!(
-            model.title,
-            "An agent wants to upload 10 files to framer.com"
-        );
+        assert_eq!(model.title, "Let an agent upload 10 files to framer.com?");
         assert_eq!(model.lines.len(), 10);
         for ((name, folder), line) in files.iter().zip(&model.lines) {
             assert_eq!(line, &format!("{name} \u{2014} {folder}"));
@@ -2568,7 +2762,7 @@ mod tests {
         };
         assert_eq!(
             presence.model(now).unwrap().title,
-            "An agent wants to use your Mac again"
+            "Let an agent use your Mac again?"
         );
         presence.answer(id, true);
         presence.take_outcome(id, now);
@@ -2766,17 +2960,19 @@ mod tests {
         let ticket = presence.begin("chat", Step::Scrolling, Some("Finder".into()), now);
         assert!(presence.next_refresh(now).is_none(), "in flight");
         presence.end(&ticket, now);
-        assert_eq!(presence.next_refresh(now), Some(IDLE_FADE));
-        assert!(presence
-            .model(now + IDLE_FADE - Duration::from_millis(1))
-            .is_some());
-        assert!(presence.model(now + IDLE_FADE).is_none());
+        // The row stays while the agent thinks, as long as its pointer.
+        assert_eq!(presence.next_refresh(now), Some(ROW_LINGER));
+        let thinking = presence
+            .model(now + ROW_LINGER - Duration::from_millis(1))
+            .unwrap();
+        assert_eq!(thinking.rows[0].text, "Finder");
+        assert_eq!(thinking.rows[0].dots, Dots::Ripple);
+        assert!(presence.model(now + ROW_LINGER).is_none());
         // A later observation keeps the app name the chat was using.
-        let looking = presence.begin("chat", Step::Looking, None, now + IDLE_FADE);
-        let model = presence.model(now + IDLE_FADE).unwrap();
-        assert_eq!(model.title, "An agent is using Finder");
-        assert_eq!(model.detail, "Looking at the screen");
-        presence.end(&looking, now + IDLE_FADE);
+        let looking = presence.begin("chat", Step::Looking, None, now + ROW_LINGER);
+        let model = presence.model(now + ROW_LINGER).unwrap();
+        assert_eq!(model.rows[0].text, "Looking at Finder");
+        presence.end(&looking, now + ROW_LINGER);
         presence.stop("chat", now);
         assert_eq!(presence.next_refresh(now), Some(STOP_NOTICE));
         assert!(presence.model(now + STOP_NOTICE).is_none());
@@ -2788,18 +2984,18 @@ mod tests {
         let now = Instant::now();
         presence.begin("chat", Step::Clicking, None, now);
         let acting = presence.model(now).unwrap();
+        // Pause for the bar; each agent's Stop is its own row's dots.
         assert_eq!(
             acting.buttons.iter().map(|b| &b.action).collect::<Vec<_>>(),
-            [&ButtonAction::Pause, &ButtonAction::Stop("chat".into())]
+            [&ButtonAction::Pause]
         );
-        assert_eq!(acting.buttons[1].style, ButtonStyle::Destructive);
+        assert_eq!(acting.rows[0].stop, ButtonAction::Stop("chat".into()));
         presence.pause(Pause::ByUser);
         let paused = presence.model(now).unwrap();
         assert_eq!(paused.title, "Paused");
-        assert_eq!(paused.color, PAUSED_COLOR);
         assert_eq!(paused.buttons[0].label, "Resume");
         // Without a current agent there is nothing to stop.
-        presence.activity = None;
+        presence.activities.clear();
         assert_eq!(presence.model(now).unwrap().buttons.len(), 1);
     }
 
@@ -2951,7 +3147,7 @@ mod tests {
         let at = |ms: u64, state: &mut Presence| {
             let now = start + Duration::from_millis(ms);
             // Keep the agent's action current so only the user's run decides.
-            state.activity.as_mut().unwrap().last = now;
+            state.activities.last_mut().unwrap().last = now;
             state.user_input_in_app(UserEvent::Pointer, now, Some(99))
         };
         // A bump, then a pause longer than the gap: the run restarts.
@@ -2982,8 +3178,8 @@ mod tests {
         let model = state.model(now).unwrap();
         assert!(model
             .detail
-            .starts_with("Starting with your mouse and keyboard"));
-        assert_eq!(model.buttons[1].label, "Allow for chat");
+            .ends_with("starting with your mouse and keyboard"));
+        assert_eq!(model.buttons[1].label, "Allow");
         state.answer(id, true);
         assert_eq!(state.take_outcome(id, now), Some(Outcome::Allowed));
         for _ in 0..3 {
@@ -3105,8 +3301,9 @@ mod tests {
             let ticket = state.begin("chat", step, Some("Mail".into()), now);
             state.set_element(&ticket, Some("Send".into()));
             let model = state.model(now).unwrap();
-            assert_eq!(model.detail, expected);
-            assert!(!model.detail.contains("hunter2") && !model.title.contains("SECRET"));
+            let text = &model.rows[0].text;
+            assert_eq!(text, &format!("{expected} in Mail"));
+            assert!(!text.contains("hunter2") && !text.contains("SECRET"));
         }
         // Without a label the generic step text is used, and a new action
         // never inherits the previous element.
@@ -3114,11 +3311,11 @@ mod tests {
         let ticket = state.begin("chat", Step::Clicking, None, now);
         state.set_element(&ticket, Some("Send".into()));
         state.begin("chat", Step::SettingValue, None, now);
-        assert_eq!(state.model(now).unwrap().detail, "Setting a value");
+        assert_eq!(state.model(now).unwrap().rows[0].text, "Setting a value");
         // Another chat's ticket cannot relabel the current activity.
         let other = Ticket::for_test("other", true);
         state.set_element(&other, Some("Delete".into()));
-        assert_eq!(state.model(now).unwrap().detail, "Setting a value");
+        assert_eq!(state.model(now).unwrap().rows[0].text, "Setting a value");
     }
 
     #[test]
@@ -3219,18 +3416,13 @@ mod tests {
         );
         let bar = presence.model(now).unwrap();
         assert_eq!(bar.kind, BarKind::Acting);
+        assert_eq!(bar.rows.len(), 1);
+        assert_eq!(bar.rows[0].name, "Claude");
         assert_eq!(
-            bar.title,
-            "Claude is using the tab \u{201c}Launch plan evil\u{201d}"
+            bar.rows[0].text,
+            "Reading the page in the tab \u{201c}Launch plan evil\u{201d} \u{b7} Main window \u{b7} Notes"
         );
-        assert_eq!(
-            bar.detail,
-            "Reading the page \u{b7} Main window \u{b7} Notes \u{b7} Grab the Notion page"
-        );
-        assert!(bar
-            .buttons
-            .iter()
-            .any(|button| button.action == ButtonAction::StopTabs("chat".into())));
+        assert_eq!(bar.rows[0].stop, ButtonAction::StopTabs("chat".into()));
         assert!(bar
             .buttons
             .iter()
@@ -3263,23 +3455,26 @@ mod tests {
         let save = presence.begin_tab("saver", Step::SavingPage, "Launch plan", "Window 2", now);
         // Desktop control keeps its own activity, shared pointer included.
         let bar = presence.model(now).unwrap();
-        assert_eq!(bar.title, "Claude is using Safari");
-        assert_eq!(bar.lines.len(), 2);
-        assert!(bar.lines.iter().any(|line| line.contains("Codex")));
-        let activity = presence.activity.as_ref().unwrap();
+        assert_eq!(bar.rows.len(), 3);
+        assert_eq!(bar.rows[0].text, "Clicking in Safari");
+        assert_eq!(bar.rows[0].stop, ButtonAction::Stop("desk".into()));
+        assert!(bar
+            .rows
+            .iter()
+            .any(|row| row.name == "Codex" && row.stop == ButtonAction::StopTabs("reader".into())));
+        let activity = presence.activities.last().unwrap();
         assert!(activity.shared_input && activity.scope == "desk");
-        // One use ending leaves the others on the bar.
+        // One use ending leaves the others on the bar, and desktop control's
+        // row stays while its agent thinks.
         presence.end(&desk, now);
         let later = now + IDLE_FADE;
         let bar = presence.model(later).unwrap();
-        assert_eq!(
-            bar.title,
-            "Claude is using the tab \u{201c}Launch plan\u{201d}"
-        );
-        assert_eq!(bar.lines.len(), 1);
-        assert!(bar.lines[0].contains("Codex"));
+        assert_eq!(bar.rows.len(), 3);
+        assert_eq!(bar.rows[0].text, "Safari");
         presence.end_tab(&read, later);
-        assert!(presence.model(later + IDLE_FADE).unwrap().lines.is_empty());
+        let bar = presence.model(later + IDLE_FADE).unwrap();
+        assert!(!bar.rows.iter().any(|row| row.name == "Codex"));
+        assert_eq!(bar.rows.len(), 2);
         assert!(presence.check_tab(&save).is_ok());
         // Stopping one chat stops only its uses.
         presence.stop("saver", now);
@@ -3374,17 +3569,16 @@ mod tests {
         // Resume and Stop.
         let later = now + IDLE_FADE * 10;
         let bar = presence.model(later).unwrap();
-        assert_eq!(bar.kind, BarKind::Paused);
-        assert_eq!(bar.title, "Paused Claude");
+        assert_eq!(bar.rows.len(), 1);
+        assert_eq!(bar.rows[0].name, "Claude");
+        assert_eq!(bar.rows[0].dots, Dots::Breathe);
+        assert_eq!(bar.rows[0].stop, ButtonAction::StopTabs("reader".into()));
         assert_eq!(
             bar.buttons
                 .iter()
                 .map(|button| button.action.clone())
                 .collect::<Vec<_>>(),
-            [
-                ButtonAction::Resume,
-                ButtonAction::StopTabs("reader".into())
-            ]
+            [ButtonAction::Resume]
         );
         // Its reply ending leaves nothing to hold: the bar goes.
         presence.turn_finished("reader");
@@ -3413,28 +3607,35 @@ mod tests {
         let bar = presence.model(now).unwrap();
         assert_eq!(bar.kind, BarKind::Acting);
         assert_eq!(
-            bar.title,
-            "Codex is using the tab \u{201c}Launch plan\u{201d}"
+            bar.rows
+                .iter()
+                .map(|row| (row.name.as_str(), row.stop.clone(), row.dots))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "Codex",
+                    ButtonAction::StopTabs("saver".into()),
+                    Dots::Ripple
+                ),
+                (
+                    "Claude",
+                    ButtonAction::StopTabs("reader".into()),
+                    Dots::Breathe
+                ),
+            ]
         );
         assert_eq!(
             bar.buttons
                 .iter()
                 .map(|button| button.action.clone())
                 .collect::<Vec<_>>(),
-            [
-                ButtonAction::Resume,
-                ButtonAction::PauseTabs,
-                ButtonAction::StopTabs("saver".into())
-            ]
+            [ButtonAction::Resume, ButtonAction::PauseTabs]
         );
-        assert!(bar
-            .lines
-            .iter()
-            .any(|line| line == "Also: Claude \u{2014} paused"));
-        // Once its use ends, the paused chat's bar is back.
+        // Once its use ends, only the paused chat's row is left.
         presence.end_tab(&saving, now);
         let bar = presence.model(now + IDLE_FADE).unwrap();
-        assert_eq!(bar.title, "Paused Claude");
+        assert_eq!(bar.rows.len(), 1);
+        assert_eq!(bar.rows[0].name, "Claude");
     }
 
     #[test]
@@ -3517,5 +3718,138 @@ mod tests {
         );
         presence.set_session(Session::Active);
         assert!(presence.admit_tab("chat", Step::Navigating).is_ok());
+    }
+
+    #[test]
+    fn project_colours_dress_bot_and_grey_is_the_default() {
+        let purple = resolve_actor(&ActorInput {
+            harness: Some("codex".into()),
+            title: None,
+            tone: Some("purple".into()),
+        });
+        // hsl(266 66% 77%), the dark theme's --aven-mark-purple.
+        let expected = [0.7498, 0.6182, 0.9218];
+        for (got, want) in purple.tone.iter().zip(expected) {
+            assert!((got - want).abs() < 0.001, "{got} {want}");
+        }
+        assert_eq!(tone_color(Some("grey")), GREY_TONE);
+        assert_eq!(tone_color(Some("chartreuse")), GREY_TONE);
+        assert_eq!(tone_color(None), GREY_TONE);
+        assert_eq!(Actor::fallback().tone, GREY_TONE);
+        for tone in ["blue", "red", "yellow", "green", "pink", "teal", "orange"] {
+            let rgb = tone_color(Some(tone));
+            assert!(
+                rgb.iter().all(|channel| (0.0..=1.0).contains(channel)),
+                "{tone}"
+            );
+            assert_ne!(rgb, GREY_TONE);
+        }
+    }
+
+    #[test]
+    fn several_agents_each_get_a_row_with_their_own_stop_newest_first() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("one", Some(actor("claude", None)));
+        presence.bind("two", Some(actor("codex", None)));
+        let one = presence.begin("one", Step::Typing, Some("Pages".into()), now);
+        let two = presence.begin("two", Step::Clicking, Some("Simulator".into()), now);
+        let bar = presence.model(now).unwrap();
+        assert_eq!(
+            bar.rows
+                .iter()
+                .map(|row| (
+                    row.name.as_str(),
+                    row.text.as_str(),
+                    row.dots,
+                    row.stop.clone()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "Codex",
+                    "Clicking in Simulator",
+                    Dots::Sweep,
+                    ButtonAction::Stop("two".into())
+                ),
+                (
+                    "Claude",
+                    "Typing in Pages",
+                    Dots::Lines,
+                    ButtonAction::Stop("one".into())
+                ),
+            ]
+        );
+        // A new step moves that agent's row to the top; one row per chat.
+        presence.end(&one, now);
+        presence.begin("one", Step::Looking, None, now);
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.rows.len(), 2);
+        assert_eq!(bar.rows[0].text, "Looking at Pages");
+        // Stopping one leaves the other running and on the bar.
+        presence.stop("one", now);
+        assert_eq!(presence.check(&two), Ok(()));
+        assert_eq!(presence.model(now).unwrap().kind, BarKind::Stopped);
+        let later = now + STOP_NOTICE;
+        let bar = presence.model(later).unwrap();
+        assert_eq!(bar.rows.len(), 1);
+        assert_eq!(bar.rows[0].name, "Codex");
+        // Its reply ending takes a finished agent's row away at once.
+        presence.end(&two, later);
+        presence.turn_finished("two");
+        assert!(presence.model(later).is_none());
+    }
+
+    #[test]
+    fn esc_twice_stops_the_agent_that_acted_last_while_rows_show() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        let one = presence.begin("one", Step::Clicking, Some("Notes".into()), now);
+        presence.end(&one, now);
+        let later = now + Duration::from_secs(10);
+        let two = presence.begin("two", Step::Clicking, Some("Mail".into()), later);
+        presence.end(&two, later);
+        // Long after the old four-second fade, while the rows still show.
+        let at = later + Duration::from_secs(12);
+        assert_eq!(
+            presence.user_input_in_app(UserEvent::Escape, at, None),
+            InputEffect::None
+        );
+        assert_eq!(
+            presence.user_input_in_app(UserEvent::Escape, at + Duration::from_millis(200), None),
+            InputEffect::Stopped("two".into())
+        );
+        assert!(presence.check(&Ticket::for_test("one", true)).is_ok());
+    }
+
+    #[test]
+    fn frames_follow_the_windows_agents_use_and_hide_while_held() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        let bounds = Frame {
+            x: 100.0,
+            y: 80.0,
+            width: 800.0,
+            height: 600.0,
+        };
+        let ticket = presence.begin("chat", Step::Clicking, Some("Pages".into()), now);
+        presence.set_window(&ticket, Some((7, bounds)));
+        assert_eq!(presence.frames(now), [(7, bounds)]);
+        // An observation of the whole screen keeps the window.
+        presence.end(&ticket, now);
+        let look = presence.begin("chat", Step::Looking, None, now);
+        presence.set_window(&look, None);
+        assert_eq!(presence.frames(now), [(7, bounds)]);
+        // The user moves the window: the frame follows.
+        let moved = Frame { x: 300.0, ..bounds };
+        assert!(presence.move_window(7, moved));
+        assert!(!presence.move_window(7, moved));
+        assert_eq!(presence.frames(now), [(7, moved)]);
+        // Nothing is outlined while paused, or once the row has gone.
+        presence.pause(Pause::ByUser);
+        assert!(presence.frames(now).is_empty());
+        presence.resume();
+        presence.end(&look, now);
+        assert!(presence.frames(now + ROW_LINGER).is_empty());
     }
 }

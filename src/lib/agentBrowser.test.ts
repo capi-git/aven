@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appearanceTone } from "./markTones";
+import { projectAppearance } from "./projectAppearance";
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
@@ -971,7 +973,12 @@ it.each(["codex", "claude"])(
     expect(mocks.invoke).toHaveBeenLastCalledWith("browser_agent_bind", {
       sessionId: "identity",
       browserIds: [],
-      actor: { harness, title: "Fix desktop control" },
+      // Bot wears the project's colour on the desktop bar and pointer.
+      actor: {
+        harness,
+        title: "Fix desktop control",
+        tone: appearanceTone(projectAppearance("/p")),
+      },
       anyTab: true,
       workDir: "/p",
       web: false,
@@ -986,6 +993,30 @@ it.each(["codex", "claude"])(
     });
   },
 );
+
+it("dresses Bot in the project's colour, not its copy's", async () => {
+  const api = await import("./agentBrowser");
+  dispose = api.installAgentBrowserHost({
+    surfaces: () => [],
+    open: vi.fn(),
+  });
+  await api.prepareAgentBrowserPrompt("Work", {
+    sessionId: "copy",
+    cwd: "/Users/me/.worktrees/site/fix",
+    project: "/Users/me/site",
+    harness: "codex",
+  });
+  const bind = mocks.invoke.mock.calls
+    .filter(([name]) => name === "browser_agent_bind")
+    .at(-1)?.[1];
+  expect(bind).toMatchObject({
+    workDir: "/Users/me/.worktrees/site/fix",
+    actor: {
+      harness: "codex",
+      tone: appearanceTone(projectAppearance("/Users/me/site")),
+    },
+  });
+});
 
 it("ends the user's Stop and declines only on a message the user wrote", async () => {
   const api = await import("./agentBrowser");

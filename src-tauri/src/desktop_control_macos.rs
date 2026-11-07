@@ -26,6 +26,8 @@ mod self_test;
 pub(super) fn preview_self_test(app: &AppHandle) {
     self_test::run(app);
 }
+#[path = "desktop_marks_macos.rs"]
+mod marks;
 #[path = "desktop_presence_macos.rs"]
 mod presence_ui;
 #[path = "desktop_session_macos.rs"]
@@ -67,7 +69,7 @@ pub(super) fn presence_shutdown() {
     presence_ui::shutdown();
 }
 pub(super) fn actor_changed(actor: &presence::Actor) {
-    agent_cursor::set_actor(&actor.name, actor.color);
+    agent_cursor::set_actor(&actor.name, actor.tone);
 }
 pub(super) fn session_state() -> presence::Session {
     session::current()
@@ -508,7 +510,7 @@ fn windows() -> Result<Vec<DesktopWindow>, String> {
             }
             let Some(window_id) = number(item, kCGWindowNumber)
                 .and_then(|value| u32::try_from(value).ok())
-                .filter(|id| *id != 0)
+                .filter(|id| *id != 0 && !presence_ui::is_frame(*id))
             else {
                 continue;
             };
@@ -803,7 +805,9 @@ fn target_point_with_exemptions(
     for window in windows {
         // Only this exact mouse-transparent visualization is exempt. Dialogs,
         // menus and every other host-owned window still block targeted input.
-        if exemptions.cursor_window == Some(window.window_id) {
+        if exemptions.cursor_window == Some(window.window_id)
+            || presence_ui::is_frame(window.window_id)
+        {
             continue;
         }
         window
@@ -2276,7 +2280,7 @@ fn app_state(
     .ok_or(
         "That window is no longer on screen. Run windows and retry with an observed windowId.",
     )?;
-    if presence_ui::window_id() == Some(window.window_id)
+    if presence_ui::is_overlay(window.window_id)
         || agent_cursor::window_id() == Some(window.window_id)
     {
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
@@ -2357,7 +2361,7 @@ fn app_state(
 /// The agent marker glides to the window the agent is reading, so the user
 /// can follow where it is looking. Drawing only; a failure changes nothing.
 fn look_at(app: &AppHandle, scope: &str, session: &CaptureSession, window: &DesktopWindow) {
-    if presence_ui::window_id() == Some(window.window_id)
+    if presence_ui::is_overlay(window.window_id)
         || agent_cursor::window_id() == Some(window.window_id)
     {
         return;
