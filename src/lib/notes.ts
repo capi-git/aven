@@ -97,11 +97,6 @@ export async function loadNotes(refresh = false): Promise<Note[]> {
   return promise;
 }
 
-export async function getNote(id: string): Promise<Note | null> {
-  const note = await invoke<Note | null>("notes_get", { id });
-  return note;
-}
-
 export async function upsertNote(note: NoteUpsert): Promise<Note> {
   const saved = await invoke<Note>("notes_upsert", { note });
   invalidateNotes();

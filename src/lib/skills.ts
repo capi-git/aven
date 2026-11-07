@@ -37,6 +37,8 @@ export type SkillSource =
   | "omp"
   | "fx"
   | "grok"
+  | "aven"
+  /** Older builds labelled Aven's built-in skills this way. */
   | "monocode";
 
 type SkillCommon = {
@@ -55,7 +57,7 @@ export type FileSkill = SkillCommon & {
 export type BuiltinSkill = SkillCommon & {
   kind: "builtin";
   scope: "builtin";
-  source: "monocode";
+  source: "aven";
 };
 
 export type NativeSkill = NativeCommand & {
@@ -76,7 +78,7 @@ export const BUILTIN_CREATE_SKILL: BuiltinSkill = {
   description: CREATE_SKILL_DESCRIPTION,
   invocation: CREATE_SKILL_NAME,
   scope: "builtin",
-  source: "monocode",
+  source: "aven",
 };
 
 export const BUILTIN_COMPUTER_USE_SKILL: BuiltinSkill = {
@@ -85,7 +87,7 @@ export const BUILTIN_COMPUTER_USE_SKILL: BuiltinSkill = {
   description: COMPUTER_USE_SKILL_DESCRIPTION,
   invocation: COMPUTER_USE_SKILL_NAME,
   scope: "builtin",
-  source: "monocode",
+  source: "aven",
 };
 
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -328,7 +330,7 @@ function asSkill(skill: DiscoveredSkill): FileSkill {
     invocation: skill.name,
     path: skill.path,
     scope: skill.scope === "user" ? "user" : "project",
-    source: skill.source === "monocode" ? "monocode" : skill.source,
+    source: skill.source === "monocode" ? "aven" : skill.source,
   };
 }
 

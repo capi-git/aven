@@ -916,12 +916,11 @@ html:not(.theme-light)
   }
 }
 
-/* Menus, panels and sheets are the window's own glass, as MonoCode's are, with
+/* Menus, panels and sheets are the window's own glass, with
    soft cards inside. Reduced transparency and more contrast make the token solid
    and turn the blur off.
 
-   The blur sits on its own layer beside the content, as MonoCode's GlassBackdrop
-   does. */
+   The blur sits on its own layer beside the content. */
 html:not(.theme-light) :is(.popover-backdrop, .aven-popover-panel-backdrop) {
   background: var(--aven-glass-overlay);
   border-color: var(--aven-glass-overlay-edge);

@@ -1,6 +1,6 @@
 # Aven design rules
 
-Aven should feel like a calm, plain tool: mostly dark and grey, little on screen, and nothing asking for attention unless it needs you. These rules come from MonoCode's interface, which sets the standard for how clean Aven should look, and from what Aven's owner has asked for and rejected.
+Aven should feel like a calm, plain tool: mostly dark and grey, little on screen, and nothing asking for attention unless it needs you. These rules set the standard for how clean Aven should look, and record what Aven's owner has asked for and rejected.
 
 Follow them in anything you add or change. When a rule and a request disagree, follow the request and update this file if the rule has changed.
 

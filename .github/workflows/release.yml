@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 5
     steps:
       # These jobs never talk to GitHub through git, so the checkout token is
-      # not left in .git/config for later steps (MonoCode f8769ee1).
+      # not left in .git/config for later steps.
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
@@ -79,11 +79,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
       # Reuse compiled dependencies from the previous release; Aven's own
       # crates are always rebuilt. Only release runs write this cache, and a
       # run that fails late (for example at notarization) still keeps it.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: release-macos
           cache-on-failure: true
@@ -174,8 +176,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: real-app-check-macos
           cache-on-failure: true

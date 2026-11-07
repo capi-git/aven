@@ -155,7 +155,7 @@
   }
 }
 
-/* As MonoCode reads: a small mark, a thin bar and each limit with its reset,
+/* A small mark, a thin bar and each limit with its reset,
    no tile, no divider. The chat's context is in the message box and the details. */
 .footer-usage-summary {
   gap: 12px;

@@ -55,8 +55,6 @@ export type GrokPermissionRequest = {
   optionIds: string[];
 };
 
-export type GrokAskQuestion = UserQuestion;
-
 export function askQuestionsFromAcp(params: unknown): UserQuestion[] {
   return questionsFromUnknown(params);
 }

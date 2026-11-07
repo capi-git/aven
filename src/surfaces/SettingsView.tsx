@@ -1238,7 +1238,7 @@ function AppearancePage({
       >
         <Row {...SETTINGS.uiScale.row}>
           {/* A menu, not a live slider: rescaling the page while dragging
-              moves the control out from under the pointer (MonoCode b4f5befb). */}
+              moves the control out from under the pointer. */}
           <Select
             label={SETTINGS.uiScale.label}
             value={String(Math.round(appearance.uiScale * 100))}

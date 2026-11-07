@@ -39,7 +39,6 @@ import type { CrewBoardInfo } from "../lib/crewView";
 import { errorText, logError } from "../lib/errors";
 import { addFeatureIdea } from "../lib/featureCards";
 import { botCopyHost } from "../lib/projectBotCopy";
-import { buildUnifiedFile } from "../lib/unifiedDiff";
 import {
   FEED_FOLLOW_START,
   feedEntryFolds,
@@ -50,7 +49,11 @@ import {
 } from "../lib/feedFollow";
 import { plural } from "../lib/words";
 import { homeElapsed } from "../lib/workspaceHome";
-import { UnifiedDiffView, type UnifiedDiffFileModel } from "./UnifiedDiffView";
+import {
+  LazyUnifiedDiffView,
+  loadUnifiedFileBuilder,
+} from "./LazyUnifiedDiffView";
+import type { UnifiedDiffFileModel } from "./UnifiedDiffView";
 import "../chrome/TeamCard.css";
 import { teamWording } from "../lib/teamThread";
 import "./CrewBoard.css";
@@ -523,6 +526,7 @@ function CrewDiff({
         await markCrewFixChanged(path, card.id);
         return;
       }
+      const buildUnifiedFile = await loadUnifiedFileBuilder();
       const models = await Promise.all(
         diff.files.slice(0, 30).map(async (file) => {
           const texts = await botCopyHost
@@ -564,7 +568,7 @@ function CrewDiff({
     return <p className="crew-sheet-note">Couldn't read the change.</p>;
   return (
     <div className="crew-sheet-diff">
-      <UnifiedDiffView
+      <LazyUnifiedDiffView
         files={files}
         fill={false}
         fileLayout="cards"

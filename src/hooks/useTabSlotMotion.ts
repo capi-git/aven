@@ -10,7 +10,7 @@ import { motionReduced } from "../lib/motion";
 import { TAB_CSS_SPRINGS } from "../lib/motionTokens";
 
 /**
- * MonoCode's tab motion, on the move spring's curve: how long a tab grows
+ * Tab motion, on the move spring's curve: how long a tab grows
  * in or a closed one's space collapses (`--aven-tab-spring-move-ms`).
  */
 export const TAB_SLOT_MOTION_MS = TAB_CSS_SPRINGS.move.ms;
@@ -25,7 +25,7 @@ export type TabSlotGhost = {
 
 /**
  * Opening and closing motion for a strip of fixed-width tabs, adapted from
- * MonoCode's TabWidthMotion. New items grow in; a closed item leaves a ghost
+ * upstream work (see NOTICE). New items grow in; a closed item leaves a ghost
  * of its last width that collapses, so neighbours slide instead of jumping.
  * Items mark themselves with `data-motion-slot={id}` inside the strip.
  */

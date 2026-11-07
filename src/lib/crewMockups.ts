@@ -120,8 +120,23 @@ const CSS_WEB =
  * `vbscript:` or `data:` URL goes (a `data:image/…` picture in `src` may
  * stay), and any web address in a URL attribute, a `style`, a stylesheet
  * or `srcset` goes. Shown inside a shadow root, so its styles stay its own.
+ *
+ * The result is cleaned again until it no longer changes: markup that only
+ * turns harmful when the cleaned text is read a second time (as `innerHTML`
+ * does) is caught, and anything still changing after a few rounds is not
+ * shown at all.
  */
 export function sanitizeMockupHtml(html: string): string {
+  let shown = sanitizeOnce(html);
+  for (let round = 0; round < 3; round++) {
+    const again = sanitizeOnce(shown);
+    if (again === shown) return shown;
+    shown = again;
+  }
+  return "";
+}
+
+function sanitizeOnce(html: string): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   for (const element of [...doc.querySelectorAll(DROPPED_ELEMENTS.join(","))])
     element.remove();

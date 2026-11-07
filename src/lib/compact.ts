@@ -6,7 +6,7 @@ export const COMPACT_COMMAND: BuiltinSkill = {
   invocation: "compact",
   description: "Summarize older messages to free up space in this chat.",
   scope: "builtin",
-  source: "monocode",
+  source: "aven",
 };
 
 /** Match the standalone composer command without consuming ordinary prompt text. */

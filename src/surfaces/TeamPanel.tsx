@@ -11,7 +11,7 @@ import {
 import { formatClockMinutes } from "../lib/projectBots";
 
 /**
- * Avos's quieter pages, after MonoCode's Mono panel (MIT): what Avos and its
+ * Avos's quieter pages: what Avos and its
  * helpers keep in mind, and when they work.
  */
 

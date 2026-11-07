@@ -4001,7 +4001,7 @@ describe("native preview lifecycle", () => {
     expect(container.querySelector(".browser-notice")?.textContent).toContain(
       "Reload rejected",
     );
-    mocks.external.mockRejectedValueOnce(new Error("Brave unavailable"));
+    mocks.external.mockRejectedValueOnce(new Error("Browser unavailable"));
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
@@ -4011,7 +4011,7 @@ describe("native preview lifecycle", () => {
     );
     expect(mocks.external).toHaveBeenLastCalledWith("http://localhost:3000/");
     expect(container.querySelector(".browser-notice")?.textContent).toContain(
-      "Brave unavailable",
+      "Browser unavailable",
     );
     expect(container.textContent).not.toContain("Preview unavailable");
     expect(mocks.layout.mock.calls.every((call) => call[2] === true)).toBe(

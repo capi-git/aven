@@ -30,7 +30,9 @@ import "./SkillsSettings.css";
 type InspectableSkill = FileSkill | BuiltinSkill;
 type SkillSource = "all" | "project" | "personal" | "builtin";
 const skillSourceLabel = (skill: InspectableSkill) =>
-  skill.source === "monocode" ? "Aven" : skill.source;
+  skill.source === "aven" || skill.source === "monocode"
+    ? "Aven"
+    : skill.source;
 const NO_SKILLS: InspectableSkill[] = [];
 /** Rows rendered at once; a catalog can hold thousands of skills. */
 const SKILL_PAGE_SIZE = 200;

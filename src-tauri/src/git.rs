@@ -619,16 +619,6 @@ pub async fn git_push(cwd: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
-/// Fast-forward the current branch from its upstream.
-#[tauri::command]
-pub async fn git_pull(cwd: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        git_checked(&expand_home(&cwd), &["pull", "--ff-only"])
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 /// Pull incoming commits, then push local commits.
 #[tauri::command]
 pub async fn git_sync(cwd: String) -> Result<(), String> {

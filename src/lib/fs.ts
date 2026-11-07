@@ -37,6 +37,7 @@ export type DiscoveredSkill = {
     | "omp"
     | "fx"
     | "grok"
+    | "aven"
     | "monocode";
 };
 
@@ -247,10 +248,6 @@ export function gitStagedContext(cwd: string): Promise<GitStagedContext> {
 
 export function gitPush(cwd: string): Promise<void> {
   return invoke<void>("git_push", { cwd });
-}
-
-export function gitPull(cwd: string): Promise<void> {
-  return invoke<void>("git_pull", { cwd });
 }
 
 export function gitSync(cwd: string): Promise<void> {
@@ -475,18 +472,6 @@ export async function pickFiles(
 
 export function cloneRepo(url: string, parent: string): Promise<string> {
   return invoke<string>("clone_repo", { url, parent }).then(slash);
-}
-
-export function readFilePreview(
-  path: string,
-  maxLines = 6,
-  startLine?: number,
-): Promise<string[]> {
-  return invoke<string[]>("read_file_preview", {
-    path,
-    maxLines,
-    startLine,
-  });
 }
 
 export type FileMtime = {

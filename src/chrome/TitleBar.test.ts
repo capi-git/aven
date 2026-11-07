@@ -1039,7 +1039,7 @@ describe("browser tab integration", () => {
     expect(labels.some((label) => label?.startsWith("Combine"))).toBe(false);
   });
 
-  describe("MonoCode-style tabs", () => {
+  describe("window row of tabs", () => {
     const aux = (target: Element, button: number) =>
       act(async () => {
         target.dispatchEvent(

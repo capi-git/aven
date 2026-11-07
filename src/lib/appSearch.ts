@@ -426,10 +426,6 @@ export function flattenGrouped(grouped: GroupedHits): AppSearchHit[] {
   ];
 }
 
-export function groupedCount(grouped: GroupedHits): number {
-  return flattenGrouped(grouped).length;
-}
-
 function isSearchableRole(role: Block["role"]): boolean {
   return (
     role === "user" ||

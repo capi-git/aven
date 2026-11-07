@@ -760,7 +760,7 @@ html.is-mac .personal-shell[data-unified-toolbar] > .workspace-status-bar {
    drawn behind either, and no line between them. */
 html .personal-shell[data-unified-toolbar],
 html.has-native-glass:not(.theme-light) .personal-shell[data-unified-toolbar] {
-  /* The inset layout, from MonoCode (MIT): one outer layer around a rounded
+  /* The inset layout: one outer layer around a rounded
      card that is the deepest plane. Over the window's blur the outer layer
      is 80% and the card 40%, so nothing behind the window reads through. */
   --aven-inset-surface: #0d0d0d;

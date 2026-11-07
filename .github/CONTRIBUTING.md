@@ -12,9 +12,12 @@ Install and sign in to an agent CLI to test real agent sessions. You can run fro
 
 - `src/chrome/`: sidebar, title bar, composer, tabs, and pickers.
 - `src/surfaces/`: conversations, browser panes, editors, diffs, terminals, Notes, and Inbox.
-- `src/lib/harness/`: provider adapters and protocol translation.
+- `src/hooks/`: reusable stateful React hooks.
+- `src/lib/`: non-UI logic; `src/lib/harness/` holds provider adapters and protocol translation.
 - `src-tauri/src/`: native window behavior, processes, filesystem operations, Git, and local storage.
-- `docs/`: build, release, and feature documentation.
+- `src-tauri/chromium/`: the embedded Chromium bridge (macOS).
+- `scripts/`: build, release, packaging and smoke-test tooling.
+- `docs/`: build, release, and feature documentation. Start with [docs/README.md](../docs/README.md).
 
 ## Check your change
 

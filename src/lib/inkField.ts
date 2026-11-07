@@ -5,9 +5,9 @@
  * halftone: 3px cells, each on or off through a 4×4 Bayer matrix, so it reads
  * as texture rather than a coloured wash.
  *
- * Adapted from MonoCode's empty-session canvas (`crates/monocode-gpui/src/
- * ink_field.rs` and `visuals/dither.rs` at 5a31951, MIT, see NOTICE). Aven's
- * ink is grey, in the interface's own text colour; MonoCode's was tinted.
+ * Adapted from the upstream empty-session canvas (MIT; see NOTICE and
+ * docs/UPSTREAM.md). Aven's ink is grey, in the interface's own text colour;
+ * the original was tinted.
  *
  * Pure and DOM-free: positions are CSS pixels from the field's top left,
  * time is seconds, and `paint` fills a cell-per-pixel buffer the caller puts
@@ -25,7 +25,7 @@ export const INK_MAX_STEP = 0.05;
 
 /**
  * How much of a cell's tone becomes coverage. Below 1, so the halftone stays
- * sparse and never fills in solid. A little above MonoCode's (0.55 and 0.5):
+ * sparse and never fills in solid. A little above the original's (0.55 and 0.5):
  * grey ink reads fainter than its tinted ink did.
  */
 const INK_COVERAGE = 0.7;
@@ -278,7 +278,7 @@ export class InkField {
     const { ink, vx, vy, scratch, cols, rows } = this;
 
     // Trails: ink thickens with speed and inherits the pointer's motion.
-    // A little wider and denser than MonoCode's (6 + v × 0.006 up to 16,
+    // A little wider and denser than the original's (6 + v × 0.006 up to 16,
     // and 0.28), so a grey trail reads as a wisp rather than a dotted line.
     const splats = this.splats;
     this.splats = [];

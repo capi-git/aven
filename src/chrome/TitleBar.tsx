@@ -2541,7 +2541,7 @@ function TitleBarComponent({
   );
   joiningRef.current = sortable.joining;
   const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  // Tabs grow in and closed tabs collapse, as in MonoCode. A lone title
+  // Tabs grow in and closed tabs collapse. A lone title
   // changes its one tab in place, and becoming a row of tabs (or one again)
   // replaces the row rather than growing every tab in.
   const slotMotion = useTabSlotMotion(

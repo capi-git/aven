@@ -59,7 +59,7 @@ type Props = {
   /**
    * Display name of the model that wrote this turn. It is hidden from its own
    * provider's list, so a same-provider second opinion always comes from a
-   * different model (MonoCode 90c5a655).
+   * different model.
    */
   excludeModelName?: string;
   disabled?: boolean;
