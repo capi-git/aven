@@ -4,6 +4,7 @@ import {
   holdMotionPages,
   lastMotionImage,
   panesMoved,
+  refreshMotionImages,
   registerMotionPage,
   releaseMotionPages,
   releaseMotionPagesAfter,
@@ -32,6 +33,24 @@ describe("browser pages in motions", () => {
   afterEach(() => {
     resetMotionPages();
     vi.useRealTimers();
+  });
+
+  it("keeps a picture of a live page without holding it", async () => {
+    const web = fakePage(async () => "data:now");
+    registerMotionPage("web", web.page);
+    await refreshMotionImages(["web", "missing"]);
+    expect(lastMotionImage("web")).toBe("data:now");
+    expect(web.log).toEqual([]);
+  });
+
+  it("leaves a held page's picture alone", async () => {
+    let shot = "data:held";
+    const web = fakePage(async () => shot);
+    registerMotionPage("web", web.page);
+    await holdMotionPages(["web"]);
+    shot = "data:later";
+    await refreshMotionImages(["web"]);
+    expect(lastMotionImage("web")).toBe("data:held");
   });
 
   it("keeps a page held by a later motion past the first one's timer", async () => {

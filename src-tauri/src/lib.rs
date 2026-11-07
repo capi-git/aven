@@ -69,6 +69,7 @@ mod mcp_manage;
 mod memory_keeper;
 mod memory_pressure;
 mod menu;
+mod modifier_keys;
 mod native_popup;
 mod notes;
 mod notifications;
@@ -377,6 +378,7 @@ pub fn run() {
             dev_smoke::dev_perf_sample,
             dev_smoke::dev_perf_keep_visible,
             dev_smoke::dev_perf_mark,
+            modifier_keys::control_key_held,
             #[cfg(all(debug_assertions, target_os = "macos"))]
             dev_smoke_pointer::dev_smoke_pointer,
             #[cfg(all(debug_assertions, target_os = "macos"))]
