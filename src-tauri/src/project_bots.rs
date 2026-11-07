@@ -1068,6 +1068,12 @@ fn valid_pr_branch(branch: &str) -> bool {
     })
 }
 
+/// A pull request's title (already trimmed) and body fit: the title in
+/// characters, as Review cuts it, and the body in bytes.
+fn valid_pr_text(title: &str, body: &str) -> bool {
+    !title.is_empty() && title.chars().count() <= 200 && body.len() <= 20_000
+}
+
 /// Open a pull request with exactly the reviewed range (see
 /// `checked_range`): its patch as one commit on the remote's main branch,
 /// pushed to a new `avos/` branch by Aven itself (never by an agent), so the
@@ -1088,7 +1094,7 @@ pub fn publish_range(
     body: &str,
 ) -> Result<String, String> {
     let title = title.trim();
-    if !valid_pr_branch(branch) || title.is_empty() || title.len() > 200 || body.len() > 20_000 {
+    if !valid_pr_branch(branch) || !valid_pr_text(title, body) {
         return Err("Invalid pull request".into());
     }
     let root = repo_root(cwd)?;
@@ -1463,6 +1469,7 @@ pub async fn bot_copy_serve(
     hash: String,
     cards: Vec<StackedCard>,
 ) -> Result<crate::copy_serve::CopyServer, String> {
+    try_it_here()?;
     let bots = bots_dir(&app)?;
     blocking(move || {
         let worktree = reviewed_copy(&bots, &copy, &from, &to, &hash, &cards)?;
@@ -1470,14 +1477,30 @@ pub async fn bot_copy_serve(
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| "copy".into());
-        let log = bots
-            .parent()
-            .unwrap_or(&bots)
-            .join("copy-serve")
-            .join(format!("{name}.log"));
-        crate::copy_serve::serve(&worktree, &to, &log, crate::harness::login_shell_path())
+        let serving = bots.parent().unwrap_or(&bots).join("copy-serve");
+        let log = serving.join(format!("{name}.log"));
+        crate::copy_serve::serve(
+            &worktree,
+            &to,
+            &serving.join(&name),
+            &log,
+            crate::harness::login_shell_path(),
+        )
     })
     .await
+}
+
+/// Try it runs package scripts the Mac way (`npm` on PATH, a process group
+/// to stop): elsewhere it isn't offered yet.
+fn try_it_here() -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        Ok(())
+    } else {
+        Err(
+            "Try it works only on a Mac for now. Apply the change to try it in your own folder."
+                .into(),
+        )
+    }
 }
 
 /// Stop Avos's copy's Try it server, if one runs.
@@ -1578,6 +1601,22 @@ mod tests {
             assert!(!valid_pr_branch(bad), "{bad}");
         }
         assert!(!valid_pr_branch(&format!("avos/{}", "a".repeat(65))));
+    }
+
+    #[test]
+    fn pull_request_titles_count_characters_and_bodies_bytes() {
+        // 200 characters of three bytes each: as long as Review cuts it.
+        assert!(valid_pr_text(&"é".repeat(100), ""));
+        assert!(valid_pr_text(&"界".repeat(200), "body"));
+        assert!(!valid_pr_text(&"界".repeat(201), "body"));
+        assert!(!valid_pr_text("", "body"));
+        assert!(valid_pr_text("Title", &"a".repeat(20_000)));
+        assert!(!valid_pr_text("Title", &"é".repeat(10_001)));
+    }
+
+    #[test]
+    fn try_it_runs_only_on_a_mac() {
+        assert_eq!(try_it_here().is_ok(), cfg!(target_os = "macos"));
     }
 
     fn temp_dir(name: &str) -> PathBuf {
