@@ -93,4 +93,4 @@ The visual demo uses `AVEN_DEV_PRESENCE_PREVIEW=1 AVEN_DEV_CURSOR_PREVIEW=1`.
 It draws a labelled preview, exercises the native interruption monitor and
 posts no input. The functional check uses `AVEN_DEV_DESKTOP_SELF_TEST=1` and
 requires Aven Dev's existing permissions and enabled setting. See
-[DEVELOPMENT.md](../DEVELOPMENT.md) for the isolated runner and fixture details.
+[DEVELOPMENT.md](../../DEVELOPMENT.md) for the isolated runner and fixture details.

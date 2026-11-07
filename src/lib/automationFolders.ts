@@ -126,14 +126,6 @@ export function groupAutomationsByProject(
   );
 }
 
-/** The folder an automation (or a deleted one's runs) is in. */
-export function folderOfAutomation(
-  folders: readonly AutomationFolder[],
-  id: string,
-): AutomationFolder | undefined {
-  return folders.find((folder) => folder.items.some((item) => item.id === id));
-}
-
 export type AutomationTone = ScheduledRunStatus | "never" | "off" | "deleted";
 
 /**

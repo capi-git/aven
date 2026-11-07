@@ -353,7 +353,7 @@ html.theme-light .personal-shell {
   color: color-mix(in srgb, var(--color-content) 80%, transparent);
 }
 /* Smaller provider badges in tabs; the sidebar keeps its larger marks. */
-/* MonoCode-sized marks: a 16px badge keeps the logo legible without
+/* A 16px badge keeps the logo legible without
    outweighing the title. */
 .personal-shell .personal-title-tab-identity .provider-mark {
   width: 16px;
@@ -663,8 +663,7 @@ html.theme-light .personal-shell {
   }
 }
 
-/* Tabs grow in and closed tabs collapse, after MonoCode's TabWidthMotion,
-   on the move spring's curve. The one layout animation in tab motion: a
+/* Tabs grow in and closed tabs collapse on the move spring's curve. The one layout animation in tab motion: a
    few small boxes in the strip, for every way a tab opens or closes. See
    useTabSlotMotion. */
 .personal-shell [data-tab-opening] {
@@ -1344,7 +1343,7 @@ html.theme-light .personal-shell {
   display: none;
 }
 
-/* The window's own row of tabs, as MonoCode has it: each tab named and starting
+/* The window's own row of tabs: each tab named and starting
    at its left, up to 224px wide and shrinking together only once the row is
    full, with New chat right after the last one. The rest of the row is free to
    take the window by. A pane's row of tabs keeps its equal widths. */

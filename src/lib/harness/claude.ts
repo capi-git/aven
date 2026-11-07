@@ -209,13 +209,6 @@ const launchedMemoryByThread = new Map<string, string>();
 let resolveClaudeBinaryImpl: () => Promise<{ path: string }> =
   resolveClaudeBinary;
 
-/** Test seam. */
-export function setClaudeBinaryResolver(
-  fn: () => Promise<{ path: string }>,
-): void {
-  resolveClaudeBinaryImpl = fn;
-}
-
 export async function sendClaudeTurn(input: SendTurnInput): Promise<void> {
   let live: Live;
   try {

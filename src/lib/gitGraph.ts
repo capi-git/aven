@@ -85,8 +85,6 @@ const SWIMLANE_CURVE_RADIUS = 5;
 const CIRCLE_RADIUS = 4;
 const CIRCLE_STROKE_WIDTH = 2;
 
-export const GRAPH_ROW_PX = SWIMLANE_HEIGHT;
-
 /** Lane colors, cycled as new branches appear. */
 export const COLOR_REGISTRY = [
   "#FFB000",
@@ -102,8 +100,6 @@ export const HISTORY_ITEM_REF_COLOR = "#75BEFF";
 export const HISTORY_ITEM_REMOTE_REF_COLOR = "#B180D7";
 /** Fallback when a node has no swimlane color. */
 const HISTORY_ITEM_REF_FALLBACK = HISTORY_ITEM_REF_COLOR;
-
-export const GRAPH_LANE_COLORS = COLOR_REGISTRY;
 
 function rot(index: number, modulo: number): number {
   return ((index % modulo) + modulo) % modulo;
@@ -283,13 +279,6 @@ function findLastIndex(nodes: Swimlane[], id: string): number {
     if (nodes[i]?.id === id) return i;
   }
   return -1;
-}
-
-export function historyItemIndex(viewModel: HistoryItemViewModel): number {
-  const inputIndex = viewModel.inputSwimlanes.findIndex(
-    (node) => node.id === viewModel.sha,
-  );
-  return inputIndex !== -1 ? inputIndex : viewModel.inputSwimlanes.length;
 }
 
 /** One row of graph paths and circles. */

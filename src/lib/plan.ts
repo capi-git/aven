@@ -6,7 +6,7 @@ export const PLAN_COMMAND: BuiltinSkill = {
   invocation: "plan",
   description: "Plan first; you approve before it changes any files.",
   scope: "builtin",
-  source: "monocode",
+  source: "aven",
 };
 
 /** Consume `/plan` when it is used as the leading composer command. */

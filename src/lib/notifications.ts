@@ -7,11 +7,7 @@ import {
   type ActivityOutcome,
   type ActivityTeam,
 } from "./activity";
-import {
-  NO_LEAD_DECIDED,
-  requestsAreUsers,
-  type LeadDecided,
-} from "./teamAttention";
+import { requestsAreUsers, type LeadDecided } from "./teamAttention";
 
 const KEY = "monocode.notifications";
 
@@ -369,34 +365,6 @@ export async function publishSessionActivity(
   } catch {
     return { added: true, bannerSent: false, playSound };
   }
-}
-
-/** Compatibility for callers migrating to explicit per-turn/per-request identities. */
-export async function notifySession(
-  session: Session,
-  event: NotificationEvent,
-  sessionVisible: boolean,
-): Promise<boolean> {
-  const outcome =
-    event === "finished"
-      ? "completed"
-      : event === "needsInput"
-        ? session.pendingQuestion
-          ? "question"
-          : "approval"
-        : event;
-  const pending = pendingSessionActivityEvents(session, NO_LEAD_DECIDED).find(
-    (item) => item.outcome === outcome,
-  );
-  const result = await publishSessionActivity(
-    session,
-    pending ?? {
-      id: `${sessionTurnActivityId(session)}:${outcome}`,
-      outcome,
-    },
-    sessionVisible,
-  );
-  return result.bannerSent;
 }
 
 /**

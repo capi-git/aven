@@ -368,7 +368,8 @@ fn security_output(args: &[String]) -> Option<String> {
 #[cfg(target_os = "macos")]
 fn security_run(args: &[String]) -> Option<String> {
     use std::process::{Command, Stdio};
-    let mut cmd = Command::new("security");
+    // By full path: PATH comes from the login shell, and this reads a credential.
+    let mut cmd = Command::new("/usr/bin/security");
     cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

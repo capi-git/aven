@@ -3,18 +3,6 @@ import { failureText, logError } from "./errors";
 import { pathKey, slash } from "./paths";
 import { revealFile } from "./revealFile";
 
-/**
- * Files an agent makes for the user (an export, a PDF, an image, a CSV, a
- * zip) live in the project's hidden `.aven/files` folder, which keeps itself
- * out of Git. A chat link to one is a download link: a click saves a copy
- * to Downloads the way a browser does, keeping both when the name is taken,
- * and the link then offers to open the copy or show it in Finder.
- *
- * The agent makes the folder with its first file; Aven makes nothing up
- * front, so a project or a helper's copy never handed a file has no `.aven`.
- */
-export const AGENT_FILES_FOLDER = ".aven/files";
-
 /** What a click on a download link has done so far, per agent file. */
 export type ChatDownload =
   | { state: "saving" }

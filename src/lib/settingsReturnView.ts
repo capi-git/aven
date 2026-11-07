@@ -1,7 +1,7 @@
 /**
  * Which full-screen utility Settings replaced, so closing Settings can return
- * to it rather than dropping the user back in the workspace (MonoCode
- * 8fae5666). Opening Settings closes Search, Inbox, Automations and Notes; at
+ * to it rather than dropping the user back in the workspace.
+ * Opening Settings closes Search, Inbox, Automations and Notes; at
  * most one of them is open at a time.
  */
 export type SettingsReturnView =

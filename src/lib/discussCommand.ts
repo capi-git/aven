@@ -8,7 +8,7 @@ export const DISCUSS_COMMAND: BuiltinSkill = {
   description:
     "Turn on Discuss mode: another chat talks your message over with this one.",
   scope: "builtin",
-  source: "monocode",
+  source: "aven",
 };
 
 /** Consume a leading `/discuss`; the rest of the message is the topic. */

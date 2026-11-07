@@ -5,7 +5,6 @@ import {
   forgetSession,
   respondApproval,
   sendTurn,
-  setPiBinaryResolver as setFlavorBinaryResolver,
   steerTurn,
   stopSession,
 } from "./piFamily";
@@ -61,11 +60,4 @@ export function bindOmpSession(
   cwd: string,
 ): void {
   bindSession(OMP_FLAVOR, threadId, providerSessionId, cwd);
-}
-
-/** Test seam. */
-export function setOmpBinaryResolver(
-  fn: () => Promise<{ path: string }>,
-): void {
-  setFlavorBinaryResolver(OMP_FLAVOR, fn);
 }

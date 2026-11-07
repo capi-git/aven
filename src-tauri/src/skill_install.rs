@@ -20,8 +20,9 @@ use crate::dirs_home;
 use crate::fs::expand_home;
 
 const OUTPUT_EVENT: &str = "skills-cli-output";
-/// The major version whose `--list` text and `--json` result Aven reads.
-const CLI_PACKAGE: &str = "skills@1";
+/// The exact version whose `--list` text and `--json` result Aven reads.
+/// Pinned so a new upload to npm never runs here unreviewed; bump it on purpose.
+const CLI_PACKAGE: &str = "skills@1.7.6";
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(120);
 const ADD_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_SOURCE: usize = 200;
@@ -809,7 +810,7 @@ mod tests {
         std::fs::create_dir_all(&project).unwrap();
 
         let find = plan_run(&request(SkillsCliAction::Find, "hallmark"), Some(&home)).unwrap();
-        assert_eq!(find.args, ["--yes", "skills@1", "find", "hallmark"]);
+        assert_eq!(find.args, ["--yes", "skills@1.7.6", "find", "hallmark"]);
         assert!(find.stream_stdout);
         assert_eq!(find.root, None);
 
@@ -820,7 +821,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             list.args,
-            ["--yes", "skills@1", "add", "nutlope/hallmark", "--list"]
+            ["--yes", "skills@1.7.6", "add", "nutlope/hallmark", "--list"]
         );
         assert_eq!(list.cwd, home);
         assert_eq!(list.timeout, LOOKUP_TIMEOUT);
@@ -832,7 +833,7 @@ mod tests {
             plan.args,
             [
                 "--yes",
-                "skills@1",
+                "skills@1.7.6",
                 "add",
                 "nutlope/hallmark",
                 "--yes",
@@ -854,7 +855,7 @@ mod tests {
             plan.args,
             [
                 "--yes",
-                "skills@1",
+                "skills@1.7.6",
                 "add",
                 "owner/repo",
                 "--yes",
@@ -869,7 +870,7 @@ mod tests {
         assert_eq!(plan.root.as_deref(), Some(project.as_path()));
         assert_eq!(
             display_command(&plan.args),
-            "npx --yes skills@1 add owner/repo --yes --json --skill alpha --skill \"Convex Best Practices\""
+            "npx --yes skills@1.7.6 add owner/repo --yes --json --skill alpha --skill \"Convex Best Practices\""
         );
 
         let mut no_project = chosen;
@@ -1040,12 +1041,12 @@ mod tests {
 
     #[test]
     fn the_cli_runs_directly_with_plain_output_and_no_agent_markers() {
-        let args = vec!["--yes".to_string(), "skills@1".to_string()];
+        let args = vec!["--yes".to_string(), "skills@1.7.6".to_string()];
         let command = cli_command(Path::new("npx"), &args, &std::env::temp_dir());
         assert_eq!(command.get_program(), "npx");
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            ["--yes", "skills@1"]
+            ["--yes", "skills@1.7.6"]
         );
         let envs: HashMap<_, _> = command
             .get_envs()

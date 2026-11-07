@@ -676,16 +676,6 @@ export async function generateHarnessPrContent(
   return adapter.generatePrContent(cwd);
 }
 
-export async function generateHarnessBranchName(
-  harness: HarnessId,
-  cwd: string,
-  message: string,
-): Promise<string | null> {
-  const adapter = getHarness(harness);
-  if (!adapter?.generateBranchName) return null;
-  return adapter.generateBranchName(cwd, message);
-}
-
 export async function warmupHarnessText(
   harness: HarnessId,
   cwd: string,

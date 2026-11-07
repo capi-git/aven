@@ -72,7 +72,7 @@ export function workspaceTabCwd(
   return paneProject(focusedFileTab(tab)?.cwd);
 }
 
-// Pane matching adapted from MonoCode #144 / 5c31b3a4b2084d7a1eb379d68b42ec919bf7c43e.
+// Pane matching adapted from upstream work (see docs/UPSTREAM.md).
 // Aven only matches mounted panes; workspaceTabCwd retains tab ownership rules.
 function mountedPaneCwd(
   tab: WorkspaceTab,
@@ -303,10 +303,6 @@ export function applyPlaceSessionOnPane({
   }
 
   return { tabs: nextTabs, sessions: nextSessions, activeTabId: targetTabId };
-}
-
-export function isGroupableProject(project: string | null): project is string {
-  return !!project && project !== "~";
 }
 
 export function replaceGroupInTabOrder(

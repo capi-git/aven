@@ -124,17 +124,6 @@ const threadInflight = new Map<string, Promise<GithubWorkItemThread>>();
 const prDiffByKey = new Map<string, GithubPrDiff>();
 const prDiffInflight = new Map<string, Promise<GithubPrDiff>>();
 
-export function clearInboxCache() {
-  inboxListCache = null;
-  inboxListInflight.clear();
-  repoByPath.clear();
-  detailsByKey.clear();
-  threadByKey.clear();
-  threadInflight.clear();
-  prDiffByKey.clear();
-  prDiffInflight.clear();
-}
-
 export function inboxListCacheKey(
   projects: readonly { path: string }[],
   query: InboxQuery,
@@ -153,13 +142,6 @@ export function peekInboxList(
   const key = inboxListCacheKey(projects, query);
   if (inboxListCache?.key !== key) return null;
   return { items: inboxListCache.items, errors: inboxListCache.errors };
-}
-
-export function peekInboxItems(
-  projects: readonly { path: string }[],
-  query: InboxQuery,
-): InboxItem[] | null {
-  return peekInboxList(projects, query)?.items ?? null;
 }
 
 export function inboxListIsFresh(
@@ -592,10 +574,6 @@ export function sortInboxItems(items: InboxItem[]): InboxItem[] {
 
 export function inboxItemKey(item: InboxItem): string {
   return `${item.provider}:${inboxIdentityKey(item)}`;
-}
-
-export function githubWorkItemKey(item: GithubWorkItem): string {
-  return `${item.repo}:${item.kind}:${item.number}`;
 }
 
 export function inboxItemStatus(item: {

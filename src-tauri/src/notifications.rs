@@ -264,7 +264,7 @@ mod platform {
             "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id={}",
             app.config().identifier
         );
-        std::process::Command::new("open")
+        std::process::Command::new("/usr/bin/open")
             .arg(url)
             .spawn()
             .map(|_| ())

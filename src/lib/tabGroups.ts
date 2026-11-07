@@ -242,18 +242,6 @@ export function saveTabGroupLabel(project: string, label: string): void {
     window.dispatchEvent(new Event(TAB_GROUP_LABELS_CHANGED));
 }
 
-export function subscribeTabGroupLabels(listener: () => void): () => void {
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === LABEL_KEY || event.key === null) listener();
-  };
-  window.addEventListener(TAB_GROUP_LABELS_CHANGED, listener);
-  window.addEventListener("storage", onStorage);
-  return () => {
-    window.removeEventListener(TAB_GROUP_LABELS_CHANGED, listener);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
 export function loadTabGroupLogos(): Record<string, string> {
   return readRecord(LOGO_KEY);
 }
@@ -288,13 +276,6 @@ export function clearTabGroupSettings(project: string): void {
     changed = writeRecord(key, next) || changed;
   }
   if (changed) notifyProjectAppearanceChanged();
-}
-
-export function resolveTabGroupMascot(
-  project: string,
-  overrides?: Record<string, string>,
-): string | null {
-  return overrides?.[project] ?? null;
 }
 
 export function resolveTabGroupLogo(
@@ -717,30 +698,6 @@ export function insertTabInGroup<T extends GroupedTab>(
 ): T[] {
   const without = tabs.filter((entry) => entry.id !== tab.id);
   return addTabToGroup([...without, tab], tab.id, groupId);
-}
-
-const COLLAPSED_KEY = "monocode:tab-groups:collapsed";
-
-export function loadCollapsedTabGroups(): Set<string> {
-  try {
-    const raw = localStorage.getItem(COLLAPSED_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(
-      parsed.filter((entry): entry is string => typeof entry === "string"),
-    );
-  } catch {
-    return new Set();
-  }
-}
-
-export function saveCollapsedTabGroups(collapsed: Set<string>): void {
-  try {
-    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
-  } catch {
-    /* ignore quota errors */
-  }
 }
 
 export { replaceGroupInTabOrder } from "./workspaceTabGroups";

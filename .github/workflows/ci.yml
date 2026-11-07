@@ -33,13 +33,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
       # One cache kept by main. Pull requests restore it but do not save
       # their own copies; whole-target copies per pull request and per version
       # bump filled the repository's cache storage and evicted the rest.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: native-macos
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -56,10 +57,11 @@ jobs:
       RUST_BACKTRACE: 1
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: windows-native-checks
       - run: cargo fmt --all --check

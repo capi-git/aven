@@ -189,13 +189,6 @@ const memoryByThread = new Map<string, HarnessProjectMemory>();
 let resolveCodexBinaryImpl: () => Promise<{ path: string }> =
   resolveCodexBinary;
 
-/** Test seam. */
-export function setCodexBinaryResolver(
-  fn: () => Promise<{ path: string }>,
-): void {
-  resolveCodexBinaryImpl = fn;
-}
-
 export async function sendCodexTurn(input: SendTurnInput): Promise<void> {
   let live: Live;
   try {

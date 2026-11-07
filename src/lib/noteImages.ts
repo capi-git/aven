@@ -1,9 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import {
-  attachmentsFromFiles,
-  attachmentsFromPaths,
-  revokeAttachment,
-} from "./attachments";
+import { attachmentsFromFiles, revokeAttachment } from "./attachments";
 import type { Attachment } from "./session";
 
 export const NOTE_IMAGE_PREFIX = "/note-assets/";
@@ -23,13 +19,6 @@ export async function saveNoteImagesFromFiles(
   files: File[],
 ): Promise<NoteImageAsset[]> {
   return saveNoteImageAttachments(noteId, await attachmentsFromFiles(files));
-}
-
-export async function saveNoteImagesFromPaths(
-  noteId: string,
-  paths: string[],
-): Promise<NoteImageAsset[]> {
-  return saveNoteImageAttachments(noteId, await attachmentsFromPaths(paths));
 }
 
 async function saveNoteImageAttachments(

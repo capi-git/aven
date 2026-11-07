@@ -1042,7 +1042,7 @@ function SidebarComponent({
         ]
       : []),
   ];
-  // Copy either identifier for one session (MonoCode 16e9fea6). The
+  // Copy either identifier for one session. The
   // provider's own ID only exists once its first turn has bound one.
   const sessionCopyRows: ExplorerMenuItem[] =
     !multipleMenuSessions && menuSessions[0]

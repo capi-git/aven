@@ -66,17 +66,6 @@ export type ClaudeControlRequest = {
   elicitation?: McpElicitation;
 };
 
-export type ClaudeMappedLine = {
-  events: HarnessEvent[];
-  sessionId?: string;
-  control?: ClaudeControlRequest;
-  cancelRequestId?: string;
-  turnCompleted?: {
-    status: "completed" | "failed" | "interrupted" | "cancelled";
-    error?: string;
-  };
-};
-
 export type ClaudeCliSettings = {
   alwaysThinkingEnabled?: boolean;
   fastMode?: boolean;

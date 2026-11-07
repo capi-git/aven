@@ -391,7 +391,11 @@ function scopeLabel(skill: Skill): string {
   }
   if (skill.kind === "builtin") return "Aven";
   if (skill.scope === "user") return "personal";
-  if (skill.source !== "agents" && skill.source !== "monocode")
+  if (
+    skill.source !== "agents" &&
+    skill.source !== "aven" &&
+    skill.source !== "monocode"
+  )
     return skill.source;
   return "project";
 }

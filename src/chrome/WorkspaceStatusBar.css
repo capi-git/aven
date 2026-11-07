@@ -382,7 +382,7 @@ html:has(.aven-tour)
   }
 }
 
-/* As MonoCode lays it out: past a pinned sidebar the tabs start where the work
+/* Past a pinned sidebar the tabs start where the work
    does, with back and forward just before them; anything else sits at the end.
    Beside a narrow sidebar its buttons need more room, and the tabs start after
    them instead of covering them. */

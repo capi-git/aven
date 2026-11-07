@@ -72,13 +72,6 @@ pub fn notes_list(store: State<'_, SessionStore>) -> Result<Vec<Note>, String> {
 }
 
 #[tauri::command(async)]
-pub fn notes_get(store: State<'_, SessionStore>, id: String) -> Result<Option<Note>, String> {
-    validate_id(&id, "note")?;
-    let conn = store.lock_conn()?;
-    get_note(&conn, &id).map_err(|e| e.to_string())
-}
-
-#[tauri::command(async)]
 pub fn notes_upsert(store: State<'_, SessionStore>, note: NoteUpsert) -> Result<Note, String> {
     validate_id(&note.id, "note")?;
     if let Some(session_id) = note.source_session_id.as_deref() {
@@ -261,6 +254,7 @@ fn list_notes(conn: &Connection) -> rusqlite::Result<Vec<Note>> {
     rows.collect()
 }
 
+#[cfg(test)]
 fn get_note(conn: &Connection, id: &str) -> rusqlite::Result<Option<Note>> {
     conn.query_row(
         "SELECT id, slug, title, body, source_session_id, source_cwd,
