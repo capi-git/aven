@@ -687,3 +687,33 @@ describe("Avos's work in its chat", () => {
     ]);
   });
 });
+
+describe("what Avos will remember", () => {
+  it("offers Undo on the line while the rule is kept, and not once it's gone", () => {
+    const base = crewWith([
+      {
+        at: DAY,
+        kind: "note",
+        who: "aven",
+        member: "lead",
+        text: "Avos will remember: Keep surfaces grey",
+      },
+    ]);
+    const crew = {
+      ...base,
+      notes: [{ id: "n1", at: DAY, text: "Keep surfaces grey" }],
+    } satisfies Crew;
+    const line = () =>
+      teamPosts(crew, nameOf(crew)).find((post) => post.kind === "event");
+    expect(line()).toMatchObject({
+      text: "Avos will remember: Keep surfaces grey",
+      forget: "n1",
+    });
+    const forgotten = { ...crew, notes: [] } satisfies Crew;
+    expect(
+      teamPosts(forgotten, nameOf(forgotten)).find(
+        (post) => post.kind === "event",
+      ),
+    ).not.toHaveProperty("forget");
+  });
+});

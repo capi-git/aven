@@ -3116,7 +3116,7 @@ export function withNote(
           kind: "note",
           who: "aven",
           member: by.member,
-          text: `${by.name} will remember for every card: ${clean}`,
+          text: `${by.name} will remember: ${clean}`,
         }
       : { at: now, kind: "note", who: "you", text: clean },
   );

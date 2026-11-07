@@ -86,6 +86,8 @@ export type TeamPost =
       /** The teammate it is about, when it is about one. */
       about?: string;
       needsYou?: boolean;
+      /** A rule Avos just saved, still kept: Undo forgets it. */
+      forget?: string;
     }
   | {
       /** A job the team keeps: "Keeping an eye on … · <schedule> · Change". */
@@ -211,6 +213,9 @@ const HELPER_DONE = /^Helper “(.+?)”(?:: (.+)| finished\.| didn't finish\.)$
 function helperAuthor(title: string): TeamAuthor {
   return { id: `helper:${title}`, role: "helper", name: title };
 }
+
+/** "Avos will remember: Keep surfaces grey". */
+const REMEMBERED = /^.+? will remember: (.+)$/s;
 
 /** "A message to Audit the Users page didn't go through: …". */
 const UNSENT = /^A message to (.+) didn't go through: (.+)$/s;
@@ -343,7 +348,17 @@ function postOf(
       };
   }
   const by = entryAuthor(crew, entry, name);
-  if (!by)
+  if (!by) {
+    // "Avos will remember: …", while the rule is still kept: Undo.
+    const remembered =
+      entry.kind === "note" && entry.who === "aven"
+        ? REMEMBERED.exec(entry.text)
+        : null;
+    const rule = remembered
+      ? crew.notes.find(
+          (note) => note.text === remembered[1] && note.at === entry.at,
+        )
+      : undefined;
     return {
       kind: "event",
       id: entry.id,
@@ -351,7 +366,9 @@ function postOf(
       text: plain(teamWording(entry.text)),
       ...(entry.member ? { about: entry.member } : {}),
       ...(entry.kind === "stuck" && waiting(entry) ? { needsYou: true } : {}),
+      ...(rule ? { forget: rule.id } : {}),
     };
+  }
   const base = {
     kind: "post" as const,
     id: entry.id,

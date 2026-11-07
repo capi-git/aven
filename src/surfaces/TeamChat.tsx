@@ -39,6 +39,8 @@ import {
   crewMemberName,
   getCrew,
   isTime,
+  updateCrew,
+  withoutNote,
   type Crew,
   type CrewMessageKind,
 } from "../lib/crews";
@@ -664,6 +666,21 @@ function PostView({
       >
         {post.needsYou ? <i className="team-event-dot" aria-hidden /> : null}
         {post.text} <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
+        {post.forget ? (
+          <>
+            {" · "}
+            <button
+              type="button"
+              className="team-post-link"
+              data-avos-undo-rule
+              onClick={() =>
+                updateCrew(project, (crew) => withoutNote(crew, post.forget!))
+              }
+            >
+              Undo
+            </button>
+          </>
+        ) : null}
         {post.needsYou ? (
           <>
             {" "}
