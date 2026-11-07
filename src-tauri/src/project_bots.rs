@@ -1245,6 +1245,8 @@ pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), S
         return Err("Invalid bot request".into());
     }
     let path = copy_path(bots, copy)?;
+    // Its Try it server and checkout go with it.
+    crate::copy_serve::stop(&path);
     // A deleted or moved project folder still has its copy removed, without
     // git, which would otherwise act on whatever repository is above it.
     let Ok(root) = repo_root(cwd) else {
