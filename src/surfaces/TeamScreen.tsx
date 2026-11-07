@@ -49,6 +49,7 @@ import {
   type AvosProfileProps,
 } from "./AvosProfile";
 import { CrewAnswerBox, CrewFeed } from "./CrewBoard";
+import { AvosReview } from "./AvosReview";
 import { BatchCard, CrewBatchSheet } from "./TeamBatch";
 import { TeamCardButton } from "../chrome/TeamCard";
 import { TeamChat } from "./TeamChat";
@@ -306,6 +307,7 @@ export function TeamScreen({
       data-team-view={shown}
       data-meeting={meeting || undefined}
       data-narrow={narrow || undefined}
+      data-reviewing={(reviewing && !!view.batch && !narrow) || undefined}
       aria-label={`${projectDisplayName(project, labels)}'s Avos`}
     >
       <div className="avos-main">
@@ -373,7 +375,15 @@ export function TeamScreen({
           </div>
         ) : null}
       </div>
-      {meeting || narrow ? null : <AvosProfile {...profileProps} />}
+      {meeting || narrow ? null : reviewing && view.batch ? (
+        <AvosReview
+          crew={crew}
+          project={project}
+          onClose={() => setReviewing(false)}
+        />
+      ) : (
+        <AvosProfile {...profileProps} />
+      )}
       {profile ? (
         <Modal
           onClose={() => setProfile(false)}
@@ -406,7 +416,7 @@ export function TeamScreen({
           </div>
         </Modal>
       ) : null}
-      {reviewing && view.batch ? (
+      {reviewing && view.batch && narrow ? (
         <CrewBatchSheet
           crew={crew}
           project={project}

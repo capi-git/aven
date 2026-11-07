@@ -89,6 +89,7 @@ import { possessive } from "../lib/words";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
 import { isInFlightSession } from "../lib/inFlight";
+import { takePagePicture } from "../lib/pagePictures";
 import type { OrchestrationRun } from "../lib/orchestration";
 import { leadDecidedIds } from "../lib/teamAttention";
 import {
@@ -3763,6 +3764,33 @@ export async function runDevSmoke(
         await stopTurn(get, chat.id);
       }
     });
+
+  // Avos's Review pictures a page of an app running on this Mac, off
+  // screen, at a phone's and a desktop's size (the Look tab's pictures).
+  if (IS_MAC && pageUrl)
+    await step(
+      "Avos's Review pictures a page at phone and desktop size",
+      async () => {
+        const sizes: string[] = [];
+        for (const size of ["phone", "desktop"] as const) {
+          const shot = await takePagePicture(pageUrl, size);
+          if (
+            !shot.src.startsWith("data:image/png;base64,") ||
+            shot.width < 100
+          )
+            throw new Error(
+              `The ${size} picture is empty (${shot.width}×${shot.height})`,
+            );
+          const wide = shot.width / shot.height;
+          if (size === "phone" ? wide > 0.7 : wide < 1.2)
+            throw new Error(
+              `The ${size} picture is ${shot.width}×${shot.height}`,
+            );
+          sizes.push(`${size} ${shot.width}×${shot.height}`);
+        }
+        return sizes.join(", ");
+      },
+    );
 
   // An orchestration, asked for from a chat's + menu. The stand-in lead
   // plans two tasks; one worker asks its lead a question, which the lead

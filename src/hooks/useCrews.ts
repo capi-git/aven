@@ -144,6 +144,7 @@ export function useCrews(
         stack: botCopyHost.stack,
         unstack: botCopyHost.unstack,
         discard: botCopyHost.discard,
+        serveStop: botCopyHost.serveStop,
       },
       weeklyUsed: claudeWeeklyUsed,
       fixerRuns: (path, now) => {
