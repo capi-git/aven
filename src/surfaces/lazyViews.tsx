@@ -1,6 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import { SurfaceBoundary } from "../chrome/SurfaceBoundary";
 import { retryableLazy } from "../lib/retryableLazy";
+import { DeferredUnifiedDiffView } from "./LazyUnifiedDiffView";
 
 // Views the workspace shows only when asked. Loading them on demand keeps
 // their code out of the workspace's startup; `preloadLazyViews` loads the
@@ -50,6 +51,8 @@ const PRELOADED = [
   NotesView,
   CommandPalette,
   WorkBoard,
+  // Bot, crew and team-batch diffs; loaded here so they show at once.
+  DeferredUnifiedDiffView,
 ];
 
 /** Load the views people open from the sidebar, menus and shortcuts. */

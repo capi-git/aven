@@ -386,23 +386,11 @@ function onDirectoriesChanged() {
 
 subscribeDirsChanged(onDirectoriesChanged, { refreshCache: false });
 
-/**
- * Coming back to the window catches files changed outside Aven. Agent writes
- * already refresh through `subscribeDirsChanged`, so switching away and back
- * rescans at most once in this long; focus and visibility arrive together.
- */
-const RETURN_REFRESH_MIN_MS = 10_000;
-let lastReturnRefresh = 0;
-
-function onWindowReturned() {
-  if (document.hidden) return;
-  const now = Date.now();
-  if (now - lastReturnRefresh < RETURN_REFRESH_MIN_MS) return;
-  lastReturnRefresh = now;
-  onDirectoriesChanged();
-}
-
 if (typeof document !== "undefined") {
-  window.addEventListener("focus", onWindowReturned);
-  document.addEventListener("visibilitychange", onWindowReturned);
+  window.addEventListener("focus", () => {
+    if (!document.hidden) onDirectoriesChanged();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) onDirectoriesChanged();
+  });
 }
