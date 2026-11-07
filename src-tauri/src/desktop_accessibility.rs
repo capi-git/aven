@@ -795,6 +795,10 @@ pub(crate) struct Snapshot<N> {
     pub nodes: Vec<Captured<N>>,
     /// Set after any action in this window: its indexes are no longer used.
     pub consumed: bool,
+    /// A fingerprint of the outline, to tell when the window changed.
+    pub digest: u64,
+    /// The maxNodes the agent asked for, reused for the state an action returns.
+    pub max_nodes: u32,
 }
 
 impl<N> Snapshot<N> {
@@ -872,6 +876,15 @@ impl<N> Store<N> {
         }
     }
 
+    /// The latest snapshot of a window, used or not: what a wait for a
+    /// change compares against. Never a source of indexes.
+    pub(crate) fn latest(&self, scope: &str, window_id: u32) -> Option<&Snapshot<N>> {
+        self.scopes
+            .get(scope)?
+            .iter()
+            .find(|snapshot| snapshot.window_id == window_id)
+    }
+
     pub(crate) fn lookup(
         &self,
         scope: &str,
@@ -893,6 +906,247 @@ impl<N> Store<N> {
                 self.scopes.remove(scope);
             }
             None => self.scopes.clear(),
+        }
+    }
+}
+
+/// A fingerprint of an outline. Equal outlines mean nothing an agent could
+/// see in the element list changed; frames are window-relative.
+pub(crate) fn outline_digest(outline: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    outline.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// What appState's `query` and `role` select.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Filter {
+    query: Option<String>,
+    role: Option<String>,
+}
+
+impl Filter {
+    pub(crate) fn new(query: Option<&str>, role: Option<&str>) -> Option<Self> {
+        let query = query
+            .map(str::trim)
+            .filter(|query| !query.is_empty())
+            .map(str::to_lowercase);
+        let role = role
+            .map(str::trim)
+            .filter(|role| !role.is_empty())
+            .map(|role| strip_ax(role).to_lowercase());
+        (query.is_some() || role.is_some()).then_some(Self { query, role })
+    }
+
+    /// Whether one element matches. Secure values are never searched.
+    pub(crate) fn matches(&self, info: &NodeInfo) -> bool {
+        if let Some(role) = &self.role {
+            let own = [Some(info.role.as_str()), info.subrole.as_deref()];
+            if !own
+                .into_iter()
+                .flatten()
+                .any(|own| strip_ax(own).eq_ignore_ascii_case(role))
+            {
+                return false;
+            }
+        }
+        let Some(query) = &self.query else {
+            return true;
+        };
+        let value = match &info.value {
+            Some(NodeValue::Text(text)) if !info.is_secure() => Some(text.as_str()),
+            _ => None,
+        };
+        [
+            info.title.as_deref(),
+            info.description.as_deref(),
+            info.placeholder.as_deref(),
+            info.identifier.as_deref(),
+            value,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|text| clean(text, usize::MAX).is_some_and(|text| text.to_lowercase().contains(query)))
+    }
+}
+
+/// Outline lines for matching elements and every ancestor above them (the
+/// nearest earlier element of each smaller depth, within the same root),
+/// keeping the indexes of the whole state. Returns the text and the number
+/// of matches.
+pub(crate) fn filtered_outline<N>(
+    nodes: &[Captured<N>],
+    origin: (f64, f64),
+    filter: &Filter,
+) -> (String, usize) {
+    let mut include = vec![false; nodes.len()];
+    let mut matches = 0;
+    for (index, node) in nodes.iter().enumerate() {
+        if !filter.matches(&node.info) {
+            continue;
+        }
+        matches += 1;
+        include[index] = true;
+        let mut depth = node.depth;
+        for earlier in (0..index).rev() {
+            if depth == 0 {
+                break;
+            }
+            let candidate = &nodes[earlier];
+            if candidate.root != node.root {
+                break;
+            }
+            if candidate.depth < depth {
+                include[earlier] = true;
+                depth = candidate.depth;
+            }
+        }
+    }
+    let mut text = String::new();
+    for (index, node) in nodes
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| include[*index])
+    {
+        text.push_str(&format_line(index, node.depth, &node.info, origin));
+        text.push('\n');
+    }
+    (text, matches)
+}
+
+/// Normalises a menu title for matching: case, whitespace and "..." versus
+/// "…" do not matter.
+fn menu_key(title: &str) -> String {
+    clean(title, usize::MAX)
+        .unwrap_or_default()
+        .replace("...", "\u{2026}")
+        .to_lowercase()
+}
+
+/// Menu titles listed in an error, at most.
+const MENU_TITLES_LISTED: usize = 40;
+
+/// Picks the menu item titled `wanted` among `titles` (None for separators
+/// and untitled items). An exact match wins; otherwise a unique match that
+/// ignores a trailing ellipsis ("Export" for "Export…").
+pub(crate) fn menu_match(wanted: &str, titles: &[Option<String>]) -> Result<usize, String> {
+    let wanted_key = menu_key(wanted);
+    let keys: Vec<Option<String>> = titles
+        .iter()
+        .map(|title| title.as_deref().map(menu_key).filter(|key| !key.is_empty()))
+        .collect();
+    let exact: Vec<usize> = (0..keys.len())
+        .filter(|index| keys[*index].as_deref() == Some(wanted_key.as_str()))
+        .collect();
+    if let [index] = exact.as_slice() {
+        return Ok(*index);
+    }
+    let bare = |key: &str| key.trim_end_matches('\u{2026}').trim_end().to_owned();
+    let loose: Vec<usize> = (0..keys.len())
+        .filter(|index| {
+            keys[*index]
+                .as_deref()
+                .is_some_and(|key| bare(key) == bare(&wanted_key))
+        })
+        .collect();
+    match (exact.len(), loose.as_slice()) {
+        (0, [index]) => Ok(*index),
+        (0, []) => {
+            let available: Vec<String> = titles
+                .iter()
+                .flatten()
+                .filter_map(|title| quoted(title, LABEL_LIMIT))
+                .take(MENU_TITLES_LISTED)
+                .collect();
+            Err(format!(
+                "No menu item titled {} there. Items: {}.",
+                quoted(wanted, LABEL_LIMIT).unwrap_or_else(|| "\"\"".into()),
+                if available.is_empty() {
+                    "none (the app may fill this menu only when it opens)".into()
+                } else {
+                    available.join(", ")
+                }
+            ))
+        }
+        _ => Err(format!(
+            "More than one menu item is titled {}; no input was sent.",
+            quoted(wanted, LABEL_LIMIT).unwrap_or_else(|| "\"\"".into())
+        )),
+    }
+}
+
+/// The bar's description of a menu choice: "File → Export…", bounded.
+pub(crate) fn menu_label(path: &[String]) -> Option<String> {
+    let titles: Vec<String> = path
+        .iter()
+        .filter_map(|title| clean(title, BAR_LABEL_LIMIT))
+        .collect();
+    let full = titles.join(" \u{2192} ");
+    if full.chars().count() <= BAR_LABEL_LIMIT {
+        return clean(&full, BAR_LABEL_LIMIT);
+    }
+    // Too long for the bar: the item itself matters most.
+    titles.last().and_then(|last| clean(last, BAR_LABEL_LIMIT))
+}
+
+/// One line of a listed menu.
+pub(crate) fn menu_item_line(
+    title: Option<&str>,
+    enabled: Option<bool>,
+    checked: bool,
+    submenu: bool,
+) -> Option<String> {
+    let mut line = quoted(title?, LABEL_LIMIT)?;
+    if checked {
+        line.push_str(" checked");
+    }
+    if enabled == Some(false) {
+        line.push_str(" disabled");
+    }
+    if submenu {
+        line.push_str(" submenu");
+    }
+    Some(line)
+}
+
+/// One page of an element's text, in characters: the page, the total
+/// length, and where the next page starts (None at the end).
+pub(crate) fn text_page(
+    text: &str,
+    offset: usize,
+    length: usize,
+) -> (String, usize, Option<usize>) {
+    let total = text.chars().count();
+    let page: String = text.chars().skip(offset).take(length).collect();
+    let end = offset.saturating_add(length);
+    (page, total, (end < total).then_some(end))
+}
+
+/// Which app tips a chat has already been given: tips come once per chat
+/// per app, so a long session does not repeat them on every appState.
+#[derive(Default)]
+pub(crate) struct TipsLedger {
+    sent: HashMap<String, HashSet<String>>,
+}
+
+impl TipsLedger {
+    /// True the first time this chat asks about this app (or when `again`).
+    pub(crate) fn first(&mut self, scope: &str, app: &str, again: bool) -> bool {
+        let fresh = self
+            .sent
+            .entry(scope.into())
+            .or_default()
+            .insert(app.into());
+        fresh || again
+    }
+
+    pub(crate) fn forget(&mut self, scope: Option<&str>) {
+        match scope {
+            Some(scope) => {
+                self.sent.remove(scope);
+            }
+            None => self.sent.clear(),
         }
     }
 }
@@ -2372,6 +2626,199 @@ mod tests {
         assert_eq!(reads, 4);
     }
 
+    fn captured(id: usize, depth: usize, root: usize, info: NodeInfo) -> Captured<usize> {
+        Captured {
+            node: id,
+            info,
+            root,
+            path: vec![],
+            depth,
+            context: Context::Unique,
+        }
+    }
+
+    #[test]
+    fn filter_matches_role_and_text_but_never_secure_values() {
+        let mut send = info("AXButton", Some("Send Message"));
+        send.identifier = Some("send-button".into());
+        let mut field = info("AXTextField", None);
+        field.placeholder = Some("Subject".into());
+        field.value = Some(NodeValue::Text("Quarterly  report".into()));
+        let mut secret = info("AXTextField", None);
+        secret.subrole = Some(SECURE_TEXT_FIELD.into());
+        secret.value = Some(NodeValue::Text("hunter2".into()));
+        let by_text = Filter::new(Some("  SEND "), None).unwrap();
+        assert!(by_text.matches(&send));
+        assert!(!by_text.matches(&field));
+        // Whitespace in values is collapsed before matching.
+        assert!(Filter::new(Some("quarterly report"), None)
+            .unwrap()
+            .matches(&field));
+        assert!(Filter::new(Some("subject"), None).unwrap().matches(&field));
+        assert!(Filter::new(Some("send-button"), None)
+            .unwrap()
+            .matches(&send));
+        assert!(!Filter::new(Some("hunter2"), None).unwrap().matches(&secret));
+        // Roles with or without AX, any case; subroles count.
+        for role in ["button", "AXButton", "Button"] {
+            assert!(Filter::new(None, Some(role)).unwrap().matches(&send));
+        }
+        assert!(!Filter::new(None, Some("Row")).unwrap().matches(&send));
+        assert!(Filter::new(None, Some("SecureTextField"))
+            .unwrap()
+            .matches(&secret));
+        let both = Filter::new(Some("send"), Some("TextField")).unwrap();
+        assert!(!both.matches(&send));
+        assert_eq!(Filter::new(Some("  "), Some("")), None);
+    }
+
+    #[test]
+    fn filtered_outline_keeps_whole_state_indexes_and_ancestors() {
+        let nodes = vec![
+            captured(0, 0, 0, info("AXWindow", Some("Mail"))),
+            captured(1, 1, 0, info("AXToolbar", None)),
+            captured(2, 2, 0, info("AXButton", Some("Reply"))),
+            captured(3, 1, 0, info("AXTable", None)),
+            captured(4, 2, 0, info("AXRow", None)),
+            captured(5, 3, 0, info("AXStaticText", Some("Invoice from Acme"))),
+            captured(6, 2, 0, info("AXRow", None)),
+            captured(7, 3, 0, info("AXStaticText", Some("Lunch"))),
+            // An open menu is its own root.
+            captured(8, 0, 1, info("AXMenu", None)),
+            captured(9, 1, 1, info("AXMenuItem", Some("Archive invoice"))),
+        ];
+        let (text, matches) = filtered_outline(
+            &nodes,
+            (0.0, 0.0),
+            &Filter::new(Some("invoice"), None).unwrap(),
+        );
+        assert_eq!(matches, 2);
+        let indexes: Vec<&str> = text
+            .lines()
+            .map(|line| line.trim_start().split(']').next().unwrap())
+            .collect();
+        assert_eq!(indexes, ["[0", "[3", "[4", "[5", "[8", "[9"]);
+        let (text, matches) = filtered_outline(
+            &nodes,
+            (0.0, 0.0),
+            &Filter::new(None, Some("Button")).unwrap(),
+        );
+        assert_eq!(matches, 1);
+        assert_eq!(text.lines().count(), 3);
+        assert!(text.contains("[2] Button \"Reply\""));
+        let (text, matches) = filtered_outline(
+            &nodes,
+            (0.0, 0.0),
+            &Filter::new(Some("nothing"), None).unwrap(),
+        );
+        assert_eq!((text.as_str(), matches), ("", 0));
+    }
+
+    #[test]
+    fn menu_titles_match_exactly_then_without_a_trailing_ellipsis() {
+        let titles = vec![
+            Some("New Window".to_string()),
+            None,
+            Some("Export\u{2026}".to_string()),
+            Some("Export To".to_string()),
+            Some("Save".to_string()),
+            Some("Save As...".to_string()),
+        ];
+        assert_eq!(menu_match("export to", &titles), Ok(3));
+        assert_eq!(menu_match("Export...", &titles), Ok(2));
+        assert_eq!(menu_match("Export", &titles), Ok(2));
+        assert_eq!(menu_match(" save ", &titles), Ok(4));
+        assert_eq!(menu_match("Save As\u{2026}", &titles), Ok(5));
+        assert_eq!(menu_match("Save As", &titles), Ok(5));
+        let missing = menu_match("Print", &titles).unwrap_err();
+        assert!(missing.contains("\"Print\""), "{missing}");
+        assert!(missing.contains("\"Export To\""), "{missing}");
+        // Two items with one title are never guessed between.
+        let twice = vec![Some("Copy".to_string()), Some("Copy".to_string())];
+        assert!(menu_match("Copy", &twice)
+            .unwrap_err()
+            .contains("More than one"));
+        let loose = vec![
+            Some("Copy\u{2026}".to_string()),
+            Some("Copy...".to_string()),
+        ];
+        assert!(menu_match("Copy", &loose).is_err());
+        assert!(menu_match("Copy", &[None])
+            .unwrap_err()
+            .contains("fill this menu only when it opens"));
+    }
+
+    #[test]
+    fn menu_labels_and_lines_are_short_and_plain() {
+        let path = |titles: &[&str]| titles.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            menu_label(&path(&["File", "Export To", "PDF\u{2026}"])).as_deref(),
+            Some("File \u{2192} Export To \u{2192} PDF\u{2026}")
+        );
+        let long = menu_label(&path(&[
+            "Window",
+            "Arrange Windows By Something Long",
+            "Bring All to Front",
+        ]))
+        .unwrap();
+        assert_eq!(long, "Bring All to Front");
+        assert!(menu_label(&path(&["x".repeat(90).as_str()]))
+            .unwrap()
+            .ends_with('\u{2026}'));
+        assert_eq!(
+            menu_item_line(Some("Word Wrap"), Some(true), true, false).as_deref(),
+            Some("\"Word Wrap\" checked")
+        );
+        assert_eq!(
+            menu_item_line(Some("Revert"), Some(false), false, false).as_deref(),
+            Some("\"Revert\" disabled")
+        );
+        assert_eq!(
+            menu_item_line(Some("Export To"), None, false, true).as_deref(),
+            Some("\"Export To\" submenu")
+        );
+        assert_eq!(menu_item_line(None, Some(true), false, false), None);
+        assert_eq!(menu_item_line(Some("  "), Some(true), false, false), None);
+    }
+
+    #[test]
+    fn text_pages_count_characters_and_point_to_the_next_page() {
+        let text = "héllo wörld";
+        assert_eq!(text_page(text, 0, 5), ("héllo".into(), 11, Some(5)));
+        assert_eq!(text_page(text, 6, 5), ("wörld".into(), 11, None));
+        assert_eq!(text_page(text, 6, 100), ("wörld".into(), 11, None));
+        assert_eq!(text_page(text, 50, 5), (String::new(), 11, None));
+        assert_eq!(text_page("", 0, 4000), (String::new(), 0, None));
+    }
+
+    #[test]
+    fn tips_come_once_per_chat_per_app() {
+        let mut ledger = TipsLedger::default();
+        assert!(ledger.first("chat", "com.apple.mail", false));
+        assert!(!ledger.first("chat", "com.apple.mail", false));
+        assert!(ledger.first("chat", "com.apple.mail", true));
+        assert!(ledger.first("chat", "notion.id", false));
+        assert!(ledger.first("other", "com.apple.mail", false));
+        ledger.forget(Some("chat"));
+        assert!(ledger.first("chat", "com.apple.mail", false));
+        assert!(!ledger.first("other", "com.apple.mail", false));
+        ledger.forget(None);
+        assert!(ledger.first("other", "com.apple.mail", false));
+    }
+
+    #[test]
+    fn outline_digests_tell_changed_outlines_apart() {
+        let a = outline_digest("[0] Window \"Mail\"\n[1] Button \"Send\"\n");
+        assert_eq!(
+            a,
+            outline_digest("[0] Window \"Mail\"\n[1] Button \"Send\"\n")
+        );
+        assert_ne!(
+            a,
+            outline_digest("[0] Window \"Mail\"\n[1] Button \"Sent\"\n")
+        );
+    }
+
     #[test]
     fn snapshot_store_scopes_indexes_and_rejects_old_state_ids() {
         let mut store = Store::<u8>::default();
@@ -2390,6 +2837,8 @@ mod tests {
                 context: Context::Unique,
             }],
             consumed: false,
+            digest: 0,
+            max_nodes: DEFAULT_MAX_NODES,
         };
         assert!(store
             .lookup("chat", 5, None, 0)
@@ -2398,6 +2847,12 @@ mod tests {
             .contains("Call appState"));
         let first = store.insert("chat", snapshot(5));
         assert_eq!(store.lookup("chat", 5, Some(first), 0).unwrap().1.node, 1);
+        // The latest state stays readable for waits after it is used up.
+        store.invalidate("chat", 5);
+        assert!(store.lookup("chat", 5, Some(first), 0).is_err());
+        assert_eq!(store.latest("chat", 5).map(|latest| latest.id), Some(first));
+        assert!(store.latest("other chat", 5).is_none());
+        let first = store.insert("chat", snapshot(5));
         assert!(store.lookup("chat", 5, None, 0).is_ok());
         assert!(store
             .lookup("chat", 5, None, 1)
