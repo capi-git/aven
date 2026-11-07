@@ -60,10 +60,13 @@ export function useReviewPictures(input: {
   to: string | undefined;
   hash: string | undefined;
   pages: readonly string[];
+  /** Each page's spots to find (selectors), from its Builder. */
+  marks?: Readonly<Record<string, readonly string[]>>;
   size: PictureSize;
 }): ReviewPictures {
   const { project, active, run, to, hash, size } = input;
   const pages = input.pages.join("\n");
+  const marks = JSON.stringify(input.marks ?? {});
   const [state, setState] = useState<ReviewPictures>({
     status: "idle",
     pairs: {},
@@ -72,8 +75,10 @@ export function useReviewPictures(input: {
     if (!active || !to || !hash || !pages) return;
     let live = true;
     const list = pages.split("\n");
+    const spots = JSON.parse(marks) as Record<string, string[]>;
     const own = ownAppAddress(project);
-    const key = (page: string) => `${to}\n${size}\n${page}\n${own ?? ""}`;
+    const key = (page: string) =>
+      `${to}\n${size}\n${page}\n${own ?? ""}\n${(spots[page] ?? []).join("\n")}`;
     const known = () =>
       Object.fromEntries(
         list.flatMap((page) => {
@@ -103,6 +108,7 @@ export function useReviewPictures(input: {
         const after = await takePagePicture(
           pageAddress(tried.url, page),
           size,
+          spots[page] ?? [],
         ).catch(() => null);
         const before = own
           ? await takePagePicture(pageAddress(own, page), size).catch(
@@ -126,6 +132,6 @@ export function useReviewPictures(input: {
     return () => {
       live = false;
     };
-  }, [active, run, to, hash, pages, size, project]);
+  }, [active, run, to, hash, pages, marks, size, project]);
   return state;
 }

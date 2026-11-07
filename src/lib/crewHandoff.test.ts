@@ -359,3 +359,41 @@ describe("work a member queues from its chat", () => {
     expect(parseTasks("Sure, I'll get on it.")).toBeNull();
   });
 });
+
+describe("the spots a Builder names on its pages", () => {
+  it("keeps spots on the pages it named, a few at most, each one line", () => {
+    const text = [
+      "Done.",
+      "```aven-handoff",
+      JSON.stringify({
+        summary: "Bigger button.",
+        pages: ["/pricing"],
+        spots: [
+          {
+            page: "/pricing",
+            element: "main .cta",
+            note: "Bigger\ntrial button",
+          },
+          { page: "/other", element: "h1", note: "Not a page it named" },
+          { page: "/pricing", element: "", note: "No element" },
+          { page: "/pricing", element: "h1", note: "" },
+          { page: "/pricing", element: "x".repeat(201), note: "Too long" },
+          ...Array.from({ length: 8 }, (_, n) => ({
+            page: "/pricing",
+            element: `li:nth-child(${n + 1})`,
+            note: `Row ${n + 1}`,
+          })),
+        ],
+      }),
+      "```",
+    ].join("\n");
+    const spots = parseHandoff(text)?.spots ?? [];
+    expect(spots[0]).toEqual({
+      page: "/pricing",
+      element: "main .cta",
+      note: "Bigger trial button",
+    });
+    expect(spots).toHaveLength(6);
+    expect(spots.every((spot) => spot.page === "/pricing")).toBe(true);
+  });
+});

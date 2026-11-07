@@ -6,7 +6,9 @@ import {
   giveCardToCrew,
   crewWorkspace,
   dismissResearch,
+  requestCrewReview,
   setCrewAccess,
+  stopCrewTry,
   setCrewPaused,
   setCrewQuietHours,
   turnOffCrew,
@@ -24,7 +26,11 @@ import {
 } from "./crews";
 import { ownedBy } from "./avosJobs";
 import { waitFor } from "./devSmoke";
-import { crewDiagnostics, type SmokeCrew } from "./devSmokeCrew";
+import {
+  crewDiagnostics,
+  SMOKE_CREW_WORD,
+  type SmokeCrew,
+} from "./devSmokeCrew";
 import { errorText } from "./errors";
 import { addFeatureIdea } from "./featureCards";
 import { createPath, gitDiffIndex, writeTextFile } from "./fs";
@@ -1398,4 +1404,212 @@ export async function checkTeamAccess(
   }
   // Unreachable: withDiagnostics throws.
   return "";
+}
+
+// ---------------------------------------------------------------------------
+// Review's pictures, end to end
+
+/** In a crew card's note: the stand-in Builder also changes the app's page. */
+export const SMOKE_PAGE_WORD = "AVEN_SMOKE_PAGE";
+/** The button's words on the stand-in Builder's version of the page. */
+export const SMOKE_PAGE_BUTTON = "Start your free trial";
+
+/** A small app with its own dev script and no packages, as a project. */
+const REVIEW_APP: Record<string, string> = {
+  "package.json": `${JSON.stringify(
+    {
+      name: "avos-review-look",
+      private: true,
+      scripts: { dev: "node serve.mjs" },
+    },
+    null,
+    2,
+  )}\n`,
+  "serve.mjs": [
+    'import { readFileSync } from "node:fs";',
+    'import { createServer } from "node:http";',
+    "const port = Number(process.env.PORT) || 3000;",
+    "createServer((_, response) => {",
+    '  response.writeHead(200, { "content-type": "text/html; charset=utf-8" });',
+    '  response.end(readFileSync(new URL("./index.html", import.meta.url)));',
+    '}).listen(port, process.env.HOST || "127.0.0.1", () =>',
+    "  console.log(`Listening on http://127.0.0.1:${port}`),",
+    ");",
+    "",
+  ].join("\n"),
+  "index.html":
+    '<!doctype html><html><head><meta charset="utf-8"><title>Plans</title></head><body><h1>Plans</h1><button class="cta">Start</button></body></html>\n',
+};
+
+/**
+ * Avos changes what people see, and its Review shows it: the stand-in
+ * Builder changes a page of a small app and names it with a spot; the
+ * card is Ready, Review opens on Look, and nothing runs until you press
+ * Run Avos's version. Then Aven runs Avos's version from its own clean
+ * checkout (the app's own dev script) and pictures the page in WebKit
+ * off screen, at phone size: the picture must show, with the Builder's
+ * spot numbered on it. Clicking that spot must name the button there,
+ * and the note goes to Avos with your words as a new card.
+ */
+export async function checkReviewLook(
+  config: { projectPath: string },
+  team: SmokeTeam,
+): Promise<string> {
+  const project = await createPath(
+    parentPath(config.projectPath),
+    "avos-review-look",
+    true,
+  );
+  for (const [name, text] of Object.entries(REVIEW_APP))
+    await writeTextFile(`${project}/${name}`, text);
+  await setUpProjectGit(project);
+  try {
+    await startTeam(team, project, []);
+    const idea = await addFeatureIdea(project, {
+      title: "Clearer trial button",
+      note: `Make the trial button clearer. ${SMOKE_CREW_WORD} ${SMOKE_PAGE_WORD}`,
+    });
+    if (!idea) throw new Error("Couldn't add the check's card to the Board");
+    const refused = await giveCardToCrew(project, idea);
+    if (refused) throw new Error(`Give to Avos refused: ${refused}`);
+    const ready = await waitFor(
+      () => {
+        failOnHold(project);
+        const card = teamCard(project, idea.id);
+        return card?.stage === "ready" && getCrew(project)?.stack ? card : null;
+      },
+      180_000,
+      "the card to be Ready on Avos's branch",
+    );
+    const handoff = ready.rounds.find(
+      (round) => round.n === ready.round,
+    )?.handoff;
+    if (handoff?.pages?.join() !== "/" || handoff.spots?.length !== 1)
+      throw new Error(
+        `The Builder's handoff names pages ${JSON.stringify(handoff?.pages)} and spots ${JSON.stringify(handoff?.spots)}`,
+      );
+
+    // The Review opens beside Avos's chat, on Look, with nothing running.
+    await openChat(project);
+    requestCrewReview(project);
+    const review = await waitFor(
+      () => {
+        const found = document.querySelector<HTMLElement>("[data-avos-review]");
+        return onScreen(found) ? found : null;
+      },
+      10_000,
+      "Avos's Review",
+    );
+    const tab = review.querySelector("[role='tab'][aria-selected='true']");
+    if (tab?.textContent !== "Look")
+      throw new Error(`The Review opened on ${tab?.textContent ?? "no tab"}`);
+    const run = await waitFor(
+      () =>
+        review.querySelector<HTMLButtonElement>(
+          "[data-avos-review-run]:not(:disabled)",
+        ),
+      15_000,
+      "Run Avos's version",
+    );
+    run.click();
+    const started = Date.now();
+    const look = () =>
+      review.querySelector<HTMLElement>("[data-avos-review-look]");
+    const spot = await waitFor(
+      () => {
+        const said =
+          look()?.querySelector("[role='status']")?.textContent ?? "";
+        if (said.startsWith("No pictures"))
+          throw new Error(`The Review says "${said}"`);
+        if (said === "No picture")
+          throw new Error("Avos's version couldn't be pictured");
+        return look()?.querySelector<HTMLElement>(
+          "[data-avos-review-spot='1']",
+        );
+      },
+      240_000,
+      "Avos's version pictured with its spot",
+    );
+    const took = Math.round((Date.now() - started) / 1000);
+    const picture = look()?.querySelector<HTMLImageElement>(
+      ".avos-review-shot img",
+    );
+    if (!picture?.src.startsWith("data:image/png;base64,"))
+      throw new Error("The picture isn't a PNG");
+    const listed = look()?.querySelector(
+      "[data-avos-review-spots]",
+    )?.textContent;
+    if (!listed?.includes("Clearer trial button"))
+      throw new Error(`The spots read "${listed ?? "nothing"}"`);
+
+    // A click on the spot names the button there, and the note goes to Avos.
+    const hit = look()?.querySelector<HTMLButtonElement>(
+      "[data-avos-review-note-here]",
+    );
+    if (!hit) throw new Error("Avos's version takes no notes");
+    const at = spot.getBoundingClientRect();
+    hit.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+        detail: 1,
+        clientX: at.left + at.width / 2,
+        clientY: at.top + at.height / 2,
+      }),
+    );
+    const note = await waitFor(
+      () =>
+        review.querySelector<HTMLInputElement>(
+          "input[aria-label='Note for Avos']",
+        ),
+      5_000,
+      "the note box",
+    ).catch((error: unknown) => {
+      // Say what happened to the Review the click landed on.
+      const now = document.querySelectorAll<HTMLElement>("[data-avos-review]");
+      const seen = [
+        `the Review ${review.isConnected ? "stayed" : "was replaced"} (${now.length} now)`,
+        `the picture's button ${hit.isConnected ? "stayed" : "went"}${hit.disabled ? ", disabled" : ""}`,
+        `clicked at ${Math.round(at.left + at.width / 2)},${Math.round(at.top + at.height / 2)} on a ${Math.round(hit.getBoundingClientRect().width)}×${Math.round(hit.getBoundingClientRect().height)} button`,
+        `a note box ${document.querySelector("input[aria-label='Note for Avos']") ? "elsewhere" : "nowhere"}`,
+        `Look says "${look()?.querySelector("[role='status']")?.textContent ?? ""}"`,
+      ];
+      throw new Error(`${errorText(error)}: ${seen.join("; ")}`);
+    });
+    if (!note.placeholder.includes(`button “${SMOKE_PAGE_BUTTON}”`))
+      throw new Error(`The note box asks "${note.placeholder}"`);
+    typeInto(note, "Make it green");
+    note.form?.requestSubmit();
+    const ask = await waitFor(
+      () => {
+        const field = review.querySelector<HTMLInputElement>(
+          "input[aria-label='Ask Avos for changes']",
+        );
+        return field?.placeholder.startsWith("Send 1 note") ? field : null;
+      },
+      5_000,
+      "the ask box to offer the note",
+    );
+    ask.form?.requestSubmit();
+    await waitFor(
+      () => !onScreen(document.querySelector("[data-avos-review]")),
+      15_000,
+      "the Review to close after asking",
+    );
+    // What you said, with the note and what it was left on, is Avos's now.
+    await waitFor(
+      () => {
+        const kept = JSON.stringify(getCrew(project) ?? {});
+        return (
+          kept.includes("Make it green") && kept.includes(SMOKE_PAGE_BUTTON)
+        );
+      },
+      15_000,
+      "Avos to have the note and what it was left on",
+    );
+    return `Avos's version pictured in ${took}s with its spot; a note on the button reached Avos as a card`;
+  } finally {
+    await stopCrewTry(project).catch(() => undefined);
+    await tidy(project);
+  }
 }

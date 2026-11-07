@@ -408,7 +408,15 @@ export type CrewHandoff = {
    * after pictures in Avos's Review. Only when it changed what people see.
    */
   pages?: string[];
+  /**
+   * What it changed on those pages, each an element and a few words, so
+   * the pictures can number them (at most `SPOTS_MAX`).
+   */
+  spots?: CrewSpot[];
 };
+
+/** A change on a page: where it is (a CSS selector) and what it is. */
+export type CrewSpot = { page: string; element: string; note: string };
 
 export type CrewFinding = {
   text: string;
@@ -1215,12 +1223,14 @@ function readHandoff(value: unknown): CrewHandoff | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const question = text(raw.question, 400);
   const pages = appPages(raw.pages);
+  const spots = appSpots(raw.spots, pages);
   return {
     summary: text(raw.summary) ?? "",
     howToCheck: strings(raw.howToCheck, 6, 300),
     ran: readRan(raw.ran),
     ...(question ? { question } : {}),
     ...(pages.length ? { pages } : {}),
+    ...(spots.length ? { spots } : {}),
   };
 }
 
@@ -1243,6 +1253,37 @@ export function appPages(value: unknown): string[] {
         !/^\/[^/?#]*:/.test(page),
     );
   return [...new Set(pages)].slice(0, PAGES_MAX);
+}
+
+/** Spots numbered on a Review's pictures at most, per card. */
+export const SPOTS_MAX = 6;
+
+/**
+ * Spots on `pages` only: a selector the page can look up (one line, no
+ * longer than 200 characters) and a short note (one line, 120).
+ */
+export function appSpots(value: unknown, pages: readonly string[]): CrewSpot[] {
+  if (!Array.isArray(value)) return [];
+  const line = (item: unknown, max: number) =>
+    typeof item === "string"
+      ? item.replace(/\s+/g, " ").trim().slice(0, max)
+      : "";
+  return value
+    .map((raw) => {
+      const spot = raw as Partial<Record<keyof CrewSpot, unknown>> | null;
+      if (!spot || typeof spot !== "object") return null;
+      const page = typeof spot.page === "string" ? spot.page.trim() : "";
+      const element =
+        typeof spot.element === "string" && spot.element.length <= 200
+          ? line(spot.element, 200)
+          : "";
+      const note = line(spot.note, 120);
+      return pages.includes(page) && element && note
+        ? { page, element, note }
+        : null;
+    })
+    .filter((spot): spot is CrewSpot => !!spot)
+    .slice(0, SPOTS_MAX);
 }
 
 function readVerdict(value: unknown): CrewVerdict | undefined {
