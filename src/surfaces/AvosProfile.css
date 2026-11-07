@@ -1,0 +1,222 @@
+/* Avos's profile beside its chat: its Bot, name and ⋯, one line on what
+   it's up to, then small muted headings over what it keeps an eye on, what
+   it remembers and who's helping. Grey; amber only when it needs you. */
+.avos-profile {
+  display: flex;
+  width: 264px;
+  min-height: 0;
+  flex: none;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 16px 16px;
+  overflow-y: auto;
+  border-left: 1px solid var(--aven-line);
+  font-size: var(--text-ui-label);
+}
+
+.avos-profile-id {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.avos-profile-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.avos-profile .dot-mark.avos-profile-mark {
+  display: block;
+  width: 44px;
+  height: 44px;
+}
+.avos-profile-name {
+  margin: 0;
+  font-size: var(--text-ui-sheet);
+  font-weight: 600;
+}
+.avos-profile-line {
+  margin: 0;
+  color: var(--aven-muted);
+  line-height: 1.4;
+}
+.avos-profile-line[data-avos-note="needs-you"],
+.avos-bar-line[data-avos-note="needs-you"] {
+  color: var(--aven-needs-you);
+}
+.avos-profile-goal {
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+.avos-profile-goal-word,
+.avos-profile-goal-state {
+  color: var(--aven-muted);
+}
+.avos-profile-goal-word {
+  font-weight: 500;
+}
+.avos-profile-goal .crew-pipe-link {
+  margin-left: 6px;
+}
+
+.avos-profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.avos-profile-section h2 {
+  margin: 0 0 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+.avos-profile-row {
+  display: -webkit-box;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  line-height: 1.4;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+button.avos-profile-row {
+  cursor: var(--aven-cursor-pointer);
+}
+button.avos-profile-row:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.avos-profile-more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  cursor: var(--aven-cursor-pointer);
+}
+.avos-profile-more:hover {
+  color: var(--color-content);
+}
+
+.avos-profile-helper {
+  display: flex;
+  height: 26px;
+  align-items: center;
+  gap: 7px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  text-align: left;
+}
+button.avos-profile-helper {
+  cursor: var(--aven-cursor-pointer);
+}
+button.avos-profile-helper:hover {
+  background: var(--aven-hover);
+}
+.avos-profile-helper .dot-mark.avos-profile-helper-mark {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+.avos-profile-helper-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avos-profile-helper-word {
+  flex: none;
+  color: var(--aven-muted);
+}
+.avos-profile-helper-word[data-needs-you] {
+  color: var(--aven-needs-you);
+}
+
+.avos-profile-more-button {
+  display: inline-flex;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--aven-muted);
+  cursor: var(--aven-cursor-pointer);
+}
+.avos-profile-more-button:hover,
+.avos-profile-more-button[aria-expanded="true"] {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+/* A narrow pane: the profile folds into one header over the chat. */
+.avos-bar {
+  display: flex;
+  height: 48px;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 10px;
+  border-bottom: 1px solid var(--aven-line);
+}
+.avos-bar-who {
+  display: inline-flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  cursor: var(--aven-cursor-pointer);
+}
+.avos-bar-who:hover {
+  background: var(--aven-hover);
+}
+.avos-bar .dot-mark.avos-bar-mark {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+.avos-bar-name {
+  font-size: var(--text-ui-body);
+  font-weight: 600;
+}
+.avos-bar-chevron {
+  width: 12px;
+  height: 12px;
+  margin-left: -2px;
+  color: var(--aven-muted);
+}
+.avos-bar-line {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The rest of the profile, in a sheet from the narrow header. */
+.avos-profile-sheet .avos-sheet-body {
+  gap: 18px;
+  font-size: var(--text-ui-label);
+}

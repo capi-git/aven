@@ -65,6 +65,8 @@ function busyRunner(known: boolean) {
     if (prepare.mock.calls.length > 100) runner.stop();
     return { path: COPY, branch, root: PATH, gitDir: `${PATH}/.git` };
   });
+  // Try it running Avos's copy: stopped before work starts in it.
+  const serveStop = vi.fn(async (_copy: string) => {});
   const runner: CrewRunner = new CrewRunner({
     owner: "me",
     now: () => now,
@@ -95,6 +97,7 @@ function busyRunner(known: boolean) {
       stack: async () => "c".repeat(40),
       unstack: async () => {},
       discard: async () => {},
+      serveStop,
     },
     weeklyUsed: () => 40,
     fixerRuns: () => 0,
@@ -155,6 +158,7 @@ function busyRunner(known: boolean) {
   return {
     runner,
     prepare,
+    serveStop,
     sent,
     advance,
     /** The chat is free again, as the window's sessions say. */
@@ -211,6 +215,17 @@ describe("a turn whose chat is busy", () => {
     h.free();
     await h.advance(0);
     expect(h.sent).toEqual(["builder-chat"]);
+    h.runner.stop();
+  });
+
+  it("stops Try it running the copy before work starts in it", async () => {
+    const h = busyRunner(true);
+    h.runner.start();
+    await h.advance(5_000);
+    expect(h.serveStop).not.toHaveBeenCalled();
+    h.free();
+    await h.advance(0);
+    expect(h.serveStop).toHaveBeenCalledWith(COPY);
     h.runner.stop();
   });
 });

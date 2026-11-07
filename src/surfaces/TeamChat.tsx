@@ -7,24 +7,20 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { ExplorerMenu } from "../chrome/ExplorerMenu";
-import { ArrowRight, ChevronDown, MoveUp, X } from "../chrome/icons";
-import { TeamCardButton } from "../chrome/TeamCard";
-import type { BatchRange } from "../hooks/useTeamPipeline";
+import { ArrowRight, MoveUp, X } from "../chrome/icons";
+import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
 import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
 import { avosIntro, avosUnmet } from "../lib/avos";
 import {
-  TOO_LONG_FOR_A_GOAL,
   TOO_LONG_FOR_EVERYONE,
-  addQuestionCard,
   firstCardChatText,
-  wakeAvos,
   subscribeCrewTell,
   takeCrewTell,
   takeCrewTellTo,
@@ -33,28 +29,21 @@ import {
   tellTeammate,
   useCrewWorkspace,
 } from "../lib/crewActions";
-import type { Pipeline, PipelineRow } from "../lib/crewPipeline";
 import {
-  CREW_GOAL_MAX,
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
-  cardDesigner,
-  cardResearcher,
   crewLead,
   crewMemberById,
   crewMemberName,
   getCrew,
   isTime,
-  memberCritter,
-  stackedCards,
   type Crew,
   type CrewMessageKind,
 } from "../lib/crews";
 import {
   crewMemberViews,
   titleBeside,
-  type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
 import { isImeComposition } from "../lib/keyboard";
@@ -81,17 +70,13 @@ import {
   type TeamAuthor,
   type TeamPost,
 } from "../lib/teamThread";
-import type { BoardCard } from "../lib/workBoard";
-import { plural } from "../lib/words";
 import { AutomationReviewCard } from "./AutomationReviewCard";
-import { BatchButtons } from "./TeamBatch";
 import "./TeamChat.css";
 
 /**
- * The team as a chat: a roster you read like a messenger (Everyone, then
- * each teammate with what it's doing), the team thread (its handoffs and
- * verdicts as short posts, your messages among them) with Ready for you
- * pinned on top, and one box to write to everyone or @ one teammate.
+ * Avos's chat: the thread (its helpers' handoffs and verdicts as short
+ * posts, your messages among them, who's working now, and last Avos's
+ * message on what needs you), and one box to write to Avos or @ a helper.
  */
 
 /** Posts the thread shows at first, and adds with each Show earlier. */
@@ -122,69 +107,45 @@ const BECAME: Readonly<Record<CrewMessageKind, string>> = {
   lead: "a question for Avos",
 };
 
-/** What the box does with a message: a kind of message, or a question card. */
-type Mode = CrewMessageKind | "research" | "mockup";
+/**
+ * What the box does with a message: it goes to Avos, which works out what
+ * it is (an answer, work to build, a rule, the goal, a job). A team from
+ * before Avos, with no Lead, takes it as a card.
+ */
+type Mode = Extract<CrewMessageKind, "lead" | "card">;
 
 /** The teammate the box writes to: its id, and its name when you picked it. */
 type Addressee = { id: string; name: string };
 
-const MODES: readonly { id: Mode; label: string; word: string }[] = [
-  { id: "lead", label: "Ask Avos", word: "Avos" },
-  { id: "card", label: "Build it", word: "Card" },
-  { id: "rule", label: "Remember for every card", word: "Rule" },
-  { id: "goal", label: "Make it a goal", word: "Goal" },
-  // The Researcher and the Designer, while Avos has them: what the Board's
-  // Add an idea once asked them.
-  { id: "research", label: "Ask the Researcher", word: "Research" },
-  { id: "mockup", label: "Mock it up", word: "Mock-up" },
-];
-
-/** Whether a mode can be picked for this Avos now. */
-function modeOpen(
-  id: Mode,
-  open: { lead: boolean; research: boolean; mockup: boolean },
-): boolean {
-  if (id === "lead" || id === "research" || id === "mockup") return open[id];
-  return true;
-}
-
 export function TeamChat({
   project,
   crew,
-  view,
-  range,
   now,
   name,
   fixer,
-  cards,
-  problems,
-  onCrewAction,
-  onReview,
+  forYou,
+  forYouKey = "",
   onCards,
   onSelected,
   control,
 }: {
   project: string;
   crew: Crew;
-  view: Pipeline;
-  range: BatchRange | null;
   now: number;
   name: (who: string) => string;
   /** The Fixer (the project bot), while it is on. */
   fixer?: { status: BotStatus; sessionId?: string };
-  /** The Board's cards, for an older Ready card's own buttons. */
-  cards: readonly BoardCard[];
-  problems: Readonly<Record<string, string>>;
-  onCrewAction: (card: BoardCard, id: CrewBoardActionId) => void;
-  onReview: () => void;
-  /** Show the Cards (a card that waits on you is answered there). */
+  /** What needs you, as Avos's message at the end of the thread. */
+  forYou?: ReactNode;
+  /** What that message holds, so a new ask comes into view. */
+  forYouKey?: string;
+  /** Answer a card that waits on you (its question, in a sheet). */
   onCards: () => void;
   /** The teammate the thread shows, for the panel to mark. */
   onSelected: (id: string | null) => void;
-  /** ⋯ → Set a goal…: the box turns to the goal; a teammate filters it. */
+  /** A helper in Avos's profile filters the thread to it. */
   control: {
     current: {
-      goal: () => void;
       select: (id: string | null) => void;
     } | null;
   };
@@ -224,21 +185,8 @@ export function TeamChat({
   // Who the box writes to, as you picked them: kept even if they leave the
   // team, so a message for them never goes to everyone instead.
   const [to, setTo] = useState<Addressee | null>(null);
-  // Your choice for this message; otherwise the Lead, on a team that has one.
-  const [chosenMode, setMode] = useState<Mode | null>(null);
-  const hasLead = !!crewLead(crew);
   const meeting = avosUnmet(crew);
-  const modesOpen = {
-    lead: hasLead,
-    research: !!cardResearcher(crew),
-    mockup: !!cardDesigner(crew),
-  };
-  const mode: Mode =
-    chosenMode && modeOpen(chosenMode, modesOpen)
-      ? chosenMode
-      : hasLead
-        ? "lead"
-        : "card";
+  const mode: Mode = crewLead(crew) ? "lead" : "card";
   const input = useRef<HTMLTextAreaElement>(null);
   const filter =
     selected && members.some((member) => member.id === selected)
@@ -269,15 +217,7 @@ export function TeamChat({
     return subscribeCrewTell(take);
   }, [project]);
   useEffect(() => {
-    control.current = {
-      goal: () => {
-        setSelected(null);
-        setTo(null);
-        setMode("goal");
-        requestAnimationFrame(() => input.current?.focus());
-      },
-      select,
-    };
+    control.current = { select };
     return () => {
       control.current = null;
     };
@@ -288,7 +228,6 @@ export function TeamChat({
       !!member.line &&
       (!filter || member.id === filter),
   );
-  const ready = view.ready.filter((row) => !row.boardActions);
   return (
     <div className="team-chat" data-team-chat={project}>
       <div className="team-thread">
@@ -341,33 +280,6 @@ export function TeamChat({
               : firstCardChatText(name(filter))}
           </p>
         ) : null}
-        {view.batch || ready.length ? (
-          <div className="team-ready-list">
-            {view.batch ? (
-              <ReadyBatch
-                project={project}
-                crew={crew}
-                view={view}
-                range={range}
-                name={name}
-                onReview={onReview}
-              />
-            ) : null}
-            {ready.map((row) => (
-              <ReadyCard
-                key={row.id}
-                project={project}
-                crew={crew}
-                row={row}
-                problem={problems[row.id]}
-                onAction={(id) => {
-                  const card = cards.find((item) => item.id === row.id);
-                  if (card) onCrewAction(card, id);
-                }}
-              />
-            ))}
-          </div>
-        ) : null}
         <Thread
           key={filter ?? "everyone"}
           project={project}
@@ -378,6 +290,8 @@ export function TeamChat({
           working={working}
           now={now}
           onCards={onCards}
+          forYou={filter ? null : forYou}
+          forYouKey={filter ? "" : forYouKey}
         />
         <Composer
           project={project}
@@ -385,140 +299,14 @@ export function TeamChat({
           members={members}
           to={to}
           mode={mode}
-          modesOpen={modesOpen}
           input={input}
           onTo={setTo}
-          onMode={setMode}
         />
       </div>
     </div>
   );
 }
 
-function ReadyBatch({
-  project,
-  crew,
-  view,
-  range,
-  name,
-  onReview,
-}: {
-  project: string;
-  crew: Crew;
-  view: Pipeline;
-  range: BatchRange | null;
-  name: (who: string) => string;
-  onReview: () => void;
-}) {
-  const batch = view.batch!;
-  const last = stackedCards(crew).at(-1);
-  const builder = crewMemberById(crew, last?.builderId);
-  const single = batch.cards.length === 1 ? batch.cards[0]! : undefined;
-  const title = single ? single.title : plural(batch.cards.length, "card");
-  const status = single
-    ? [
-        builder ? name(builder.id) : "",
-        batch.status.startsWith(`${single.title} · `)
-          ? batch.status.slice(single.title.length + 3)
-          : batch.status,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : batch.status;
-  return (
-    <section
-      className="team-ready"
-      aria-label="Ready for you"
-      data-team-ready="batch"
-    >
-      <CrewCritter
-        path={project}
-        role={builder?.role ?? "builder"}
-        {...(builder?.critter ? { critter: memberCritter(builder) } : {})}
-        className="team-ready-mark"
-      />
-      <span className="team-ready-text">
-        <span className="team-ready-tag">
-          <i aria-hidden="true" />
-          Ready for you
-        </span>
-        <span className="team-ready-line">
-          <b>{title}</b>
-          <span title={status}>{status}</span>
-        </span>
-      </span>
-      <BatchButtons
-        crew={crew}
-        batch={batch}
-        range={range}
-        onReview={onReview}
-        className="team-ready-actions"
-        problemClass="team-ready-problem"
-      />
-    </section>
-  );
-}
-
-/** An older Ready card that isn't on the branch: its own Review and Apply. */
-function ReadyCard({
-  project,
-  crew,
-  row,
-  problem,
-  onAction,
-}: {
-  project: string;
-  crew: Crew;
-  row: PipelineRow;
-  problem?: string;
-  onAction: (id: CrewBoardActionId) => void;
-}) {
-  const card = crew.cards.find((item) => item.id === row.id);
-  const builder = crewMemberById(crew, card?.builderId);
-  return (
-    <section
-      className="team-ready"
-      aria-label={`Ready for you: ${row.title}`}
-      data-team-ready={row.id}
-    >
-      <CrewCritter
-        path={project}
-        role={builder?.role ?? "builder"}
-        {...(builder?.critter ? { critter: memberCritter(builder) } : {})}
-        className="team-ready-mark"
-      />
-      <span className="team-ready-text">
-        <span className="team-ready-tag">
-          <i aria-hidden="true" />
-          Ready for you
-        </span>
-        <span className="team-ready-line">
-          <b>{row.title}</b>
-          <span title={row.status}>{row.status}</span>
-        </span>
-      </span>
-      <span className="team-ready-actions">
-        {row.actions.map((action) => (
-          <TeamCardButton
-            key={action.id}
-            size="compact"
-            variant={action.primary ? "primary" : "default"}
-            onClick={() => onAction(action.id)}
-          >
-            {action.label}
-          </TeamCardButton>
-        ))}
-      </span>
-      {problem ? (
-        <p className="team-ready-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // The thread
 
 function Thread({
@@ -530,6 +318,8 @@ function Thread({
   now,
   meeting,
   onCards,
+  forYou,
+  forYouKey,
 }: {
   project: string;
   posts: readonly TeamPost[];
@@ -540,6 +330,9 @@ function Thread({
   /** Meeting Avos: its chat opens on its introduction. */
   meeting?: boolean;
   onCards: () => void;
+  /** Avos's message on what needs you, after everything else. */
+  forYou: ReactNode;
+  forYouKey: string;
 }) {
   const [shown, setShown] = useState(SHOWN);
   const [follow, setFollow] = useState<FeedFollow>(FEED_FOLLOW_START);
@@ -596,10 +389,11 @@ function Thread({
       setShown((count) => count + added);
     }
   }, [newest, newestYou, kept]);
-  // Someone starts or stops working: the live line stays in view.
+  // Someone starts or stops working, or something new waits for you: the
+  // end of the thread stays in view.
   useLayoutEffect(() => {
     if (followRef.current.following) toBottom();
-  }, [liveKey]);
+  }, [liveKey, forYouKey]);
   // Show earlier keeps what you were reading where it was.
   useLayoutEffect(() => {
     const element = scroller.current;
@@ -687,12 +481,17 @@ function Thread({
                     <b>{member.name}</b>
                     <time>now</time>
                   </p>
-                  <p className="team-post-text">{member.line}…</p>
+                  <LiveText
+                    project={project}
+                    memberId={member.id}
+                    line={member.line ?? ""}
+                  />
                 </div>
               </li>
             ))}
           </ol>
         ) : null}
+        {forYou}
       </div>
       {follow.unseen > 0 ? (
         <button
@@ -707,6 +506,29 @@ function Thread({
         </button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A working teammate's line: what it's writing to you, as it's written,
+ * or what it's doing until its first words come.
+ */
+function LiveText({
+  project,
+  memberId,
+  line,
+}: {
+  project: string;
+  memberId: string;
+  line: string;
+}) {
+  const writing = useCrewLiveReply(project, memberId);
+  return writing ? (
+    <p className="team-post-text" data-team-live-reply>
+      {writing}
+    </p>
+  ) : (
+    <p className="team-post-text">{line}…</p>
   );
 }
 
@@ -934,21 +756,6 @@ function RunPost({ post }: { post: Extract<TeamPost, { kind: "run" }> }) {
 // ---------------------------------------------------------------------------
 // The box
 
-/**
- * A question for the Researcher, or a screen for the Designer: a card of
- * its own, as the Board's Add an idea once made. Avos wakes for it.
- */
-async function askQuestion(
-  project: string,
-  words: string,
-  kind: "research" | "mockup",
-): Promise<string | null> {
-  const woke = await wakeAvos(project);
-  if (woke) return woke;
-  const { problem } = await addQuestionCard(project, words, kind);
-  return problem;
-}
-
 /** The "@word" being typed just before the cursor, if any. */
 /**
  * The "@word" the caret is in, if any: where its @ is, and the whole word
@@ -973,10 +780,8 @@ function Composer({
   members,
   to,
   mode,
-  modesOpen,
   input,
   onTo,
-  onMode,
 }: {
   project: string;
   /** Meeting Avos: the box asks what to keep an eye on, and has the cursor. */
@@ -985,12 +790,8 @@ function Composer({
   /** The teammate it writes to, as you picked them; none for everyone. */
   to: Addressee | null;
   mode: Mode;
-  /** Which modes this Avos has now (Avos itself, a Researcher, a Designer). */
-  modesOpen: { lead: boolean; research: boolean; mockup: boolean };
   input: RefObject<HTMLTextAreaElement | null>;
   onTo: (to: Addressee | null) => void;
-  /** Null goes back to the usual: the Lead, or a card without one. */
-  onMode: (mode: Mode | null) => void;
 }) {
   const listId = useId();
   const [text, setText] = useState("");
@@ -999,7 +800,6 @@ function Composer({
   typed.current = text;
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [menu, setMenu] = useState<HTMLElement | null>(null);
   /** The @ list: the word typed after @ (start -1 when opened from @). */
   const [picker, setPicker] = useState<{
     start: number;
@@ -1075,13 +875,8 @@ function Composer({
     onTo(option.id ? { id: option.id, name: option.name } : null);
     requestAnimationFrame(() => element?.focus());
   };
-  // How long it may be: a chat message, a goal, or a card's words.
-  const limit =
-    to || mode === "lead"
-      ? CREW_MESSAGE_MAX
-      : mode === "goal"
-        ? CREW_GOAL_MAX
-        : CREW_NOTE_MAX;
+  // How long it may be: a chat message, or a card's words.
+  const limit = to || mode === "lead" ? CREW_MESSAGE_MAX : CREW_NOTE_MAX;
   const send = async () => {
     const words = text.trim();
     if (!words || sending) return;
@@ -1094,7 +889,7 @@ function Composer({
       return;
     }
     if (!to && words.length > limit) {
-      setProblem(mode === "goal" ? TOO_LONG_FOR_A_GOAL : TOO_LONG_FOR_EVERYONE);
+      setProblem(TOO_LONG_FOR_EVERYONE);
       return;
     }
     // Who it went to, so a message that fails comes back to them.
@@ -1103,11 +898,11 @@ function Composer({
     setProblem(null);
     // The box is free at once: what you start typing now stays.
     setText("");
+    // Avos works out what it is: an answer, work, a rule, the goal, a job,
+    // or a question or mock-up for its Researcher or Designer.
     const why = sentTo
       ? await tellTeammate(project, sentTo.id, words)
-      : mode === "research" || mode === "mockup"
-        ? await askQuestion(project, words, mode)
-        : await tellTeam(project, words, mode);
+      : await tellTeam(project, words, mode);
     setSending(false);
     if (why) {
       setProblem(why);
@@ -1119,7 +914,6 @@ function Composer({
       }
       return;
     }
-    onMode(null);
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposition(event.nativeEvent)) return;
@@ -1172,18 +966,9 @@ function Composer({
     ? `Write to ${toName}…`
     : meeting
       ? "Something to keep an eye on, or what's coming up…"
-      : mode === "rule"
-        ? "A rule for every card, like “Use pnpm”…"
-        : mode === "goal"
-          ? "A goal Avos keeps going towards…"
-          : mode === "research"
-            ? "A question for the Researcher…"
-            : mode === "mockup"
-              ? "A screen for the Designer to mock up…"
-              : mode === "lead"
-                ? "Ask Avos anything, or @ a helper…"
-                : "Write to Avos, or @ a helper…";
-  const current = MODES.find((item) => item.id === mode)!;
+      : mode === "lead"
+        ? "Ask Avos anything, or @ a helper…"
+        : "Write to Avos, or @ a helper…";
   return (
     <div className="team-compose-wrap">
       {picker && options.length ? (
@@ -1290,21 +1075,6 @@ function Composer({
           onClick={(event) => follow(event.currentTarget)}
           onKeyDown={onKeyDown}
         />
-        {!to ? (
-          <button
-            type="button"
-            className="team-compose-mode"
-            data-mode={mode}
-            aria-label={`How Avos takes this: ${current.label}`}
-            title="A card to build, a rule for every card, or a goal"
-            aria-haspopup="menu"
-            aria-expanded={!!menu}
-            onClick={(event) => setMenu(menu ? null : event.currentTarget)}
-          >
-            {current.word}
-            <ChevronDown size={11} />
-          </button>
-        ) : null}
         <button
           type="button"
           className="team-compose-at"
@@ -1332,30 +1102,6 @@ function Composer({
         <p className="team-compose-problem" role="alert">
           {problem}
         </p>
-      ) : null}
-      {menu ? (
-        <ExplorerMenu
-          x={0}
-          y={0}
-          anchor={menu}
-          align="end"
-          gap={4}
-          ariaLabel="How Avos takes this"
-          items={MODES.filter((item) => modeOpen(item.id, modesOpen)).map(
-            (item) => ({
-              kind: "item" as const,
-              id: item.id,
-              label: item.label,
-              ...(item.id === mode ? { checked: true } : {}),
-            }),
-          )}
-          onClose={() => setMenu(null)}
-          onPick={(id) => {
-            setMenu(null);
-            onMode(id as Mode);
-            input.current?.focus();
-          }}
-        />
       ) : null}
     </div>
   );

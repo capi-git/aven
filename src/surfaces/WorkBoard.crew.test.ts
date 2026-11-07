@@ -76,6 +76,18 @@ const actions = vi.hoisted(() => ({
   stopCrewCard: vi.fn(async () => undefined),
   setCrewCardPaused: vi.fn(),
   openChat: vi.fn(),
+  openCrewBatchPr: vi.fn(async () => ({
+    url: "https://github.com/me/site/pull/7",
+  })),
+  askAvosForChanges: vi.fn(async () => null as string | null),
+  tryCrewBatch: vi.fn(async () => ({ url: "http://127.0.0.1:5190" })),
+  stopCrewTry: vi.fn(async () => undefined),
+  takePagePicture: vi.fn(async (url: string, size: string) => ({
+    src: `data:image/png;base64,${btoa(`${size} ${url}`)}`,
+    width: 390,
+    height: 844,
+  })),
+  openInAppUrl: vi.fn(async () => undefined),
 }));
 vi.mock("../lib/crewActions", async (original) => {
   const actual = await original<typeof import("../lib/crewActions")>();
@@ -91,8 +103,31 @@ vi.mock("../lib/crewActions", async (original) => {
     notNowIdea: actions.notNowIdea,
     stopCrewCard: actions.stopCrewCard,
     setCrewCardPaused: actions.setCrewCardPaused,
+    openCrewBatchPr: actions.openCrewBatchPr,
+    askAvosForChanges: actions.askAvosForChanges,
+    tryCrewBatch: actions.tryCrewBatch,
+    stopCrewTry: actions.stopCrewTry,
   };
 });
+const platform = vi.hoisted(() => ({ mac: true }));
+vi.mock("../lib/platform", async (original) => ({
+  ...(await original<typeof import("../lib/platform")>()),
+  get IS_MAC() {
+    return platform.mac;
+  },
+}));
+vi.mock("../lib/pagePictures", async (original) => ({
+  ...(await original<typeof import("../lib/pagePictures")>()),
+  takePagePicture: actions.takePagePicture,
+}));
+vi.mock("../lib/fs", async (original) => ({
+  ...(await original<typeof import("../lib/fs")>()),
+  gitDiffIndex: async () => ({ remote: "origin" }),
+}));
+vi.mock("../lib/inAppLinks", async (original) => ({
+  ...(await original<typeof import("../lib/inAppLinks")>()),
+  openInAppUrl: actions.openInAppUrl,
+}));
 vi.mock("../hooks/useProjectBots", () => ({ claudeWeeklyUsed: () => 40 }));
 vi.mock("../chrome/ProjectMark", () => ({ ProjectMark: () => null }));
 vi.mock("../chrome/ExplorerMenu", async () => {
@@ -324,6 +359,7 @@ beforeEach(() => {
     draft: vi.fn(() => "drafted"),
   });
   for (const fn of Object.values(actions)) fn.mockClear();
+  platform.mac = true;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -345,7 +381,7 @@ describe("the team view: the Board with the team on it", () => {
     setTeamView(PROJECT, "board");
   });
 
-  it("has one header: Avos's Bot, its name, one live line, Chat | Changes | Notes | Sub agents and ⋯", async () => {
+  it("keeps Avos's profile beside the Board the real-app check reads: its Bot, name, one live line and ⋯, and a way back", async () => {
     await setUp(
       () => (crew) =>
         withFeed(crew, {
@@ -359,6 +395,7 @@ describe("the team view: the Board with the team on it", () => {
         }),
     );
     const header = container.querySelector<HTMLElement>("[data-crew-header]")!;
+    expect(header.tagName).toBe("ASIDE");
     expect(header.querySelector("h1")?.textContent).toBe("Avos");
     expect(
       header.querySelector('[data-crew-critter="lead"] .agent-mark'),
@@ -369,26 +406,14 @@ describe("the team view: the Board with the team on it", () => {
       `Starting ${top.textContent}.`,
     );
     expect(stage(top.closest("[data-board-card]")!)).toBe("Next");
-    // Chat, Changes and Notes; the Board, shown from ⋯, says so beside them.
-    expect(
-      [...header.querySelectorAll('[role="tab"]')].map((tab) => [
-        tab.textContent,
-        tab.getAttribute("aria-selected"),
-      ]),
-    ).toEqual([
-      ["Chat", "false"],
-      ["Changes", "false"],
-      ["Notes", "false"],
-      ["Sub agents", "false"],
-      ["Board", "true"],
-    ]);
-    // This week gives the Board its room.
-    expect(container.querySelector("[data-avos-week]")).toBeNull();
-    // One header: no board title above it, no strip, no Feed beside it.
+    // No tabs; nothing on screen leads to the Board, so it has a way back.
+    expect(container.querySelector('[role="tab"]')).toBeNull();
+    expect(button(container, "Back to the chat")).toBeDefined();
+    // No header over it: no board title, no strip, no Feed beside it.
     expect(container.querySelector(".work-board-header")).toBeNull();
     expect(container.querySelector(".crew-strip")).toBeNull();
     expect(container.querySelector("[data-crew-feed]")).toBeNull();
-    expect(container.querySelectorAll("header")).toHaveLength(1);
+    expect(container.querySelectorAll("header")).toHaveLength(0);
     // The four columns, named for the team's work.
     expect(
       [...container.querySelectorAll("[data-board-column]")].map((item) =>
@@ -783,22 +808,10 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.extra?.count).toBe(10);
   });
 
-  it("makes a goal from the chat's box, and says in This week when it waits", async () => {
+  it("says in Avos's profile what the goal is, and when it waits", async () => {
     const boards = await setUp(() => (crew) => crew);
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[data-team-tab="chat"]')!
-        .click(),
-    );
-    // The box's menu: Make it a goal.
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
-    );
-    await pickMenu("Make it a goal");
-    expect(
-      container.querySelector<HTMLTextAreaElement>(".team-compose-input")!
-        .placeholder,
-    ).toBe("A goal Avos keeps going towards…");
+    await act(async () => button(container, "Back to the chat")!.click());
+    // You tell Avos the goal in the box; it saves it (see crewRunner.talk).
     await act(async () =>
       updateCrew(PROJECT, (crew) => ({
         ...crew,
@@ -833,7 +846,7 @@ describe("the team view: the Board with the team on it", () => {
     );
     await act(async () => button(goal(), "Keep going")!.click());
     expect(getCrew(PROJECT)!.goal?.done).toBeUndefined();
-    // Clear, on its line in This week.
+    // Clear, on its line in the profile.
     await act(async () =>
       goal()
         .querySelector<HTMLButtonElement>("[data-avos-clear-goal]")!
@@ -842,7 +855,7 @@ describe("the team view: the Board with the team on it", () => {
     expect(getCrew(PROJECT)!.goal).toBeUndefined();
   });
 
-  it("says when nothing builds by itself, with Add a helper under Sub agents", async () => {
+  it("says when nothing builds by itself, with Add a helper in ⋯", async () => {
     const openSettings = vi.fn();
     const uninstall = installCrewWorkspace({
       openChat: vi.fn(),
@@ -861,23 +874,10 @@ describe("the team view: the Board with the team on it", () => {
       expect(sentence().textContent).toBe(
         "2 ideas wait for you to press Build it.",
       );
-      // Add a helper is under Sub agents.
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>('[data-team-tab="agents"]')!
-          .click(),
-      );
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>("[data-avos-add-helper]")!
-          .click(),
-      );
+      // Add a helper is in ⋯ beside Avos's name.
+      await teamMenu();
+      await pickMenu("Add a helper…");
       expect(openSettings).toHaveBeenCalledWith(PROJECT, "add");
-      await act(async () =>
-        container
-          .querySelector<HTMLButtonElement>('[data-team-tab="chat"]')!
-          .click(),
-      );
       // With a Scout too; with work, another sentence.
       await act(async () =>
         updateCrew(PROJECT, (crew) => ({
@@ -1178,9 +1178,9 @@ describe("the team view: the Board with the team on it", () => {
     const sheet = document.querySelector<HTMLElement>(
       "[data-crew-batch-review]",
     )!;
-    expect(sheet.textContent).toContain("Each card, checked on its own");
+    expect(sheet.textContent).toContain("What changed");
     expect(sheet.textContent).toContain(boards[3].title);
-    await act(async () => button(sheet, "Apply up to here")!.click());
+    await act(async () => button(sheet, "Only up to here")!.click());
     await settle();
     expect(actions.reviewCrewBatch).toHaveBeenLastCalledWith(
       PROJECT,
@@ -1190,7 +1190,7 @@ describe("the team view: the Board with the team on it", () => {
     await act(async () =>
       [
         ...document.querySelectorAll<HTMLButtonElement>(
-          ".crew-sheet-actions button",
+          "[data-avos-review-apply]",
         ),
       ]
         .at(-1)!
@@ -1271,7 +1271,10 @@ describe("the team view: the Board with the team on it", () => {
     const list = document.querySelector<HTMLElement>(
       "[data-crew-batch-files]",
     )!;
-    expect(list.querySelectorAll("li")).toHaveLength(48);
+    // The code below shows the first 40 text files line by line; every
+    // other file is named here, and so is anything to look out for.
+    expect(list.querySelectorAll("li")).toHaveLength(8);
+    expect(list.textContent).not.toContain("src/file-39.ts");
     expect(list.textContent).toContain("src/file-44.ts");
     expect(list.textContent).toContain("keys");
     expect(list.textContent).toContain("a link to /Users/me/.ssh");
@@ -1351,11 +1354,11 @@ describe("the team view: the Board with the team on it", () => {
     const applyButton = () =>
       [
         ...document.querySelectorAll<HTMLButtonElement>(
-          ".crew-sheet-actions button",
+          "[data-avos-review-apply]",
         ),
       ].at(-1)!;
     expect(applyButton().disabled).toBe(false);
-    await act(async () => button(sheet(), "Apply up to here")!.click());
+    await act(async () => button(sheet(), "Only up to here")!.click());
     await settle();
     // Still reading the selection: the whole batch's review is gone.
     expect(applyButton().disabled).toBe(true);
@@ -1412,7 +1415,7 @@ describe("the team view: the Board with the team on it", () => {
     const applyButton = () =>
       [
         ...document.querySelectorAll<HTMLButtonElement>(
-          ".crew-sheet-actions button",
+          "[data-avos-review-apply]",
         ),
       ].at(-1)!;
     expect(applyButton().disabled).toBe(false);
@@ -1430,13 +1433,15 @@ describe("the team view: the Board with the team on it", () => {
     const sheet = document.querySelector<HTMLElement>(
       "[data-crew-batch-review]",
     )!;
-    expect(sheet.textContent).toContain("The branch changed: reviewing again");
+    expect(sheet.textContent).toContain(
+      "Avos's branch changed: reading it again",
+    );
     expect(applyButton().disabled).toBe(true);
     await act(async () => {
       for (const release of waiting) release();
     });
     await settle();
-    expect(sheet.textContent).not.toContain("reviewing again");
+    expect(sheet.textContent).not.toContain("reading it again");
     expect(applyButton().disabled).toBe(false);
     await act(async () => applyButton().click());
     expect(actions.applyCrewBatch).toHaveBeenLastCalledWith(PROJECT, {
@@ -1491,6 +1496,185 @@ describe("the team view: the Board with the team on it", () => {
     expect(document.querySelector("[data-crew-batch-review]")).not.toBeNull();
   });
 
+  it("reviews beside the chat: asks Avos for changes, or sends the reviewed change as a pull request", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...withCard(crew, {
+        ...crewCardFor(boards[3], "ready"),
+        stacked: { commit: "2".repeat(40), parent: "a".repeat(40) },
+      }),
+      stack: { base: "a".repeat(40) },
+    }));
+    await settle();
+    await act(async () =>
+      button(container.querySelector("[data-crew-batch]")!, "Review")!.click(),
+    );
+    await settle();
+    const review = () =>
+      document.querySelector<HTMLElement>("[data-avos-review]")!;
+    expect(review().textContent).toContain("What changed");
+    expect(review().textContent).toContain(boards[3].title);
+    // Its one file shows as code: nothing else needs naming on its own.
+    expect(review().querySelector("[data-crew-batch-files]")).toBeNull();
+    // Your words go to Avos as changes to what you're looking at.
+    const input = review().querySelector<HTMLInputElement>(
+      "input[aria-label='Ask Avos for changes']",
+    )!;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      set.call(input, "Make the Pro plan stand out");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      input.form!.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      ),
+    );
+    await settle();
+    expect(actions.askAvosForChanges).toHaveBeenCalledWith(
+      PROJECT,
+      "Make the Pro plan stand out",
+      [boards[3].title],
+    );
+    // Asked: the review closes, and Avos's chat shows what you said.
+    expect(document.querySelector("[data-avos-review]")).toBeNull();
+    await act(async () =>
+      button(container.querySelector("[data-crew-batch]")!, "Review")!.click(),
+    );
+    await settle();
+    // Apply ⌄ › Open a pull request sends exactly the reviewed change.
+    await act(async () =>
+      review()
+        .querySelector<HTMLButtonElement>(
+          "button[aria-label='Other ways to take it']",
+        )!
+        .click(),
+    );
+    await act(async () =>
+      button(
+        document.querySelector("[data-menu]")!,
+        "Open a pull request",
+      )!.click(),
+    );
+    await settle();
+    expect(actions.openCrewBatchPr).toHaveBeenCalledWith(PROJECT, {
+      to: "2".repeat(40),
+      hash: "h-reviewed",
+    });
+    expect(actions.openInAppUrl).toHaveBeenCalledWith(
+      "https://github.com/me/site/pull/7",
+    );
+    expect(actions.applyCrewBatch).not.toHaveBeenCalled();
+  });
+
+  const withPage =
+    (boards: FeatureCard[]) =>
+    (crew: Crew): Crew => {
+      const card = crewCardFor(boards[3], "ready");
+      return {
+        ...withCard(crew, {
+          ...card,
+          rounds: card.rounds.map((round) =>
+            round.n === card.round && round.handoff
+              ? { ...round, handoff: { ...round.handoff, pages: ["/pricing"] } }
+              : round,
+          ),
+          stacked: { commit: "2".repeat(40), parent: "a".repeat(40) },
+        }),
+        stack: { base: "a".repeat(40) },
+      };
+    };
+  const openReview = async () => {
+    await settle();
+    await act(async () =>
+      button(container.querySelector("[data-crew-batch]")!, "Review")!.click(),
+    );
+    await settle();
+    return () => document.querySelector<HTMLElement>("[data-avos-review]")!;
+  };
+
+  it("pictures a change to what people see once you run Avos's version: before and after, at phone or desktop size, and Try it", async () => {
+    await setUp(withPage);
+    const review = await openReview();
+    // Look comes first, but Avos's copy runs only when you ask.
+    expect(
+      review().querySelector("[role='tab'][aria-selected='true']")!.textContent,
+    ).toBe("Look");
+    expect(actions.tryCrewBatch).not.toHaveBeenCalled();
+    expect(actions.takePagePicture).not.toHaveBeenCalled();
+    expect(review().querySelector("[data-avos-review-look] img")).toBeNull();
+    // Switching size doesn't start it either.
+    await act(async () => button(review(), "Desktop")!.click());
+    await act(async () => button(review(), "Phone")!.click());
+    await settle();
+    expect(actions.tryCrewBatch).not.toHaveBeenCalled();
+    await act(async () => button(review(), "Run Avos's version")!.click());
+    await settle();
+    expect(actions.tryCrewBatch).toHaveBeenCalledTimes(1);
+    expect(actions.tryCrewBatch).toHaveBeenCalledWith(PROJECT, {
+      to: "2".repeat(40),
+      hash: "h-reviewed",
+    });
+    expect(actions.takePagePicture).toHaveBeenCalledWith(
+      "http://127.0.0.1:5190/pricing",
+      "phone",
+    );
+    const shot = review().querySelector<HTMLImageElement>(
+      "[data-avos-review-look] img",
+    )!;
+    expect(atob(shot.src.split(",")[1]!)).toBe(
+      "phone http://127.0.0.1:5190/pricing",
+    );
+    expect(button(review(), "Run Avos's version")).toBeFalsy();
+    // Your app isn't running here: only Avos's version, and how to get before.
+    expect(review().textContent).toContain(
+      "Start your app to see how it looked before.",
+    );
+    // Desktop size.
+    await act(async () => button(review(), "Desktop")!.click());
+    await settle();
+    expect(actions.takePagePicture).toHaveBeenLastCalledWith(
+      "http://127.0.0.1:5190/pricing",
+      "desktop",
+    );
+    // Code shows the change instead of the pictures.
+    await act(async () => button(review(), "Code")!.click());
+    await settle();
+    expect(review().querySelector("[data-avos-review-look]")).toBeNull();
+    expect(review().querySelector("[data-avos-review-code]")).not.toBeNull();
+    // Try it opens Avos's version of the page in a browser tab.
+    await act(async () => button(review(), "Try it")!.click());
+    await settle();
+    expect(actions.openInAppUrl).toHaveBeenCalledWith(
+      "http://127.0.0.1:5190/pricing",
+    );
+    // Tried: closing the review leaves it running for that tab.
+    actions.stopCrewTry.mockClear();
+    await act(async () =>
+      review()
+        .querySelector<HTMLButtonElement>(
+          "button[aria-label='Close the review']",
+        )!
+        .click(),
+    );
+    await settle();
+    expect(actions.stopCrewTry).not.toHaveBeenCalled();
+  });
+
+  it("offers no pictures and no Try it off a Mac, where Avos's version can't run yet", async () => {
+    platform.mac = false;
+    await setUp(withPage);
+    const review = await openReview();
+    expect(review().querySelector("[role='tab']")).toBeNull();
+    expect(review().querySelector("[data-avos-review-look]")).toBeNull();
+    expect(review().querySelector("[data-avos-review-code]")).not.toBeNull();
+    expect(button(review(), "Try it")).toBeFalsy();
+    expect(button(review(), "Run Avos's version")).toBeFalsy();
+    expect(actions.tryCrewBatch).not.toHaveBeenCalled();
+  });
+
   it("makes “Research: …” in the box the Researcher's card at once, never an idea for the Builder", async () => {
     await setUp(() => (crew) => ({
       ...crew,
@@ -1536,13 +1720,13 @@ describe("the team view: the Board with the team on it", () => {
   });
 });
 
-describe("This week, in place of the Board", () => {
+describe("Avos's message on what needs you, in place of the Board", () => {
   beforeEach(() => {
     resetTeamViewCache();
     setTeamView(PROJECT, "chat");
   });
 
-  it("lists ideas waiting for you under Needs you, with Build it", async () => {
+  it("lists ideas waiting for you in Avos's message, with Build it", async () => {
     const boards = await setUp((boards) => (crew) => ({
       ...crew,
       ideas: {
@@ -1551,13 +1735,19 @@ describe("This week, in place of the Board", () => {
       notNow: [boards[1].id],
     }));
     const needs = container.querySelector<HTMLElement>(
-      '[data-avos-week-section="needs"]',
+      "[data-team-thread] [data-avos-for-you]",
     )!;
+    expect(needs.querySelector(".team-post-text")?.textContent).toBe(
+      "An idea, if you want it built.",
+    );
     const idea = needs.querySelector<HTMLElement>(
       `[data-avos-need="idea:${boards[0].id}"]`,
     )!;
-    expect(idea.querySelector(".avos-week-row")?.textContent).toBe(
-      "From Scout: Pricing page",
+    expect(idea.querySelector(".avos-ask-text b")?.textContent).toBe(
+      "Pricing page",
+    );
+    expect(idea.querySelector(".avos-ask-text span")?.textContent).toMatch(
+      /^From Scout/,
     );
     await act(async () => button(idea, "Build it")!.click());
     expect(actions.giveCardToCrew).toHaveBeenCalledWith(
@@ -1585,7 +1775,7 @@ describe("This week, in place of the Board", () => {
       notNow: [boards[1].id],
     }));
     const needs = () =>
-      container.querySelector<HTMLElement>('[data-avos-week-section="needs"]')!;
+      container.querySelector<HTMLElement>("[data-avos-for-you]")!;
     const idea = needs().querySelector<HTMLElement>(
       `[data-avos-need="idea:${boards[0].id}"]`,
     )!;
@@ -1626,18 +1816,37 @@ describe("This week, in place of the Board", () => {
     ).not.toBeNull();
   });
 
-  it("asks the Researcher from the chat's box while Avos has one", async () => {
+  it("says nothing when only ideas you set aside wait, and keeps them behind one quiet line", async () => {
+    const boards = await setUp((boards) => (crew) => ({
+      ...crew,
+      notNow: [boards[0].id, boards[1].id],
+    }));
+    const forYou = container.querySelector<HTMLElement>("[data-avos-for-you]")!;
+    // No message from Avos: nothing needs you.
+    expect(forYou.querySelector(".team-post")).toBeNull();
+    expect(forYou.querySelector("[data-avos-need]")).toBeNull();
+    const aside = forYou.querySelector<HTMLButtonElement>(
+      "[data-avos-set-aside]",
+    )!;
+    expect(aside.textContent).toBe("2 ideas set aside");
+    await act(async () => aside.click());
+    expect(
+      [...forYou.querySelectorAll("[data-avos-need]")]
+        .map((row) => row.getAttribute("data-avos-need"))
+        .sort(),
+    ).toEqual([`idea:${boards[0].id}`, `idea:${boards[1].id}`].sort());
+    expect(aside.textContent).toBe("Hide what's set aside");
+  });
+
+  it("has one box for Avos and its helpers, with no menu, while Avos has a Researcher", async () => {
     await setUp(() => (crew) => ({
       ...crew,
       members: [...crew.members, { id: "researcher", role: "researcher" }],
     }));
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>(".team-compose-mode")!.click(),
-    );
-    await pickMenu("Ask the Researcher");
+    expect(container.querySelector(".team-compose-mode")).toBeNull();
     expect(
       container.querySelector<HTMLTextAreaElement>(".team-compose-input")!
         .placeholder,
-    ).toBe("A question for the Researcher…");
+    ).toMatch(/@ a helper/);
   });
 });

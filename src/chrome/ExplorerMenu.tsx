@@ -12,7 +12,7 @@ import { useWorkspaceMenuPanel } from "../hooks/useWorkspaceMenuPanel";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import type { WorkspaceMenuPanelSnapshot } from "../lib/workspaceMenuPanel";
 import { Popover, type PopoverAnchor } from "./Popover";
-import type { PopoverAlign } from "../lib/popover";
+import type { PopoverAlign, PopoverSide } from "../lib/popover";
 import { WorkspaceMenuPanelContent } from "./WorkspaceMenuPanel";
 
 export type ExplorerMenuItem =
@@ -41,6 +41,8 @@ type Props = {
   header?: ReactNode;
   width?: number;
   anchor?: PopoverAnchor;
+  /** Which side of the anchor it opens on (below unless it has no room). */
+  side?: PopoverSide;
   align?: PopoverAlign;
   gap?: number;
   native?: boolean;
@@ -233,6 +235,7 @@ function HtmlExplorerMenu({
   header,
   width = MENU_WIDTH,
   anchor,
+  side,
   align,
   gap = 0,
   className = "",
@@ -255,6 +258,7 @@ function HtmlExplorerMenu({
       initialFocus='input:not(:disabled), button:not(:disabled), [role="menu"]'
       tabIndex={-1}
       anchor={anchor ?? { x, y }}
+      {...(side ? { side } : {})}
       align={align}
       gap={gap}
       width={width}

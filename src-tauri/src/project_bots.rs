@@ -677,6 +677,8 @@ fn reset_to(copy: &Path, base: &str, branch: &str) -> Result<(), String> {
     if !race::is_sha(base) {
         return Err("Invalid bot base".into());
     }
+    // Its files are about to change: a Try it server would show them.
+    crate::copy_serve::stop(copy);
     // The project's own hooks (post-checkout and the like) are not run for
     // Aven's bookkeeping in the copy.
     race::run(
@@ -946,27 +948,23 @@ pub fn range_file_diff(
     race::range_file_diff(&checked_copy(bots, copy)?, from, to, path)
 }
 
-/// Apply the stacked range `from..to` onto the user's working tree, only
-/// when it is exactly the change the user reviewed (`hash`, from `range`),
-/// never touching protected paths, and checked first so a conflict changes
-/// nothing. The copy and its branch are left as they are.
-pub fn apply_range(
-    cwd: &Path,
-    bots: &Path,
-    copy: &str,
+/// The stacked range `from..to` in the copy, only when it is exactly the
+/// change the user reviewed (`hash`, from `range`), made card by card of the
+/// changes their checks passed, and touching no protected path: its changes
+/// and its patch.
+fn checked_range(
+    worktree: &Path,
     from: &str,
     to: &str,
     hash: &str,
     cards: &[StackedCard],
-) -> Result<RaceDiff, String> {
-    let root = repo_root(cwd)?;
-    let worktree = checked_copy(bots, copy)?;
+) -> Result<(RaceDiff, Vec<u8>), String> {
     if !race::is_sha(from)
         || !race::is_sha(to)
         || cards.is_empty()
         || cards.len() > 200
         || cards.last().map(|card| card.commit.as_str()) != Some(to)
-        || !reaches(&worktree, from, to)
+        || !reaches(worktree, from, to)
     {
         return Err("Invalid bot range".into());
     }
@@ -975,18 +973,18 @@ pub fn apply_range(
     let mut parent = from.to_string();
     for card in cards {
         if !race::is_sha(&card.commit)
-            || parent_of(&worktree, &card.commit).as_deref() != Some(parent.as_str())
-            || patch_hash(&race::range_patch(&worktree, &parent, &card.commit)?) != card.hash
+            || parent_of(worktree, &card.commit).as_deref() != Some(parent.as_str())
+            || patch_hash(&race::range_patch(worktree, &parent, &card.commit)?) != card.hash
         {
             return Err(CARD_CHANGED.into());
         }
         parent = card.commit.clone();
     }
-    let changes = race::range_diff(&worktree, from, to)?;
+    let changes = race::range_diff(worktree, from, to)?;
     if changes.files.is_empty() {
         return Err("The team's branch has no changes to apply.".into());
     }
-    let patch = race::range_patch(&worktree, from, to)?;
+    let patch = race::range_patch(worktree, from, to)?;
     if patch_hash(&patch) != hash {
         return Err(FIX_CHANGED.into());
     }
@@ -1006,8 +1004,110 @@ pub fn apply_range(
             protected.join(", ")
         ));
     }
+    Ok((changes, patch))
+}
+
+/// Apply the stacked range `from..to` onto the user's working tree, only
+/// when it is exactly the change the user reviewed (see `checked_range`),
+/// and checked first so a conflict changes nothing. The copy and its branch
+/// are left as they are.
+pub fn apply_range(
+    cwd: &Path,
+    bots: &Path,
+    copy: &str,
+    from: &str,
+    to: &str,
+    hash: &str,
+    cards: &[StackedCard],
+) -> Result<RaceDiff, String> {
+    let root = repo_root(cwd)?;
+    let worktree = checked_copy(bots, copy)?;
+    let (changes, patch) = checked_range(&worktree, from, to, hash, cards)?;
     race::apply_patch(&root, &patch)?;
     Ok(changes)
+}
+
+/// Said when the copy holds more than the reviewed change: a card is being
+/// built in it, or its branch moved on.
+const COPY_BUSY: &str = "Avos is working in its copy. Try it again once that work is checked.";
+
+/// The copy, for Try it: only while it is exactly the end of the reviewed
+/// range (`to`, see `checked_range`) with nothing else changed in it, so
+/// what runs is what Apply would land.
+pub(crate) fn reviewed_copy(
+    bots: &Path,
+    copy: &str,
+    from: &str,
+    to: &str,
+    hash: &str,
+    cards: &[StackedCard],
+) -> Result<PathBuf, String> {
+    let worktree = checked_copy(bots, copy)?;
+    checked_range(&worktree, from, to, hash, cards)?;
+    let changed = race::text(race::run(
+        &worktree,
+        &["status", "--porcelain", "--untracked-files=normal"],
+    )?);
+    if head(&worktree)? != to || !changed.is_empty() {
+        return Err(COPY_BUSY.into());
+    }
+    Ok(worktree)
+}
+
+/// A branch Aven opens a pull request from: `avos/` and a short lowercase
+/// name, so it never names (or replaces) one of the user's own branches.
+fn valid_pr_branch(branch: &str) -> bool {
+    branch.strip_prefix("avos/").is_some_and(|slug| {
+        !slug.is_empty()
+            && slug.len() <= 64
+            && !slug.starts_with('-')
+            && !slug.ends_with('-')
+            && slug
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    })
+}
+
+/// A pull request's title (already trimmed) and body fit: the title in
+/// characters, as Review cuts it, and the body in bytes.
+fn valid_pr_text(title: &str, body: &str) -> bool {
+    !title.is_empty() && title.chars().count() <= 200 && body.len() <= 20_000
+}
+
+/// Open a pull request with exactly the reviewed range (see
+/// `checked_range`): its patch as one commit on the remote's main branch,
+/// pushed to a new `avos/` branch by Aven itself (never by an agent), so the
+/// pull request carries nothing from the user's folder that isn't pushed.
+/// The user's files, the copy and its branch are left as they are. Returns
+/// the pull request's URL.
+#[allow(clippy::too_many_arguments)]
+pub fn publish_range(
+    cwd: &Path,
+    bots: &Path,
+    copy: &str,
+    from: &str,
+    to: &str,
+    hash: &str,
+    cards: &[StackedCard],
+    branch: &str,
+    title: &str,
+    body: &str,
+) -> Result<String, String> {
+    let title = title.trim();
+    if !valid_pr_branch(branch) || !valid_pr_text(title, body) {
+        return Err("Invalid pull request".into());
+    }
+    let root = repo_root(cwd)?;
+    let worktree = checked_copy(bots, copy)?;
+    let (_, patch) = checked_range(&worktree, from, to, hash, cards)?;
+    let (remote, base, base_sha) = crate::git::pr_base_for(&root)?;
+    let message = format!("{title}\n\n{}", body.trim());
+    let commit = race::replay(&root, &base_sha, &patch, message.trim()).map_err(|_| {
+        format!(
+            "Avos's change doesn't fit {base} as it is now, so no pull request was opened. Apply it to your files instead."
+        )
+    })?;
+    crate::git::push_and_open_pr_for(&root, &remote, &commit, branch, &base, title, body.trim())
 }
 
 #[derive(Debug, Serialize)]
@@ -1145,6 +1245,8 @@ pub fn remove(cwd: &Path, bots: &Path, copy: &str, branch: &str) -> Result<(), S
         return Err("Invalid bot request".into());
     }
     let path = copy_path(bots, copy)?;
+    // Its Try it server and checkout go with it.
+    crate::copy_serve::stop(&path);
     // A deleted or moved project folder still has its copy removed, without
     // git, which would otherwise act on whatever repository is above it.
     let Ok(root) = repo_root(cwd) else {
@@ -1358,6 +1460,94 @@ pub async fn bot_copy_apply_range(
     .await
 }
 
+/// Try it: run Avos's copy, holding exactly the reviewed range, on its own
+/// port (see `copy_serve`). Resolves once it answers.
+#[tauri::command]
+pub async fn bot_copy_serve(
+    app: AppHandle,
+    copy: String,
+    from: String,
+    to: String,
+    hash: String,
+    cards: Vec<StackedCard>,
+) -> Result<crate::copy_serve::CopyServer, String> {
+    try_it_here()?;
+    let bots = bots_dir(&app)?;
+    blocking(move || {
+        let worktree = reviewed_copy(&bots, &copy, &from, &to, &hash, &cards)?;
+        let name = worktree
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "copy".into());
+        let serving = bots.parent().unwrap_or(&bots).join("copy-serve");
+        let log = serving.join(format!("{name}.log"));
+        crate::copy_serve::serve(
+            &worktree,
+            &to,
+            &serving.join(&name),
+            &log,
+            crate::harness::login_shell_path(),
+        )
+    })
+    .await
+}
+
+/// Try it runs package scripts the Mac way (`npm` on PATH, a process group
+/// to stop): elsewhere it isn't offered yet.
+fn try_it_here() -> Result<(), String> {
+    if cfg!(target_os = "macos") {
+        Ok(())
+    } else {
+        Err(
+            "Try it works only on a Mac for now. Apply the change to try it in your own folder."
+                .into(),
+        )
+    }
+}
+
+/// Stop Avos's copy's Try it server, if one runs.
+#[tauri::command]
+pub async fn bot_copy_serve_stop(app: AppHandle, copy: String) -> Result<(), String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || {
+        crate::copy_serve::stop(&checked_copy(&bots, &copy)?);
+        Ok(())
+    })
+    .await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn bot_copy_publish_range(
+    app: AppHandle,
+    cwd: String,
+    copy: String,
+    from: String,
+    to: String,
+    hash: String,
+    cards: Vec<StackedCard>,
+    branch: String,
+    title: String,
+    body: String,
+) -> Result<String, String> {
+    let bots = bots_dir(&app)?;
+    blocking(move || {
+        publish_range(
+            &crate::fs::expand_home(&cwd),
+            &bots,
+            &copy,
+            &from,
+            &to,
+            &hash,
+            &cards,
+            &branch,
+            &title,
+            &body,
+        )
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn bot_copy_restack(
     app: AppHandle,
@@ -1395,6 +1585,41 @@ pub async fn bot_copy_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pull_request_branches_are_avos_names_only() {
+        assert!(valid_pr_branch("avos/fix-the-pricing-table-k3x9"));
+        for bad in [
+            "main",
+            "avos/",
+            "avos/Fix",
+            "avos/-x",
+            "avos/x-",
+            "avos/a/b",
+            "avos/a..b",
+            "aven/bot/crew-1",
+            "avos/a b",
+        ] {
+            assert!(!valid_pr_branch(bad), "{bad}");
+        }
+        assert!(!valid_pr_branch(&format!("avos/{}", "a".repeat(65))));
+    }
+
+    #[test]
+    fn pull_request_titles_count_characters_and_bodies_bytes() {
+        // 200 characters of three bytes each: as long as Review cuts it.
+        assert!(valid_pr_text(&"é".repeat(100), ""));
+        assert!(valid_pr_text(&"界".repeat(200), "body"));
+        assert!(!valid_pr_text(&"界".repeat(201), "body"));
+        assert!(!valid_pr_text("", "body"));
+        assert!(valid_pr_text("Title", &"a".repeat(20_000)));
+        assert!(!valid_pr_text("Title", &"é".repeat(10_001)));
+    }
+
+    #[test]
+    fn try_it_runs_only_on_a_mac() {
+        assert_eq!(try_it_here().is_ok(), cfg!(target_os = "macos"));
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir =
@@ -1931,6 +2156,56 @@ mod tests {
         assert!(valid_branch("aven/bot/jelly-2"));
         assert!(!valid_branch("aven/race/x"));
         assert!(!valid_branch("aven/bot/"));
+    }
+
+    #[cfg_attr(windows, ignore)]
+    #[test]
+    fn tries_only_a_copy_holding_exactly_the_reviewed_range() {
+        let root = repo();
+        let bots = temp_dir("bots");
+        let key = root.to_string_lossy().to_string();
+        let copy = ensure_copy(&root, &bots, &key, BRANCH, None).unwrap();
+        let copy_path = PathBuf::from(&copy.path);
+        let base = sync(&root, &bots, &copy.path, BRANCH).unwrap().base;
+        std::fs::write(copy_path.join("a.txt"), "one\ntwo\ncard one\n").unwrap();
+        let one = stack_checked(&bots, &copy.path, &base, "Timer screen");
+        let reviewed = range(&bots, &copy.path, &base, &one.commit).unwrap();
+        let hash = reviewed.hash;
+        let tried = reviewed_copy(
+            &bots,
+            &copy.path,
+            &base,
+            &one.commit,
+            &hash,
+            &cards(&[&one]),
+        )
+        .unwrap();
+        assert_eq!(canonical(&tried), canonical(&copy_path));
+        // A card at work in the copy: what would run isn't what was reviewed.
+        std::fs::write(copy_path.join("b.txt"), "half done\n").unwrap();
+        assert_eq!(
+            reviewed_copy(
+                &bots,
+                &copy.path,
+                &base,
+                &one.commit,
+                &hash,
+                &cards(&[&one])
+            )
+            .unwrap_err(),
+            COPY_BUSY
+        );
+        std::fs::remove_file(copy_path.join("b.txt")).unwrap();
+        // Not the change that was reviewed.
+        assert!(reviewed_copy(
+            &bots,
+            &copy.path,
+            &base,
+            &one.commit,
+            "another-hash",
+            &cards(&[&one])
+        )
+        .is_err());
     }
 
     // A crew's stack: cards commit on its branch, the user's folder changes

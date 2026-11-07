@@ -2862,6 +2862,56 @@ fn gh_checked_write(root: &Path, args: &[&str]) -> Result<String, String> {
     gh_run_for(root, args, false, true)
 }
 
+/// Where a pull request from `root` goes: its remote, that remote's default
+/// branch, and the commit that branch is at here (the remote's copy when
+/// Aven has fetched it, else the local branch).
+pub(crate) fn pr_base_for(root: &Path) -> Result<(String, String, String), String> {
+    let remote =
+        git_remote_name(root).ok_or("This project has no remote to open a pull request on.")?;
+    let branch = git_default_branch(root, Some(&remote))
+        .ok_or("Couldn't find this project's main branch.")?;
+    let tracked = format!("refs/remotes/{remote}/{branch}");
+    let spec = if git_ref_exists(root, &tracked) {
+        tracked
+    } else {
+        format!("refs/heads/{branch}")
+    };
+    let sha = git_stdout(
+        root,
+        &["rev-parse", "--verify", &format!("{spec}^{{commit}}")],
+    )
+    .ok_or("Couldn't find this project's main branch.")?;
+    Ok((remote, branch, sha))
+}
+
+/// Push `commit` to a new branch `head` on `remote` and open a pull request
+/// from it into `base`, checking the GitHub account first (nothing is pushed
+/// under the wrong one). Returns the pull request's URL.
+pub(crate) fn push_and_open_pr_for(
+    root: &Path,
+    remote: &str,
+    commit: &str,
+    head: &str,
+    base: &str,
+    title: &str,
+    body: &str,
+) -> Result<String, String> {
+    github_route(root)?.verify_identity(root)?;
+    git_checked(
+        root,
+        &["push", remote, &format!("{commit}:refs/heads/{head}")],
+    )?;
+    git_pr_create_for(
+        root,
+        &GitPrCreateInput {
+            title: title.to_string(),
+            body: body.to_string(),
+            base: base.to_string(),
+            head: head.to_string(),
+        },
+    )
+}
+
 pub(crate) fn github_route(root: &Path) -> Result<crate::github_account::Route, String> {
     let remote = git_remote_name(root).ok_or("This project has no GitHub remote.")?;
     let url = git_stdout(root, &["remote", "get-url", &remote])

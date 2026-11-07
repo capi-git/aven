@@ -1,0 +1,353 @@
+/* Avos's work, reviewed beside its chat (AvosReview.tsx): one header, one
+   scrolling body (What changed, then the code), and the ask box with Apply
+   at the bottom. Grey throughout; colour only on the diff's + and −. */
+.avos-review {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border-left: 1px solid var(--aven-line);
+}
+
+.avos-review-head {
+  display: flex;
+  height: 48px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--aven-line);
+}
+
+.avos-review-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-sheet);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avos-review-icon {
+  display: grid;
+  width: 26px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-muted);
+}
+.avos-review-icon:hover,
+.avos-review-icon[aria-expanded="true"] {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.avos-review-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 18px;
+  padding: 14px 16px 16px;
+  overflow-y: auto;
+}
+
+.avos-review-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+.avos-review-section h3 {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+.avos-review-plus {
+  color: var(--aven-git-add);
+}
+.avos-review-minus {
+  color: var(--aven-git-del);
+}
+
+/* What changed: one card of rows, split by hairlines. */
+.avos-review-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border-radius: 10px;
+  background: var(--aven-control-bg);
+  list-style: none;
+}
+.avos-review-row {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: var(--text-ui-body);
+}
+.avos-review-row + .avos-review-row {
+  border-top: 1px solid var(--aven-line);
+}
+.avos-review-row[data-left-out] {
+  opacity: 0.5;
+}
+.avos-review-num {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--aven-hover);
+  font-size: var(--text-ui-caption);
+  font-weight: 600;
+}
+.avos-review-row-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+}
+.avos-review-row-title {
+  font-weight: 500;
+}
+.avos-review-row-line {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+/* Tools on a row show on hover or focus (and while chosen). */
+.avos-review-upto {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  opacity: 0;
+}
+.avos-review-row:hover .avos-review-upto,
+.avos-review-upto:focus-visible,
+.avos-review-upto[aria-pressed="true"] {
+  opacity: 1;
+}
+.avos-review-upto:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+/* Every file it changes, named, with what to look out for. */
+.avos-review-files {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-ui-label);
+}
+.avos-review-files li {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 10px;
+}
+.avos-review-file {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avos-review-file-meta {
+  flex: none;
+  margin-left: auto;
+  color: var(--aven-muted);
+}
+.avos-review-files li[data-flagged] .avos-review-file-meta {
+  color: var(--color-content);
+}
+
+.avos-review-checks,
+.avos-review-note {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.avos-review-run {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.avos-review-problem {
+  max-height: 96px;
+  margin: 0;
+  overflow-y: auto;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  padding: 8px 16px;
+  border-top: 1px solid var(--aven-line);
+  color: var(--aven-danger-text);
+  font-size: var(--text-ui-label);
+}
+
+.avos-review-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--aven-line);
+}
+.avos-review-ask {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.avos-review-ask input {
+  width: 100%;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  outline: none;
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-body);
+}
+.avos-review-ask input::placeholder {
+  color: var(--aven-muted);
+}
+.avos-review-ask input:focus-visible {
+  box-shadow: 0 0 0 1px var(--aven-line);
+}
+
+/* Apply, with ⌄ beside it for a pull request: one button in two parts. */
+.avos-review-apply {
+  display: flex;
+  flex: none;
+  gap: 1px;
+}
+.avos-review-apply .avos-review-apply-main:not(:only-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.avos-review-apply .avos-review-apply-more {
+  padding: 0 7px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* Look · Code, and the picture size beside them on Look. */
+.avos-review-tabs {
+  display: flex;
+  height: 36px;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--aven-line);
+}
+.avos-review-tab {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-review-tab:hover {
+  color: var(--color-content);
+}
+.avos-review-tab[aria-selected="true"] {
+  background: var(--aven-hover);
+  color: var(--color-content);
+  font-weight: 500;
+}
+.avos-review-sizes {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--aven-control-bg);
+}
+.avos-review-sizes button {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-review-sizes button[aria-pressed="true"] {
+  background: var(--aven-hover);
+  color: var(--color-content);
+  font-weight: 500;
+}
+
+/* Before and after, side by side; a phone's pictures stay phone-sized. */
+.avos-review-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.avos-review-page h3 {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.avos-review-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 16px;
+}
+.avos-review-figure {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.avos-review-figure img,
+.avos-review-shot-wait {
+  width: 100%;
+  border: 1px solid var(--aven-line);
+  border-radius: 10px;
+  background: var(--aven-control-bg);
+}
+.avos-review-figure[data-size="phone"] img,
+.avos-review-figure[data-size="phone"] .avos-review-shot-wait {
+  max-width: 220px;
+  border-radius: 14px;
+}
+.avos-review-figure img {
+  display: block;
+  height: auto;
+}
+.avos-review-shot-wait {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 390 / 844;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-review-figure[data-size="desktop"] .avos-review-shot-wait {
+  aspect-ratio: 1280 / 800;
+}
+.avos-review-figure figcaption {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.avos-review-try {
+  flex: none;
+}

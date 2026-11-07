@@ -111,9 +111,9 @@ it("opens on meeting Avos: its Bot, who it is and its question, and nothing else
     meet.querySelector<HTMLElement>("[data-crew-critter] .agent-mark")?.dataset
       .agent,
   ).toBe("watching");
-  // No setup sheet, no three teammates, no panel: the chat alone.
-  expect(container.querySelector("[data-avos-week]")).toBeNull();
+  // No setup sheet, no three teammates, no profile: the chat alone.
   expect(container.querySelector("[data-crew-header]")).toBeNull();
+  expect(container.querySelector("[data-avos-bar]")).toBeNull();
   const box = container.querySelector<HTMLTextAreaElement>(
     ".team-compose-input",
   )!;
@@ -146,8 +146,8 @@ it("is an ordinary Avos screen once it has been awake", async () => {
   updateCrew(PROJECT, (crew) => ({ ...crew, on: true, onAt: NOW - 1 }));
   await open();
   expect(container.querySelector("[data-avos-meet]")).toBeNull();
-  expect(container.querySelector("[data-crew-header]")).toBeTruthy();
-  expect(container.querySelector("[data-avos-week]")).toBeTruthy();
+  // Its profile, beside the chat.
+  expect(container.querySelector("aside[data-crew-header]")).toBeTruthy();
 });
 
 it("leaves the Board's line about chats outside it to the Board", async () => {

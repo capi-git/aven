@@ -18,20 +18,20 @@ afterEach(() => {
 });
 
 describe("what an Avos screen shows", () => {
-  it("opens on its Chat until you choose another, for that project only", () => {
+  it("opens on its Chat; the real-app check's Board is for that project and this session only", () => {
     expect(teamView("/Users/me/pom")).toBe("chat");
     const heard = vi.fn();
     const stop = subscribeTeamView(heard);
-    setTeamView("/Users/me/pom", "notes");
+    setTeamView("/Users/me/pom", "board");
     stop();
     expect(heard).toHaveBeenCalledTimes(1);
-    expect(teamView("/Users/me/pom")).toBe("notes");
-    expect(teamView("/Users/me/pom/")).toBe("notes");
+    expect(teamView("/Users/me/pom")).toBe("board");
+    expect(teamView("/Users/me/pom/")).toBe("board");
     expect(teamView("/Users/me/notes")).toBe("chat");
-    // Kept under Aven's own key, read again after a restart.
-    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("notes");
+    // Kept under Aven's own key, but after a restart it's the Chat again.
+    expect(localStorage.getItem(TEAM_VIEW_KEY)).toContain("board");
     resetTeamViewCache();
-    expect(teamView("/Users/me/pom")).toBe("notes");
+    expect(teamView("/Users/me/pom")).toBe("chat");
   });
 
   it("reads anything else it finds as the Chat, the old Cards choice too", () => {
@@ -45,26 +45,23 @@ describe("what an Avos screen shows", () => {
     expect(teamView("a")).toBe("chat");
   });
 
-  it("opens the old pages, which This week and sheets took over, on the Chat", () => {
+  it("opens the old pages and tabs, which Avos's chat, profile and sheets took over, on the Chat", () => {
+    const old = [
+      "overview",
+      "teammates",
+      "board",
+      "schedule",
+      "changes",
+      "notes",
+      "agents",
+    ];
     localStorage.setItem(
       TEAM_VIEW_KEY,
-      JSON.stringify({
-        a: "overview",
-        b: "teammates",
-        c: "board",
-        d: "schedule",
-        e: "notes",
-      }),
+      JSON.stringify(Object.fromEntries(old.map((view) => [view, view]))),
     );
-    expect(["a", "b", "c", "d", "e"].map((key) => teamView(key))).toEqual([
-      "chat",
-      "chat",
-      "chat",
-      "chat",
-      "notes",
-    ]);
+    expect(old.map((key) => teamView(key))).toEqual(old.map(() => "chat"));
     // The real-app check may still show the Board for this session.
-    setTeamView("c", "board");
-    expect(teamView("c")).toBe("board");
+    setTeamView("board", "board");
+    expect(teamView("board")).toBe("board");
   });
 });

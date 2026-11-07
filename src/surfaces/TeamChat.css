@@ -188,96 +188,6 @@
   padding: 14px 20px 12px;
 }
 
-/* Ready for you, pinned. */
-.team-ready-list {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 2px;
-}
-
-.team-ready {
-  --dot-mark-surface: var(--aven-raised);
-  display: grid;
-  align-items: center;
-  gap: 4px 14px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: 11px 12px 11px 14px;
-  border: 1px solid var(--team-line-strong);
-  border-radius: var(--aven-radius-xl);
-  background: var(--aven-raised);
-}
-
-.dot-mark.team-ready-mark {
-  width: 26px;
-  height: 26px;
-}
-
-.team-ready-text {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.team-ready-tag {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-micro, 11px);
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.team-ready-tag i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--aven-needs-you);
-}
-
-.team-ready-line {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.team-ready-line b {
-  flex: none;
-  max-width: 60%;
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.team-ready-line span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.team-ready-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.team-ready-problem {
-  grid-column: 1 / -1;
-  margin: 4px 0 0;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-}
-
 /* The posts. */
 .team-thread-wrap {
   position: relative;
@@ -287,7 +197,7 @@
   flex-direction: column;
 }
 
-/* Posts scrolled up under Ready for you fade out over a few pixels rather
+/* Posts scrolled up under the top of the thread fade out over a few pixels rather
    than stop at a hard edge; the padding keeps the first post clear of the
    fade when the thread is at its top. A mask, so no colour is drawn. */
 .team-thread-scroll {
@@ -398,6 +308,8 @@
 .team-post-text {
   /* A line stays readable however wide the page is, as in a chat. */
   max-width: 760px;
+  /* An answer's paragraphs stay apart. */
+  white-space: pre-line;
   margin: 1px 0 0;
   color: color-mix(in srgb, var(--color-content) 86%, transparent);
   font-size: 13.5px;
@@ -407,6 +319,10 @@
 
 .team-post[data-live] .team-post-text {
   color: var(--aven-muted);
+}
+/* What Avos is writing to you, as it's written: read like its posts. */
+.team-post[data-live] .team-post-text[data-team-live-reply] {
+  color: color-mix(in srgb, var(--color-content) 86%, transparent);
 }
 
 .team-post[data-needs-you] .team-post-text {
@@ -676,36 +592,11 @@
   background: var(--aven-control-hover, var(--aven-hover));
 }
 
-.team-compose-mode,
-.team-compose-at {
-  display: inline-flex;
-  height: 30px;
-  flex: none;
-  align-items: center;
-  gap: 3px;
-  padding: 0 8px;
-  border-radius: var(--aven-radius-sm);
-  color: var(--team-faint);
-  font-size: var(--text-ui-label);
-}
-
 .team-compose-at {
   justify-content: center;
   width: 30px;
   padding: 0;
   font-size: 14px;
-}
-
-.team-compose-mode:hover,
-.team-compose-mode[aria-expanded="true"],
-.team-compose-at:hover,
-.team-compose-at[aria-expanded="true"] {
-  background: var(--aven-hover);
-  color: var(--color-content);
-}
-
-.team-compose-mode:not([data-mode="card"]) {
-  color: var(--color-content);
 }
 
 .team-compose-send {

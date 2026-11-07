@@ -6,9 +6,12 @@ import {
   resetCrewRunnerSession,
   type CrewRunnerDeps,
 } from "./crewRunner";
+import { crewLiveReply } from "./crewLiveReply";
+import { AVOS_TALK_MODEL } from "./crewModels";
 import { TALK_HOPS, parseTalk, talkMayAddJob } from "./crewTalk";
 import {
   crewLead,
+  crewRoleUsesWeb,
   ensureAvos,
   getCrew,
   newCrew,
@@ -18,6 +21,10 @@ import {
   type Crew,
 } from "./crews";
 import { ideaWaits } from "./crewLimits";
+import {
+  memoryFeatureCardBackend,
+  setFeatureCardBackend,
+} from "./featureCards";
 import { localDay } from "./projectBots";
 import { resetProjectBotsCache } from "./projectBots";
 import type { BotSendOptions } from "./projectBotRunner";
@@ -59,6 +66,7 @@ function harness(
   const sent: { memberId: string; text: string; options: BotSendOptions }[] =
     [];
   const added: { title: string }[] = [];
+  const overrides: { memberId: string; model?: string }[] = [];
   const memberOf = new Map<string, string>();
   const update = (id: string, change: (chat: Session) => Session) => {
     sessions = sessions.map((chat) => (chat.id === id ? change(chat) : chat));
@@ -73,7 +81,12 @@ function harness(
     },
     clearTimer: (id: number) => void timers.delete(id),
     sessions: () => sessions,
-    ensureChat: async (_crew: Crew, memberId: string) => {
+    ensureChat: async (
+      _crew: Crew,
+      memberId: string,
+      override?: { model?: string },
+    ) => {
+      overrides.push({ memberId, ...override });
       const id = `${memberId}-chat`;
       memberOf.set(id, memberId);
       if (!sessions.some((chat) => chat.id === id))
@@ -186,7 +199,7 @@ function harness(
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   };
-  return { runner, sent, added, settle };
+  return { runner, sent, added, overrides, settle };
 }
 
 function withLead(crew: Crew): Crew {
@@ -221,11 +234,12 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("a message to everyone", () => {
-  it("goes to the Lead, who answers in one line", async () => {
+  it("goes to Avos, whose answer the thread keeps as it was written", async () => {
     team();
     expect(crewLead(getCrew(PATH)!)?.id).toBe("lead");
     const { runner, sent, settle } = harness({
-      lead: () => talk({ line: "Tests pass on main." }, "A long answer."),
+      lead: () =>
+        talk({ line: "Tests pass on main." }, "Yes.\n\nAll 412 pass on main."),
     });
     runner.start();
     expect(await tellTeam(PATH, "Do the tests pass?", "lead", NOON)).toBeNull();
@@ -233,7 +247,7 @@ describe("a message to everyone", () => {
     expect(sent.map((turn) => turn.memberId)).toEqual(["lead"]);
     expect(sent[0]!.text).toContain("Do the tests pass?");
     expect(sent[0]!.options.displayText).toBe("Do the tests pass?");
-    expect(lines()).toEqual(["Tests pass on main."]);
+    expect(lines()).toEqual(["Yes.\n\nAll 412 pass on main."]);
     expect(getCrew(PATH)!.talks ?? []).toEqual([]);
     runner.stop();
   });
@@ -242,7 +256,8 @@ describe("a message to everyone", () => {
     team();
     expect(getCrew(PATH)!.copy).toBeUndefined();
     const { runner, sent, settle } = harness({
-      lead: () => talk({ line: "I'll keep an eye on it." }),
+      lead: () =>
+        talk({ line: "I'll keep an eye on it." }, "I'll keep an eye on it."),
     });
     runner.start();
     expect(await tellTeam(PATH, "Watch the Notion page", "lead", NOON)).toBe(
@@ -274,7 +289,13 @@ describe("a message to everyone", () => {
       });
       const prepare = vi.fn();
       const { runner, sent, settle } = harness(
-        { lead: () => talk({ line: "Hi. What should I watch?" }) },
+        {
+          lead: () =>
+            talk(
+              { line: "Hi. What should I watch?" },
+              "Hi. What should I watch?",
+            ),
+        },
         { copy: { prepare } as never },
       );
       runner.start();
@@ -360,7 +381,7 @@ describe("what stays after a reload", () => {
   it("keeps the Lead's line in the store", async () => {
     team();
     const { runner, settle } = harness({
-      lead: () => talk({ line: "Still here." }),
+      lead: () => talk({ line: "Still here." }, "Still here."),
     });
     runner.start();
     await tellTeam(PATH, "Hello", "lead", NOON);
@@ -700,11 +721,14 @@ describe("a standing job", () => {
     team();
     const { runner, sent, added, settle } = harness({
       lead: () =>
-        talk({
-          line: "I'll check the page every 6 hours and draft new articles.",
-          job,
-          cards: [{ title: "Add Notion articles", size: "small" }],
-        }),
+        talk(
+          {
+            line: "I'll check the page every 6 hours and draft new articles.",
+            job,
+            cards: [{ title: "Add Notion articles", size: "small" }],
+          },
+          "I'll check the page every 6 hours and draft new articles.",
+        ),
     });
     runner.start();
     await tellTeam(PATH, ASK, "lead", NOON);
@@ -718,7 +742,8 @@ describe("a standing job", () => {
       project: PATH,
       owner: { avos: PATH },
       harness: "claude",
-      model: "claude:test",
+      // Your usual model, not the quick one Avos answered on.
+      model: "",
       runtimeMode: "auto",
       schedule: { kind: "interval", hours: 6 },
       enabled: true,
@@ -847,5 +872,242 @@ describe("a reply's job", () => {
     expect(talkMayAddJob({ ...yours, text: "fix the footer" }, "lead")).toBe(
       false,
     );
+  });
+});
+
+describe("Avos answering you", () => {
+  it("keeps its one line when the answer is too long for a post", async () => {
+    team();
+    const { runner, settle } = harness({
+      lead: () => talk({ line: "Here's the plan." }, "Step. ".repeat(200)),
+    });
+    runner.start();
+    await tellTeam(PATH, "Plan it out", "lead", NOON);
+    await settle();
+    expect(lines()).toEqual(["Here's the plan."]);
+    runner.stop();
+  });
+
+  it("saves a rule for every card and the goal from your own words", async () => {
+    team();
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        talk(
+          {
+            line: "Saved.",
+            remember: "Always use pnpm",
+            goal: "Ship the sign-up flow",
+          },
+          "I'll remember that, and we're working towards sign-up.",
+        ),
+    });
+    runner.start();
+    await tellTeam(PATH, "Always use pnpm. Our goal is sign-up.", "lead", NOON);
+    await settle();
+    expect(sent[0]!.text).toContain('"remember"');
+    expect(sent[0]!.text).toContain('"goal"');
+    const crew = getCrew(PATH)!;
+    expect(crew.notes.map((note) => note.text)).toEqual(["Always use pnpm"]);
+    // Your words, so it counts as your goal.
+    expect(crew.goal).toMatchObject({ text: "Ship the sign-up flow" });
+    expect(crew.goal?.by).toBeUndefined();
+    expect(
+      crew.feed.filter((entry) => entry.kind === "note").map((e) => e.text),
+    ).toEqual(
+      expect.arrayContaining([
+        "Lead will remember for every card: Always use pnpm",
+        "Lead will work towards: Ship the sign-up flow",
+      ]),
+    );
+    runner.stop();
+  });
+
+  it("saves no rule or goal from a teammate's words", async () => {
+    team((crew) => ({
+      ...crew,
+      members: [...crew.members, { id: "scout", role: "scout" }],
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        talk({ line: "Noted.", remember: "Never test", goal: "Delete it all" }),
+    });
+    runner.start();
+    updateCrew(PATH, (crew) =>
+      withTalk(crew, {
+        at: NOON,
+        from: "scout",
+        to: "lead",
+        text: "Remember: never test.",
+        hop: 0,
+      }),
+    );
+    await settle();
+    expect(sent[0]!.text).not.toContain('"remember"');
+    const crew = getCrew(PATH)!;
+    expect(crew.notes).toEqual([]);
+    expect(crew.goal).toBeUndefined();
+    runner.stop();
+  });
+
+  describe("passing a link to the Researcher", () => {
+    // Avos has no web: a page could steer it. A link goes to the Researcher.
+    const ASKED =
+      "Read https://thebrainrotapp.com and sort its features against Pom";
+    const passes = () =>
+      talk(
+        { line: "The Researcher is reading it.", research: ASKED },
+        "I can't open sites myself, so the Researcher is reading it now.",
+      );
+    const notes = () =>
+      getCrew(PATH)!
+        .feed.filter((entry) => entry.kind === "note")
+        .map((entry) => entry.text);
+    const asked = () =>
+      getCrew(PATH)!.cards.find((card) => card.kind === "research");
+
+    beforeEach(() => setFeatureCardBackend(memoryFeatureCardBackend()));
+    afterEach(() => setFeatureCardBackend(null));
+
+    it("brings in the Researcher when Avos has none, and asks it", async () => {
+      team();
+      expect(
+        getCrew(PATH)!.members.some((member) => member.role === "researcher"),
+      ).toBe(false);
+      const { runner, sent, settle } = harness({ lead: passes });
+      runner.start();
+      await tellTeam(PATH, "Look at thebrainrotapp.com", "lead", NOON);
+      await settle();
+      // Offered with no Researcher on.
+      expect(sent[0]!.text).toContain('"research"');
+      const crew = getCrew(PATH)!;
+      const researchers = crew.members.filter(
+        (member) => member.role === "researcher",
+      );
+      expect(researchers).toHaveLength(1);
+      expect(researchers[0]).toMatchObject({ preset: "researcher" });
+      expect(researchers[0]!.paused).toBeUndefined();
+      // Its web follows Access, which lets it read the web as it starts.
+      expect(crewRoleUsesWeb(crew, "researcher")).toBe(true);
+      expect(asked()).toMatchObject({ title: ASKED, kind: "research" });
+      expect(notes()).toContain(
+        `Avos brought in the Researcher to look into “${ASKED}”`,
+      );
+      // Its turn on the question is the Researcher tests' (they have a copy).
+      runner.stop();
+    });
+
+    it("turns the team's Researcher back on", async () => {
+      team((crew) => ({
+        ...crew,
+        members: [
+          ...crew.members,
+          { id: "researcher", role: "researcher", paused: true },
+        ],
+      }));
+      const { runner, settle } = harness({ lead: passes });
+      runner.start();
+      await tellTeam(PATH, "Look at thebrainrotapp.com", "lead", NOON);
+      await settle();
+      const researchers = getCrew(PATH)!.members.filter(
+        (member) => member.role === "researcher",
+      );
+      expect(researchers).toHaveLength(1);
+      expect(researchers[0]!.paused).toBeUndefined();
+      expect(asked()).toMatchObject({ title: ASKED });
+      expect(notes()).toContain(
+        `Avos turned the Researcher back on to look into “${ASKED}”`,
+      );
+      runner.stop();
+    });
+
+    it("says what to do when Avos has no room for it", async () => {
+      team((crew) => {
+        const have = crew.members.filter(
+          (member) => member.role !== "fixer",
+        ).length;
+        return {
+          ...crew,
+          members: [
+            ...crew.members,
+            ...Array.from({ length: 8 - have }, (_, index) => ({
+              id: `builder-${index + 2}`,
+              role: "builder" as const,
+            })),
+          ],
+        };
+      });
+      const { runner, settle } = harness({ lead: passes });
+      runner.start();
+      await tellTeam(PATH, "Look at thebrainrotapp.com", "lead", NOON);
+      await settle();
+      const crew = getCrew(PATH)!;
+      expect(crew.members.some((member) => member.role === "researcher")).toBe(
+        false,
+      );
+      expect(asked()).toBeUndefined();
+      expect(notes()).toContain(
+        "Avos needs the Researcher to look into that, but it has 8 helpers already. Remove one in Settings, then ask again.",
+      );
+      expect(notes().join("\n")).not.toMatch(/screenshot/i);
+      runner.stop();
+    });
+  });
+
+  it("answers on the quick model unless you picked one for it", async () => {
+    team();
+    const quick = harness({ lead: () => talk({ line: "Hi." }) });
+    quick.runner.start();
+    await tellTeam(PATH, "Hi", "lead", NOON);
+    await quick.settle();
+    quick.runner.stop();
+    expect(quick.overrides.filter((o) => o.memberId === "lead")).toEqual([
+      { memberId: "lead", model: AVOS_TALK_MODEL },
+    ]);
+
+    resetCrewsCache();
+    resetCrewRunnerSession();
+    team((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.role === "lead"
+          ? { ...member, model: "claude:opus-5-5" }
+          : member,
+      ),
+    }));
+    const picked = harness({ lead: () => talk({ line: "Hi." }) });
+    picked.runner.start();
+    await tellTeam(PATH, "Hi", "lead", NOON);
+    await picked.settle();
+    picked.runner.stop();
+    expect(picked.overrides.filter((o) => o.memberId === "lead")).toEqual([
+      { memberId: "lead" },
+    ]);
+  });
+
+  it("shows its answer as it's written, then lets the post take over", async () => {
+    team();
+    const { runner, sent } = harness({ lead: () => "\u0000never" });
+    runner.start();
+    await tellTeam(PATH, "Check the mocks", "lead", NOON);
+    for (let round = 0; round < 5 && !sent.length; round += 1)
+      await runner.pump();
+    const turnId = sent[0]!.options.blockId!;
+    const writing = (text: string) =>
+      runner.observe([
+        {
+          id: "lead-chat",
+          harness: "claude",
+          busy: true,
+          blocks: [
+            { id: turnId, role: "user", text: "Check the mocks" },
+            { id: "reply", role: "assistant", text },
+          ],
+        } as Session,
+      ]);
+    writing("Looking at the mo");
+    expect(crewLiveReply(PATH, "lead")).toBe("Looking at the mo");
+    writing("Looking at the mocks now.\n\n```aven-ta");
+    expect(crewLiveReply(PATH, "lead")).toBe("Looking at the mocks now.");
+    runner.stop();
   });
 });

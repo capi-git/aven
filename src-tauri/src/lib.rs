@@ -17,6 +17,7 @@ mod browser_agent_dom;
 #[cfg(any(test, all(feature = "chromium", target_os = "macos")))]
 mod browser_drop_indicator;
 mod browser_export;
+mod page_picture;
 mod panic_log;
 pub use browser_agent::{run_browser_cli, run_desktop_cli, run_simulator_cli};
 #[cfg(not(all(feature = "chromium", target_os = "macos")))]
@@ -31,6 +32,7 @@ mod checkpoint;
 mod codex_storage;
 mod control;
 pub mod control_cli;
+mod copy_serve;
 mod cursor_store;
 mod desktop_control;
 mod desktop_presence;
@@ -516,6 +518,10 @@ pub fn run() {
             project_bots::bot_copy_range,
             project_bots::bot_copy_range_file_diff,
             project_bots::bot_copy_apply_range,
+            project_bots::bot_copy_publish_range,
+            project_bots::bot_copy_serve,
+            project_bots::bot_copy_serve_stop,
+            page_picture::page_picture,
             project_bots::bot_copy_restack,
             project_bots::bot_copy_remove,
             project_git_setup::project_git_setup,
@@ -810,6 +816,7 @@ pub fn run() {
             }
             tauri::RunEvent::Exit => {
                 browser_agent::shutdown();
+                copy_serve::stop_all();
                 #[cfg(target_os = "macos")]
                 ios_sim::shutdown();
                 #[cfg(all(feature = "chromium", target_os = "macos"))]

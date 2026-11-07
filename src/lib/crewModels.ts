@@ -1,4 +1,4 @@
-import { crewMember, type Crew } from "./crews";
+import { crewMember, crewMemberApp, type Crew, type CrewMember } from "./crews";
 import {
   findModel,
   pickerModelsFor,
@@ -76,4 +76,23 @@ export function crewChatModel(input: {
       ? { effort: { id: setting.id, value: value! } }
       : {}),
   };
+}
+
+/** The model Avos answers your messages on when you haven't picked one. */
+export const AVOS_TALK_MODEL = "claude:sonnet-5";
+
+/**
+ * Avos answering a message: on the model you picked for it, or else on a
+ * quick one, so a few sentences don't wait on the biggest model. Building
+ * is the helpers' work, on their own models. Codex keeps its own model.
+ */
+export function avosTalkModel(
+  member: Pick<CrewMember, "role" | "model" | "harness" | "fallback">,
+  known: (id: string) => boolean = (id) => !!findModel(id),
+): { model: string } | undefined {
+  if (member.role !== "lead" || member.model || member.fallback)
+    return undefined;
+  if (crewMemberApp(member as CrewMember).harness !== "claude")
+    return undefined;
+  return known(AVOS_TALK_MODEL) ? { model: AVOS_TALK_MODEL } : undefined;
 }

@@ -53,6 +53,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A project's Avos** is the first row under the project: its Bot in the project's colour, "Avos" at weight 500, and on the right only "Needs you" in amber or "Working". Every project has one; the first time you open it is meeting it, in its chat.
 
+**Avos's screen** is like a messenger with someone you work with: its chat, with its profile beside it and no tabs. The profile has its Bot, its name and `…`, one line on what it's up to (amber when it needs you), then what it keeps an eye on, what it remembers and who's helping, each only when it has something. What needs you comes as Avos's own message at the end of the chat, with its buttons, said nowhere else. On a narrow pane the profile folds into one header, and Avos's name opens the rest in a sheet.
+
 **A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
 
 **A file an agent made for you** is a link in the chat's link blue, with a small arrow before its name. The agent keeps it in the project's hidden `.aven/files` folder, which Git leaves alone. Clicking the link saves a copy to Downloads as a browser does, keeping both when the name is taken; a small popup under the link names the copy, says Downloaded, and offers Open and Show in Finder, and the arrow becomes a check. A link to any other file opens it in Aven.
