@@ -1608,6 +1608,123 @@ describe("claude background shells", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  /** The next turn in the same chat, on `model`, until it sends its prompt. */
+  async function nextTurn(model: string, answer?: "success" | "error") {
+    const prompts = parse().filter((m) => m.type === "user").length;
+    const events: HarnessEvent[] = [];
+    const turn = sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model,
+      modelSettings: {},
+      runtimeMode: "supervised",
+      text: "carry on",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+    if (answer) {
+      await waitFor(() => !!switchRequest(), "set_model");
+      emit({
+        type: "control_response",
+        response: {
+          subtype: answer,
+          request_id: switchRequest()!.request_id,
+          ...(answer === "error" ? { error: "no such model" } : {}),
+        },
+      });
+    }
+    return { events, turn, prompts };
+  }
+  async function finishInNewCli(next: Awaited<ReturnType<typeof nextTurn>>) {
+    await waitFor(() => spawned.length === 2, "a new CLI");
+    await waitFor(
+      () =>
+        parse().filter(
+          (m) =>
+            (m.request as Record<string, unknown> | undefined)?.subtype ===
+            "initialize",
+        ).length === 2,
+      "its initialize",
+    );
+    emit({ type: "system", subtype: "init", session_id: "sess_1" });
+    emit({
+      type: "control_response",
+      response: { subtype: "success", request_id: "aven_2" },
+    });
+    await waitFor(
+      () => parse().filter((m) => m.type === "user").length > next.prompts,
+      "the prompt in the new CLI",
+    );
+    emit({ type: "result", subtype: "success" });
+    await next.turn;
+  }
+  const switchRequest = () =>
+    parse().find(
+      (m) =>
+        (m.request as Record<string, unknown> | undefined)?.subtype ===
+        "set_model",
+    );
+
+  it("switches the model in the running CLI while a dev server runs, so the server lives on", async () => {
+    const first = await startTurn("s1");
+    shellStarted("dev");
+    emit({ type: "result", subtype: "success" });
+    await first.turn;
+
+    const { turn, prompts } = await nextTurn("claude:claude-opus-5", "success");
+    await waitFor(
+      () => parse().filter((m) => m.type === "user").length > prompts,
+      "the next prompt",
+    );
+    expect(switchRequest()?.request).toEqual({
+      subtype: "set_model",
+      model: "claude-opus-5",
+    });
+    expect(killed).toEqual([]);
+    expect(spawned).toHaveLength(1);
+    emit({ type: "result", subtype: "success" });
+    await turn;
+
+    // Settled on the new model: the turn after reuses it without asking.
+    const again = await nextTurn("claude:claude-opus-5");
+    await waitFor(
+      () => parse().filter((m) => m.type === "user").length > again.prompts,
+      "the prompt after",
+    );
+    expect(
+      parse().filter(
+        (m) =>
+          (m.request as Record<string, unknown> | undefined)?.subtype ===
+          "set_model",
+      ),
+    ).toHaveLength(1);
+    emit({ type: "result", subtype: "success" });
+    await again.turn;
+  });
+
+  it("starts a new CLI when the running one refuses the new model", async () => {
+    const first = await startTurn("s1");
+    shellStarted("dev");
+    emit({ type: "result", subtype: "success" });
+    await first.turn;
+
+    const next = await nextTurn("claude:claude-opus-5", "error");
+    await waitFor(() => killed.includes("s1"), "the old CLI stopped");
+    await finishInNewCli(next);
+    expect(spawned[1]).toContain("claude-opus-5");
+  });
+
+  it("starts a new CLI for a new model when no shell runs, as before", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success" });
+    await first.turn;
+
+    const next = await nextTurn("claude:claude-opus-5");
+    await finishInNewCli(next);
+    expect(switchRequest()).toBeUndefined();
+    expect(killed).toEqual(["s1"]);
+  });
 });
 
 describe("claude task tools", () => {
