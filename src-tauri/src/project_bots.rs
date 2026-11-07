@@ -2117,9 +2117,6 @@ mod tests {
         assert!(!valid_branch("aven/bot/"));
     }
 
-    // A crew's stack: cards commit on its branch, the user's folder changes
-    // only through Apply, by exactly the reviewed range.
-    #[cfg(not(windows))]
     #[cfg_attr(windows, ignore)]
     #[test]
     fn tries_only_a_copy_holding_exactly_the_reviewed_range() {
@@ -2170,6 +2167,9 @@ mod tests {
         .is_err());
     }
 
+    // A crew's stack: cards commit on its branch, the user's folder changes
+    // only through Apply, by exactly the reviewed range.
+    #[cfg(not(windows))]
     #[test]
     fn stacks_cards_and_applies_exactly_the_reviewed_range() {
         let root = repo();
