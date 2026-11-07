@@ -2,10 +2,31 @@
 
 ## [Unreleased]
 
-- Agents using your Mac look like the rest of Aven. The bar at the top is a small pill with a row for each agent: Bot in the project's colour, work dots that show what it is doing, and the app. Point at an agent's dots and they turn into its Stop; Pause shows when you point at the bar.
+## [0.1.172] - 2026-11-06
+
+### Added
+
+- **Switch tabs with ⌃⇥.** Hold ⌃ and tap ⇥ to see a project's tabs as a cascade of glass cards, last used in front. Each ⇥ steps back, ⇧ starts from the oldest, and letting go of ⌃ opens the card in front. A quick tap flips straight to the previous tab.
+- **Review what Avos changed before you take it.** When Avos changes something you can see, Review opens on a **Look** tab with before and after pictures of the pages it changed, at phone or desktop size. **Try it** opens Avos's version in a browser tab. Avos's version runs only when you ask, from a clean copy of exactly the change you're reviewing, without your `.env` files or keys. Mac only for now.
+- **Agents can use an app's menu bar.** An agent can choose a menu item such as File › Export To › PDF… in the background, without opening the menu. Greyed-out items and the Apple menu are off limits.
+
+### Changed
+
+- **Avos is one box.** Its chat has no menu, answers as it writes, and runs on a quick model. Its screen is its chat with its profile beside it, and when you share a link it hands the question to the Researcher, bringing one in if needed.
+- **Agents using your Mac look like the rest of Aven.** The bar at the top is a small pill with a row for each agent: Bot in the project's colour, work dots that show what it is doing, and the app. Point at an agent's dots and they turn into its Stop; Pause shows when you point at the bar.
 - The bar no longer disappears while an agent thinks between steps, so Stop and Esc twice keep working, and stopping one agent leaves the others running.
 - The agent's pointer is Aven's soft dot, with a small tag naming the agent and its step that shrinks to Bot when it stops. A thin white frame shows which window it is using, even behind your own work.
 - Asking to use your Mac now reads "Let Claude use your Mac?", with Not now and Allow.
+- **Agents using your Mac are quicker.** After each click or key press they get the window's new state at once, can read an element's full text, wait for a window to change, and use punctuation and F-keys. Window screenshots no longer make the bar and pointer blink.
+- **The dot pointer shows over all of Aven,** including labels, check boxes, sliders and the code editor's buttons.
+- **Open in browser uses your default browser** on every Mac instead of assuming Brave.
+
+### Fixed
+
+- **Swiping between workspaces glides** without stopping halfway; the other workspace appears when the pages come to rest.
+- **Switching chats and workspaces is faster:** about a third of the time it took to show a chat tab.
+- **Pickers, menus and panels open and close faster,** without restyling the whole window each time.
+- **A dev server an agent started keeps running** while its chat sits idle.
 
 ## [0.1.171] - 2026-11-06
 
