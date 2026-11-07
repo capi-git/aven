@@ -5,7 +5,7 @@ This folder contains five interactive layout mocks for Aven's session and browse
 From this checkout:
 
 ```sh
-python3 -m http.server 4179 --directory docs/design/tab-workspace
+python3 -m http.server 4179 --directory docs/archive/design/tab-workspace
 ```
 
 Then open `http://localhost:4179/` in Aven. The page works without dependencies or network assets.

@@ -264,6 +264,7 @@ pub(super) fn run(app: &AppHandle) {
                 Some(presence::resolve_actor(&presence::ActorInput {
                     harness: Some("codex".into()),
                     title: Some("Owned native input fixture".into()),
+                    tone: None,
                 })),
             )
         });

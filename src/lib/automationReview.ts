@@ -149,22 +149,6 @@ function finalFence(
 const finalReviewFence = (text: string) => finalFence(text, REVIEW_FENCE);
 
 /**
- * The one top-level `name` block anywhere in a reply, as its body and the
- * reply without it. Null when there is none or more than one. For a block
- * that may sit before or after a reply's closing block (a crew member's
- * notes), where `finalFencedBlock` would be too strict.
- */
-export function onlyFencedBlock(
-  text: string,
-  name: string,
-): { body: string; without: string } | null {
-  const found = fencedBlocksNamed(text, name);
-  return found.bodies.length === 1
-    ? { body: found.bodies[0]!, without: found.without }
-    : null;
-}
-
-/**
  * Every top-level `name` block in a reply, in order, and the reply with all
  * of them taken out (so whatever else it ends with still reads as its
  * closing block).

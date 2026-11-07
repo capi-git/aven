@@ -23,7 +23,6 @@ import {
   subscribeHarnessAvailability,
 } from "../lib/harness/availability";
 import { refreshHarnessCatalogs } from "../lib/harness/registry";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
   getModelSnapshot,
   getPickerVisibilitySnapshot,
@@ -59,7 +58,7 @@ type Props = {
   /**
    * Display name of the model that wrote this turn. It is hidden from its own
    * provider's list, so a same-provider second opinion always comes from a
-   * different model (MonoCode 90c5a655).
+   * different model.
    */
   excludeModelName?: string;
   disabled?: boolean;
@@ -159,7 +158,6 @@ export function SecondOpinionButton({
   const [inSubmenu, setInSubmenu] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const [activeRow, setActiveRow] = useState<HTMLButtonElement | null>(null);
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
 
   const probed = hasProbedHarnessAvailability();
   const targets = useMemo(() => {
@@ -428,7 +426,6 @@ export function SecondOpinionButton({
             <Popover
               // Remounting per row re-measures the flyout against that row.
               key={active}
-              ref={lockOverscroll}
               anchor={activeRow}
               side="right"
               gap={SUBMENU_OVERLAP}

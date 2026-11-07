@@ -114,13 +114,6 @@ export type BotSkip =
   | "leased"
   | "fix-waiting";
 
-/**
- * Where a bot works. Bots belong to one project for now; an overview bot for
- * all projects will join the same list later as "all", and entries this
- * build does not know are kept as they are.
- */
-export type BotScope = "project" | "all";
-
 export type ProjectBot = {
   scope: "project";
   /** The project's folder. */

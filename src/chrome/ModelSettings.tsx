@@ -107,7 +107,7 @@ export function modelSettingsSummary(
   return { effort, fast };
 }
 
-// Tile shimmer ported from MonoCode 43aac9d2 / 1e97594d, extended to the
+// Tile shimmer (ported upstream work, see docs/UPSTREAM.md), extended to the
 // standard effort levels. Provider order is not a strength ranking (Grok lists
 // the highest first), so match values without changing what the provider gets.
 type EffortTone = "low" | "medium" | "high" | "xhigh" | "ultra" | "max";

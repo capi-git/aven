@@ -5152,6 +5152,7 @@ mod tests {
         let claude = crate::desktop_presence::resolve_actor(&crate::desktop_presence::ActorInput {
             harness: Some("claude".into()),
             title: Some("Fix the form".into()),
+            tone: None,
         });
         bind_scope(
             &mut grants,

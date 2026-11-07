@@ -20,7 +20,6 @@ import {
 } from "react";
 import { MiddleText } from "../chrome/FadeText";
 import { FileTypeIcon } from "../chrome/FileTypeIcon";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useColorScheme } from "../hooks/useColorScheme";
 import { useNarrow } from "../hooks/useNarrow";
 import { useSetting } from "../hooks/useSetting";
@@ -108,7 +107,6 @@ export function UnifiedDiffView({
   onDiscardFile,
   onStageHunk,
 }: Props) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const colorScheme = useColorScheme();
   const chosenMode = useSetting(diffModeSetting);
   // Side by side needs room for two columns of code; a narrow pane shows one
@@ -155,9 +153,13 @@ export function UnifiedDiffView({
     scroller.scrollTo({ top: Math.max(0, top) });
   }, [resolvedFocusId, fileKey]);
 
+  // The root is not drawn while there are no files, so wheel handling
+  // follows the element itself.
+  const [rootElement, setRootElement] = useState<HTMLDivElement | null>(null);
   const bindRoot = useCallback(
     (el: HTMLDivElement | null) => {
       rootRef.current = el;
+      setRootElement(el);
       measureRef(el);
     },
     [measureRef],
@@ -168,10 +170,20 @@ export function UnifiedDiffView({
       // In embedded mode an ancestor owns vertical scrolling. Leaving this
       // null makes each file discover that real scroll root.
       scrollerRef.current = fill ? el : null;
-      lockOverscroll(fill ? el : null);
     },
-    [fill, lockOverscroll],
+    [fill],
   );
+
+  // One wheel listener for the view's life, not one per file as it comes
+  // near: in WebKit adding or removing a wheel listener restyles the whole
+  // page (~35 ms), which scrolling a long diff paid at every file.
+  useEffect(() => {
+    if (!rootElement) return;
+    const onWheel = (event: WheelEvent) =>
+      scrollPastCodeLane(event, rootElement, scrollerRef.current);
+    rootElement.addEventListener("wheel", onWheel, { passive: false });
+    return () => rootElement.removeEventListener("wheel", onWheel);
+  }, [rootElement]);
 
   const toggleFile = useCallback((id: string) => {
     setOpen((current) => {
@@ -856,45 +868,6 @@ function VirtualRows({
     };
   }, [hoverAtY, near, scrollerRef, updateWindow]);
 
-  useEffect(() => {
-    if (!near) return;
-    const body = bodyRef.current;
-    if (!body) return;
-
-    // WebKit can latch a wheel gesture to a code lane's horizontal scroller
-    // instead of chaining its vertical delta to the surrounding diff.
-    const onWheel = (event: WheelEvent) => {
-      if (event.deltaY === 0) return;
-      const code = (event.target as Element | null)?.closest?.(
-        "[data-diff-code]",
-      );
-      if (!code || !body.contains(code)) return;
-      const ownScroller = scrollerRef.current;
-      const verticalScroller =
-        ownScroller && ownScroller.scrollHeight > ownScroller.clientHeight + 1
-          ? ownScroller
-          : verticalScrollParent(body, true);
-      if (!verticalScroller) return;
-
-      const scale =
-        event.deltaMode === 1
-          ? UNIFIED_LINE_PX
-          : event.deltaMode === 2
-            ? verticalScroller.clientHeight
-            : 1;
-      const before = verticalScroller.scrollTop;
-      const max = verticalScroller.scrollHeight - verticalScroller.clientHeight;
-      const next = Math.min(max, Math.max(0, before + event.deltaY * scale));
-      if (next === before) return;
-
-      event.preventDefault();
-      verticalScroller.scrollTop = next;
-    };
-
-    body.addEventListener("wheel", onWheel, { passive: false });
-    return () => body.removeEventListener("wheel", onWheel);
-  }, [near, scrollerRef]);
-
   if (!near) {
     return <div ref={bodyRef} style={{ height: totalHeight }} />;
   }
@@ -1379,6 +1352,43 @@ function IconButton({
       {children}
     </button>
   );
+}
+
+/**
+ * WebKit can latch a trackpad gesture that starts sideways over a code lane
+ * to the lane's horizontal scroller, and the gesture's vertical movement then
+ * scrolls nothing (seen in WKWebView on 2026-11-06): move the diff instead.
+ */
+export function scrollPastCodeLane(
+  event: WheelEvent,
+  root: HTMLElement,
+  ownScroller: HTMLElement | null,
+) {
+  if (event.deltaY === 0 || event.defaultPrevented) return;
+  const code =
+    event.target instanceof Element
+      ? event.target.closest("[data-diff-code]")
+      : null;
+  if (!code || !root.contains(code)) return;
+  const verticalScroller =
+    ownScroller && ownScroller.scrollHeight > ownScroller.clientHeight + 1
+      ? ownScroller
+      : verticalScrollParent(root, true);
+  if (!verticalScroller) return;
+
+  const scale =
+    event.deltaMode === 1
+      ? UNIFIED_LINE_PX
+      : event.deltaMode === 2
+        ? verticalScroller.clientHeight
+        : 1;
+  const before = verticalScroller.scrollTop;
+  const max = verticalScroller.scrollHeight - verticalScroller.clientHeight;
+  const next = Math.min(max, Math.max(0, before + event.deltaY * scale));
+  if (next === before) return;
+
+  event.preventDefault();
+  verticalScroller.scrollTop = next;
 }
 
 function verticalScrollParent(

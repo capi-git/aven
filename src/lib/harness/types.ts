@@ -129,7 +129,13 @@ export type HarnessEvent =
       streaming?: boolean;
     }
   /** Context-window level after the harness's latest request. */
-  | { type: "context"; used?: number; window?: number };
+  | { type: "context"; used?: number; window?: number }
+  /**
+   * Background shells the provider's process runs for this chat right now,
+   * such as a dev server an agent started. They end with that process, so the
+   * registry never parks a chat while one runs. The chat shows nothing for it.
+   */
+  | { type: "shells.updated"; running: number };
 
 export type ApprovalDecision = "allow" | "deny";
 

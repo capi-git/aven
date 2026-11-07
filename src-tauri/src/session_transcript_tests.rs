@@ -223,7 +223,7 @@ fn failed_block_write_rolls_back_earlier_blocks_and_metadata() {
     assert_eq!(current, revision(&first));
 }
 
-/// The upsert 0.1.126 and MonoCode issue; they know only `blocks_json`.
+/// The upsert 0.1.126 and older builds issue; they know only `blocks_json`.
 const OLD_BUILD_UPSERT: &str = "INSERT INTO sessions(id, cwd, harness, model, runtime_mode, title, blocks_json, created_at, updated_at)
      VALUES(?1, '/nonexistent/fixture', 'codex', 'test', 'local', 'Old build', ?2, 1, 2)
      ON CONFLICT(id) DO UPDATE SET title = excluded.title, blocks_json = excluded.blocks_json,

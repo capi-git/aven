@@ -1,0 +1,262 @@
+/* The recent switcher (⌃⇥): a cascade of the strip's entries over the
+   blurred window. Only transform and opacity move. Durations zero under
+   Reduce motion, so cards then fade in place. */
+.aven-recent {
+  --aven-recent-move: 280ms;
+  --aven-recent-land: 300ms;
+  --aven-recent-fade: 160ms;
+  /* The shell's glass (macos-theme.css), which stays inside the shell; the
+     switcher opens on the body, over all of it. */
+  --aven-recent-glass: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--color-background-base) 92%, var(--color-content))
+      50%,
+    transparent
+  );
+  --aven-recent-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
+  --aven-recent-blur: blur(40px) saturate(125%);
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  font-family: var(--font-sans);
+  color: var(--color-content);
+  user-select: none;
+  -webkit-user-select: none;
+}
+html.theme-light .aven-recent {
+  --aven-recent-glass: color-mix(
+    in srgb,
+    var(--color-background-base) 62%,
+    transparent
+  );
+}
+:root[data-motion="reduce"] .aven-recent {
+  --aven-recent-move: 0ms;
+  --aven-recent-land: 0ms;
+}
+
+/* The window behind: blurred and dimmed, never tinted. */
+.aven-recent-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--color-background-base) 42%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.1);
+  backdrop-filter: blur(22px) saturate(1.1);
+  opacity: 0;
+  transition: opacity var(--aven-recent-fade) var(--aven-ease-out);
+}
+.aven-recent[data-entered] .aven-recent-scrim {
+  opacity: 1;
+}
+.aven-recent[data-phase="opening"] .aven-recent-scrim,
+.aven-recent[data-phase="closing"] .aven-recent-scrim {
+  opacity: 0;
+  transition-duration: var(--aven-recent-land);
+}
+
+.aven-recent-stack {
+  position: absolute;
+  inset: 0;
+  perspective: 1600px;
+  perspective-origin: 50% 45%;
+  pointer-events: none;
+}
+
+.aven-recent-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  transform-origin: 0 0;
+  border-radius: var(--aven-radius-xl);
+  /* Glass, never a solid block: the blurred window shows through. */
+  background: var(--aven-recent-glass);
+  box-shadow:
+    inset 0 0 0 1px var(--aven-recent-edge),
+    0 24px 64px rgb(0 0 0 / 0.28);
+  pointer-events: auto;
+  backface-visibility: hidden;
+  transition:
+    transform var(--aven-recent-move) var(--aven-ease-spring),
+    opacity var(--aven-recent-fade) var(--aven-ease-out);
+}
+/* Only the front card is frosted, so the sheets behind soften under it
+   instead of showing their edges through. */
+.aven-recent-card[data-picked] {
+  -webkit-backdrop-filter: var(--aven-recent-blur);
+  backdrop-filter: var(--aven-recent-blur);
+}
+/* Only the front card shows what it holds; the ones behind are bare glass,
+   so nothing reads through the stack. */
+.aven-recent-face {
+  transition: opacity var(--aven-motion-fast) var(--aven-ease-out);
+}
+.aven-recent-card:not([data-picked]) .aven-recent-face {
+  opacity: 0;
+}
+.aven-recent[data-phase="opening"] .aven-recent-card {
+  transition:
+    transform var(--aven-recent-land) var(--aven-ease-spring),
+    opacity var(--aven-recent-fade) var(--aven-ease-out);
+}
+/* Growing into place, the card is glass alone: its words go first. */
+.aven-recent[data-phase="opening"] .aven-recent-face {
+  opacity: 0;
+  transition-duration: 80ms;
+}
+/* The picked card lands, then gives way to the entry itself. */
+.aven-recent[data-phase="opening"] .aven-recent-card[data-picked] {
+  opacity: 0 !important;
+  transition:
+    transform var(--aven-recent-land) var(--aven-ease-spring),
+    opacity var(--aven-motion-fast) linear
+      calc(var(--aven-recent-land) - var(--aven-motion-fast));
+}
+.aven-recent[data-phase="closing"] .aven-recent-card {
+  opacity: 0 !important;
+}
+
+.aven-recent-name {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none;
+  transition: opacity var(--aven-recent-fade) var(--aven-ease-out);
+}
+.aven-recent:not([data-entered]) .aven-recent-name,
+.aven-recent[data-phase="opening"] .aven-recent-name,
+.aven-recent[data-phase="closing"] .aven-recent-name {
+  opacity: 0;
+}
+.aven-recent-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+}
+.aven-recent-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aven-recent-meta {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  font-size: var(--text-ui-label);
+  color: var(--aven-muted);
+  white-space: nowrap;
+}
+.aven-recent-meta > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aven-recent-needs {
+  color: var(--aven-needs-you);
+}
+
+/* Faces: what each card shows of its entry. */
+.aven-recent-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.aven-recent-face[data-kind="chat"] {
+  padding: 16px 20px 12px;
+  gap: 10px;
+}
+.aven-recent-lines {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  overflow: hidden;
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+}
+.aven-recent-lines p {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.aven-recent-lines p[data-role="user"] {
+  align-self: flex-end;
+  max-width: 78%;
+  padding: 6px 10px;
+  border-radius: var(--aven-radius-bubble);
+  background: var(--aven-selected);
+}
+.aven-recent-composer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: var(--aven-radius-xl);
+  border: 1px solid var(--aven-line);
+  background: var(--aven-hover);
+  font-size: var(--text-ui-caption);
+  color: var(--aven-muted);
+}
+.aven-recent-face[data-kind="page"] img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+.aven-recent-face[data-kind="panes"] {
+  flex-direction: row;
+  gap: 6px;
+  padding: 6px;
+}
+.aven-recent-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--aven-radius-lg);
+  background: var(--aven-hover);
+  font-size: var(--text-ui-label);
+  color: var(--aven-muted);
+}
+.aven-recent-pane > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aven-recent-plain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  color: var(--aven-muted);
+}
+.aven-recent-icon {
+  display: flex;
+  transform: scale(2);
+}
+.aven-recent-detail {
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-label);
+}

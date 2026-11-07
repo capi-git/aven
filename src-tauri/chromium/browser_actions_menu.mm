@@ -64,7 +64,7 @@
     [self addAction:@"pip" title:options.floating ? @"Return to workspace" : @"Picture in Picture" enabled:options.can_use_page];
   if (options.can_add_to_chat)
     [self addAction:@"chat" title:@"Add URL to chat" enabled:options.can_use_page];
-  [self addAction:@"external" title:@"Open in Brave" enabled:options.can_use_page];
+  [self addAction:@"external" title:@"Open in Default Browser" enabled:options.can_use_page];
   [self updateZoom:factor];
   return self;
 }

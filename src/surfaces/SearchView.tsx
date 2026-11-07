@@ -15,7 +15,6 @@ import { MatchText } from "../chrome/MatchText";
 import { ProjectMark } from "../chrome/ProjectMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { hasWorkspaceOverlay } from "../lib/workspaceKeyboard";
 import {
   conversationRowsFrom,
@@ -84,7 +83,6 @@ export function SearchView({
   const inputRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SearchScope>("all");
   const [active, setActive] = useState(0);
@@ -407,7 +405,6 @@ export function SearchView({
       </div>
 
       <div
-        ref={lockOverscroll}
         className={
           empty
             ? "flex min-h-0 flex-1 items-center justify-center overflow-y-auto overscroll-none"

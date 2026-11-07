@@ -1,5 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState, type ComponentProps } from "react";
+import {
+  act,
+  createElement,
+  Fragment,
+  useState,
+  type ComponentProps,
+} from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../lib/session";
@@ -330,6 +337,45 @@ describe("workspace status data and actions", () => {
     expect(closeSettings).toHaveBeenCalledTimes(1);
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
     expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  it("keeps the window strip's host through Settings, so its portal adds no wheel listener", async () => {
+    // React listens on every new container a portal draws into, wheel
+    // included, and in WebKit each wheel listener added restyles the page.
+    let host: HTMLDivElement | null = null;
+    function WithStrip(next: WorkspaceStatusBarProps) {
+      const [element, setElement] = useState<HTMLDivElement | null>(null);
+      host = element;
+      return createElement(
+        Fragment,
+        null,
+        createElement(WorkspaceStatusBar, { ...next, stripHost: setElement }),
+        element && !next.settingsView
+          ? createPortal(
+              createElement("div", { className: "strip-content" }),
+              element,
+            )
+          : null,
+      );
+    }
+    const show = (patch: Partial<WorkspaceStatusBarProps>) =>
+      act(async () =>
+        root.render(createElement(WithStrip, { ...props, ...patch })),
+      );
+    await show({});
+    const first = host!;
+    expect(first.querySelector(".strip-content")).not.toBeNull();
+    const wheelListeners = countWheelListeners();
+    for (let index = 0; index < 2; index += 1) {
+      await show({ settingsView: { section: "appearance", onClose: vi.fn() } });
+      expect(host).toBe(first);
+      expect(first.hidden).toBe(true);
+      await show({ settingsView: undefined });
+      expect(host).toBe(first);
+      expect(first.hidden).toBe(false);
+      expect(first.querySelector(".strip-content")).not.toBeNull();
+    }
+    expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
   });
 
   it("keeps Activity available in settings and dismisses it when entering or leaving settings", async () => {
@@ -685,3 +731,22 @@ describe("workspace status data and actions", () => {
     expect(container.textContent).not.toContain("101K");
   });
 });
+
+/**
+ * Wheel listeners added and removed from now on, on any element, the
+ * document or the window. happy-dom's nodes inherit them from its own
+ * EventTarget, not the global one, and the window's are bound copies.
+ */
+function countWheelListeners() {
+  const node = Object.getPrototypeOf(Node.prototype) as EventTarget;
+  const spies = (method: "addEventListener" | "removeEventListener") => [
+    vi.spyOn(node, method),
+    vi.spyOn(window, method),
+  ];
+  const added = spies("addEventListener");
+  const removed = spies("removeEventListener");
+  const wheel = (list: typeof added) =>
+    list.flatMap((spy) => spy.mock.calls).filter(([type]) => type === "wheel")
+      .length;
+  return () => ({ added: wheel(added), removed: wheel(removed) });
+}

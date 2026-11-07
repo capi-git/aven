@@ -66,17 +66,6 @@ export type ClaudeControlRequest = {
   elicitation?: McpElicitation;
 };
 
-export type ClaudeMappedLine = {
-  events: HarnessEvent[];
-  sessionId?: string;
-  control?: ClaudeControlRequest;
-  cancelRequestId?: string;
-  turnCompleted?: {
-    status: "completed" | "failed" | "interrupted" | "cancelled";
-    error?: string;
-  };
-};
-
 export type ClaudeCliSettings = {
   alwaysThinkingEnabled?: boolean;
   fastMode?: boolean;
@@ -945,6 +934,36 @@ export function parseBackgroundAgentTasks(
         description: stringField(row, "description") ?? "Subagent",
       },
     ];
+  });
+}
+
+/** A shell command Claude runs as a task: Bash, or a Monitor's watcher. */
+export function isShellTaskType(taskType: string | undefined): boolean {
+  return (taskType ?? "").toLowerCase() === "local_bash";
+}
+
+/**
+ * The shells in a `background_tasks_changed` snapshot, leaving out ambient
+ * housekeeping. Claude sends the whole set whenever it changes, so it replaces
+ * what Aven held; null for any other record or a malformed payload.
+ */
+export function parseBackgroundShellTaskIds(
+  rec: Record<string, unknown>,
+): string[] | null {
+  if (
+    stringField(rec, "type") !== "system" ||
+    stringField(rec, "subtype") !== "background_tasks_changed" ||
+    !Array.isArray(rec.tasks)
+  ) {
+    return null;
+  }
+  return rec.tasks.flatMap((item) => {
+    const row = asRecord(item);
+    if (!row || row.ambient === true) return [];
+    const taskId = stringField(row, "task_id");
+    return taskId && isShellTaskType(stringField(row, "task_type"))
+      ? [taskId]
+      : [];
   });
 }
 

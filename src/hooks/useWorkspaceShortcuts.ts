@@ -44,6 +44,9 @@ export type WorkspaceActions = {
   onClosePane: (sessionId?: string) => void;
   onNext: () => void;
   onPrev: () => void;
+  /** ⌃⇥ held: the strip's entries, most recent first (useRecentSwitcher). */
+  onRecentNext: () => void;
+  onRecentPrev: () => void;
   /** The next (1) or previous (-1) pane in layout order (Cydonia's ⌃⌥⇥). */
   onStepPane: (step: number) => void;
   /** Expand the focused pane over the others, or put it back (⌃⌥Z). */
@@ -279,6 +282,8 @@ export function useWorkspaceShortcuts({
           });
         else if (cmd === "next") run("next", a.onNext);
         else if (cmd === "prev") run("prev", a.onPrev);
+        else if (cmd === "recent-next") run("recent-next", a.onRecentNext);
+        else if (cmd === "recent-prev") run("recent-prev", a.onRecentPrev);
         else if (cmd === "next-pane") run("next-pane", () => a.onStepPane(1));
         else if (cmd === "prev-pane") run("prev-pane", () => a.onStepPane(-1));
         else if (cmd === "zoom-pane") run("zoom-pane", a.onZoomPane);
@@ -399,10 +404,11 @@ export function useWorkspaceShortcuts({
         ({ payload }) => {
           const a = actions.current;
           switch (payload?.action) {
+            // A page forwards ⌃⇥ by these names (browser_workspace_keys.h).
             case "next-tab":
-              return run("next", a.onNext);
+              return run("recent-next", a.onRecentNext);
             case "prev-tab":
-              return run("prev", a.onPrev);
+              return run("recent-prev", a.onRecentPrev);
             case "next-pane":
               return run("next-pane", () => a.onStepPane(1));
             case "prev-pane":

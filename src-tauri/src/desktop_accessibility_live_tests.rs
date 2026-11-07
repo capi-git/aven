@@ -386,7 +386,7 @@ fn live_fixture_background_element_actions() {
 
     // 1. appState: indexed controls, secure value never read.
     let started = Instant::now();
-    let state = capture_state(scope, pid, window_id, bounds, 400).unwrap();
+    let state = capture_state(scope, pid, window_id, bounds, 400, None).unwrap();
     let outline = state["elements"].as_str().unwrap().to_owned();
     eprintln!("appState in {:?}:\n{outline}", started.elapsed());
     evidence.insert("appStateMs".into(), json!(started.elapsed().as_millis()));
@@ -409,7 +409,7 @@ fn live_fixture_background_element_actions() {
     };
     // Every action uses up the window's indexes: observe before each one,
     // and mark the end of an action the way the gate does.
-    let observe = || capture_state(scope, pid, window_id, bounds, 400).unwrap();
+    let observe = || capture_state(scope, pid, window_id, bounds, 400, None).unwrap();
     let acted = || invalidate(scope, window_id);
 
     // 2. click: AXPress.
@@ -697,7 +697,7 @@ fn live_fixture_background_element_actions() {
         .find(|window| window.window_id == dialog_id && window.pid == pid)
         .expect("fixture dialog is on screen")
         .bounds();
-    let dialog_state = || capture_state(scope, pid, dialog_id, dialog_bounds, 200).unwrap();
+    let dialog_state = || capture_state(scope, pid, dialog_id, dialog_bounds, 200, None).unwrap();
     let dialog_field = |state: &Value| {
         let index = index_of(
             state["elements"].as_str().unwrap(),

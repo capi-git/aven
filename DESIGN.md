@@ -1,6 +1,6 @@
 # Aven design rules
 
-Aven should feel like a calm, plain tool: mostly dark and grey, little on screen, and nothing asking for attention unless it needs you. These rules come from MonoCode's interface, which sets the standard for how clean Aven should look, and from what Aven's owner has asked for and rejected.
+Aven should feel like a calm, plain tool: mostly dark and grey, little on screen, and nothing asking for attention unless it needs you. These rules set the standard for how clean Aven should look, and record what Aven's owner has asked for and rejected.
 
 Follow them in anything you add or change. When a rule and a request disagree, follow the request and update this file if the rule has changed.
 
@@ -73,7 +73,9 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A new chat** has faint grey ink behind its words that the pointer stirs: a halftone of 3px cells in the text colour, never tinted. Holding gathers it and letting go bursts it outward; left alone it fades and stops. It shows only on a plain new chat (not with a chat background, the games, or Reduce motion) and fades out with the first message.
 
-**The pointer** is a soft, see-through dot about a fingertip wide (like the iPad's) with no outline, floating on a gentle shadow that keeps it visible over white pages and images. It is one size everywhere: over something you can press or drag (a tab, a sidebar row) it is only a little brighter, and it is plain on a disabled control or while something is busy. Text fields keep the I-beam, resize edges keep their arrows, and the closed hand shows only while dragging. Pages in the browser keep their own pointer, and the Mac's pointer comes back when it is enlarged or Increase contrast is on.
+**The pointer** is a soft, see-through dot about a fingertip wide (like the iPad's) with no outline, floating on a gentle shadow that keeps it visible over white pages and images. It shows over every part of Aven's own interface, form labels, check boxes and the code editor's buttons included, and is one size everywhere: over something you can press or drag (a tab, a sidebar row) it is only a little brighter, and it is plain on a disabled control or while something is busy. Text fields keep the I-beam, resize edges keep their arrows, and the closed hand shows only while dragging. Pages in the browser keep their own pointer, and the Mac's pointer comes back when it is enlarged or Increase contrast is on.
+
+**An agent using your Mac** looks like it does in Aven. The bar at the top of the screen is a pill of the same dark glass with a row per agent: its Bot, its 5×5 dots drawing what it is doing, its name and a few muted words ("Clicking “Next…” in Pages"). The dots are that agent's Stop, as in the message box, and Pause shows only while the bar is pointed at. Its pointer is Aven's soft dot with a small dark tag (Bot, name, step) that shrinks to Bot alone once it stops acting. A thin white frame sits right behind the window it uses. A question ("Let Claude use your Mac?") is one sentence with Not now and one light Allow. No colour washes: colour is only in Bot.
 
 **An agent** (Avos, a teammate, a bot, a chat) is drawn as Bot: a little robot with a dark face, two glowing eyes and a light on its antenna. Avos, a bot and a chat wear their project's colour, a teammate its role's, and its eyes and light turn amber when it needs you. At 28 px and up it wears its role's outfit (Avos a headset, the Builder a hard hat); below 24 px it drops its bolts and outfit and draws bigger eyes. A project's mark never stands for an agent.
 

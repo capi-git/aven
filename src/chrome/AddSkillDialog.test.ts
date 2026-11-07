@@ -156,10 +156,10 @@ describe("Add a skill dialog", () => {
     });
     expect(statusText()).toContain("Looking in nutlope/hallmark…");
     expect(field().disabled).toBe(true);
-    await line(0, "$ npx --yes skills@1 add nutlope/hallmark --list");
+    await line(0, "$ npx --yes skills@1.7.6 add nutlope/hallmark --list");
     expect(
       dialog().querySelector('[aria-label="Installer output"]')?.textContent,
-    ).toContain("npx --yes skills@1 add nutlope/hallmark --list");
+    ).toContain("npx --yes skills@1.7.6 add nutlope/hallmark --list");
     expect(button("Stop")).toBeDefined();
 
     await settle(0, finished({ stdout: LIST_TWO }));

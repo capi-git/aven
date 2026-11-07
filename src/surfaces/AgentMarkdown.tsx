@@ -3,7 +3,6 @@ import {
   createContext,
   isValidElement,
   memo,
-  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -55,7 +54,6 @@ import { useColorScheme } from "../hooks/useColorScheme";
 import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
 import { useFileReferences } from "../hooks/useFileReferences";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { motionReduced } from "../lib/motion";
 import {
   rehypeRevealWords,
@@ -908,15 +906,7 @@ export const AgentMarkdown = memo(function AgentMarkdown({
 });
 
 function usePreviewScroller() {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  const rewrapAnchor = useRewrapAnchor<HTMLDivElement>();
-  return useCallback(
-    (el: HTMLDivElement | null) => {
-      lockOverscroll(el);
-      rewrapAnchor(el);
-    },
-    [lockOverscroll, rewrapAnchor],
-  );
+  return useRewrapAnchor<HTMLDivElement>();
 }
 
 export const MarkdownPreview = memo(function MarkdownPreview({

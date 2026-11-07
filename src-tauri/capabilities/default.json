@@ -20,12 +20,10 @@
       "identifier": "opener:allow-open-url",
       "allow": [
         {
-          "url": "http://*",
-          "app": "Brave Browser"
+          "url": "http://*"
         },
         {
-          "url": "https://*",
-          "app": "Brave Browser"
+          "url": "https://*"
         }
       ]
     },

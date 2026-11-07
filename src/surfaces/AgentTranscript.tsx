@@ -26,6 +26,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import { AttachmentChip } from "../chrome/AttachmentChip";
@@ -271,6 +272,22 @@ function AgentTranscriptComponent({
   const lastScrollExtent = useRef<ScrollExtent | undefined>(undefined);
   // Until this time, a trackpad gesture with no direction yet owns the pin.
   const wheelHold = useRef(0);
+  // The shown transcript's wheel handling. React's own wheel listener at the
+  // root calls it: in WebKit, adding or removing a wheel listener restyles
+  // the whole page (~35 ms), so showing or hiding a chat must not.
+  const onWheelRef = useRef<((event: WheelEvent) => void) | null>(null);
+  const onScrollerWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      // React also bubbles wheel input from portals rendered in the chat (a
+      // menu over it), which never reached a listener on the element.
+      if (
+        event.target instanceof Node &&
+        event.currentTarget.contains(event.target)
+      )
+        onWheelRef.current?.(event.nativeEvent);
+    },
+    [],
+  );
   // When the reader last used a wheel, trackpad, scroll key or the scrollbar
   // here, to tell their scrolling from the browser moving the offset.
   const readerInputAt = useRef(Number.NEGATIVE_INFINITY);
@@ -525,7 +542,7 @@ function AgentTranscriptComponent({
       }
     };
     scrollerEl.addEventListener("scroll", onScroll, { passive: true });
-    scrollerEl.addEventListener("wheel", onWheel, { passive: true });
+    onWheelRef.current = onWheel;
     scrollerEl.addEventListener("keydown", onKeyDown);
     scrollerEl.addEventListener("pointerdown", onPointerDown, {
       passive: true,
@@ -538,7 +555,7 @@ function AgentTranscriptComponent({
       clearTimeout(release);
       wheelHold.current = 0;
       scrollerEl.removeEventListener("scroll", onScroll);
-      scrollerEl.removeEventListener("wheel", onWheel);
+      if (onWheelRef.current === onWheel) onWheelRef.current = null;
       scrollerEl.removeEventListener("keydown", onKeyDown);
       scrollerEl.removeEventListener("pointerdown", onPointerDown);
       scrollerEl.removeEventListener("pointermove", onPointerMove);
@@ -774,6 +791,7 @@ function AgentTranscriptComponent({
         <div
           id={scrollerId}
           ref={setScroller}
+          onWheel={onScrollerWheel}
           data-transcript-layout={transcriptLayout}
           className="agent-transcript h-full overflow-y-auto overscroll-none [overflow-anchor:none] font-mono text-ui-body leading-5"
         >
@@ -2230,6 +2248,11 @@ function sameActivity(a: ActivityPhasesProps, b: ActivityPhasesProps): boolean {
  * Keep a live phase body on its newest step. Pinning happens in layout
  * before paint so the window follows without a visible hitch; scrolling up,
  * by wheel or otherwise, pauses that until the reader returns to the end.
+ *
+ * Returns the body's `onWheel`. It goes through React's own wheel listener at
+ * the root: in WebKit, adding or removing a wheel listener restyles the whole
+ * page (~35 ms), so a live phase starting or ending while the agent streams
+ * must not.
  */
 function useLivePhaseScroll(
   el: HTMLDivElement | null,
@@ -2239,6 +2262,8 @@ function useLivePhaseScroll(
   const stickToBottom = useRef(true);
   const lastScrollTop = useRef(0);
   const wasEnabled = useRef(false);
+  const live = useRef(false);
+  live.current = Boolean(el) && enabled;
 
   // Growth is not the reader moving. Reconcile a scroll whose event has not
   // arrived yet, then pin only if still following.
@@ -2277,24 +2302,32 @@ function useLivePhaseScroll(
       );
       lastScrollTop.current = el.scrollTop;
     };
-    const onWheel = (e: WheelEvent) => {
-      if (!nestedScrollAbsorbsWheel(el, e.deltaY)) return;
-      if (e.deltaY < 0) stickToBottom.current = false;
-      e.stopPropagation();
-    };
 
     el.addEventListener("scroll", onScroll, { passive: true });
-    el.addEventListener("wheel", onWheel, { passive: true });
     const inner = el.firstElementChild;
     const observer = new ResizeObserver(pin);
     if (inner) observer.observe(inner);
     pin();
     return () => {
       el.removeEventListener("scroll", onScroll);
-      el.removeEventListener("wheel", onWheel);
       observer.disconnect();
     };
   }, [el, enabled, pin]);
+
+  return useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    const body = event.currentTarget;
+    // React also bubbles wheel input from portals rendered in here.
+    if (
+      !live.current ||
+      !(event.target instanceof Node) ||
+      !body.contains(event.target) ||
+      !nestedScrollAbsorbsWheel(body, event.deltaY)
+    )
+      return;
+    if (event.deltaY < 0) stickToBottom.current = false;
+    // The transcript's own wheel handling is for the transcript.
+    event.stopPropagation();
+  }, []);
 }
 
 /**
@@ -2324,7 +2357,11 @@ function ActivityPhaseGroup({
   const waiting = phase.steps.some(needsApproval);
   const open = waiting || (override ?? active);
   const [liveScroller, setLiveScroller] = useState<HTMLDivElement | null>(null);
-  useLivePhaseScroll(liveScroller, active && open, phase.steps);
+  const onLiveWheel = useLivePhaseScroll(
+    liveScroller,
+    active && open,
+    phase.steps,
+  );
   const title = activityPhaseTitle(phase, active);
   // Opening a group on purpose is also how you read the line that titled it,
   // whole. The auto-open while it runs is a live view, not a reading one, and
@@ -2410,6 +2447,7 @@ function ActivityPhaseGroup({
         {open ? (
           <div
             ref={setLiveScroller}
+            onWheel={onLiveWheel}
             className={active || !open ? "zen-phase-live" : undefined}
           >
             <div className="flex min-w-0 flex-col">

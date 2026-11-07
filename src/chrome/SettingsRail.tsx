@@ -15,7 +15,6 @@ import {
   Wrench,
   type IconComponent,
 } from "./icons";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
   SETTINGS_SECTIONS,
   settingsSectionLabel,
@@ -68,7 +67,6 @@ export function SettingsNav({
   onClose,
   embedded = false,
 }: Props) {
-  const lockOverscroll = useLockOverscroll<HTMLElement>();
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLElement | null>(null);
@@ -124,10 +122,7 @@ export function SettingsNav({
       </label>
       {searching ? (
         <nav
-          ref={(node) => {
-            resultsRef.current = node;
-            lockOverscroll(node);
-          }}
+          ref={resultsRef}
           aria-label="Settings search results"
           className="settings-nav__sections"
           onKeyDown={(event) => {
@@ -171,11 +166,7 @@ export function SettingsNav({
           ))}
         </nav>
       ) : (
-        <nav
-          ref={lockOverscroll}
-          aria-label="Settings sections"
-          className="settings-nav__sections"
-        >
+        <nav aria-label="Settings sections" className="settings-nav__sections">
           {SETTINGS_SECTIONS.flatMap((item, index) => [
             ...(index === 0 || SETTINGS_SECTIONS[index - 1].group !== item.group
               ? [

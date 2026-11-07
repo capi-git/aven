@@ -26,6 +26,8 @@ mod self_test;
 pub(super) fn preview_self_test(app: &AppHandle) {
     self_test::run(app);
 }
+#[path = "desktop_marks_macos.rs"]
+mod marks;
 #[path = "desktop_presence_macos.rs"]
 mod presence_ui;
 #[path = "desktop_session_macos.rs"]
@@ -67,7 +69,7 @@ pub(super) fn presence_shutdown() {
     presence_ui::shutdown();
 }
 pub(super) fn actor_changed(actor: &presence::Actor) {
-    agent_cursor::set_actor(&actor.name, actor.color);
+    agent_cursor::set_actor(&actor.name, actor.tone);
 }
 pub(super) fn session_state() -> presence::Session {
     session::current()
@@ -81,6 +83,12 @@ pub(super) fn observe_session() {
 pub(super) fn session_alive(scope: &str) -> bool {
     active_session(CAPTURES.get_or_init(CaptureSessions::default), scope)
         .is_ok_and(|s| !s.revoked.load(Ordering::Acquire))
+}
+#[cfg(debug_assertions)]
+pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    presence_ui::snapshot(folder)?;
+    agent_cursor::snapshot(folder)
 }
 #[cfg(debug_assertions)]
 pub(super) fn preview_presence() {
@@ -436,6 +444,9 @@ struct DesktopWindow {
     y: f64,
     width: f64,
     height: f64,
+    /// The index (in `displays`) of the display showing most of the window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display: Option<usize>,
 }
 impl DesktopWindow {
     fn bounds(&self) -> Region {
@@ -498,6 +509,7 @@ fn windows() -> Result<Vec<DesktopWindow>, String> {
             );
         }
         let mut result = Vec::new();
+        let screens = displays();
         for index in 0..count {
             let item = CFArrayGetValueAtIndex(list.0, index);
             if item.is_null()
@@ -508,7 +520,7 @@ fn windows() -> Result<Vec<DesktopWindow>, String> {
             }
             let Some(window_id) = number(item, kCGWindowNumber)
                 .and_then(|value| u32::try_from(value).ok())
-                .filter(|id| *id != 0)
+                .filter(|id| *id != 0 && !presence_ui::is_frame(*id))
             else {
                 continue;
             };
@@ -550,6 +562,7 @@ fn windows() -> Result<Vec<DesktopWindow>, String> {
                 y: bounds.y,
                 width: bounds.width,
                 height: bounds.height,
+                display: display_of(bounds, &screens),
             });
         }
         Ok(result)
@@ -803,7 +816,9 @@ fn target_point_with_exemptions(
     for window in windows {
         // Only this exact mouse-transparent visualization is exempt. Dialogs,
         // menus and every other host-owned window still block targeted input.
-        if exemptions.cursor_window == Some(window.window_id) {
+        if exemptions.cursor_window == Some(window.window_id)
+            || presence_ui::is_frame(window.window_id)
+        {
             continue;
         }
         window
@@ -839,6 +854,38 @@ fn targets_in_stack(
         .iter()
         .map(|&(x, y)| target_point_with_exemptions(x, y, target, windows, exemptions))
         .collect()
+}
+
+/// Active displays in macOS's order (the main display first), with their
+/// IDs and global bounds in points.
+fn displays() -> Vec<(u32, Region)> {
+    let mut ids = [0_u32; 32];
+    let mut count = 0_u32;
+    if unsafe { CGGetActiveDisplayList(32, ids.as_mut_ptr(), &mut count) } != 0 {
+        return Vec::new();
+    }
+    ids.iter()
+        .take(count.min(32) as usize)
+        .map(|id| (*id, Region::from(unsafe { CGDisplayBounds(*id) })))
+        .filter(|(_, bounds)| bounds.validate().is_ok())
+        .collect()
+}
+
+/// The display that shows the largest part of `bounds`.
+fn display_of(bounds: Region, screens: &[(u32, Region)]) -> Option<usize> {
+    screens
+        .iter()
+        .enumerate()
+        .map(|(index, (_, screen))| {
+            let width =
+                (bounds.x + bounds.width).min(screen.x + screen.width) - bounds.x.max(screen.x);
+            let height =
+                (bounds.y + bounds.height).min(screen.y + screen.height) - bounds.y.max(screen.y);
+            (index, width.max(0.0) * height.max(0.0))
+        })
+        .filter(|(_, area)| *area > 0.0)
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(index, _)| index)
 }
 
 fn active_displays() -> Vec<Region> {
@@ -1447,10 +1494,22 @@ fn activate(
         }
         attempt.accepted = true;
     }
-    confirm_activation(attempt.pid, attempt.accepted, deadline, || {
+    let mut value = confirm_activation(attempt.pid, attempt.accepted, deadline, || {
         session.require_admitted(guard)?;
         activation_on_main(app_handle, deadline, || unsafe { frontmost_pid_on_main() })
-    })
+    })?;
+    // The app's front window, so the agent can go straight to appState.
+    // Activation already succeeded; a failed window listing only leaves out
+    // the window id.
+    if let Some(window) = windows()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|window| window.pid == attempt.pid)
+    {
+        value["windowId"] = json!(window.window_id);
+        value["title"] = json!(window.title);
+    }
+    Ok(value)
 }
 
 /// Opens an installed app the user allowed this chat to bring forward, then
@@ -1494,11 +1553,34 @@ fn open_app(
         session.require_admitted(guard)?;
         guard.check()?;
         if let Some(pid) = input::running_apps_named(app_handle, name)?.first() {
+            wait_for_window(guard, session, *pid)?;
             return Ok(*pid);
         }
         std::thread::sleep(Duration::from_millis(200));
     }
     Err("The app was opened but did not start in time. Run windows and retry.".into())
+}
+
+/// How long a just-opened app gets to show its first window.
+const FIRST_WINDOW_WAIT: Duration = Duration::from_secs(5);
+
+/// After opening an app, waits briefly for its first window, so the agent's
+/// next windows or appState finds it. An app that opens no window (a menu-bar
+/// utility) is not an error.
+fn wait_for_window(
+    guard: &gate::Guard,
+    session: &Arc<CaptureSession>,
+    pid: i32,
+) -> Result<(), String> {
+    let started = Instant::now();
+    while started.elapsed() < FIRST_WINDOW_WAIT {
+        session.require_admitted(guard)?;
+        if windows()?.iter().any(|window| window.pid == pid) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
 }
 
 fn accessibility_activation_timeout(deadline: Instant) -> Result<f32, String> {
@@ -1780,6 +1862,7 @@ pub(super) fn remove_captures(scope: Option<&str>) {
     // After revocation: an accessibility switch being turned on for this
     // chat right now sees the chat as ended and is not left recorded.
     ax::forget(scope);
+    tips_ledger().forget(scope);
     if let Some(revoked) = revoked {
         agent_cursor::clear_scope(scope);
         // Never wait for capture, scaling, or filesystem cleanup in a UI
@@ -1865,26 +1948,27 @@ fn run_image_command(command: &mut Command, description: &str) -> Result<(), Str
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| format!("Could not start {description}."))?;
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                return if status.success() {
-                    Ok(())
-                } else {
-                    Err(format!("{description} failed. Check Aven's Screen Recording permission in Settings, Skills & tools, then retry."))
+    let pid = child.id();
+    // Wait on a helper thread so the result is seen the moment the command
+    // exits, with no polling interval added to every capture.
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(child.wait());
+    });
+    match receiver.recv_timeout(Duration::from_secs(8)) {
+        Ok(Ok(status)) if status.success() => Ok(()),
+        Ok(_) => Err(format!("{description} failed. Check Aven's Screen Recording permission in Settings, Skills & tools, then retry.")),
+        Err(_) => {
+            // Still running (the waiter has not reaped it): stop it.
+            if let Ok(pid) = i32::try_from(pid) {
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
                 }
             }
-            Ok(None) if started.elapsed() < Duration::from_secs(8) => {
-                std::thread::sleep(Duration::from_millis(20))
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!(
-                    "{description} timed out. Try a smaller screenshot region."
-                ));
-            }
+            let _ = receiver.recv_timeout(Duration::from_secs(1));
+            Err(format!(
+                "{description} timed out. Try a smaller screenshot region."
+            ))
         }
     }
 }
@@ -1921,21 +2005,58 @@ fn validate_capture_scale(pixels: (u32, u32), points: (u32, u32)) -> Result<(), 
     Ok(())
 }
 
-fn screenshot(
-    guard: &gate::Guard,
-    scope: &str,
+/// What a screenshot shows and at what size.
+#[derive(Clone, Copy, Debug, Default)]
+struct Shot {
     window_id: Option<u32>,
     region: Option<Region>,
-) -> Result<Value, String> {
-    let bounds = match (window_id, region) {
-        (Some(id), None) => window_bounds(id)?,
-        (None, Some(region)) => region,
-        (None, None) => unsafe { CGDisplayBounds(CGMainDisplayID()).into() },
-        _ => return Err("Choose windowId or region, not both.".into()),
+    display: Option<u32>,
+    max_width: Option<u32>,
+    native: bool,
+}
+
+impl Shot {
+    fn window(window_id: u32, max_width: Option<u32>) -> Self {
+        Self {
+            window_id: Some(window_id),
+            max_width,
+            ..Self::default()
+        }
+    }
+}
+
+/// The image size a capture is written at: one pixel per point unless the
+/// agent asked for the native resolution, then shrunk to `max_width`.
+fn target_size(
+    native: (u32, u32),
+    points: (u32, u32),
+    keep_native: bool,
+    max_width: Option<u32>,
+) -> (u32, u32) {
+    let (width, height) = if keep_native { native } else { points };
+    match max_width {
+        Some(max) if width > max => {
+            let scaled = (f64::from(height) * f64::from(max) / f64::from(width)).round();
+            (max, (scaled as u32).max(1))
+        }
+        _ => (width, height),
+    }
+}
+
+fn screenshot(guard: &gate::Guard, scope: &str, shot: Shot) -> Result<Value, String> {
+    let bounds = match (shot.window_id, shot.region, shot.display) {
+        (Some(id), None, None) => window_bounds(id)?,
+        (None, Some(region), None) => region,
+        (None, None, Some(index)) => displays()
+            .get(index as usize)
+            .map(|(_, bounds)| *bounds)
+            .ok_or("There is no display with that index. Run windows for the displays.")?,
+        (None, None, None) => unsafe { CGDisplayBounds(CGMainDisplayID()).into() },
+        _ => return Err("Choose one of windowId, region or display.".into()),
     };
     bounds.validate()?;
     // Explicit integer point bounds make -R rounding and the returned pixel
-    // geometry agree. CG window/main-display bounds are already integral.
+    // geometry agree. CG window/display bounds are already integral.
     if [bounds.x, bounds.y, bounds.width, bounds.height]
         .iter()
         .any(|value| value.fract() != 0.0)
@@ -1962,9 +2083,9 @@ fn screenshot(
                 // Spawn directly from Aven, so the responsible process for TCC is Aven.
                 let mut command = Command::new("/usr/sbin/screencapture");
                 command.args(["-x", "-o", "-t", "png"]);
-                if let Some(id) = window_id {
+                if let Some(id) = shot.window_id {
                     command.arg("-l").arg(id.to_string());
-                } else if region.is_some() {
+                } else if shot.region.is_some() || shot.display.is_some() {
                     command
                         .arg("-R")
                         .arg(format!("{},{},{},{}", bounds.x, bounds.y, width, height));
@@ -1972,7 +2093,7 @@ fn screenshot(
                     command.arg("-m");
                 }
                 run_image_command(command.arg(&path), "Screen capture")?;
-                if let Some(id) = window_id {
+                if let Some(id) = shot.window_id {
                     let current = window_bounds(id)?;
                     if current.x != bounds.x
                         || current.y != bounds.y
@@ -1986,17 +2107,16 @@ fn screenshot(
                 }
                 let native_dimensions = png_dimensions(&path)?;
                 validate_capture_scale(native_dimensions, (width, height))?;
-                if native_dimensions != (width, height) {
-                    run_image_command(
-                        Command::new("/usr/bin/sips")
-                            .arg("-z")
-                            .arg(height.to_string())
-                            .arg(width.to_string())
-                            .arg(&path),
-                        "Screenshot scaling",
-                    )?;
+                let target = target_size(
+                    native_dimensions,
+                    (width, height),
+                    shot.native,
+                    shot.max_width,
+                );
+                if native_dimensions != target {
+                    resize_png(&path, target)?;
                 }
-                if png_dimensions(&path)? != (width, height) {
+                if png_dimensions(&path)? != target {
                     return Err(
                         "Screenshot scaling returned unexpected dimensions. Retry the screenshot."
                             .into(),
@@ -2006,15 +2126,153 @@ fn screenshot(
                     .map_err(|_| "Could not protect the screenshot file.")?;
                 guard.check()?;
                 captures.retain(&path)?;
-                Ok(
-                    json!({"path":path,"width":width,"height":height,"originX":bounds.x,"originY":bounds.y}),
-                )
+                // Image pixels per screen point; 1 unless shrunk or native.
+                let scale = (f64::from(target.0) / f64::from(width) * 10_000.0).round() / 10_000.0;
+                let mut value = json!({"path":path,"width":target.0,"height":target.1,"originX":bounds.x,"originY":bounds.y,"scale":scale});
+                if target != (width, height) {
+                    value["pointWidth"] = json!(width);
+                    value["pointHeight"] = json!(height);
+                }
+                Ok(value)
             })();
             if result.is_err() {
                 let _ = std::fs::remove_file(&path);
             }
             result
         },
+    )
+}
+
+#[link(name = "ImageIO", kind = "framework")]
+unsafe extern "C" {
+    fn CGImageSourceCreateWithURL(url: Cf, options: Cf) -> Cf;
+    fn CGImageSourceCreateImageAtIndex(source: Cf, index: usize, options: Cf) -> Cf;
+    fn CGImageDestinationCreateWithURL(url: Cf, kind: Cf, count: usize, options: Cf) -> Cf;
+    fn CGImageDestinationAddImage(destination: Cf, image: Cf, properties: Cf);
+    fn CGImageDestinationFinalize(destination: Cf) -> bool;
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGImageGetColorSpace(image: Cf) -> Cf;
+    fn CGColorSpaceCreateDeviceRGB() -> Cf;
+    fn CGBitmapContextCreate(
+        data: *mut c_void,
+        width: usize,
+        height: usize,
+        bits_per_component: usize,
+        bytes_per_row: usize,
+        space: Cf,
+        bitmap_info: u32,
+    ) -> Cf;
+    fn CGContextSetInterpolationQuality(context: Cf, quality: i32);
+    fn CGContextDrawImage(context: Cf, rect: Rect, image: Cf);
+    fn CGBitmapContextCreateImage(context: Cf) -> Cf;
+}
+
+fn file_url(path: &Path) -> Result<Retained<AnyObject>, String> {
+    let class = AnyClass::get(c"NSURL").ok_or("Image scaling is unavailable.")?;
+    let path = NSString::from_str(&path.to_string_lossy());
+    Ok(unsafe { msg_send![class, fileURLWithPath: &*path] })
+}
+
+/// Resizes a PNG in place, in this process, with high-quality interpolation.
+/// Written to a new private file first, then moved over the original.
+fn resize_png_in_process(path: &Path, (width, height): (u32, u32)) -> Result<(), String> {
+    const FAILED: &str = "Screenshot scaling failed.";
+    let scaled = path.with_extension("scaled.png");
+    let result = objc2::rc::autoreleasepool(|_| unsafe {
+        let source_url = file_url(path)?;
+        let source = OwnedCf::new(
+            CGImageSourceCreateWithURL(Retained::as_ptr(&source_url).cast(), std::ptr::null()),
+            FAILED,
+        )?;
+        let image = OwnedCf::new(
+            CGImageSourceCreateImageAtIndex(source.0, 0, std::ptr::null()),
+            FAILED,
+        )?;
+        let device = OwnedCf::new(CGColorSpaceCreateDeviceRGB(), FAILED)?;
+        let space = CGImageGetColorSpace(image.0);
+        // kCGImageAlphaPremultipliedLast keeps transparent window corners.
+        let mut context = CGBitmapContextCreate(
+            std::ptr::null_mut(),
+            width as usize,
+            height as usize,
+            8,
+            0,
+            if space.is_null() { device.0 } else { space },
+            1,
+        );
+        if context.is_null() && !space.is_null() {
+            // A colour space a bitmap cannot use (indexed, for example).
+            context = CGBitmapContextCreate(
+                std::ptr::null_mut(),
+                width as usize,
+                height as usize,
+                8,
+                0,
+                device.0,
+                1,
+            );
+        }
+        let context = OwnedCf::new(context, FAILED)?;
+        // kCGInterpolationHigh
+        CGContextSetInterpolationQuality(context.0, 3);
+        CGContextDrawImage(
+            context.0,
+            Rect {
+                origin: Point { x: 0.0, y: 0.0 },
+                size: Size {
+                    width: f64::from(width),
+                    height: f64::from(height),
+                },
+            },
+            image.0,
+        );
+        let output = OwnedCf::new(CGBitmapContextCreateImage(context.0), FAILED)?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&scaled)
+            .map_err(|_| "Could not create a private screenshot file.")?;
+        let target_url = file_url(&scaled)?;
+        let kind = NSString::from_str("public.png");
+        let destination = OwnedCf::new(
+            CGImageDestinationCreateWithURL(
+                Retained::as_ptr(&target_url).cast(),
+                Retained::as_ptr(&kind).cast(),
+                1,
+                std::ptr::null(),
+            ),
+            FAILED,
+        )?;
+        CGImageDestinationAddImage(destination.0, output.0, std::ptr::null());
+        if !CGImageDestinationFinalize(destination.0) {
+            return Err(FAILED.to_string());
+        }
+        Ok(())
+    })
+    .and_then(|()| std::fs::rename(&scaled, path).map_err(|_| FAILED.to_string()));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&scaled);
+    }
+    result
+}
+
+/// Resizes a capture, in this process when possible (no extra process per
+/// screenshot), else with sips.
+fn resize_png(path: &Path, size: (u32, u32)) -> Result<(), String> {
+    if resize_png_in_process(path, size).is_ok() {
+        return Ok(());
+    }
+    run_image_command(
+        Command::new("/usr/bin/sips")
+            .arg("-z")
+            .arg(size.1.to_string())
+            .arg(size.0.to_string())
+            .arg(path),
+        "Screenshot scaling",
     )
 }
 
@@ -2030,7 +2288,12 @@ pub(super) fn execute(
         .then(|| request.input_window())
         .flatten();
     let result = execute_admitted(app, scope, request, guard);
-    if let Some(window_id) = changed {
+    // An action that returns the window's fresh state stored it after the
+    // action ran; only those new indexes stay usable.
+    let refreshed = result
+        .as_ref()
+        .is_ok_and(|value| value["state"]["stateId"].is_u64());
+    if let Some(window_id) = changed.filter(|_| !refreshed) {
         ax::invalidate(scope, window_id);
     }
     result
@@ -2054,28 +2317,120 @@ fn execute_admitted(
         }
         Request::Windows {} => {
             agent_cursor::keep_alive(scope);
-            Ok(json!({"windows":windows()?}))
+            windows_listing(app)
         }
-        Request::Screenshot { window_id, region } => {
-            if let Some(window) =
-                window_id.and_then(|id| windows().ok()?.into_iter().find(|w| w.window_id == id))
-            {
-                look_at(app, scope, &session, &window);
-            }
+        Request::Screenshot {
+            window_id,
+            region,
+            display,
+            max_width,
+            native,
+        } => {
+            let shot = Shot {
+                window_id,
+                region,
+                display,
+                max_width,
+                native,
+            };
             agent_cursor::keep_alive(scope);
+            if let Some(id) = window_id {
+                // screencapture -l records only that window, never Aven's
+                // ring or bar, so they stay on screen and the ring's glide
+                // runs alongside the capture.
+                if let Some(window) = windows()?.into_iter().find(|w| w.window_id == id) {
+                    look_at(app, scope, &session, &window);
+                }
+                return screenshot(guard, scope, shot);
+            }
             agent_cursor::suspend(app)?;
             let _suppression = CursorSuppression(app);
             presence_ui::suppress(true)?;
-            screenshot(guard, scope, window_id, region)
+            screenshot(guard, scope, shot)
         }
         Request::AppState {
             window_id,
             pid,
             max_nodes,
             image,
+            max_width,
+            query,
+            role,
+            wait_ms,
+            until_changed,
+            menu,
+            tips,
         } => app_state(
-            guard, app, scope, &session, window_id, pid, max_nodes, image,
+            guard,
+            app,
+            scope,
+            &session,
+            StateRequest {
+                window_id,
+                pid,
+                max_nodes,
+                image,
+                max_width,
+                filter: accessibility::Filter::new(query.as_deref(), role.as_deref()),
+                wait_ms,
+                until_changed,
+                menu,
+                tips,
+            },
         ),
+        Request::ReadText {
+            window_id,
+            element,
+            state_id,
+            offset,
+            length,
+        } => {
+            let id = window_id.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+            let window = windows()?
+                .into_iter()
+                .find(|window| window.window_id == id)
+                .ok_or(
+                    "That window is no longer on screen. Run windows and call appState again.",
+                )?;
+            if presence_ui::is_overlay(id) || agent_cursor::window_id() == Some(id) {
+                return Err("Aven's desktop controls cannot be inspected or targeted.".into());
+            }
+            session.require_admitted(guard)?;
+            agent_cursor::keep_alive(scope);
+            let located = ax::locate(scope, id, state_id, element, window.pid, window.bounds())?;
+            session.require_admitted(guard)?;
+            let mut value = ax::read_text(
+                &located,
+                offset.unwrap_or(0) as usize,
+                length.unwrap_or(READ_TEXT_DEFAULT) as usize,
+            )?;
+            value["element"] = json!(element);
+            Ok(value)
+        }
+        Request::Menu { ref path, .. } => {
+            let window_id = request.input_window().ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+            let pid = target.pid.ok_or(INPUT_WINDOW_UNAVAILABLE)?;
+            if target.shared_input || target.window_id != Some(window_id) {
+                return Err("Menu choices are background actions; no input was sent.".into());
+            }
+            scoped_input(
+                guard,
+                &session,
+                || agent_cursor::activity(app, scope, Arc::clone(&session.revoked)),
+                |()| Ok(()),
+            )?;
+            let mut value = ax::choose_menu(pid, path, guard)?;
+            attach_fresh_state(
+                guard,
+                scope,
+                &session,
+                window_id,
+                pid,
+                request.wants_image(),
+                &mut value,
+            );
+            Ok(value)
+        }
         Request::Move {
             x, y, window_id, ..
         } => {
@@ -2222,6 +2577,92 @@ fn execute_admitted(
     }
 }
 
+/// The windows list, each window's display, the displays and the app in
+/// front.
+fn windows_listing(app: &AppHandle) -> Result<Value, String> {
+    let listed = windows()?;
+    let main = unsafe { CGMainDisplayID() };
+    let screens: Vec<Value> = displays()
+        .into_iter()
+        .enumerate()
+        .map(|(index, (id, bounds))| {
+            json!({"index": index, "main": id == main, "x": bounds.x, "y": bounds.y,
+                "width": bounds.width, "height": bounds.height})
+        })
+        .collect();
+    let frontmost = activation_on_main(app, Instant::now() + Duration::from_secs(2), || unsafe {
+        frontmost_pid_on_main()
+    })
+    .ok()
+    .flatten()
+    .map(|pid| {
+        let name = listed
+            .iter()
+            .find(|window| window.pid == pid)
+            .map(|window| window.app.clone())
+            .or_else(|| app_identity(app, pid).ok().map(|(_, name)| name));
+        json!({"pid": pid, "app": name})
+    });
+    Ok(json!({"windows": listed, "displays": screens, "frontmostApp": frontmost}))
+}
+
+/// How long an element action's changes get to appear before the window is
+/// read again for the state it returns.
+const ACTION_SETTLE: Duration = Duration::from_millis(150);
+
+/// After an element action or menu choice: settles briefly, reads the
+/// window again and stores that as its latest state, so the agent can act on
+/// the new indexes without another appState. Best effort: when the window is
+/// gone or cannot be read, the result says why and the old indexes stay used
+/// up.
+fn attach_fresh_state(
+    guard: &gate::Guard,
+    scope: &str,
+    session: &CaptureSession,
+    window_id: u32,
+    pid: i32,
+    image: bool,
+    value: &mut Value,
+) {
+    let state = (|| {
+        std::thread::sleep(ACTION_SETTLE);
+        // The action is over; its indexes end before the new ones exist.
+        ax::invalidate(scope, window_id);
+        // Checked before the gate, which would report a closed window (an
+        // OK button that dismissed its dialog) as a changed target.
+        let window = windows()?
+            .into_iter()
+            .find(|window| window.window_id == window_id && window.pid == pid)
+            .ok_or(
+                "The window closed after the action. Run windows to find what is on screen now.",
+            )?;
+        session.require_admitted(guard)?;
+        let max_nodes = ax::latest(scope, window_id)
+            .map_or(accessibility::DEFAULT_MAX_NODES, |(_, max_nodes)| max_nodes);
+        let mut state = ax::capture_state(scope, pid, window_id, window.bounds(), max_nodes, None)?;
+        session.require_admitted(guard)?;
+        state["windowId"] = json!(window.window_id);
+        state["title"] = json!(window.title);
+        state["window"] =
+            json!({"x": window.x, "y": window.y, "width": window.width, "height": window.height});
+        if image {
+            match screenshot(guard, scope, Shot::window(window_id, None)) {
+                Ok(shot) => state["image"] = shot,
+                Err(error) => state["imageError"] = json!(error),
+            }
+        }
+        Ok::<_, String>(state)
+    })();
+    match state {
+        Ok(state) => value["state"] = state,
+        Err(error) => {
+            value["stateError"] = json!(format!(
+                "{error} Call appState before the next element action."
+            ))
+        }
+    }
+}
+
 fn need(located: Option<&ax::Located>) -> Result<&ax::Located, String> {
     located.ok_or_else(|| INPUT_WINDOW_UNAVAILABLE.to_string())
 }
@@ -2253,21 +2694,43 @@ fn app_identity(app: &AppHandle, pid: i32) -> Result<(Option<String>, String), S
     )
 }
 
+/// What an appState asked for.
+struct StateRequest {
+    window_id: Option<u32>,
+    pid: Option<i32>,
+    max_nodes: Option<u32>,
+    image: bool,
+    max_width: Option<u32>,
+    filter: Option<accessibility::Filter>,
+    wait_ms: Option<u32>,
+    until_changed: bool,
+    menu: Option<Vec<String>>,
+    tips: bool,
+}
+
+/// How often a waiting appState looks at the window again.
+const WAIT_POLL: Duration = Duration::from_millis(250);
+
+/// Which apps' tips each chat has been given.
+fn tips_ledger() -> std::sync::MutexGuard<'static, accessibility::TipsLedger> {
+    static LEDGER: OnceLock<Mutex<accessibility::TipsLedger>> = OnceLock::new();
+    LEDGER
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
 /// Observation: an indexed accessibility tree of one window and a fresh image
 /// of it. Covered and background windows work; nothing is activated.
-#[allow(clippy::too_many_arguments)]
 fn app_state(
     guard: &gate::Guard,
     app: &AppHandle,
     scope: &str,
     session: &CaptureSession,
-    window_id: Option<u32>,
-    pid: Option<i32>,
-    max_nodes: Option<u32>,
-    image: bool,
+    request: StateRequest,
 ) -> Result<Value, String> {
     let visible = windows()?;
-    let window = match (window_id, pid) {
+    let window = match (request.window_id, request.pid) {
         (Some(id), _) => visible.into_iter().find(|window| window.window_id == id),
         // Front-to-back order: the app's frontmost ordinary window.
         (None, Some(pid)) => visible.into_iter().find(|window| window.pid == pid),
@@ -2276,7 +2739,7 @@ fn app_state(
     .ok_or(
         "That window is no longer on screen. Run windows and retry with an observed windowId.",
     )?;
-    if presence_ui::window_id() == Some(window.window_id)
+    if presence_ui::is_overlay(window.window_id)
         || agent_cursor::window_id() == Some(window.window_id)
     {
         return Err("Aven's desktop controls cannot be inspected or targeted.".into());
@@ -2316,15 +2779,40 @@ fn app_state(
         }
     };
     session.require_admitted(guard)?;
-    let max_nodes = max_nodes.unwrap_or(accessibility::DEFAULT_MAX_NODES);
+    // A wait for a change reads as much as the state it compares with; a
+    // search reads more of the window by default, and its answer stays short.
+    let latest = ax::latest(scope, window.window_id);
+    let max_nodes = match (request.max_nodes, latest) {
+        (Some(max_nodes), _) => max_nodes,
+        (None, Some((_, max_nodes))) if request.until_changed => max_nodes,
+        (None, _) if request.filter.is_some() => *accessibility::NODE_RANGE.end(),
+        (None, _) => accessibility::DEFAULT_MAX_NODES,
+    };
+    let waited = match request.wait_ms {
+        Some(wait_ms) => Some(wait_for_change(
+            guard,
+            scope,
+            session,
+            &window,
+            max_nodes,
+            &request,
+            Duration::from_millis(u64::from(wait_ms)),
+        )?),
+        None => None,
+    };
     let mut state = ax::capture_state(
         scope,
         window.pid,
         window.window_id,
         window.bounds(),
         max_nodes,
+        request.filter.as_ref(),
     )?;
     session.require_admitted(guard)?;
+    if let Some((elapsed, met)) = waited {
+        state["waitedMs"] = json!(elapsed.as_millis() as u64);
+        state["changed"] = json!(met);
+    }
     state["windowId"] = json!(window.window_id);
     state["app"] = json!(name);
     state["pid"] = json!(window.pid);
@@ -2343,34 +2831,100 @@ fn app_state(
         });
     }
     if let Some(tips) = accessibility::app_tips(bundle.as_deref()) {
-        state["tips"] = json!(tips);
+        // Once per chat per app; `tips: true` asks again.
+        if tips_ledger().first(scope, bundle.as_deref().unwrap_or_default(), request.tips) {
+            state["tips"] = json!(tips);
+        }
     }
-    if image {
-        agent_cursor::suspend(app)?;
-        let _suppression = CursorSuppression(app);
-        presence_ui::suppress(true)?;
-        state["image"] = screenshot(guard, scope, Some(window.window_id), None)?;
+    let menu_bar = ax::menu_bar_titles(window.pid);
+    if !menu_bar.is_empty() {
+        state["menuBar"] = json!(menu_bar);
+    }
+    if let Some(path) = &request.menu {
+        session.require_admitted(guard)?;
+        match ax::menu_items(window.pid, path) {
+            Ok(items) => state["menuItems"] = json!(items),
+            Err(error) => state["menuError"] = json!(error),
+        }
+    }
+    if request.image {
+        // screencapture -l records only this window: Aven's ring and bar
+        // are never in it, so they stay on screen.
+        state["image"] = screenshot(
+            guard,
+            scope,
+            Shot::window(window.window_id, request.max_width),
+        )?;
     }
     Ok(state)
 }
 
+/// Waits until the window differs from this chat's latest state of it
+/// (`untilChanged`), or until `query`/`role` match, or the time runs out.
+/// Returns how long it waited and whether the condition was met.
+fn wait_for_change(
+    guard: &gate::Guard,
+    scope: &str,
+    session: &CaptureSession,
+    window: &DesktopWindow,
+    max_nodes: u32,
+    request: &StateRequest,
+    limit: Duration,
+) -> Result<(Duration, bool), String> {
+    let baseline = if request.until_changed {
+        Some(ax::latest(scope, window.window_id).map(|(digest, _)| digest).ok_or(
+            "untilChanged compares with this chat's latest appState of the window; call appState for it first.",
+        )?)
+    } else {
+        None
+    };
+    let started = Instant::now();
+    loop {
+        session.require_admitted(guard)?;
+        let bounds = window_bounds(window.window_id)?;
+        let (digest, matches) = ax::probe(
+            window.pid,
+            window.window_id,
+            bounds,
+            max_nodes,
+            request.filter.as_ref(),
+        )?;
+        let changed = baseline.is_some_and(|baseline| baseline != digest);
+        let found = baseline.is_none() && matches > 0;
+        if changed || found {
+            return Ok((started.elapsed(), true));
+        }
+        let elapsed = started.elapsed();
+        if elapsed >= limit {
+            return Ok((elapsed, false));
+        }
+        std::thread::sleep(WAIT_POLL.min(limit - elapsed));
+    }
+}
+
 /// The agent marker glides to the window the agent is reading, so the user
-/// can follow where it is looking. Drawing only; a failure changes nothing.
+/// can follow where it is looking. Drawing only, on its own thread: nothing
+/// the agent asked for waits for the glide, and a failure changes nothing.
 fn look_at(app: &AppHandle, scope: &str, session: &CaptureSession, window: &DesktopWindow) {
-    if presence_ui::window_id() == Some(window.window_id)
+    if presence_ui::is_overlay(window.window_id)
         || agent_cursor::window_id() == Some(window.window_id)
     {
         return;
     }
     let bounds = window.bounds();
-    let _ = agent_cursor::move_to(
-        app,
-        scope,
-        bounds.x + bounds.width / 2.0,
-        bounds.y + bounds.height / 2.0,
-        agent_cursor::Feedback::Move,
-        Arc::clone(&session.revoked),
-    );
+    let app = app.clone();
+    let scope = scope.to_owned();
+    let revoked = Arc::clone(&session.revoked);
+    std::thread::spawn(move || {
+        let _ = agent_cursor::move_to(
+            &app,
+            &scope,
+            bounds.x + bounds.width / 2.0,
+            bounds.y + bounds.height / 2.0,
+            agent_cursor::Feedback::Move,
+            revoked,
+        );
+    });
 }
 
 /// Background element actions. The agent ring moves to the control (drawing
@@ -2536,6 +3090,15 @@ fn element_action(
     if located.as_ref().is_some_and(|located| located.reresolved) {
         value["reresolved"] = json!(true);
     }
+    attach_fresh_state(
+        guard,
+        scope,
+        session,
+        window_id,
+        pid,
+        request.wants_image(),
+        &mut value,
+    );
     Ok(value)
 }
 
@@ -3482,6 +4045,135 @@ mod tests {
         std::fs::remove_dir_all(directory).unwrap();
         std::fs::remove_dir_all(other_directory).unwrap();
     }
+    #[test]
+    fn capture_size_is_points_unless_native_then_capped_by_max_width() {
+        // Retina capture of an 800x600-point window.
+        let native = (1600, 1200);
+        assert_eq!(target_size(native, (800, 600), false, None), (800, 600));
+        assert_eq!(target_size(native, (800, 600), true, None), (1600, 1200));
+        assert_eq!(
+            target_size(native, (800, 600), false, Some(400)),
+            (400, 300)
+        );
+        assert_eq!(
+            target_size(native, (800, 600), true, Some(1000)),
+            (1000, 750)
+        );
+        // A cap wider than the image changes nothing.
+        assert_eq!(
+            target_size(native, (800, 600), false, Some(1200)),
+            (800, 600)
+        );
+        // Odd sizes round; a sliver never reaches zero.
+        assert_eq!(
+            target_size((1002, 668), (501, 334), false, Some(100)),
+            (100, 67)
+        );
+        assert_eq!(target_size((4000, 2), (2000, 1), false, Some(64)), (64, 1));
+    }
+
+    #[test]
+    fn windows_belong_to_the_display_showing_most_of_them() {
+        let screens = [
+            (
+                1,
+                Region {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 1440.0,
+                    height: 900.0,
+                },
+            ),
+            (
+                2,
+                Region {
+                    x: 1440.0,
+                    y: -200.0,
+                    width: 1920.0,
+                    height: 1080.0,
+                },
+            ),
+        ];
+        let window = |x: f64, width: f64| Region {
+            x,
+            y: 100.0,
+            width,
+            height: 400.0,
+        };
+        assert_eq!(display_of(window(100.0, 600.0), &screens), Some(0));
+        assert_eq!(display_of(window(1500.0, 600.0), &screens), Some(1));
+        // Straddling: the larger share wins.
+        assert_eq!(display_of(window(1340.0, 600.0), &screens), Some(1));
+        assert_eq!(display_of(window(1040.0, 600.0), &screens), Some(0));
+        assert_eq!(display_of(window(-5000.0, 600.0), &screens), None);
+        assert_eq!(display_of(window(100.0, 600.0), &[]), None);
+    }
+
+    /// Writes a solid test PNG with CoreGraphics; no screen is captured.
+    fn write_test_png(path: &Path, width: usize, height: usize) {
+        unsafe {
+            let space = OwnedCf::new(CGColorSpaceCreateDeviceRGB(), "space").unwrap();
+            let context = OwnedCf::new(
+                CGBitmapContextCreate(std::ptr::null_mut(), width, height, 8, 0, space.0, 1),
+                "context",
+            )
+            .unwrap();
+            let image = OwnedCf::new(CGBitmapContextCreateImage(context.0), "image").unwrap();
+            let url = file_url(path).unwrap();
+            let kind = NSString::from_str("public.png");
+            let destination = OwnedCf::new(
+                CGImageDestinationCreateWithURL(
+                    Retained::as_ptr(&url).cast(),
+                    Retained::as_ptr(&kind).cast(),
+                    1,
+                    std::ptr::null(),
+                ),
+                "destination",
+            )
+            .unwrap();
+            CGImageDestinationAddImage(destination.0, image.0, std::ptr::null());
+            assert!(CGImageDestinationFinalize(destination.0));
+        }
+    }
+
+    #[test]
+    fn screenshots_are_resized_in_process_to_exact_private_files() {
+        let directory = capture_directory().unwrap();
+        let path = directory.join("shot.png");
+        write_test_png(&path, 400, 300);
+        assert_eq!(png_dimensions(&path).unwrap(), (400, 300));
+        resize_png_in_process(&path, (200, 150)).unwrap();
+        assert_eq!(png_dimensions(&path).unwrap(), (200, 150));
+        resize_png(&path, (64, 48)).unwrap();
+        assert_eq!(png_dimensions(&path).unwrap(), (64, 48));
+        // No scaled copy is left behind, and the result stays private.
+        let names: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("shot.png")]);
+        // A file that is not an image fails without touching anything else.
+        let text = directory.join("note.png");
+        std::fs::write(&text, b"not an image").unwrap();
+        assert!(resize_png_in_process(&text, (10, 10)).is_err());
+        assert!(!directory.join("note.scaled.png").exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn image_commands_report_their_exit_without_polling() {
+        let started = Instant::now();
+        run_image_command(&mut Command::new("/usr/bin/true"), "Test").unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let error = run_image_command(&mut Command::new("/usr/bin/false"), "Test").unwrap_err();
+        assert!(error.starts_with("Test failed"), "{error}");
+        assert!(
+            run_image_command(&mut Command::new("/nonexistent/tool"), "Test")
+                .unwrap_err()
+                .contains("Could not start")
+        );
+    }
+
     #[test]
     fn screenshot_directory_is_private() {
         let directory = capture_directory().unwrap();

@@ -149,15 +149,12 @@ export const loadComposerRunner = SETTINGS.composerRunner.load;
 export const saveComposerRunner = SETTINGS.composerRunner.save;
 
 export const NOTES_ENABLED_DEFAULT = SETTINGS.notesEnabled.defaultValue;
-export const NOTES_ENABLED_CHANGE_EVENT = SETTINGS.notesEnabled.changeEvent!;
 export const loadNotesEnabled = SETTINGS.notesEnabled.load;
 export const saveNotesEnabled = SETTINGS.notesEnabled.save;
 export const subscribeNotesEnabled = SETTINGS.notesEnabled.subscribe;
 
 export const LIVE_AGENTS_ENABLED_DEFAULT =
   SETTINGS.liveAgentsEnabled.defaultValue;
-export const LIVE_AGENTS_ENABLED_CHANGE_EVENT =
-  SETTINGS.liveAgentsEnabled.changeEvent!;
 export const loadLiveAgentsEnabled = SETTINGS.liveAgentsEnabled.load;
 export const saveLiveAgentsEnabled = SETTINGS.liveAgentsEnabled.save;
 export const subscribeLiveAgentsEnabled = SETTINGS.liveAgentsEnabled.subscribe;
@@ -177,14 +174,11 @@ export const subscribeBrowserLowMemory = SETTINGS.browserLowMemory.subscribe;
 
 export const GRID_ARCADE_ENABLED_DEFAULT =
   SETTINGS.gridArcadeEnabled.defaultValue;
-export const GRID_ARCADE_ENABLED_CHANGE_EVENT =
-  SETTINGS.gridArcadeEnabled.changeEvent!;
 export const loadGridArcadeEnabled = SETTINGS.gridArcadeEnabled.load;
 export const saveGridArcadeEnabled = SETTINGS.gridArcadeEnabled.save;
 export const subscribeGridArcadeEnabled = SETTINGS.gridArcadeEnabled.subscribe;
 
 export const DIFF_VIEWER_DEFAULT = SETTINGS.diffViewer.defaultValue;
-export const DIFF_VIEWER_CHANGE_EVENT = SETTINGS.diffViewer.changeEvent!;
 export const loadDiffViewer = SETTINGS.diffViewer.load;
 export const saveDiffViewer = SETTINGS.diffViewer.save;
 export const subscribeDiffViewer = SETTINGS.diffViewer.subscribe;
@@ -195,9 +189,7 @@ export function saveAutosave(value: boolean): boolean {
   SETTINGS.autosave.save(value);
   return loadAutosave();
 }
-export const subscribeAutosave = SETTINGS.autosave.subscribe;
 
-export const CLAUDE_HOOKS_DEFAULT = SETTINGS.claudeHooks.defaultValue;
 export const loadClaudeHooks = SETTINGS.claudeHooks.load;
 export const saveClaudeHooks = SETTINGS.claudeHooks.save;
 

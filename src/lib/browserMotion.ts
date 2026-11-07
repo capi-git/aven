@@ -73,6 +73,22 @@ export function lastMotionImage(id: string): string | undefined {
 }
 
 /**
+ * Take a picture of each showing page and keep it as its last image, the
+ * page staying live: the recent switcher's cards show pages this way after
+ * they leave the screen. A page a motion holds keeps the picture it has.
+ */
+export async function refreshMotionImages(ids: readonly string[]) {
+  await Promise.all(
+    ids.map(async (id) => {
+      const page = pages.get(id);
+      if (!page || holds.has(id)) return;
+      const src = await page.capture().catch(() => null);
+      if (src && pages.get(id) === page && !holds.has(id)) remember(id, src);
+    }),
+  );
+}
+
+/**
  * Hold pages still for a motion: `live` pages are captured now, `incoming`
  * pages (not showing yet) use their last image. A page a motion still holds
  * stays held for this one, on the picture it has. Resolves with the pages

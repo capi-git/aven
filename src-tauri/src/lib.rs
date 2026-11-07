@@ -71,6 +71,7 @@ mod mcp_manage;
 mod memory_keeper;
 mod memory_pressure;
 mod menu;
+mod modifier_keys;
 mod native_popup;
 mod notes;
 mod notifications;
@@ -99,6 +100,25 @@ mod skill_install;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+
+/// Dev builds only: `--aven-desktop-snapshot <folder>` draws desktop
+/// control's bar and pointer into PNG files there, off screen, for checking
+/// their look. Nothing is shown and no app is touched.
+#[cfg(all(debug_assertions, target_os = "macos"))]
+pub fn run_desktop_snapshot_cli() -> Option<i32> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("--aven-desktop-snapshot") {
+        return None;
+    }
+    let folder = std::path::PathBuf::from(args.next()?);
+    match desktop_control::snapshot(&folder) {
+        Ok(()) => Some(0),
+        Err(error) => {
+            eprintln!("{error}");
+            Some(1)
+        }
+    }
+}
 mod system_pointer;
 mod team_watch;
 mod turn_shot_image;
@@ -379,8 +399,11 @@ pub fn run() {
             dev_smoke::dev_perf_sample,
             dev_smoke::dev_perf_keep_visible,
             dev_smoke::dev_perf_mark,
+            modifier_keys::control_key_held,
             #[cfg(all(debug_assertions, target_os = "macos"))]
             dev_smoke_pointer::dev_smoke_pointer,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            dev_smoke_pointer::dev_smoke_scroll,
             floating_sidebar::floating_sidebar_attach,
             floating_sidebar::floating_sidebar_workspace,
             floating_sidebar::floating_sidebar_regions,
@@ -567,7 +590,6 @@ pub fn run() {
             git::git_commit,
             git::git_staged_context,
             git::git_push,
-            git::git_pull,
             git::git_sync,
             git::git_range_context,
             git::git_pr_status,
@@ -599,7 +621,6 @@ pub fn run() {
             agent_files::agent_file_download,
             agent_files::agent_download_open,
             git::clone_repo,
-            fs::read_file_preview,
             fs::stat_files,
             fs::inspect_paths,
             fs::read_file_base64,
@@ -673,7 +694,6 @@ pub fn run() {
             session_store::workspace_set_snapshot,
             session_store::workspace_get_snapshot,
             notes::notes_list,
-            notes::notes_get,
             notes::notes_upsert,
             notes::notes_delete,
             notes::notes_save_image,

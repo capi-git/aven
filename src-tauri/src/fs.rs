@@ -436,47 +436,6 @@ fn project_root(start: &Path) -> PathBuf {
     }
 }
 
-/// First few lines of a text file for tool previews.
-#[tauri::command(async)]
-pub fn read_file_preview(
-    path: String,
-    max_lines: usize,
-    start_line: Option<usize>,
-) -> Result<Vec<String>, String> {
-    use std::io::{BufRead, BufReader};
-
-    let path = expand_home(&path);
-    let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if !meta.is_file() {
-        return Err("Not a file".into());
-    }
-
-    let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
-    let reader = BufReader::new(file);
-    let limit = max_lines.clamp(1, 12);
-    let start = start_line.unwrap_or(1).max(1);
-    let mut lines = Vec::new();
-    for (i, line) in reader.lines().enumerate() {
-        let line_no = i + 1;
-        if line_no < start {
-            continue;
-        }
-        if lines.len() >= limit {
-            break;
-        }
-        let mut line = line.map_err(|e| e.to_string())?;
-        if line.contains('\0') {
-            return Err("Binary file".into());
-        }
-        if line.len() > 200 {
-            line.truncate(199);
-            line.push('…');
-        }
-        lines.push(line);
-    }
-    Ok(lines)
-}
-
 const MAX_STAT_FILES: usize = 64;
 
 #[derive(Serialize)]
@@ -971,7 +930,7 @@ pub fn reveal_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let path_str = path.to_str().ok_or_else(|| "Invalid path".to_string())?;
-        let status = Command::new("open")
+        let status = Command::new("/usr/bin/open")
             .args(["-R", path_str])
             .status()
             .map_err(|e| e.to_string())?;

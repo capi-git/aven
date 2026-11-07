@@ -7,7 +7,7 @@ export const ORCHESTRATOR_COMMAND: BuiltinSkill = {
   invocation: "orchestrator",
   description: "Split the job into parts and run an agent on each.",
   scope: "builtin",
-  source: "monocode",
+  source: "aven",
 };
 
 /** Consume `/orchestrator` when it is used as the leading composer command. */

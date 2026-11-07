@@ -112,13 +112,6 @@ const cancelledThreads = new Set<string>();
 let resolveOpenCodeBinaryImpl: () => Promise<{ path: string }> =
   resolveOpenCodeBinary;
 
-/** Test seam. */
-export function setOpenCodeBinaryResolver(
-  fn: () => Promise<{ path: string }>,
-): void {
-  resolveOpenCodeBinaryImpl = fn;
-}
-
 export async function sendOpenCodeTurn(input: SendTurnInput): Promise<void> {
   let live: Live;
   try {

@@ -39,7 +39,6 @@ import { MOD } from "../lib/platform";
 import { looksLikeProject } from "../lib/recents";
 import { sessionDisplayTitle } from "../lib/session";
 import type { SettingsSearchResult } from "../lib/settingsSearch";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { HarnessIcon } from "./HarnessIcon";
 import {
@@ -159,7 +158,6 @@ function CommandPaletteBody({
 }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement | null>(null);
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const [query, setQuery] = useState(initialQuery);
@@ -449,12 +447,9 @@ function CommandPaletteBody({
           </kbd>
         </label>
         <div
-          ref={(element) => {
-            list.current = element;
-            lockOverscroll(element);
-          }}
+          ref={list}
           role="listbox"
-          className="min-h-0 flex-1 overflow-y-auto p-1.5"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-y-none p-1.5"
         >
           {items.length === 0 ? (
             <p className="px-3 py-6 text-center text-ui-label text-content/45">

@@ -136,7 +136,6 @@ const store = createChatRecordStore<ShippedChat>({
 });
 
 export const shippedChatsSnapshot = store.snapshot;
-export const subscribeShippedChats = store.subscribe;
 
 /** Every chat's latest ship; re-renders only when one changes. */
 export function useShippedChats(): Readonly<Record<string, ShippedChat>> {

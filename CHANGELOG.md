@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Agents using your Mac look like the rest of Aven. The bar at the top is a small pill with a row for each agent: Bot in the project's colour, work dots that show what it is doing, and the app. Point at an agent's dots and they turn into its Stop; Pause shows when you point at the bar.
+- The bar no longer disappears while an agent thinks between steps, so Stop and Esc twice keep working, and stopping one agent leaves the others running.
+- The agent's pointer is Aven's soft dot, with a small tag naming the agent and its step that shrinks to Bot when it stops. A thin white frame shows which window it is using, even behind your own work.
+- Asking to use your Mac now reads "Let Claude use your Mac?", with Not now and Allow.
+
 ## [0.1.171] - 2026-11-06
 
 ### Added

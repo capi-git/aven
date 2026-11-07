@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { Check } from "../chrome/icons";
 import { focusableWithin } from "../chrome/Modal";
 import { AgentMark } from "../chrome/AgentMark";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { failureText } from "../lib/errors";
 import { LAYER } from "../lib/layers";
 import { agentOutfit, agentPhase } from "../lib/agentMark";
@@ -98,7 +97,6 @@ export function Walkthrough({
 }: WalkthroughProps) {
   const ids = useId();
   const panelRef = useRef<HTMLDivElement>(null);
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
 
   // Each step starts with its main button focused, so Enter goes on.
   useEffect(() => {
@@ -222,7 +220,7 @@ export function Walkthrough({
           className="modal-panel walkthrough-panel"
           data-step={step}
         >
-          <div ref={lockOverscroll} className="walkthrough-body">
+          <div className="walkthrough-body">
             <div className="walkthrough-top">
               <Steps step={step} done={done} />
               {step !== "welcome" ? (

@@ -143,6 +143,8 @@ type RuntimeActivity = {
     string,
     Extract<HarnessEvent, { type: "agent.updated" }>["status"]
   >;
+  /** Background shells the provider's process runs, such as a dev server. */
+  shells: number;
 };
 const runtimeActivity = new Map<string, RuntimeActivity>();
 /**
@@ -161,6 +163,7 @@ function beginRuntimeActivity<T extends CompactContextInput>(
       turns: 0,
       stopping: false,
       agents: new Map(),
+      shells: 0,
     };
     runtimeActivity.set(input.sessionId, activity);
   }
@@ -172,6 +175,12 @@ function beginRuntimeActivity<T extends CompactContextInput>(
       ...input,
       onEvent: (event) => {
         if (runtimeActivity.get(input.sessionId) !== current) return;
+        if (event.type === "shells.updated") {
+          // For parking only; the chat shows nothing for it.
+          current.shells = event.running;
+          scheduleIdlePark(input.harness, input.sessionId);
+          return;
+        }
         if (event.type === "session.providerBound")
           noteProviderConversation(
             input.harness,
@@ -185,6 +194,8 @@ function beginRuntimeActivity<T extends CompactContextInput>(
           current.agents.set(event.agentId, event.status);
         if (event.type === "agents.cleared") current.agents.clear();
         if (event.type === "session.ended") {
+          // Nothing of the ended process is left to keep warm.
+          current.shells = 0;
           for (const [id, status] of current.agents) {
             if (status === "running" || status === "waiting")
               current.agents.set(id, "unknown");
@@ -255,7 +266,8 @@ export function parkIdleHarnessesForMemory(level: MemoryPressureLevel): void {
   }
 }
 
-function childBusy(activity: RuntimeActivity | undefined): boolean {
+/** A turn, a stop, or helper agents still at work. */
+function childWorking(activity: RuntimeActivity | undefined): boolean {
   return (
     !!activity &&
     (activity.turns > 0 ||
@@ -267,15 +279,26 @@ function childBusy(activity: RuntimeActivity | undefined): boolean {
   );
 }
 
+/**
+ * Never parked: working, or running a background shell. Parking ends the
+ * provider's whole process group, so a dev server an agent started would end
+ * with it; such a chat keeps its CLI's memory until the shell stops.
+ */
+function childBusy(activity: RuntimeActivity | undefined): boolean {
+  return childWorking(activity) || (activity?.shells ?? 0) > 0;
+}
+
 function scheduleIdlePark(harness: HarnessId, sessionId: string): void {
   const activity = runtimeActivity.get(sessionId);
   if (activity && activity.harness !== harness) return;
   cancelIdlePark(sessionId);
-  if (childBusy(activity)) return;
+  if (childWorking(activity)) return;
+  // Asked for by the person, so it does not wait for background shells.
   if (reconnectWhenIdle.delete(sessionId)) {
     void stopHarnessSession(harness, sessionId).catch(() => undefined);
     return;
   }
+  if (childBusy(activity)) return;
   if (!watchingPressure) {
     watchingPressure = true;
     subscribeMemoryPressure(parkIdleHarnessesForMemory);
@@ -305,7 +328,7 @@ export function reconnectHarnessSession(
 ): void {
   const activity = runtimeActivity.get(sessionId);
   if ((activity && activity.harness !== harness) || activity?.stopping) return;
-  if (childBusy(activity)) {
+  if (childWorking(activity)) {
     reconnectWhenIdle.add(sessionId);
     return;
   }
@@ -651,16 +674,6 @@ export async function generateHarnessPrContent(
   const adapter = getHarness(harness);
   if (!adapter?.generatePrContent) return null;
   return adapter.generatePrContent(cwd);
-}
-
-export async function generateHarnessBranchName(
-  harness: HarnessId,
-  cwd: string,
-  message: string,
-): Promise<string | null> {
-  const adapter = getHarness(harness);
-  if (!adapter?.generateBranchName) return null;
-  return adapter.generateBranchName(cwd, message);
 }
 
 export async function warmupHarnessText(

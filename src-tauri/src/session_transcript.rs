@@ -98,7 +98,7 @@ pub(super) fn prepare(full: &Value, delta: Option<&Delta>) -> rusqlite::Result<P
     }
 }
 
-/// Older builds (and MonoCode sharing this data directory) only know
+/// Older builds (and any upstream build sharing this data directory) only know
 /// blocks_json. Refuse their transcript writes to migrated rows instead of
 /// letting them replace the block rows: the old build fails to save, but no
 /// history is lost. New sessions they insert stay legacy (storage 0) and are

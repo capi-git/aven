@@ -9,7 +9,6 @@ import {
   GRID_ARCADE_ENABLED_DEFAULT,
   subscribeGridArcadeEnabled,
 } from "../lib/settings";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import "./EmptySession.css";
 
 // The decorative arcade (canvas games and sprites) loads after the first paint.
@@ -32,7 +31,6 @@ export function EmptySession({
   composer,
   hasChatBackground,
 }: Props) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const arcadeEnabled = useSyncExternalStore(
     subscribeGridArcadeEnabled,
     loadGridArcadeEnabled,
@@ -42,7 +40,6 @@ export function EmptySession({
     !isProjectlessCwd(cwd) && looksLikeProject(cwd) ? basename(cwd) : null;
   return (
     <div
-      ref={lockOverscroll}
       className="aven-opening empty-session"
       data-composer-docked={!composer || undefined}
     >

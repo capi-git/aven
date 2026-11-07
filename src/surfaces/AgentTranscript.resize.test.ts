@@ -104,11 +104,11 @@ async function render(blocks: Block[], busy = false) {
   return container.querySelector<HTMLElement>(".agent-transcript")!;
 }
 
-/** The reader scrolling: their wheel input, then the moved offset. */
+/** The reader scrolling: their wheel input (which bubbles), then the moved offset. */
 async function scrollTo(top: number) {
   const deltaY = top - scroller.scrollTop;
   await act(async () => {
-    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY }));
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true }));
   });
   scroller.scrollTop = top;
   await act(async () => {
@@ -240,7 +240,9 @@ describe("transcript reading position across resizes", () => {
     measure(await render(turnBlocks(3)));
     await scrollTo(1400);
     await act(async () => {
-      scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -4 }));
+      scroller.dispatchEvent(
+        new WheelEvent("wheel", { deltaY: -4, bubbles: true }),
+      );
     });
     await scrollTo(1396);
     base = (index) => (index === 2 ? 640 : 600);

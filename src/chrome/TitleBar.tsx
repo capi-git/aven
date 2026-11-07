@@ -57,7 +57,6 @@ import {
   type SessionModelIdentity,
 } from "../lib/sessionLabels";
 import { CwdPicker } from "./CwdPicker";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import {
   SORTABLE_DROP_PART_ATTRIBUTE,
   useSortable,
@@ -2540,8 +2539,7 @@ function TitleBarComponent({
     },
   );
   joiningRef.current = sortable.joining;
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
-  // Tabs grow in and closed tabs collapse, as in MonoCode. A lone title
+  // Tabs grow in and closed tabs collapse. A lone title
   // changes its one tab in place, and becoming a row of tabs (or one again)
   // replaces the row rather than growing every tab in.
   const slotMotion = useTabSlotMotion(
@@ -2634,9 +2632,8 @@ function TitleBarComponent({
       tabStripRef.current = el;
       setTabStripElement(el);
       sortable.setContainerRef(el);
-      lockOverscroll(el);
     },
-    [lockOverscroll, sortable.setContainerRef],
+    [sortable.setContainerRef],
   );
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const [tabMenu, setTabMenu] = useState<{
@@ -4281,16 +4278,23 @@ function TitleBarComponent({
           showProjectButton ? " border-l border-content/10" : ""
         }`}
       >
-        {hostsHeader ? (
-          // The tab's own toolbar draws here, in place of its name.
+        {titleRow ? (
+          // The tab's own toolbar draws here, in place of its name. The slot
+          // stays, hidden, while the row is not lent: React listens on every
+          // new container a portal draws into, wheel included, and in WebKit
+          // each wheel listener added restyles the whole page (~35 ms).
           <div
             ref={setSlotRef}
             className="aven-pane-header-slot"
-            data-pane-header-slot={frontId}
+            hidden={!hostsHeader || undefined}
+            data-pane-header-slot={hostsHeader ? frontId : undefined}
             // The pane's tabs, as its strip lists them, for a drop's target.
-            data-surface-order={JSON.stringify(allOrderedIds)}
+            data-surface-order={
+              hostsHeader ? JSON.stringify(allOrderedIds) : undefined
+            }
           />
-        ) : (
+        ) : null}
+        {hostsHeader ? null : (
           <div
             className="personal-title-tabs relative h-full min-w-0 flex-1 overflow-hidden"
             style={

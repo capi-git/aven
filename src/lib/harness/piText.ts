@@ -266,18 +266,6 @@ function finishTurn(session: LiveText) {
   done?.();
 }
 
-export const stopPiTextPrompt = () => stopTextPrompt(PI_FLAVOR);
 export const warmupPiText = (cwd: string) => warmupText(PI_FLAVOR, cwd);
-export const runPiTextPrompt = (input: {
-  cwd: string;
-  prompt: string;
-  timeoutMs?: number;
-}) => runTextPrompt(PI_FLAVOR, input);
 
-export const stopOmpTextPrompt = () => stopTextPrompt(OMP_FLAVOR);
 export const warmupOmpText = (cwd: string) => warmupText(OMP_FLAVOR, cwd);
-export const runOmpTextPrompt = (input: {
-  cwd: string;
-  prompt: string;
-  timeoutMs?: number;
-}) => runTextPrompt(OMP_FLAVOR, input);

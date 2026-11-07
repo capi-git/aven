@@ -42,7 +42,6 @@ import {
   useMarkdownMode,
 } from "../chrome/MarkdownModeToggle";
 import { useColorScheme } from "../hooks/useColorScheme";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { isLightScheme } from "../lib/appearance";
 import { formatText } from "../lib/format";
 import { loadAutosave } from "../lib/settings";
@@ -679,7 +678,6 @@ function CodeMirrorEditor({
   const valueRef = useRef(value);
   const gitOriginalRef = useRef(gitOriginal);
   const chunkNavPinnedRef = useRef<number | null>(null);
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const colorScheme = useColorScheme();
   const [chunkNav, setChunkNav] = useState<{
     positions: number[];
@@ -927,7 +925,6 @@ function CodeMirrorEditor({
     dirtyRef.current = false;
     markDirty();
     viewRef.current = view;
-    lockOverscroll(view.scrollDOM as HTMLDivElement);
     if (showDiff) {
       if (gitOriginalRef.current) {
         setGitOriginal(view, gitOriginalRef.current);
@@ -953,14 +950,13 @@ function CodeMirrorEditor({
       disposed = true;
       window.clearTimeout(autosaveTimer);
       onErrorCountChangeRef.current(0);
-      lockOverscroll(null);
       viewRef.current = null;
       savedDocumentRef.current = null;
       setChunkNav(null);
       view.destroy();
       releaseDraft();
     };
-  }, [lockOverscroll, path, showDiff, syncChunkNav]);
+  }, [path, showDiff, syncChunkNav]);
 
   useEffect(() => {
     const view = viewRef.current;

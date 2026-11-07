@@ -101,6 +101,18 @@ describe("how a mock-up is shown", () => {
     expect(shown).toContain("<a>x</a>");
   });
 
+  it("returns markup that cleaning again leaves unchanged", () => {
+    for (const html of [
+      '<style>@import "//x.test/a.css"; p{}</style><p onclick="x">Hi</p>',
+      '<noscript><p title="</noscript><img src=x onerror=alert(1)>"></p></noscript>',
+      "<svg><style><img src=x onerror=alert(1)></style></svg>",
+    ]) {
+      const shown = sanitizeMockupHtml(html);
+      expect(sanitizeMockupHtml(shown)).toBe(shown);
+      expect(shown).not.toMatch(/onerror|onclick|x\.test/);
+    }
+  });
+
   it("parses it, so a handler without a space or quotes still goes", () => {
     expect(sanitizeMockupHtml("<img/onerror=alert(1) src=x>")).toBe(
       '<img src="x">',
