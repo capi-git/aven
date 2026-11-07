@@ -17,6 +17,8 @@ export type AvosAsk = {
   text: string;
   /** One muted line on it: who made it, a question, where an idea came from. */
   line?: string;
+  /** Avos's pick of the model and effort it would build on: "Opus 5.5 · High". */
+  pick?: string;
   /** Ready changes on Avos's branch: Review and Apply all. */
   batch?: PipelineBatch;
   /** The card it's about, and its buttons (Build it, Answer, Apply…). */
@@ -65,6 +67,10 @@ export function AvosForYou({
     ...(showAside ? aside : []),
   ];
   const moreIdeas = ideas.length - Math.min(ideas.length, IDEAS_SHOWN);
+  // Ideas waiting to be built, shown: two or more are a plan.
+  const planned = ideas
+    .slice(0, IDEAS_SHOWN)
+    .filter((ask) => ask.actions?.some((action) => action.id === "give"));
   const toggle = (label: string) => (
     <button
       type="button"
@@ -98,9 +104,36 @@ export function AvosForYou({
         <li className="team-reply avos-for-you">
           <div className="team-post-body">
             <p className="team-post-text">
-              {avosForYouLine(waiting.map((ask) => ask.kind))}
+              {planned.length > 1 && planned.length === waiting.length
+                ? "Here’s how I’d do it."
+                : avosForYouLine(waiting.map((ask) => ask.kind))}
             </p>
             {card}
+            {planned.length > 1 ? (
+              // A plan of jobs: Go builds them all, in order; Change is
+              // a word to Avos.
+              <p className="avos-plan-buttons" data-avos-plan>
+                <TeamCardButton
+                  size="compact"
+                  variant="primary"
+                  onClick={() => {
+                    for (const ask of planned) onAct(ask.cardId!, "give");
+                  }}
+                >
+                  Go
+                </TeamCardButton>
+                <TeamCardButton
+                  size="compact"
+                  onClick={() =>
+                    document
+                      .querySelector<HTMLTextAreaElement>(".team-compose-input")
+                      ?.focus()
+                  }
+                >
+                  Change
+                </TeamCardButton>
+              </p>
+            ) : null}
             {moreIdeas > 0 || aside.length ? (
               <p className="avos-asks-foot">
                 {moreIdeas > 0 ? (
@@ -143,7 +176,11 @@ function AskRow({
     <div className="avos-ask" data-avos-need={ask.id}>
       <span className="avos-ask-text">
         <b title={ask.text}>{ask.text}</b>
-        {ask.line ? <span title={ask.line}>{ask.line}</span> : null}
+        {ask.line || ask.pick ? (
+          <span title={[ask.line, ask.pick].filter(Boolean).join(" · ")}>
+            {[ask.line, ask.pick].filter(Boolean).join(" · ")}
+          </span>
+        ) : null}
       </span>
       {ask.batch ? (
         <BatchButtons

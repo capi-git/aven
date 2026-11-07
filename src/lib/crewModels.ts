@@ -144,3 +144,18 @@ export function avosPickOverride(
   };
   return out.model || out.effort ? out : undefined;
 }
+
+/** Avos's pick in words, as the plan shows it: "Opus 5.5 · High". */
+export function pickLabel(
+  pick: { model?: string; effort?: string } | undefined,
+): string | undefined {
+  if (!pick?.model && !pick?.effort) return undefined;
+  const model = pick.model ? findModel(pick.model) : undefined;
+  const effort =
+    pick.effort && model
+      ? crewEffortSetting(model.harness, model.id)?.options.find(
+          (option) => option.value === pick.effort,
+        )?.label
+      : undefined;
+  return [model?.name, effort ?? pick.effort].filter(Boolean).join(" · ");
+}

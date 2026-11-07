@@ -25,7 +25,13 @@ import {
   type AvosWeekRow,
 } from "../lib/avos";
 import { subscribeCrewTell, takeCrewReview } from "../lib/crewActions";
-import { crewMemberById, stackedCards, type Crew } from "../lib/crews";
+import { avosPickOverride, pickLabel } from "../lib/crewModels";
+import {
+  crewMember,
+  crewMemberById,
+  stackedCards,
+  type Crew,
+} from "../lib/crews";
 import { crewMemberViews, type CrewBoardActionId } from "../lib/crewView";
 import type { BotStatus } from "../lib/projectBots";
 import {
@@ -252,11 +258,18 @@ export function TeamScreen({
       if (!give || card.crew?.later) continue;
       // Set aside with Not now: it waits behind the "set aside" line.
       const aside = !!crew.notNow?.includes(card.id);
+      // Avos's pick of the Builder's model and effort, while it chooses.
+      const pick = avosPickOverride(
+        crewMember(crew, "builder"),
+        crew.ideas?.[card.id]?.pick,
+      );
+      const picked = pickLabel(pick);
       rows.push({
         id: `idea:${card.id}`,
         kind: "idea",
         text: card.title,
         ...(card.crew?.line ? { line: card.crew.line } : {}),
+        ...(picked ? { pick: picked } : {}),
         cardId: card.id,
         actions: aside ? [give] : [give, { id: "not-now", label: "Not now" }],
         deletable: true,
