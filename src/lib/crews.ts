@@ -194,6 +194,12 @@ export type CrewMember = {
   harness?: "claude" | "codex";
   model?: string;
   /**
+   * You picked its model and effort yourself. Until you do, Avos picks them
+   * for each job it hands it ("Let Avos choose"), and these are only what it
+   * runs on when Avos picks nothing.
+   */
+  chosen?: true;
+  /**
    * The app it runs on for now instead (a Checker that couldn't be locked
    * down on Codex here runs on Claude). Cleared when Aven starts again, so
    * Codex gets one more try each session.
@@ -620,7 +626,28 @@ export type CrewIdea = {
   autoStarted?: boolean;
   /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
   by?: "security" | "researcher" | "setup" | "lead";
+  /** Avos's pick of the Builder's model and effort for it, and why. */
+  pick?: CrewPick;
 };
+
+/** A stored pick, as data: its words cut to size, or none. */
+function readPick(value: unknown): CrewPick | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const model = text(raw.model, 200);
+  const effort = text(raw.effort, 40);
+  const why = text(raw.why, 120);
+  return model || effort
+    ? {
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        ...(why ? { why } : {}),
+      }
+    : undefined;
+}
+
+/** A model and effort Avos picked for a job, and why, in a few words. */
+export type CrewPick = { model?: string; effort?: string; why?: string };
 
 export type CrewFeedKind =
   | "start"
@@ -1609,6 +1636,7 @@ function readMember(value: unknown):
       ? { harness: raw.harness }
       : {}),
     ...(model ? { model } : {}),
+    ...(raw.chosen === true ? { chosen: true as const } : {}),
     ...(fallback?.harness === "claude" && typeof fallback.at === "number"
       ? {
           fallback: {
@@ -1733,6 +1761,7 @@ export function readCrew(value: unknown): Crew | null {
         idea.by === "lead"
           ? { by: idea.by }
           : {}),
+        ...(readPick(idea.pick) ? { pick: readPick(idea.pick)! } : {}),
       };
     }
   const ideas = keptIdeas(read);

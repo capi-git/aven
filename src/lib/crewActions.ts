@@ -2384,6 +2384,11 @@ export type CrewMemberChange = {
   harness?: string;
   model?: string | null;
   effort?: string | null;
+  /**
+   * False hands its model and effort back to Avos to pick for each job;
+   * picking a model or effort yourself makes it yours.
+   */
+  chosen?: boolean;
   instructions?: string | null;
   /** Paths or globs, as a list or as you typed them (one per line, or commas). */
   scope?: readonly string[] | string | null;
@@ -2593,6 +2598,15 @@ export function updateCrewMember(
         set("model", cleanText(change.model, 200));
       if (change.effort !== undefined)
         set("effort", cleanText(change.effort, 40));
+      // Picking its model or effort yourself is choosing; Let Avos choose
+      // hands them back.
+      if (change.chosen === false) set("chosen", undefined);
+      else if (
+        change.chosen === true ||
+        (change.model !== undefined && change.model !== null) ||
+        (change.effort !== undefined && change.effort !== null)
+      )
+        set("chosen", true);
       if (change.instructions !== undefined)
         set(
           "instructions",
