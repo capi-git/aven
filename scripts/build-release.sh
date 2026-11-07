@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Build a Developer ID-signed Aven release, notarized when Apple notarization
 # credentials are supplied. Never installs or publishes it.
+#
+# `--stage build` runs the checks and compiles the app unsigned, and needs no
+# signing identity; `--stage sign` then signs, verifies, notarizes and
+# packages that build. The release workflow runs them apart so the Developer
+# ID key reaches the runner only after every dependency install, test and
+# compile (other people's code) has finished. With no stage, both run.
 set -euo pipefail
 
 # Optional App Store Connect API key for notarization. Keep it out of the
@@ -24,13 +30,25 @@ if [[ "$(uname -s)" != Darwin || "$(uname -m)" != arm64 ]]; then
   exit 1
 fi
 task_signing_args=(preflight)
-if [[ $# == 1 && "$1" == --ad-hoc ]]; then
-  task_signing_args+=(--ad-hoc)
-elif (( $# != 0 )); then
-  echo 'Usage: CEF_ROOT=/path/to/verified/cef ./scripts/build-release.sh [--ad-hoc]' >&2
+task_stage=all
+task_usage() {
+  echo 'Usage: CEF_ROOT=/path/to/verified/cef ./scripts/build-release.sh [--ad-hoc] [--stage build|sign]' >&2
   echo 'Notarize with APPLE_API_KEY_P8_BASE64, APPLE_API_KEY_ID and APPLE_API_ISSUER_ID, or AVEN_NOTARY_KEYCHAIN_PROFILE.' >&2
   exit 1
-fi
+}
+while (( $# )); do
+  case "$1" in
+    --ad-hoc) task_signing_args+=(--ad-hoc) ;;
+    --stage)
+      (( $# >= 2 )) || task_usage
+      task_stage="$2"
+      shift
+      ;;
+    *) task_usage ;;
+  esac
+  shift
+done
+case "$task_stage" in all | build | sign) ;; *) task_usage ;; esac
 : "${CEF_ROOT:?Set CEF_ROOT to the verified pinned macOS arm64 CEF distribution; see docs/CHROMIUM.md}"
 : "${CEF_BUILD_DIR:=$task_repo_root/target/chromium}"
 : "${CMAKE:=cmake}"
@@ -50,9 +68,16 @@ xcrun --find clang >/dev/null
 # Fail before dependency installation, engine verification, tests, or compilation.
 # Only the public signing fingerprint is returned; no private key is exported.
 # Ad-hoc preflight refuses notarization credentials: --ad-hoc never notarizes.
-task_signing_identity="$(task_with_notary_env python3 -B scripts/release-signing.py "${task_signing_args[@]}")"
+# The build stage signs nothing: it is told only whether the build is ad hoc.
+task_ad_hoc=0
+[[ " ${task_signing_args[*]} " == *" --ad-hoc "* ]] && task_ad_hoc=1
+if [[ "$task_stage" == build ]]; then
+  if (( task_ad_hoc )); then task_signing_identity=-; else task_signing_identity=unsigned-build; fi
+else
+  task_signing_identity="$(task_with_notary_env python3 -B scripts/release-signing.py "${task_signing_args[@]}")"
+fi
 task_notary_mode=not-applicable
-if [[ "$task_signing_identity" != - ]]; then
+if [[ "$task_stage" != build && "$task_signing_identity" != - ]]; then
   # Reject partial or malformed credentials now, not after an hour of building.
   task_notary_mode="$(task_with_notary_env python3 -B scripts/notarize-release.py check)"
   printf 'Notarization: %s\n' "$task_notary_mode" >&2
@@ -101,6 +126,16 @@ PY
 )"
 export CARGO_TARGET_DIR="$task_repo_root/target"
 
+task_app="$task_repo_root/target/release/bundle/macos/Aven.app"
+task_release_dir="$task_repo_root/target/releases/v$task_version"
+if [[ "$task_signing_identity" == - ]]; then
+  task_release_dir="$task_repo_root/target/releases/ad-hoc/v$task_version"
+fi
+# What the build stage built, for the sign stage to check it signs that.
+task_built="$task_repo_root/target/release/aven-unsigned-build.txt"
+task_head="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+
+if [[ "$task_stage" != sign ]]; then
 python3 -B scripts/test-package-chromium.py
 python3 -B scripts/test-dev-aven.py
 python3 -B scripts/test-package-update.py
@@ -110,11 +145,6 @@ python3 -B scripts/test-check-macos-release.py
 python3 -B scripts/test-ci-signing-keychain.py
 python3 -B scripts/test-release-workflow.py
 
-task_app="$task_repo_root/target/release/bundle/macos/Aven.app"
-task_release_dir="$task_repo_root/target/releases/v$task_version"
-if [[ "$task_signing_identity" == - ]]; then
-  task_release_dir="$task_repo_root/target/releases/ad-hoc/v$task_version"
-fi
 python3 -B scripts/release-signing.py check-output --out "$task_release_dir" --version "$task_version"
 
 if [[ "${AVEN_SKIP_NPM_CI:-0}" != 1 ]]; then
@@ -132,6 +162,23 @@ cargo test --locked -p aven --lib
 # app only after Chromium and all helper executables have been added.
 npm run tauri -- build --ci --bundles app --no-sign -- --locked
 python3 scripts/generate-third-party-notices.py
+rm -f "$task_built"
+printf '%s %s\n' "$task_version" "$task_head" > "$task_built"
+fi
+
+if [[ "$task_stage" == build ]]; then
+  printf 'Built Aven %s unsigned: %s\n' "$task_version" "$task_app"
+  printf '%s\n' 'Sign it with --stage sign. Nothing was signed, installed or published.'
+  exit 0
+fi
+if [[ "$task_stage" == sign ]]; then
+  # Only the build this checkout's build stage made, at this commit.
+  if [[ ! -d "$task_app" || "$(cat "$task_built" 2>/dev/null)" != "$task_version $task_head" ]]; then
+    echo "No unsigned build of Aven $task_version at this commit; run --stage build first." >&2
+    exit 1
+  fi
+  python3 -B scripts/release-signing.py check-output --out "$task_release_dir" --version "$task_version"
+fi
 python3 scripts/package-chromium.py --app "$task_app" "${task_package_signing_args[@]}" --execute
 
 mkdir -p "$task_release_dir"
