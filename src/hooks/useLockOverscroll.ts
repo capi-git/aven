@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Contain only the intended axis, after any nested scroller had its turn. */
 export function lockOverscroll(el: HTMLElement, event: WheelEvent) {
@@ -48,4 +48,31 @@ export function useLockOverscroll<T extends HTMLElement>() {
     el.addEventListener("wheel", onWheel, { passive: false });
     cleanup.current = () => el.removeEventListener("wheel", onWheel);
   }, []);
+}
+
+/** Marks a scroller whose host (`useLockOverscrollWithin`) contains its wheel. */
+export const LOCK_OVERSCROLL_ATTRIBUTE = "data-lock-overscroll";
+
+/**
+ * Contains the wheel, as `useLockOverscroll` does, for every scroller marked
+ * `data-lock-overscroll` inside a host that outlives them (a file tree made
+ * again for each project). In WebKit, adding or removing a wheel listener
+ * restyles the whole page (~35 ms), so a scroller coming or going must not:
+ * the host holds the one listener, while `enabled`.
+ */
+export function useLockOverscrollWithin<T extends HTMLElement>(enabled = true) {
+  const [host, setHost] = useState<T | null>(null);
+  useEffect(() => {
+    if (!host || !enabled) return;
+    const onWheel = (event: WheelEvent) => {
+      const scroller =
+        event.target instanceof Element
+          ? event.target.closest<HTMLElement>(`[${LOCK_OVERSCROLL_ATTRIBUTE}]`)
+          : null;
+      if (scroller && host.contains(scroller)) lockOverscroll(scroller, event);
+    };
+    host.addEventListener("wheel", onWheel, { passive: false });
+    return () => host.removeEventListener("wheel", onWheel);
+  }, [host, enabled]);
+  return setHost;
 }

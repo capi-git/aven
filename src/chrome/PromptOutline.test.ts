@@ -194,7 +194,8 @@ describe("retained prompt outline", () => {
     expect(observers).toHaveLength(0);
     expect(frames.size).toBe(0);
     expect(scroller.getBoundingClientRect).not.toHaveBeenCalled();
-    expect(container.childElementCount).toBe(0);
+    // The rail stays mounted, hidden, so showing the chat adds no listener.
+    expect(container.querySelector(".prompt-outline:not([hidden])")).toBeNull();
 
     await render(true, [
       ...blocks,
@@ -653,7 +654,28 @@ describe("retained prompt outline", () => {
     expect(notification).not.toHaveBeenCalled();
   });
 
-  it("removes wheel forwarding when hidden or unmounted and attaches for a newly overflowing one-prompt chat", async () => {
+  it("keeps one wheel listener on its rail while the chat is hidden and shown again", async () => {
+    // In WebKit each wheel listener added or removed restyles the whole page.
+    const added = vi.spyOn(HTMLElement.prototype, "addEventListener");
+    const removed = vi.spyOn(HTMLElement.prototype, "removeEventListener");
+    const wheelCalls = (spy: typeof added) =>
+      spy.mock.calls.filter(([type]) => type === "wheel").length;
+    await render(true);
+    await frame();
+    const rail = container.querySelector<HTMLElement>(".prompt-outline")!;
+    expect(rail.hidden).toBe(false);
+    expect(wheelCalls(added)).toBe(1);
+    await render(false);
+    expect(container.querySelector(".prompt-outline")).toBe(rail);
+    expect(rail.hidden).toBe(true);
+    await render(true);
+    await frame();
+    expect(rail.hidden).toBe(false);
+    expect(wheelCalls(added)).toBe(1);
+    expect(wheelCalls(removed)).toBe(0);
+  });
+
+  it("stops wheel forwarding when hidden or unmounted and attaches for a newly overflowing one-prompt chat", async () => {
     totalHeight = viewportHeight;
     scroller.scrollTop = 0;
     await render(true, [blocks[0]]);
