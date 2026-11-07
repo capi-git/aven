@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -286,3 +287,57 @@ describe("retained workspace arcade rendering", () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 });
+
+describe("arcade play over the welcome screen", () => {
+  it("starts and stops play without adding or removing a wheel listener", async () => {
+    // In WebKit each wheel listener added or removed restyles the whole page.
+    // The welcome screen holds still under a game through CSS instead.
+    await render(true);
+    await frame(33);
+    const arcade = host.firstElementChild as HTMLElement;
+    expect(arcade.hasAttribute("data-arcade-playing")).toBe(false);
+    const wheelListeners = countWheelListeners();
+    await act(async () =>
+      [...host.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("take control"))!
+        .click(),
+    );
+    expect(board(0).takeControl).toHaveBeenCalledTimes(1);
+    expect(arcade.hasAttribute("data-arcade-playing")).toBe(true);
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    expect(board(0).releaseControl).toHaveBeenCalledTimes(1);
+    expect(arcade.hasAttribute("data-arcade-playing")).toBe(false);
+    expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
+  });
+
+  it("keeps the welcome screen from scrolling while a game is played", () => {
+    const css = readFileSync("src/surfaces/EmptySession.css", "utf8");
+    const at = css.indexOf(".aven-opening:has([data-arcade-playing]) {");
+    expect(at).toBeGreaterThanOrEqual(0);
+    const body = css.slice(at, css.indexOf("}", at));
+    expect(body).toMatch(/overflow-y:\s*hidden;/);
+  });
+});
+
+/**
+ * Wheel listeners added and removed from now on, on any element, the
+ * document or the window. happy-dom's nodes inherit them from its own
+ * EventTarget, not the global one, and the window's are bound copies.
+ */
+function countWheelListeners() {
+  const node = Object.getPrototypeOf(Node.prototype) as EventTarget;
+  const spies = (method: "addEventListener" | "removeEventListener") => [
+    vi.spyOn(node, method),
+    vi.spyOn(window, method),
+  ];
+  const added = spies("addEventListener");
+  const removed = spies("removeEventListener");
+  const wheel = (list: typeof added) =>
+    list.flatMap((spy) => spy.mock.calls).filter(([type]) => type === "wheel")
+      .length;
+  return () => ({ added: wheel(added), removed: wheel(removed) });
+}

@@ -11,6 +11,11 @@
   color: var(--color-content);
 }
 
+/* A game played over the welcome screen keeps it still under the wheel. */
+.aven-opening:has([data-arcade-playing]) {
+  overflow-y: hidden;
+}
+
 .aven-opening-heading {
   width: 100%;
   max-width: 680px;

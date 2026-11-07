@@ -76,10 +76,21 @@ describe("tabCommand: Cydonia's pane chords", () => {
     expect(chord("KeyZ", "¥", 89)).toBeNull();
   });
   it("leaves other chords as they were", () => {
-    // ⌃⇥ still steps the focused pane's tabs.
+    // ⌃⇥ opens the recent switcher; ⇧ starts from the oldest.
     expect(
       tabCommand(key_({ key: "Tab", code: "Tab", keyCode: 9, ctrlKey: true })),
-    ).toBe("next");
+    ).toBe("recent-next");
+    expect(
+      tabCommand(
+        key_({
+          key: "Tab",
+          code: "Tab",
+          keyCode: 9,
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe("recent-prev");
     // With Command as well it is not a pane chord.
     expect(chord("Tab", "Tab", 9, { metaKey: true })).toBeNull();
     expect(chord("KeyZ", "Ω", 90, { shiftKey: true })).toBeNull();

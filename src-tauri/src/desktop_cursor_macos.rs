@@ -1,12 +1,13 @@
 //! A visible agent marker. This is a Core Animation drawing, not a second
-//! input device: a soft ring in the acting agent's colour with a small name
-//! tag, so it reads as "an agent is working here" rather than a system arrow.
+//! input device: Aven's own soft dot, with a small dark tag beside it naming
+//! the agent (Bot in its project's colour) and what it is doing. Once the
+//! agent stops, the tag shrinks to Bot alone, so it does not sit over work.
 //!
 //! Objective-C objects stay on the main thread; workers only exchange points,
 //! deadlines and generations. Stale work can never bring a revoked cursor back.
 //! Motion is driven by a display link only while something is changing; an
 //! idle or hidden marker runs no timers and does no work.
-use super::{CGDisplayBounds, CGMainDisplayID, OwnedCf, Point};
+use super::{marks, CGDisplayBounds, CGMainDisplayID, OwnedCf, Point};
 use dispatch2::{DispatchQueue, DispatchTime};
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, rc::Retained, sel, MainThreadOnly};
@@ -33,22 +34,30 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-/// The panel is generous and transparent so the name tag can sit on either
-/// side of the ring near screen edges. It ignores the mouse entirely.
-const WIDTH: f64 = 340.0;
+/// The panel is generous and transparent so the tag can sit on either side
+/// of the dot near screen edges. It ignores the mouse entirely.
+const WIDTH: f64 = 640.0;
 const HEIGHT: f64 = 80.0;
-/// The action point (ring centre), measured from the panel's top left.
-const TIP_X: f64 = 170.0;
+/// The action point (the dot's centre), measured from the panel's top left.
+const TIP_X: f64 = 320.0;
 const TIP_Y: f64 = 36.0;
 
-const RING: f64 = 16.0;
-const TAG_HEIGHT: f64 = 20.0;
-const TAG_PADDING: f64 = 8.0;
-const TAG_TEXT_MAX: f64 = 136.0;
-/// Horizontal offset of the tag's near edge from the ring centre.
-const TAG_GAP: f64 = 10.0;
-/// Vertical offset of the tag's near edge from the ring centre.
-const TAG_DROP: f64 = 7.0;
+/// The dot: about a fingertip wide, as Aven's own pointer.
+const DOT: f64 = 18.0;
+const TAG_HEIGHT: f64 = 22.0;
+/// Room before Bot and after the words.
+const TAG_LEAD: f64 = 3.0;
+const TAG_PADDING: f64 = 9.0;
+const TAG_BOT: f64 = 16.0;
+const TAG_TEXT_MAX: f64 = 260.0;
+/// The tag at rest: Bot alone.
+const TAG_REST: f64 = TAG_LEAD * 2.0 + TAG_BOT;
+/// Horizontal offset of the tag's near edge from the dot's centre.
+const TAG_GAP: f64 = 12.0;
+/// Vertical offset of the tag's near edge from the dot's centre.
+const TAG_DROP: f64 = 8.0;
+/// How long after an action the tag keeps its words.
+const REST: Duration = Duration::from_millis(1600);
 const NAME_MAX_CHARS: usize = 24;
 
 /// The longest glide. Short hops are quicker; see `travel_seconds`.
@@ -66,10 +75,13 @@ const CROSSFADE: f64 = 0.18;
 const STIFFNESS: f64 = 6.0;
 
 const DEFAULT_NAME: &str = "Agent";
-/// Aven's default accent (#57b5ff).
-const DEFAULT_COLOR: [f64; 3] = [0.341, 0.710, 1.0];
+/// Bot's grey when the chat has no project colour.
+const DEFAULT_COLOR: [f64; 3] = [0.80, 0.80, 0.82];
 const WHITE: [f64; 3] = [1.0, 1.0, 1.0];
-const INK: [f64; 3] = [0.07, 0.07, 0.08];
+/// The tag's dark glass and its words.
+const TAG_FILL: [f64; 3] = [0.11, 0.11, 0.12];
+const TAG_INK: [f64; 3] = [0.93, 0.93, 0.94];
+const TAG_MUTED: [f64; 3] = [0.63, 0.63, 0.66];
 
 const CANCELLED: &str =
     "The desktop cursor action was cancelled. Observe the desktop before retrying.";
@@ -274,6 +286,7 @@ fn current_actor() -> (Actor, u64) {
 // ---------------------------------------------------------------------------
 // Pure colour, motion and layout logic.
 
+#[cfg(test)]
 fn linear(channel: f64) -> f64 {
     if channel <= 0.040_45 {
         channel / 12.92
@@ -282,42 +295,20 @@ fn linear(channel: f64) -> f64 {
     }
 }
 
+#[cfg(test)]
 fn luminance(color: [f64; 3]) -> f64 {
     0.2126 * linear(color[0]) + 0.7152 * linear(color[1]) + 0.0722 * linear(color[2])
 }
 
+#[cfg(test)]
 fn contrast(a: [f64; 3], b: [f64; 3]) -> f64 {
     let (a, b) = (luminance(a), luminance(b));
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
+#[cfg(test)]
 fn mix(a: [f64; 3], b: [f64; 3], amount: f64) -> [f64; 3] {
     [0, 1, 2].map(|i| a[i] + (b[i] - a[i]) * amount)
-}
-
-/// The tag's fill and text colours. White text on the agent colour, deepened
-/// only as far as needed for legibility; very light colours keep their hue
-/// and take dark text instead.
-fn tag_palette(color: [f64; 3], high_contrast: bool) -> ([f64; 3], [f64; 3]) {
-    let required = if high_contrast { 7.0 } else { 4.5 };
-    let deepest = if high_contrast { 0.5 } else { 0.36 };
-    for step in 0..=40 {
-        let amount = f64::from(step) * 0.0125;
-        if amount > deepest {
-            break;
-        }
-        let fill = mix(color, [0.0; 3], amount);
-        if contrast(fill, WHITE) >= required {
-            return (fill, WHITE);
-        }
-    }
-    for step in 0..=40 {
-        let fill = mix(color, WHITE, f64::from(step) * 0.025);
-        if contrast(fill, INK) >= required {
-            return (fill, INK);
-        }
-    }
-    (INK, WHITE)
 }
 
 /// Glide duration in seconds: brisk for short hops, never longer than TRAVEL.
@@ -635,27 +626,31 @@ enum Ticker {
     Timer(Retained<NSTimer>),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 struct Style {
     actor_version: u64,
     high_contrast: bool,
     scale: f64,
+    /// What the agent is doing, after its name. Never typed text.
+    step: Option<String>,
 }
 
 struct Overlay {
     panel: Retained<CursorPanel>,
     view: Retained<CursorView>,
-    /// Ring container; scaled for press, pulse and appearance.
+    /// The dot's container; scaled for press, pulse and appearance.
     group: Retained<CALayer>,
-    outline: Retained<CALayer>,
-    halo: Retained<CALayer>,
-    ring: Retained<CALayer>,
-    flash: Retained<CALayer>,
     dot: Retained<CALayer>,
+    flash: Retained<CALayer>,
     ripple: Retained<CALayer>,
     tag: Retained<CALayer>,
-    text: Retained<CATextLayer>,
+    bot: Retained<CALayer>,
+    tone: [f64; 3],
+    name: Retained<CATextLayer>,
+    step: Retained<CATextLayer>,
+    /// The tag with its words, and whether it is at rest (Bot alone).
     tag_size: NSSize,
+    resting: bool,
     tag_side: (bool, bool),
     style: Option<Style>,
     reduce_motion: bool,
@@ -679,11 +674,6 @@ fn circle(parent: &CALayer, diameter: f64) -> Retained<CALayer> {
     layer.setCornerRadius(diameter / 2.0);
     parent.addSublayer(&layer);
     layer
-}
-
-fn resize_circle(layer: &CALayer, diameter: f64) {
-    layer.setBounds(rect(0.0, 0.0, diameter, diameter));
-    layer.setCornerRadius(diameter / 2.0);
 }
 
 fn without_actions(operation: impl FnOnce()) {
@@ -776,7 +766,7 @@ impl Overlay {
 
         let (cx, cy) = (TIP_X, HEIGHT - TIP_Y);
         let overlay = without_actions_create(|| {
-            let ripple = circle(&root, RING);
+            let ripple = circle(&root, DOT);
             ripple.setPosition(NSPoint::new(cx, cy));
             ripple.setOpacity(0.0);
 
@@ -784,37 +774,50 @@ impl Overlay {
             group.setBounds(rect(0.0, 0.0, 0.0, 0.0));
             group.setPosition(NSPoint::new(cx, cy));
             root.addSublayer(&group);
-            let outline = circle(&group, RING + 4.0);
-            let halo = circle(&group, RING + 2.0);
-            let ring = circle(&group, RING);
-            ring.setShadowOffset(NSSize::new(0.0, 0.0));
-            let flash = circle(&group, RING);
+            // A soft, see-through dot floating on a gentle shadow.
+            let dot = circle(&group, DOT);
+            dot.setShadowOffset(NSSize::new(0.0, -1.0));
+            dot.setShadowRadius(3.0);
+            dot.setShadowColor(Some(&color([0.0; 3], 1.0).CGColor()));
+            let flash = circle(&group, DOT);
             flash.setOpacity(0.0);
-            let dot = circle(&group, 3.0);
 
             let tag = CALayer::new();
             tag.setCornerRadius(TAG_HEIGHT / 2.0);
+            tag.setMasksToBounds(false);
             tag.setShadowOffset(NSSize::new(0.0, -1.0));
-            tag.setShadowRadius(2.5);
+            tag.setShadowRadius(3.0);
             tag.setShadowColor(Some(&color([0.0; 3], 1.0).CGColor()));
             root.addSublayer(&tag);
-            let text = CATextLayer::new();
-            text.setTruncationMode(unsafe { kCATruncationEnd });
-            tag.addSublayer(&text);
+            let bot = marks::bot(TAG_BOT, DEFAULT_COLOR, false);
+            bot.setFrame(rect(
+                TAG_LEAD,
+                (TAG_HEIGHT - TAG_BOT) / 2.0,
+                TAG_BOT,
+                TAG_BOT,
+            ));
+            tag.addSublayer(&bot);
+            let name = CATextLayer::new();
+            name.setTruncationMode(unsafe { kCATruncationEnd });
+            tag.addSublayer(&name);
+            let step = CATextLayer::new();
+            step.setTruncationMode(unsafe { kCATruncationEnd });
+            tag.addSublayer(&step);
 
             Overlay {
                 panel: panel.clone(),
                 view: view.clone(),
                 group,
-                outline,
-                halo,
-                ring,
-                flash,
                 dot,
+                flash,
                 ripple,
                 tag,
-                text,
-                tag_size: NSSize::new(0.0, TAG_HEIGHT),
+                bot,
+                tone: DEFAULT_COLOR,
+                name,
+                step,
+                tag_size: NSSize::new(TAG_REST, TAG_HEIGHT),
+                resting: false,
                 tag_side: (true, true),
                 style: None,
                 reduce_motion: false,
@@ -831,9 +834,10 @@ impl Overlay {
         overlay
     }
 
-    /// Re-read accessibility settings and the acting agent; restyle only when
-    /// something changed. No per-frame allocation happens here or in `step`.
-    fn refresh_style(&mut self) {
+    /// Re-read accessibility settings, the acting agent and its step;
+    /// restyle only when something changed. No per-frame allocation happens
+    /// here or in `step`.
+    fn refresh_style(&mut self, step: Option<String>) {
         let workspace = NSWorkspace::sharedWorkspace();
         self.reduce_motion = workspace.accessibilityDisplayShouldReduceMotion();
         let high_contrast = workspace.accessibilityDisplayShouldIncreaseContrast();
@@ -842,88 +846,139 @@ impl Overlay {
             actor_version,
             high_contrast,
             scale: self.panel.backingScaleFactor().max(1.0),
+            step,
         };
-        if self.style == Some(style) {
+        if self.style.as_ref() == Some(&style) {
             return;
         }
-        self.style = Some(style);
-        let tint = actor.color;
-        let (fill, ink) = tag_palette(tint, high_contrast);
-        let font = NSFont::systemFontOfSize_weight(11.0, if high_contrast { 0.4 } else { 0.3 });
-        let ink = color(ink, 1.0);
-        let ink_cg = ink.CGColor();
-        // CATextLayer renders through Core Text; supply both colour keys.
-        let ink_cf: &AnyObject = unsafe { &*((&*ink_cg) as *const _ as *const AnyObject) };
-        let label = unsafe {
-            let keys = [
-                NSFontAttributeName,
-                NSForegroundColorAttributeName,
-                &*NSString::from_str("CTForegroundColor"),
-            ];
-            let values: [&AnyObject; 3] = [&font, &ink, ink_cf];
-            NSAttributedString::new_with_attributes(
-                &NSString::from_str(&actor.name),
-                &NSDictionary::from_slices(&keys, &values),
-            )
+        let words = |text: &str, ink: [f64; 3], weight: f64| {
+            let font = NSFont::systemFontOfSize_weight(11.0, weight);
+            let ink = color(ink, 1.0);
+            let ink_cg = ink.CGColor();
+            // CATextLayer renders through Core Text; supply both colour keys.
+            let ink_cf: &AnyObject = unsafe { &*((&*ink_cg) as *const _ as *const AnyObject) };
+            unsafe {
+                let keys = [
+                    NSFontAttributeName,
+                    NSForegroundColorAttributeName,
+                    &*NSString::from_str("CTForegroundColor"),
+                ];
+                let values: [&AnyObject; 3] = [&font, &ink, ink_cf];
+                NSAttributedString::new_with_attributes(
+                    &NSString::from_str(text),
+                    &NSDictionary::from_slices(&keys, &values),
+                )
+            }
         };
-        let measured = label.size();
-        let text_width = measured.width.ceil().min(TAG_TEXT_MAX);
-        let text_height = measured.height.ceil();
-        self.tag_size = NSSize::new(text_width + TAG_PADDING * 2.0, TAG_HEIGHT);
+        let name = words(&actor.name, TAG_INK, if high_contrast { 0.4 } else { 0.23 });
+        let step = style
+            .step
+            .as_deref()
+            .map(|text| words(text, if high_contrast { TAG_INK } else { TAG_MUTED }, 0.0));
+        let name_size = name.size();
+        let name_width = name_size.width.ceil().min(TAG_TEXT_MAX);
+        let step_width = step.as_ref().map_or(0.0, |step| {
+            step.size().width.ceil().min(TAG_TEXT_MAX - name_width)
+        });
+        let text_height = name_size.height.ceil();
+        let name_x = TAG_LEAD + TAG_BOT + 5.0;
+        let step_x = name_x + name_width + 4.0;
+        let width = if step_width > 0.0 {
+            step_x + step_width + TAG_PADDING
+        } else {
+            name_x + name_width + TAG_PADDING
+        };
+        self.tag_size = NSSize::new(width, TAG_HEIGHT);
+        let text_y = ((TAG_HEIGHT - text_height) / 2.0).round();
 
         without_actions(|| {
-            let ring_width = if high_contrast { 2.75 } else { 2.0 };
-            self.ring.setBorderWidth(ring_width);
-            self.ring.setBorderColor(Some(&color(tint, 1.0).CGColor()));
-            self.ring.setBackgroundColor(Some(
-                &color(tint, if high_contrast { 0.26 } else { 0.16 }).CGColor(),
+            self.dot.setBackgroundColor(Some(
+                &color(WHITE, if high_contrast { 0.95 } else { 0.75 }).CGColor(),
             ));
-            // A soft glow in the agent's colour.
-            self.ring.setShadowColor(Some(&color(tint, 1.0).CGColor()));
-            self.ring.setShadowRadius(5.0);
-            self.ring
-                .setShadowOpacity(if high_contrast { 0.35 } else { 0.55 });
-            // A light and a dark hairline outside the ring keep it legible on
-            // any background, including one in the agent's own colour.
-            resize_circle(&self.halo, RING + 2.0);
-            self.halo.setBorderWidth(1.0);
-            self.halo.setBorderColor(Some(
-                &color(WHITE, if high_contrast { 1.0 } else { 0.85 }).CGColor(),
-            ));
-            resize_circle(&self.outline, RING + 4.0);
-            self.outline.setBorderWidth(1.0);
-            self.outline.setBorderColor(Some(
-                &color([0.0; 3], if high_contrast { 0.7 } else { 0.22 }).CGColor(),
-            ));
-            self.flash
-                .setBackgroundColor(Some(&color(tint, 1.0).CGColor()));
-            resize_circle(&self.dot, if high_contrast { 4.0 } else { 3.0 });
             self.dot
-                .setBackgroundColor(Some(&color(tint, 1.0).CGColor()));
+                .setShadowOpacity(if high_contrast { 0.6 } else { 0.35 });
+            // Increase contrast: a dark edge keeps it clear on light pages.
+            self.dot
+                .setBorderWidth(if high_contrast { 1.0 } else { 0.0 });
+            self.dot
+                .setBorderColor(Some(&color([0.0; 3], 0.8).CGColor()));
+            self.flash
+                .setBackgroundColor(Some(&color(WHITE, 1.0).CGColor()));
             self.ripple
-                .setBorderColor(Some(&color(tint, 1.0).CGColor()));
-            self.ripple.setBorderWidth(2.0);
+                .setBorderColor(Some(&color(WHITE, 0.9).CGColor()));
+            self.ripple.setBorderWidth(1.5);
 
+            self.tag.setBackgroundColor(Some(
+                &color(TAG_FILL, if high_contrast { 1.0 } else { 0.92 }).CGColor(),
+            ));
             self.tag
-                .setBackgroundColor(Some(&color(fill, 1.0).CGColor()));
-            self.tag
-                .setBorderWidth(if high_contrast { 1.25 } else { 1.0 });
+                .setBorderWidth(if high_contrast { 1.0 } else { 0.5 });
             self.tag.setBorderColor(Some(
-                &color(WHITE, if high_contrast { 0.9 } else { 0.45 }).CGColor(),
+                &color(WHITE, if high_contrast { 0.8 } else { 0.14 }).CGColor(),
             ));
             self.tag
-                .setShadowOpacity(if high_contrast { 0.45 } else { 0.28 });
-            self.text.setContentsScale(style.scale);
-            unsafe { self.text.setString(Some(&label)) };
-            self.text.setFrame(rect(
-                TAG_PADDING,
-                ((TAG_HEIGHT - text_height) / 2.0).round(),
-                text_width,
-                text_height,
-            ));
-            self.tag
-                .setFrame(tag_frame(self.tag_size, self.tag_side.0, self.tag_side.1));
+                .setShadowOpacity(if high_contrast { 0.45 } else { 0.3 });
+            if self.tone != actor.color {
+                marks::tint_bot(&self.bot, actor.color, false);
+                self.tone = actor.color;
+            }
+            self.name.setContentsScale(style.scale);
+            unsafe { self.name.setString(Some(&name)) };
+            self.name
+                .setFrame(rect(name_x, text_y, name_width, text_height));
+            self.step.setContentsScale(style.scale);
+            match &step {
+                Some(step) => unsafe { self.step.setString(Some(step)) },
+                None => unsafe { self.step.setString(None) },
+            }
+            self.step
+                .setFrame(rect(step_x, text_y, step_width, text_height));
         });
+        self.style = Some(style);
+        self.wake_tag();
+    }
+
+    /// The tag's size now: its words, or Bot alone at rest.
+    fn tag_now(&self) -> NSSize {
+        if self.resting {
+            NSSize::new(TAG_REST, TAG_HEIGHT)
+        } else {
+            self.tag_size
+        }
+    }
+
+    /// Shows the tag's words again for a new action.
+    fn wake_tag(&mut self) {
+        self.resting = false;
+        self.lay_tag(false);
+    }
+
+    /// Shrinks the tag to Bot alone once the agent has stopped acting.
+    fn rest_tag(&mut self) {
+        if self.resting {
+            return;
+        }
+        self.resting = true;
+        self.lay_tag(!self.reduce_motion);
+    }
+
+    fn lay_tag(&self, animate: bool) {
+        let frame = tag_frame(self.tag_now(), self.tag_side.0, self.tag_side.1);
+        let opacity = if self.resting { 0.0 } else { 1.0 };
+        let apply = || {
+            self.tag.setFrame(frame);
+            self.name.setOpacity(opacity);
+            self.step.setOpacity(opacity);
+        };
+        if animate {
+            CATransaction::begin();
+            CATransaction::setAnimationDuration(0.24);
+            CATransaction::setAnimationTimingFunction(Some(&timing(0.25, 0.1, 0.25, 1.0)));
+            apply();
+            CATransaction::commit();
+        } else {
+            without_actions(apply);
+        }
     }
 
     fn place_tag(&mut self, mtm: MainThreadMarker, target: Point) {
@@ -938,12 +993,11 @@ impl Overlay {
         let side = screen.map_or((true, true), |frame| tag_side(point, self.tag_size, frame));
         if side != self.tag_side {
             self.tag_side = side;
-            without_actions(|| {
-                self.tag.setFrame(tag_frame(self.tag_size, side.0, side.1));
-            });
+            self.lay_tag(false);
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn approach(
         &mut self,
         mtm: MainThreadMarker,
@@ -951,10 +1005,14 @@ impl Overlay {
         target: Point,
         continuing: bool,
         how: Approach,
+        step: Option<String>,
     ) -> f64 {
         let primary = unsafe { CGDisplayBounds(CGMainDisplayID()) };
         self.main_top = primary.origin.y + primary.size.height;
-        self.refresh_style();
+        self.refresh_style(step);
+        if self.resting {
+            self.wake_tag();
+        }
         let now = CACurrentMediaTime();
         let appearing = !(continuing && self.motion.shown);
         self.motion.generation = generation;
@@ -1002,8 +1060,8 @@ impl Overlay {
             self.group
                 .setTransform(CATransform3D::new_scale(scale, scale, 1.0));
         }
-        // The fill deepens while the button is held, with or without motion.
-        self.flash.setOpacity(if pressed { 0.3 } else { 0.0 });
+        // The dot brightens while the button is held, with or without motion.
+        self.flash.setOpacity(if pressed { 0.25 } else { 0.0 });
         CATransaction::commit();
     }
 
@@ -1012,10 +1070,10 @@ impl Overlay {
         match (feedback, self.reduce_motion) {
             (Feedback::Move, _) => {}
             (Feedback::Click, false) => {
-                // One soft ripple out from the ring, plus a small press dip.
-                let grow = basic("transform.scale", 1.0, 2.8);
-                let fade = basic("opacity", 0.65, 0.0);
-                let thin = basic("borderWidth", 2.0, 0.4);
+                // One soft ripple out from the dot, plus a small press dip.
+                let grow = basic("transform.scale", 1.0, 2.6);
+                let fade = basic("opacity", 0.8, 0.0);
+                let thin = basic("borderWidth", 1.5, 0.4);
                 let group = CAAnimationGroup::animation();
                 let parts: [&CAAnimation; 3] = [&grow, &fade, &thin];
                 group.setAnimations(Some(&NSArray::from_slice(&parts)));
@@ -1023,7 +1081,7 @@ impl Overlay {
                 group.setTimingFunction(Some(&timing(0.16, 0.8, 0.3, 1.0)));
                 group.setFillMode(unsafe { kCAFillModeBoth });
                 self.ripple.addAnimation_forKey(&group, Some(&key));
-                let dip = keyframes("transform.scale", &[1.0, 0.84, 1.0], &[0.0, 0.3, 1.0], 0.26);
+                let dip = keyframes("transform.scale", &[1.0, 0.78, 1.0], &[0.0, 0.3, 1.0], 0.26);
                 self.group.addAnimation_forKey(&dip, Some(&key));
             }
             (Feedback::Click, true) => {
@@ -1031,9 +1089,10 @@ impl Overlay {
                 self.flash.addAnimation_forKey(&glow, Some(&key));
             }
             (Feedback::Key | Feedback::Scroll, false) => {
-                let pulse = keyframes("transform.scale", &[1.0, 1.16, 1.0], &[0.0, 0.4, 1.0], 0.32);
+                // Typing: a gentle pulse, never the text itself.
+                let pulse = keyframes("transform.scale", &[1.0, 0.9, 1.0], &[0.0, 0.4, 1.0], 0.32);
                 self.group.addAnimation_forKey(&pulse, Some(&key));
-                let glow = keyframes("opacity", &[0.0, 0.3, 0.0], &[0.0, 0.4, 1.0], 0.32);
+                let glow = keyframes("opacity", &[0.0, 0.2, 0.0], &[0.0, 0.4, 1.0], 0.32);
                 self.flash.addAnimation_forKey(&glow, Some(&key));
             }
             (Feedback::Key | Feedback::Scroll, true) => {
@@ -1204,15 +1263,22 @@ fn on_main<T: Send + 'static>(
 
 /// Main thread: show or move the marker for `generation`. Returns the glide
 /// time the caller should wait before acting.
-fn show(generation: u64, target: Point, continuing: bool, how: Approach) -> Result<f64, String> {
+fn show(
+    generation: u64,
+    target: Point,
+    continuing: bool,
+    how: Approach,
+    step: Option<String>,
+) -> Result<f64, String> {
     let mut gate = GATE
         .lock()
         .map_err(|_| "The desktop cursor is unavailable.")?;
     if !gate.visible(generation, Instant::now()) {
         return Err(CANCELLED.into());
     }
-    let travel =
-        with_overlay(|mtm, overlay| overlay.approach(mtm, generation, target, continuing, how))?;
+    let travel = with_overlay(|mtm, overlay| {
+        overlay.approach(mtm, generation, target, continuing, how, step)
+    })?;
     gate.last_point = Some(target);
     Ok(travel)
 }
@@ -1233,8 +1299,26 @@ fn arrive(generation: u64, feedback: Feedback, pressed: bool) -> Result<(), Stri
         gate.expires = Some(Instant::now() + LINGER);
         drop(gate);
         schedule_fade(generation, LINGER);
+        schedule_rest(generation);
     }
     Ok(())
+}
+
+/// Once the agent has stopped acting for a moment, the tag shrinks to Bot
+/// alone. A later action of the same use wakes it again.
+fn schedule_rest(generation: u64) {
+    schedule_after(REST, move || {
+        let gate = GATE.lock().unwrap_or_else(|error| error.into_inner());
+        if !gate.authorized(generation) || gate.suspended {
+            return;
+        }
+        drop(gate);
+        existing_overlay(|overlay| {
+            if overlay.motion.generation == generation {
+                overlay.rest_tag();
+            }
+        });
+    });
 }
 
 fn schedule_after(duration: Duration, operation: impl FnOnce() + Send + 'static) {
@@ -1329,6 +1413,8 @@ pub(super) fn move_to(
     feedback: Feedback,
     revoked: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    // Read before taking the cursor's lock: the bar's state has its own.
+    let step = pointer_step(scope);
     let started = Instant::now();
     let deadline = started + UI_TIMEOUT + TRAVEL;
     #[cfg(debug_assertions)]
@@ -1341,7 +1427,7 @@ pub(super) fn move_to(
     let result = (|| {
         let continuing = previous.is_some();
         let travel = on_main(deadline, move || {
-            show(generation, target, continuing, Approach::Glide)
+            show(generation, target, continuing, Approach::Glide, step)
         })?;
         wait_for(generation, Duration::from_secs_f64(travel.clamp(0.0, 1.0)))?;
         on_main(deadline, move || arrive(generation, feedback, false))
@@ -1370,6 +1456,7 @@ pub(super) fn move_to(
 /// the marker cannot fade or jump back during a long drag. While pressed, the
 /// ring tightens; the release plays the click ripple and then the idle fade.
 pub(super) fn follow(scope: &str, point: Point, released: bool, revoked: Arc<AtomicBool>) {
+    let step = pointer_step(scope);
     let Ok(mut gate) = GATE.lock() else {
         return;
     };
@@ -1380,7 +1467,7 @@ pub(super) fn follow(scope: &str, point: Point, released: bool, revoked: Arc<Ato
     let continuing = previous.is_some();
     DispatchQueue::main().exec_async(move || {
         objc2::rc::autoreleasepool(|_| {
-            if show(generation, point, continuing, Approach::Follow).is_err() {
+            if show(generation, point, continuing, Approach::Follow, step).is_err() {
                 return;
             }
             let feedback = if released {
@@ -1391,6 +1478,61 @@ pub(super) fn follow(scope: &str, point: Point, released: bool, revoked: Arc<Ato
             let _ = arrive(generation, feedback, !released);
         });
     });
+}
+
+/// Dev builds only: draws the pointer, acting and at rest, into PNG files,
+/// off screen, over a light page and a dark one.
+#[cfg(debug_assertions)]
+pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
+    let mtm = MainThreadMarker::new().ok_or("Run the snapshot on the main thread.")?;
+    set_actor(
+        "Claude",
+        crate::desktop_presence::tone_color(Some("purple")),
+    );
+    let mut overlay = Overlay::create(mtm);
+    overlay.reduce_motion = true;
+    // Fully transparent and far off screen, so its layers are drawn.
+    overlay.panel.setAlphaValue(0.0);
+    overlay
+        .panel
+        .setFrameOrigin(NSPoint::new(-30_000.0, -30_000.0));
+    overlay.panel.orderFrontRegardless();
+    let size = NSSize::new(WIDTH, HEIGHT);
+    let root = overlay.view.layer().ok_or("no layer")?;
+    for (name, background) in [("light", [0.96, 0.96, 0.95]), ("dark", [0.17, 0.23, 0.19])] {
+        overlay.style = None;
+        overlay.resting = false;
+        overlay.refresh_style(Some(
+            "Clicking \u{201c}Next\u{2026}\u{201d} in Pages".into(),
+        ));
+        overlay.lay_tag(false);
+        overlay.panel.display();
+        CATransaction::flush();
+        marks::write_png(
+            &root,
+            size,
+            background,
+            &folder.join(format!("pointer-{name}.png")),
+        )?;
+        overlay.reduce_motion = true;
+        overlay.rest_tag();
+        CATransaction::flush();
+        marks::write_png(
+            &root,
+            size,
+            background,
+            &folder.join(format!("pointer-rest-{name}.png")),
+        )?;
+    }
+    reset_actor();
+    overlay.panel.orderOut(None);
+    overlay.panel.close();
+    Ok(())
+}
+
+/// What the chat's agent is doing, as its row on the bar says it.
+fn pointer_step(scope: &str) -> Option<String> {
+    crate::desktop_presence::with(|state| state.pointer_text(scope))
 }
 
 pub(super) fn window_id() -> Option<u32> {
@@ -1804,33 +1946,13 @@ mod tests {
     }
 
     #[test]
-    fn tag_text_is_legible_for_any_agent_colour() {
-        for tint in [
-            DEFAULT_COLOR,
-            [0.851, 0.467, 0.341],
-            [1.0, 0.84, 0.04],
-            [1.0, 1.0, 1.0],
-            [0.0, 0.0, 0.0],
-            [0.5, 0.5, 0.5],
-            [0.0, 1.0, 0.0],
-            [0.45, 0.42, 0.96],
-        ] {
-            for high_contrast in [false, true] {
-                let (fill, ink) = tag_palette(tint, high_contrast);
-                let required = if high_contrast { 7.0 } else { 4.5 };
-                assert!(
-                    contrast(fill, ink) >= required,
-                    "{tint:?} {high_contrast} -> {:.2}",
-                    contrast(fill, ink)
-                );
-            }
+    fn tag_words_are_legible_on_its_dark_glass() {
+        // The glass is 92% opaque; judge against the worst case behind it.
+        for behind in [[1.0; 3], [0.0; 3]] {
+            let fill = mix(behind, TAG_FILL, 0.92);
+            assert!(contrast(fill, TAG_INK) >= 7.0, "{behind:?}");
+            assert!(contrast(fill, TAG_MUTED) >= 4.5, "{behind:?}");
         }
-        // Aven's accent keeps white text on a deepened, same-hue fill.
-        let (fill, ink) = tag_palette(DEFAULT_COLOR, false);
-        assert_eq!(ink, WHITE);
-        assert!(fill[2] > fill[0] && fill[2] > fill[1]);
-        // A light yellow keeps its hue and takes dark text.
-        assert_eq!(tag_palette([1.0, 0.84, 0.04], false).1, INK);
     }
 
     #[test]
@@ -1849,14 +1971,17 @@ mod tests {
             tag_side(NSPoint::new(700.0, 10.0), tag, screen),
             (true, false)
         );
-        // Frames for every side stay inside the panel, clear of the ring.
-        let widest = NSSize::new(TAG_TEXT_MAX + TAG_PADDING * 2.0, TAG_HEIGHT);
+        // Frames for every side stay inside the panel, clear of the dot.
+        let widest = NSSize::new(
+            TAG_LEAD + TAG_BOT + 5.0 + TAG_TEXT_MAX + 4.0 + TAG_PADDING,
+            TAG_HEIGHT,
+        );
         for (right, below) in [(true, true), (true, false), (false, true), (false, false)] {
             let frame = tag_frame(widest, right, below);
             assert!(frame.origin.x >= 0.0 && frame.origin.x + frame.size.width <= WIDTH);
             assert!(frame.origin.y >= 0.0 && frame.origin.y + frame.size.height <= HEIGHT);
-            let ring_left = TIP_X - RING / 2.0;
-            let ring_right = TIP_X + RING / 2.0;
+            let ring_left = TIP_X - DOT / 2.0;
+            let ring_right = TIP_X + DOT / 2.0;
             assert!(frame.origin.x >= ring_right || frame.origin.x + frame.size.width <= ring_left);
         }
     }

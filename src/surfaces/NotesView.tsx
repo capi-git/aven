@@ -17,7 +17,6 @@ import { StackMark } from "../chrome/StackMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import { filesFromClipboard, hasFileTransfer } from "../lib/attachments";
 import { formatRelativeTime } from "../lib/githubTasks";
@@ -71,7 +70,6 @@ export function NotesView({
 }: Props) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const listLock = useLockOverscroll<HTMLDivElement>();
   const resize = useDragResize({
     min: MIN_WIDTH,
     max: () => Math.min(MAX_WIDTH, Math.round(window.innerWidth * 0.5)),
@@ -256,10 +254,7 @@ export function NotesView({
           )}
         </button>
       </div>
-      <div
-        ref={listLock}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-none"
-      >
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-none">
         {error ? (
           <div role="alert" className="px-3 py-2 text-ui-label text-content/50">
             <p>{error}</p>
@@ -494,7 +489,6 @@ function NoteEditor({
   onDelete: (id: string) => void | Promise<void>;
   onAddToChat: (note: Note) => void;
 } & ProjectMarks) {
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const blank = !note.body.trim() && note.title === "Untitled";
   const [mode, setMode] = useMarkdownMode(note.id);
   const [store] = useState(() => getNoteDraft(note));
@@ -590,10 +584,7 @@ function NoteEditor({
   };
 
   return (
-    <div
-      ref={lockOverscroll}
-      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
-    >
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none">
       <div className="note-detail-content mx-auto flex w-full max-w-5xl flex-col gap-5 px-8 py-8">
         <header className="flex flex-col gap-3">
           <div className="flex min-w-0 items-center gap-2 text-ui-label text-content/50">

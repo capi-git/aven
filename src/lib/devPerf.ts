@@ -287,6 +287,12 @@ export type HotCalls = {
   storage: { calls: number; ms: number };
   /** DOM changes that took noticeable time, by kind. */
   dom: { calls: number; ms: number; byKind: Record<string, number> };
+  /**
+   * Wheel listeners added or removed, on the page's clock. In WebKit each
+   * one restyles the whole page at the next style pass (~35 ms with 7,000
+   * elements), and no DOM change shows it.
+   */
+  wheelListeners?: { at: number; change: "add" | "remove"; where: string }[];
 };
 
 /**
@@ -310,9 +316,11 @@ export function recordHotCalls() {
     }
   };
   const restores: (() => void)[] = [];
-  const caller = () => {
+  // WebKit's stacks have no message line, so `skip` counts this function
+  // and the recorder's frames above the app's.
+  const caller = (skip = 3) => {
     // The first app frame below this file names who forced layout.
-    const lines = (new Error().stack ?? "").split("\n").slice(3);
+    const lines = (new Error().stack ?? "").split("\n").slice(skip);
     const line = lines.find((entry) => !entry.includes("devPerf")) ?? "";
     return line
       .replace(/^\s*at\s+/, "")
@@ -468,6 +476,33 @@ export function recordHotCalls() {
   restores.push(() => {
     window.getComputedStyle = originalComputed;
   });
+  for (const [method, change] of [
+    ["addEventListener", "add"],
+    ["removeEventListener", "remove"],
+  ] as const) {
+    const original = EventTarget.prototype[method];
+    EventTarget.prototype[method] = function (
+      this: EventTarget,
+      type: string,
+      ...rest: unknown[]
+    ) {
+      if (type === "wheel" || type === "mousewheel")
+        (totals.wheelListeners ??= []).push({
+          at: round(performance.now()),
+          change,
+          // This function and the patched method sit above the app's frame.
+          where: caller(2) || "unknown",
+        });
+      return (original as (...args: unknown[]) => unknown).call(
+        this,
+        type,
+        ...rest,
+      );
+    } as typeof original;
+    restores.push(() => {
+      EventTarget.prototype[method] = original;
+    });
+  }
   wrapMethod(JSON, "stringify", (ms) => {
     totals.json.calls += 1;
     totals.json.ms += ms;

@@ -60,6 +60,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   document.body.innerHTML = "";
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -297,3 +298,47 @@ it("shows where an open chat lives in place of its project", async () => {
     "In the split with “Pricing — WorkOS” · left pane",
   );
 });
+
+it("opens, filters and closes without adding or removing a wheel listener", async () => {
+  // In WebKit each wheel listener added or removed restyles the whole page.
+  // It opened once already, so React listens on its portal's container.
+  const show = (open: boolean) =>
+    act(async () =>
+      root.render(createElement(CommandPalette, { ...props, open })),
+    );
+  await show(false);
+  const wheelListeners = countWheelListeners();
+  await show(true);
+  const list = document.body.querySelector<HTMLElement>(
+    '[data-command-palette] [role="listbox"]',
+  )!;
+  // The browser keeps the wheel in the list at either end.
+  expect(list.classList.contains("overscroll-y-none")).toBe(true);
+  await type("l");
+  await type("lo");
+  await type("login");
+  await vi.advanceTimersByTimeAsync(200);
+  expect(text()).toContain("Fix login redirect on Safari");
+  await show(false);
+  expect(document.body.querySelector("[data-command-palette]")).toBeNull();
+  expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
+});
+
+/**
+ * Wheel listeners added and removed from now on, on any element, the
+ * document or the window. happy-dom's nodes inherit them from its own
+ * EventTarget, not the global one, and the window's are bound copies.
+ */
+function countWheelListeners() {
+  const node = Object.getPrototypeOf(Node.prototype) as EventTarget;
+  const spies = (method: "addEventListener" | "removeEventListener") => [
+    vi.spyOn(node, method),
+    vi.spyOn(window, method),
+  ];
+  const added = spies("addEventListener");
+  const removed = spies("removeEventListener");
+  const wheel = (list: typeof added) =>
+    list.flatMap((spy) => spy.mock.calls).filter(([type]) => type === "wheel")
+      .length;
+  return () => ({ added: wheel(added), removed: wheel(removed) });
+}

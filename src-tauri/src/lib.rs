@@ -69,6 +69,7 @@ mod mcp_manage;
 mod memory_keeper;
 mod memory_pressure;
 mod menu;
+mod modifier_keys;
 mod native_popup;
 mod notes;
 mod notifications;
@@ -97,6 +98,25 @@ mod skill_install;
 mod skills;
 mod startup_cli;
 pub use startup_cli::run_startup_cli;
+
+/// Dev builds only: `--aven-desktop-snapshot <folder>` draws desktop
+/// control's bar and pointer into PNG files there, off screen, for checking
+/// their look. Nothing is shown and no app is touched.
+#[cfg(all(debug_assertions, target_os = "macos"))]
+pub fn run_desktop_snapshot_cli() -> Option<i32> {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("--aven-desktop-snapshot") {
+        return None;
+    }
+    let folder = std::path::PathBuf::from(args.next()?);
+    match desktop_control::snapshot(&folder) {
+        Ok(()) => Some(0),
+        Err(error) => {
+            eprintln!("{error}");
+            Some(1)
+        }
+    }
+}
 mod system_pointer;
 mod team_watch;
 mod turn_shot_image;
@@ -377,6 +397,7 @@ pub fn run() {
             dev_smoke::dev_perf_sample,
             dev_smoke::dev_perf_keep_visible,
             dev_smoke::dev_perf_mark,
+            modifier_keys::control_key_held,
             #[cfg(all(debug_assertions, target_os = "macos"))]
             dev_smoke_pointer::dev_smoke_pointer,
             #[cfg(all(debug_assertions, target_os = "macos"))]

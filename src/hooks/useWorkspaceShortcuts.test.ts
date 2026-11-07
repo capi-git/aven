@@ -54,6 +54,8 @@ function fakeActions(): WorkspaceActions {
     onClosePane: action(),
     onNext: action(),
     onPrev: action(),
+    onRecentNext: action(),
+    onRecentPrev: action(),
     onStepPane: action(),
     onZoomPane: action(),
     onVisitBack: action(),
@@ -323,10 +325,12 @@ it("takes chords a focused Chromium page forwards to this window only", async ()
   expect(actions.onStepPane).toHaveBeenLastCalledWith(-1);
   forward("zoom-pane");
   expect(actions.onZoomPane).toHaveBeenCalledTimes(1);
+  // A page's ⌃⇥ opens the recent switcher, as the window's own does.
   forward("next-tab");
-  expect(actions.onNext).toHaveBeenCalledTimes(1);
+  expect(actions.onRecentNext).toHaveBeenCalledTimes(1);
   forward("prev-tab");
-  expect(actions.onPrev).toHaveBeenCalledTimes(1);
+  expect(actions.onRecentPrev).toHaveBeenCalledTimes(1);
+  expect(actions.onNext).not.toHaveBeenCalled();
   forward("close-pane");
   expect(actions.onClosePane).toHaveBeenCalledTimes(1);
   // Nothing else can be named.

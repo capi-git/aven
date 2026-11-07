@@ -89,6 +89,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -311,3 +312,40 @@ it("keeps all files reachable while the active identity is unavailable", async (
   expect(document.activeElement).toBe(tab("c.md"));
   expect(props.activeFileId).toBe(c.id);
 });
+
+it("shows, opens and closes tabs without adding or removing a wheel listener", async () => {
+  // In WebKit each wheel listener added or removed restyles the whole page.
+  // The strip's ref is made again each time its sortable's is, so it must
+  // not attach one either.
+  const wheelListeners = countWheelListeners();
+  await render({ files: [a, b], activeFileId: b.id });
+  const strip = host.querySelector<HTMLElement>('[role="tablist"]')!;
+  // The browser keeps the wheel in the strip at either end.
+  expect(strip.classList.contains("overscroll-none")).toBe(true);
+  await render({ files: [a, b, c], activeFileId: c.id });
+  expect(tabLabels()).toEqual(["a.md", "b.md", "c.md"]);
+  await render({ files: [a, c], activeFileId: c.id });
+  expect(tabLabels()).toEqual(["a.md", "c.md"]);
+  await act(async () => root.unmount());
+  expect(host.querySelector('[role="tablist"]')).toBeNull();
+  expect(wheelListeners()).toEqual({ added: 0, removed: 0 });
+});
+
+/**
+ * Wheel listeners added and removed from now on, on any element, the
+ * document or the window. happy-dom's nodes inherit them from its own
+ * EventTarget, not the global one, and the window's are bound copies.
+ */
+function countWheelListeners() {
+  const node = Object.getPrototypeOf(Node.prototype) as EventTarget;
+  const spies = (method: "addEventListener" | "removeEventListener") => [
+    vi.spyOn(node, method),
+    vi.spyOn(window, method),
+  ];
+  const added = spies("addEventListener");
+  const removed = spies("removeEventListener");
+  const wheel = (list: typeof added) =>
+    list.flatMap((spy) => spy.mock.calls).filter(([type]) => type === "wheel")
+      .length;
+  return () => ({ added: wheel(added), removed: wheel(removed) });
+}

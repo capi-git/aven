@@ -12,8 +12,9 @@
  *   Forward in history  cmd-]
  *   Activate tab 1–8    cmd-1 … cmd-8
  *   Last tab            cmd-9
- *   Cycle next tab      ctrl-tab        (the focused pane's tabs)
- *   Cycle previous tab  ctrl-shift-tab
+ *   Recent switcher     ctrl-tab        (hold ctrl: the strip, most recent
+ *                                        first; let go to open)
+ *   Recent, oldest      ctrl-shift-tab
  *   Next pane           ctrl-opt-tab    (layout order, as in Cydonia; Mac)
  *   Previous pane       ctrl-opt-shift-tab
  *   Next/previous pane  ctrl-opt-pagedown / ctrl-opt-pageup (everywhere;
@@ -52,6 +53,8 @@ export type TabCommand =
   | "close"
   | "next"
   | "prev"
+  | "recent-next"
+  | "recent-prev"
   | "back"
   | "forward"
   | "split-right"
@@ -118,7 +121,7 @@ export function tabCommand(e: KeyboardEvent, mac = IS_MAC): TabCommand | null {
   }
 
   if (e.key === "Tab" && e.ctrlKey && !e.metaKey && !e.altKey) {
-    return e.shiftKey ? "prev" : "next";
+    return e.shiftKey ? "recent-prev" : "recent-next";
   }
 
   if (!mod || e.altKey) return null;

@@ -1,5 +1,9 @@
 # Desktop control experience
 
+> Corrected 2026-11-06: consent for shared input and activation is asked once
+> per chat, not for each action, and only shared-pointer input yields to the
+> user. The behaviour list below describes the code as it is now.
+
 This branch adds a native agent presence bar, provider-labelled pointer,
 per-chat app consent, pause/stop/yield controls, and explicit app-directed input.
 Source and live native checks are recorded below. A release still goes through
@@ -13,15 +17,18 @@ the normal PR, version, build, signing and publication workflow.
   Pause/Resume and Stop. It never displays typed content or key names.
 - Per-app consent defaults on and persists for the chat's grant generation.
   Native Settings can disable that prompt. Shared pointer/keyboard input and
-  focus changes always need one-action consent, independent of that toggle.
+  focus changes always need consent, independent of that toggle. Aven asks once
+  per chat; that answer covers every app, the shared pointer and activation
+  until the user presses Stop.
 - `inputMode: "app"` is the default. Input requires an observed `windowId`.
   Accessible single clicks use AXPress where supported; remaining events go to
   the specified process. Typing and keys require its focused window. An
   uncertain AX result is not retried as a click.
 - `inputMode: "pointer"` explicitly uses the shared system input. Covered
   window targets remain refused. There is no automatic fallback between modes.
-- User input pauses shared control. App-directed control yields when the user
-  works in that same app. Two Escape presses stop the active chat. Interruptions
+- Sustained user input (about 3 seconds) pauses shared-pointer control only.
+  App-directed and element input keep running while the user works, even in
+  the same app; only Pause, Stop or two Escape presses stop them. Interruptions
   invalidate in-flight tickets and release held buttons.
 - Paused chats can observe; stopped chats need new consent for input or
   observation. Refusals and timeouts tell agents to wait for the user.
@@ -77,8 +84,8 @@ The final receipt and native screenshots are retained locally at
 
 The AppKit receiver uses real native controls in another process; it does not
 establish compatibility with every third-party app. Process-directed events can
-still be ignored by particular apps. Agents must inspect the result and obtain
-one-action consent before using the shared pointer. Provider binding is tested
+still be ignored by particular apps. Agents must inspect the result and have the
+chat's consent before using the shared pointer. Provider binding is tested
 for Claude and Codex through their shared frontend/native path; the checks do
 not claim a separate end-to-end provider chat run or a production app upgrade.
 

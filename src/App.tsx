@@ -16,6 +16,9 @@ import {
   useWorkspaceShortcuts,
   type WorkspaceActions,
 } from "./hooks/useWorkspaceShortcuts";
+import { useRecentSwitcher } from "./hooks/useRecentSwitcher";
+import { RecentSwitcher } from "./chrome/RecentSwitcher";
+import { recentCard } from "./chrome/recentCards";
 import { useAccountUsageProviders } from "./hooks/useAccountUsageProviders";
 import { useAutomaticModelCatalogs } from "./hooks/useAutomaticModelCatalogs";
 import {
@@ -168,6 +171,7 @@ import {
 import { setWorkspaceSurfaceDrag } from "./lib/workspaceSurfaceDrag";
 import {
   holdMotionPages,
+  refreshMotionImages,
   panesMoved,
   releaseMotionPagesAfter,
 } from "./lib/browserMotion";
@@ -983,11 +987,20 @@ import {
   useProjectBotsStore,
   type ProjectBot,
 } from "./lib/projectBots";
-import { projectAppearance } from "./lib/projectAppearance";
+import {
+  hasProjectAppearance,
+  projectAppearance,
+  projectToneAt,
+} from "./lib/projectAppearance";
 import { chatCardDrafts } from "./lib/workBoard";
 
 /** Minimum spacing between full transcript saves of a chat that is still running. */
 const BUSY_PERSIST_INTERVAL_MS = 10_000;
+
+/** A chat's project colour, which its Bot wears on the desktop bar. */
+function chatTone(project: string) {
+  return hasProjectAppearance(project) ? projectToneAt(project) : undefined;
+}
 
 function withPlanStatus(
   session: Session,
@@ -5063,6 +5076,34 @@ export default function App({
   );
   const onNext = useCallback(() => cycleSurface(1), [cycleSurface]);
   const onPrev = useCallback(() => cycleSurface(-1), [cycleSurface]);
+  // ⌃⇥: the strip's entries, most recent first (useRecentSwitcher).
+  const recentHoldPages = useCallback(() => {
+    const pages = browserIdsRef.current;
+    const open = openLeafIds(viewRef.current.view.layout).filter((id) =>
+      pages.has(id),
+    );
+    return open.length ? holdMotionPages(open) : null;
+  }, []);
+  const recentSwitcher = useRecentSwitcher({
+    project: workspaceKey,
+    front: workspaceViews.strip.front,
+    entryKeys: () => viewRef.current.strip.entries.map(entryKey),
+    open: (key) => {
+      const id = stripEntryFocus(viewRef.current.strip, key);
+      if (id) onSelectSurface(id);
+    },
+    holdPages: recentHoldPages,
+    releasePages: releaseMotionPagesAfter,
+    refreshPictures: () => {
+      const pages = browserIdsRef.current;
+      void refreshMotionImages(
+        openLeafIds(viewRef.current.view.layout).filter((id) => pages.has(id)),
+      );
+    },
+  });
+  const recentStep = recentSwitcher.step;
+  const onRecentNext = useCallback(() => recentStep(1), [recentStep]);
+  const onRecentPrev = useCallback(() => recentStep(-1), [recentStep]);
   // Cydonia's pane keys: the next or previous pane in layout order (left to
   // right, each column top to bottom), and expanding the focused pane.
   // Collapsed panes are passed over.
@@ -7357,6 +7398,7 @@ export default function App({
                     title: current.title,
                     sessionId,
                     cwd: workCwd,
+                    tone: chatTone(current.cwd),
                   },
                   // A bot never commits, so it gets no Git preference either.
                   {
@@ -7819,6 +7861,7 @@ export default function App({
                   title: current.title,
                   sessionId,
                   cwd: workCwd,
+                  tone: chatTone(current.cwd),
                 },
                 // A bot never commits, so it gets no Git preference either.
                 {
@@ -9950,6 +9993,8 @@ export default function App({
     onClosePane,
     onNext,
     onPrev,
+    onRecentNext,
+    onRecentPrev,
     onStepPane,
     onZoomPane,
     onVisitBack,
@@ -13378,6 +13423,37 @@ export default function App({
               <LazyViewSlot label="tour" quiet>
                 <TourOverlay prepare={tourPrepare} onClose={onTourClose} />
               </LazyViewSlot>
+            ) : null}
+            {recentSwitcher.state ? (
+              <RecentSwitcher
+                state={recentSwitcher.state}
+                cards={recentSwitcher.state.keys.map((key) =>
+                  recentCard(key, {
+                    strip,
+                    tabs: titleTabs,
+                    pages: browserTabsFor(
+                      stripItemIds.concat(
+                        strip.entries.flatMap((entry) =>
+                          entry.kind === "space" ? viewMembers(entry.view) : [],
+                        ),
+                      ),
+                    ),
+                    blocksOf: (tabId) => {
+                      const tab = tabs.find((entry) => entry.id === tabId);
+                      if (!tab) return undefined;
+                      const ids = [tab.focusedId, ...leafIds(tab.layout)];
+                      for (const id of ids) {
+                        const session = sessions.find((item) => item.id === id);
+                        if (session) return session.blocks;
+                      }
+                      return undefined;
+                    },
+                    projectless: isProjectlessCwd(projectCwd),
+                  }),
+                )}
+                onChoose={recentSwitcher.choose}
+                onCancel={recentSwitcher.cancel}
+              />
             ) : null}
             {paletteOpen ? (
               <LazyViewSlot label="command palette" quiet>

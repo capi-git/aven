@@ -172,14 +172,17 @@ export function visibleComposer(): HTMLTextAreaElement | null {
   );
 }
 
-function typeCharacter(target: HTMLTextAreaElement, character: string) {
+function typeCharacter(
+  target: HTMLTextAreaElement | HTMLInputElement,
+  character: string,
+) {
   const before = target.value;
   if (document.activeElement !== target) target.focus();
   document.execCommand("insertText", false, character);
   if (target.value !== before) return;
   // Fall back to what a paste-like input would do.
   const setter = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype,
+    Object.getPrototypeOf(target) as object,
     "value",
   )?.set;
   setter?.call(target, before + character);
@@ -682,6 +685,87 @@ export async function runDevPerf(
         );
         await pause(100);
       }
+    });
+
+    // Pickers come and go all day, and each keystroke filters them. In WebKit
+    // a wheel listener added or removed restyles the whole page (~35 ms), so
+    // none of this may add or remove one (the runner lists any it saw).
+    await scenario("pickers open and close", async (measure) => {
+      const press = (key: string) => {
+        const target = document.activeElement ?? document.body;
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      };
+      const typeInto = async (selector: string, text: string) => {
+        const field = document.querySelector<HTMLInputElement>(selector);
+        if (!field) throw new Error(`No ${selector} to type into`);
+        for (const character of text) {
+          await measure.time(() => typeCharacter(field, character));
+          await pause(60);
+        }
+      };
+      const palette = () => document.querySelector("[data-command-palette]");
+      const models = () => document.querySelector("[data-model-picker]");
+      for (let index = 0; index < 6; index += 1) {
+        measure.mark("command palette");
+        await measure.time(() => pressShortcut("k"), palette);
+        await pause(100);
+        await typeInto("[data-command-palette] input", "set");
+        await measure.time(
+          () => press("Escape"),
+          () => !palette(),
+        );
+        await pause(100);
+        // ⌘. opens the agent's menu on its Model row, which opens the panel.
+        measure.mark("model picker");
+        const modelRow = () =>
+          document.querySelector<HTMLElement>(
+            '[data-helm-dialog] [data-helm-row="model"]',
+          );
+        await measure.time(() => pressShortcut("."), modelRow);
+        await pause(100);
+        await measure.time(() => modelRow()?.click(), models);
+        await pause(100);
+        await typeInto(
+          '[data-model-picker] input[aria-label="Search models"]',
+          "so",
+        );
+        await measure.time(
+          () => press("Escape"),
+          () => !models(),
+        );
+        // Closing the panel can leave the agent's menu up; ⌘. would close it.
+        if (document.querySelector("[data-helm-dialog]")) {
+          press("Escape");
+          await waitFor(
+            () => !document.querySelector("[data-helm-dialog]"),
+            5_000,
+            "the agent's menu to close",
+          );
+        }
+        await pause(100);
+      }
+      const settingsShown = () => document.querySelector("[data-app-settings]");
+      measure.mark("settings search");
+      await measure.time(() => pressShortcut(","), settingsShown);
+      await pause(100);
+      await typeInto('input[aria-label="Search settings"]', "theme");
+      await measure.time(
+        () => press("Escape"),
+        () =>
+          !document.querySelector('nav[aria-label="Settings search results"]'),
+      );
+      await pause(100);
+      await measure.time(
+        () => pressShortcut("w"),
+        () => !settingsShown(),
+      );
+      await pause(100);
     });
 
     // Diagnosis only (`--perf-only restyle`): which attribute changes in an

@@ -34,7 +34,6 @@ import { REVEAL_LABEL } from "../lib/platform";
 import { releaseNotesTitle } from "../lib/releaseNotes";
 import { revealFile } from "../lib/revealFile";
 import { terminalTabLabel } from "../lib/terminalTab";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useSortable } from "../hooks/useSortable";
 import { useWheelTabSwitch } from "../hooks/useWheelTabSwitch";
 import {
@@ -221,7 +220,6 @@ export function SurfaceTabs({
       );
     else if (id === "close") onCloseFile(menuFile.id);
   };
-  const lockOverscroll = useLockOverscroll<HTMLDivElement>();
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const tabButtonsRef = useRef(new Map<string, HTMLButtonElement>());
   const focusedTabControlRef = useRef<HTMLElement | null>(null);
@@ -235,9 +233,8 @@ export function SurfaceTabs({
     (element: HTMLDivElement | null) => {
       tabStripRef.current = element;
       sortable.setContainerRef(element);
-      lockOverscroll(element);
     },
-    [sortable.setContainerRef, lockOverscroll],
+    [sortable.setContainerRef],
   );
   const canDrag = files.length > 1;
   const wheelTabs = useWheelTabSwitch();

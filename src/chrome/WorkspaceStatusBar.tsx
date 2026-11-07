@@ -493,10 +493,14 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           </div>
         </div>
       ) : null}
-      {stripHost && !settingsView ? (
+      {stripHost ? (
+        // Kept, hidden, under Settings: React listens on every new container
+        // a portal draws into, wheel included, and in WebKit each wheel
+        // listener added restyles the whole page (~35 ms).
         <div
           ref={stripHost}
           className="workspace-status-strip"
+          hidden={Boolean(settingsView) || undefined}
           data-window-drag-room
         />
       ) : null}

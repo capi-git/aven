@@ -36,7 +36,6 @@ import { StackMark } from "../chrome/StackMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
-import { useLockOverscroll } from "../hooks/useLockOverscroll";
 import { useTabGroupLogos } from "../hooks/useTabGroupLogos";
 import {
   githubPrDiff,
@@ -221,8 +220,6 @@ export function InboxView({
   onOpenConnections,
 }: Props) {
   const [discussionOpen, setDiscussionOpen] = useState(false);
-  const listLock = useLockOverscroll<HTMLDivElement>();
-  const detailLock = useLockOverscroll<HTMLDivElement>();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const logos = useTabGroupLogos();
@@ -504,10 +501,7 @@ export function InboxView({
           )}
         </button>
       </div>
-      <div
-        ref={listLock}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-none"
-      >
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-none">
         {avosNeeds.length && crewWorkspace ? (
           <ul className="flex flex-col gap-0.5 p-1.5 pb-0" aria-label="Avos">
             {avosNeeds.map(({ path, rows }) => (
@@ -657,10 +651,7 @@ export function InboxView({
       <div className="flex min-h-0 min-w-0 flex-1">
         {list}
         <div className="relative flex min-h-0 min-w-0 flex-1">
-          <div
-            ref={detailLock}
-            className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none"
-          >
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none">
             {selectedCrew ? (
               <div className="mx-auto w-full max-w-3xl px-8 py-8">
                 <CrewInboxDetail key={selectedCrew.key} item={selectedCrew} />

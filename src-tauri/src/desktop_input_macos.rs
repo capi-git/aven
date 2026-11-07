@@ -152,7 +152,7 @@ pub(super) fn target(
     let id = request.input_window();
     let mut window = None;
     if let Some(id) = id {
-        if presence_ui::window_id() == Some(id) || agent_cursor::window_id() == Some(id) {
+        if presence_ui::is_overlay(id) || agent_cursor::window_id() == Some(id) {
             return Err("Agent input cannot target Aven's desktop controls.".into());
         }
         window = Some(
@@ -260,6 +260,10 @@ pub(super) fn target(
             _ => centre,
         }
     };
+    if let Request::Menu { path, .. } = request {
+        // The bar names the menu item ("File → Export…"), never anything typed.
+        label = accessibility::menu_label(path);
+    }
     let shared_input = mode == InputMode::Pointer;
     let identity = if shared_input && id.is_none() && !matches!(request, Request::Activate { .. }) {
         presence::AppIdentity::new("pointer:desktop", "your Mac")

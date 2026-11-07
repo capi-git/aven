@@ -82,8 +82,54 @@ describe("desktop control permission guidance", () => {
       "call appState again instead of guessing",
     );
     expect(AVEN_BROWSER_HOST_POLICY).toContain(
+      "each element action returns the window's fresh state with new indexes",
+    );
+    expect(AVEN_BROWSER_HOST_POLICY).not.toContain(
       "call appState again before the next element action",
     );
+  });
+
+  it("returns fresh state after element actions instead of an appState after each one", () => {
+    for (const instructions of [
+      COMPUTER_USE_TASK_GUIDANCE,
+      COMPUTER_USE_SKILL_BODY,
+    ]) {
+      expect(instructions).toContain("fresh state");
+      expect(instructions).toContain("stateError");
+      expect(instructions).toContain("untilChanged");
+      expect(instructions).toContain("waitMs");
+      expect(instructions).toContain("menu");
+      expect(instructions).toContain("readText");
+      expect(instructions).toContain('"image":true');
+      expect(instructions).not.toMatch(
+        /call `?appState`? again before each element action/,
+      );
+    }
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      '{"action":"menu","windowId":123,"path":["File","Export To","PDF…"]}',
+    );
+    expect(COMPUTER_USE_SKILL_BODY).toContain("F1–F12");
+    expect(COMPUTER_USE_SKILL_BODY).toContain(
+      "divide image coordinates by `scale`",
+    );
+  });
+
+  it("states consent and yielding the way the code does", () => {
+    for (const instructions of [
+      COMPUTER_USE_TASK_GUIDANCE,
+      COMPUTER_USE_SKILL_BODY,
+    ]) {
+      // Consent is asked once per chat, never per action.
+      expect(instructions).not.toMatch(/each action\*\*|for each action/i);
+      expect(instructions).toMatch(/once per chat/);
+      // Only shared-pointer input yields; background input keeps running
+      // while the user works, even in the same app.
+      expect(instructions).toContain(
+        "Only shared-pointer input yields to the user",
+      );
+      expect(instructions).toContain("even in the same app");
+      expect(instructions).not.toContain("works in the target app");
+    }
   });
 
   it("makes desktop control the next route for Aven's own browser pages, never a reason to give up", () => {

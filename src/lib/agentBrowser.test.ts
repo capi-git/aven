@@ -987,6 +987,27 @@ it.each(["codex", "claude"])(
   },
 );
 
+it("sends the chat's project colour for its Bot", async () => {
+  const api = await import("./agentBrowser");
+  dispose = api.installAgentBrowserHost({
+    surfaces: () => [],
+    open: vi.fn(),
+  });
+  await api.prepareAgentBrowserPrompt("Work", {
+    sessionId: "copy",
+    cwd: "/Users/me/.worktrees/site/fix",
+    tone: "purple",
+    harness: "codex",
+  });
+  const bind = mocks.invoke.mock.calls
+    .filter(([name]) => name === "browser_agent_bind")
+    .at(-1)?.[1];
+  expect(bind).toMatchObject({
+    workDir: "/Users/me/.worktrees/site/fix",
+    actor: { harness: "codex", tone: "purple" },
+  });
+});
+
 it("ends the user's Stop and declines only on a message the user wrote", async () => {
   const api = await import("./agentBrowser");
   dispose = api.installAgentBrowserHost({
