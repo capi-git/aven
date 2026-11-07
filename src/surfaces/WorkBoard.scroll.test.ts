@@ -11,6 +11,7 @@ const board = readFileSync("src/surfaces/WorkBoard.css", "utf8");
 const crew = readFileSync("src/surfaces/CrewBoard.css", "utf8");
 const team = readFileSync("src/surfaces/TeamScreen.css", "utf8");
 const teamScreen = readFileSync("src/surfaces/TeamScreen.tsx", "utf8");
+const profile = readFileSync("src/surfaces/AvosProfile.css", "utf8");
 
 function rule(css: string, selector: string, from = 0): string {
   const at = css.indexOf(`${selector} {`, from);
@@ -56,11 +57,20 @@ describe("the Board's columns scroll on their own", () => {
 });
 
 describe("Avos's Board", () => {
-  it("gets the whole pane: This week shows only beside the Chat", () => {
+  it("shares the pane with Avos's profile, which scrolls on its own and folds away when narrow", () => {
     expect(rule(team, ".team-screen")).toContain(
       "grid-template-columns: minmax(0, 1fr) auto;",
     );
-    expect(teamScreen).toContain('{meeting || shown !== "chat" ? null : (');
+    expect(rule(profile, ".avos-profile")).toContain("overflow-y: auto;");
+    expect(rule(profile, ".avos-profile")).toContain("flex: none;");
+    // Reviewing Avos's work, the review takes the profile's place, wider.
+    expect(teamScreen).toContain(
+      "{meeting || narrow ? null : reviewing && view.batch ? (",
+    );
+    expect(teamScreen).toContain("<AvosProfile {...profileProps} />");
+    expect(rule(team, ".team-screen[data-reviewing]")).toContain(
+      "grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);",
+    );
   });
 });
 

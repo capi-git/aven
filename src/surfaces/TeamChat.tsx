@@ -7,13 +7,12 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
 import { ArrowRight, MoveUp, X } from "../chrome/icons";
-import { TeamCardButton } from "../chrome/TeamCard";
 import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
-import type { BatchRange } from "../hooks/useTeamPipeline";
 import {
   projectDisplayName,
   useProjectLabels,
@@ -30,7 +29,6 @@ import {
   tellTeammate,
   useCrewWorkspace,
 } from "../lib/crewActions";
-import type { Pipeline, PipelineRow } from "../lib/crewPipeline";
 import {
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
@@ -40,15 +38,12 @@ import {
   crewMemberName,
   getCrew,
   isTime,
-  memberCritter,
-  stackedCards,
   type Crew,
   type CrewMessageKind,
 } from "../lib/crews";
 import {
   crewMemberViews,
   titleBeside,
-  type CrewBoardActionId,
   type CrewMemberView,
 } from "../lib/crewView";
 import { isImeComposition } from "../lib/keyboard";
@@ -75,17 +70,13 @@ import {
   type TeamAuthor,
   type TeamPost,
 } from "../lib/teamThread";
-import type { BoardCard } from "../lib/workBoard";
-import { plural } from "../lib/words";
 import { AutomationReviewCard } from "./AutomationReviewCard";
-import { BatchButtons } from "./TeamBatch";
 import "./TeamChat.css";
 
 /**
- * The team as a chat: a roster you read like a messenger (Everyone, then
- * each teammate with what it's doing), the team thread (its handoffs and
- * verdicts as short posts, your messages among them) with Ready for you
- * pinned on top, and one box to write to everyone or @ one teammate.
+ * Avos's chat: the thread (its helpers' handoffs and verdicts as short
+ * posts, your messages among them, who's working now, and last Avos's
+ * message on what needs you), and one box to write to Avos or @ a helper.
  */
 
 /** Posts the thread shows at first, and adds with each Show earlier. */
@@ -129,37 +120,30 @@ type Addressee = { id: string; name: string };
 export function TeamChat({
   project,
   crew,
-  view,
-  range,
   now,
   name,
   fixer,
-  cards,
-  problems,
-  onCrewAction,
-  onReview,
+  forYou,
+  forYouKey = "",
   onCards,
   onSelected,
   control,
 }: {
   project: string;
   crew: Crew;
-  view: Pipeline;
-  range: BatchRange | null;
   now: number;
   name: (who: string) => string;
   /** The Fixer (the project bot), while it is on. */
   fixer?: { status: BotStatus; sessionId?: string };
-  /** The Board's cards, for an older Ready card's own buttons. */
-  cards: readonly BoardCard[];
-  problems: Readonly<Record<string, string>>;
-  onCrewAction: (card: BoardCard, id: CrewBoardActionId) => void;
-  onReview: () => void;
-  /** Show the Cards (a card that waits on you is answered there). */
+  /** What needs you, as Avos's message at the end of the thread. */
+  forYou?: ReactNode;
+  /** What that message holds, so a new ask comes into view. */
+  forYouKey?: string;
+  /** Answer a card that waits on you (its question, in a sheet). */
   onCards: () => void;
   /** The teammate the thread shows, for the panel to mark. */
   onSelected: (id: string | null) => void;
-  /** A teammate in This week filters the thread to it. */
+  /** A helper in Avos's profile filters the thread to it. */
   control: {
     current: {
       select: (id: string | null) => void;
@@ -244,7 +228,6 @@ export function TeamChat({
       !!member.line &&
       (!filter || member.id === filter),
   );
-  const ready = view.ready.filter((row) => !row.boardActions);
   return (
     <div className="team-chat" data-team-chat={project}>
       <div className="team-thread">
@@ -297,33 +280,6 @@ export function TeamChat({
               : firstCardChatText(name(filter))}
           </p>
         ) : null}
-        {view.batch || ready.length ? (
-          <div className="team-ready-list">
-            {view.batch ? (
-              <ReadyBatch
-                project={project}
-                crew={crew}
-                view={view}
-                range={range}
-                name={name}
-                onReview={onReview}
-              />
-            ) : null}
-            {ready.map((row) => (
-              <ReadyCard
-                key={row.id}
-                project={project}
-                crew={crew}
-                row={row}
-                problem={problems[row.id]}
-                onAction={(id) => {
-                  const card = cards.find((item) => item.id === row.id);
-                  if (card) onCrewAction(card, id);
-                }}
-              />
-            ))}
-          </div>
-        ) : null}
         <Thread
           key={filter ?? "everyone"}
           project={project}
@@ -334,6 +290,8 @@ export function TeamChat({
           working={working}
           now={now}
           onCards={onCards}
+          forYou={filter ? null : forYou}
+          forYouKey={filter ? "" : forYouKey}
         />
         <Composer
           project={project}
@@ -349,130 +307,6 @@ export function TeamChat({
   );
 }
 
-function ReadyBatch({
-  project,
-  crew,
-  view,
-  range,
-  name,
-  onReview,
-}: {
-  project: string;
-  crew: Crew;
-  view: Pipeline;
-  range: BatchRange | null;
-  name: (who: string) => string;
-  onReview: () => void;
-}) {
-  const batch = view.batch!;
-  const last = stackedCards(crew).at(-1);
-  const builder = crewMemberById(crew, last?.builderId);
-  const single = batch.cards.length === 1 ? batch.cards[0]! : undefined;
-  const title = single ? single.title : plural(batch.cards.length, "card");
-  const status = single
-    ? [
-        builder ? name(builder.id) : "",
-        batch.status.startsWith(`${single.title} · `)
-          ? batch.status.slice(single.title.length + 3)
-          : batch.status,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : batch.status;
-  return (
-    <section
-      className="team-ready"
-      aria-label="Ready for you"
-      data-team-ready="batch"
-    >
-      <CrewCritter
-        path={project}
-        role={builder?.role ?? "builder"}
-        {...(builder?.critter ? { critter: memberCritter(builder) } : {})}
-        className="team-ready-mark"
-      />
-      <span className="team-ready-text">
-        <span className="team-ready-tag">
-          <i aria-hidden="true" />
-          Ready for you
-        </span>
-        <span className="team-ready-line">
-          <b>{title}</b>
-          <span title={status}>{status}</span>
-        </span>
-      </span>
-      <BatchButtons
-        crew={crew}
-        batch={batch}
-        range={range}
-        onReview={onReview}
-        className="team-ready-actions"
-        problemClass="team-ready-problem"
-      />
-    </section>
-  );
-}
-
-/** An older Ready card that isn't on the branch: its own Review and Apply. */
-function ReadyCard({
-  project,
-  crew,
-  row,
-  problem,
-  onAction,
-}: {
-  project: string;
-  crew: Crew;
-  row: PipelineRow;
-  problem?: string;
-  onAction: (id: CrewBoardActionId) => void;
-}) {
-  const card = crew.cards.find((item) => item.id === row.id);
-  const builder = crewMemberById(crew, card?.builderId);
-  return (
-    <section
-      className="team-ready"
-      aria-label={`Ready for you: ${row.title}`}
-      data-team-ready={row.id}
-    >
-      <CrewCritter
-        path={project}
-        role={builder?.role ?? "builder"}
-        {...(builder?.critter ? { critter: memberCritter(builder) } : {})}
-        className="team-ready-mark"
-      />
-      <span className="team-ready-text">
-        <span className="team-ready-tag">
-          <i aria-hidden="true" />
-          Ready for you
-        </span>
-        <span className="team-ready-line">
-          <b>{row.title}</b>
-          <span title={row.status}>{row.status}</span>
-        </span>
-      </span>
-      <span className="team-ready-actions">
-        {row.actions.map((action) => (
-          <TeamCardButton
-            key={action.id}
-            size="compact"
-            variant={action.primary ? "primary" : "default"}
-            onClick={() => onAction(action.id)}
-          >
-            {action.label}
-          </TeamCardButton>
-        ))}
-      </span>
-      {problem ? (
-        <p className="team-ready-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // The thread
 
 function Thread({
@@ -484,6 +318,8 @@ function Thread({
   now,
   meeting,
   onCards,
+  forYou,
+  forYouKey,
 }: {
   project: string;
   posts: readonly TeamPost[];
@@ -494,6 +330,9 @@ function Thread({
   /** Meeting Avos: its chat opens on its introduction. */
   meeting?: boolean;
   onCards: () => void;
+  /** Avos's message on what needs you, after everything else. */
+  forYou: ReactNode;
+  forYouKey: string;
 }) {
   const [shown, setShown] = useState(SHOWN);
   const [follow, setFollow] = useState<FeedFollow>(FEED_FOLLOW_START);
@@ -550,10 +389,11 @@ function Thread({
       setShown((count) => count + added);
     }
   }, [newest, newestYou, kept]);
-  // Someone starts or stops working: the live line stays in view.
+  // Someone starts or stops working, or something new waits for you: the
+  // end of the thread stays in view.
   useLayoutEffect(() => {
     if (followRef.current.following) toBottom();
-  }, [liveKey]);
+  }, [liveKey, forYouKey]);
   // Show earlier keeps what you were reading where it was.
   useLayoutEffect(() => {
     const element = scroller.current;
@@ -651,6 +491,7 @@ function Thread({
             ))}
           </ol>
         ) : null}
+        {forYou}
       </div>
       {follow.unseen > 0 ? (
         <button

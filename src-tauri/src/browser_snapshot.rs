@@ -57,7 +57,7 @@ const CAPTURE_MAX_BASE64: usize = 12 * 1024 * 1024;
 /// Accept only a bounded PNG, from either `{data, mimeType, width, height}`
 /// or a `data:image/png;base64,` string, and report its real pixel size.
 #[cfg(any(test, target_os = "macos"))]
-fn page_capture(result: &serde_json::Value) -> Result<PageCapture, String> {
+pub(crate) fn page_capture(result: &serde_json::Value) -> Result<PageCapture, String> {
     use base64::Engine;
 
     const PREFIX: &str = "data:image/png;base64,";
@@ -343,14 +343,14 @@ mod capture_tests {
     }
 }
 
-#[cfg(all(target_os = "macos", not(feature = "chromium")))]
+#[cfg(target_os = "macos")]
 const MAX_PIXEL_EDGE: f64 = 1280.0;
-#[cfg(all(target_os = "macos", not(feature = "chromium")))]
+#[cfg(target_os = "macos")]
 const MAX_PNG_BYTES: usize = 8 * 1024 * 1024;
 
 /// WKSnapshotConfiguration uses points; account for Retina so the temporary
 /// image is at most one pixel per logical view point, and 1280 on either edge.
-#[cfg(all(target_os = "macos", not(feature = "chromium")))]
+#[cfg(target_os = "macos")]
 fn snapshot_width(width: f64, height: f64, display_scale: f64) -> Result<f64, String> {
     if [width, height, display_scale]
         .iter()
@@ -367,8 +367,8 @@ fn snapshot_width(width: f64, height: f64, display_scale: f64) -> Result<f64, St
     Ok(width * ratio / display_scale)
 }
 
-#[cfg(all(target_os = "macos", not(feature = "chromium")))]
-async fn capture(view: Webview) -> Result<String, String> {
+#[cfg(target_os = "macos")]
+pub(crate) async fn capture(view: Webview) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use block2::RcBlock;
     use objc2::msg_send;
@@ -438,7 +438,7 @@ async fn capture(view: Webview) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{}", STANDARD.encode(bytes)))
 }
 
-#[cfg(all(target_os = "macos", not(feature = "chromium")))]
+#[cfg(target_os = "macos")]
 fn png_bytes(image: &objc2_app_kit::NSImage) -> Result<Vec<u8>, String> {
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
     use objc2_foundation::NSDictionary;
@@ -459,7 +459,7 @@ fn png_bytes(image: &objc2_app_kit::NSImage) -> Result<Vec<u8>, String> {
     Ok(png.to_vec())
 }
 
-#[cfg(all(test, target_os = "macos", not(feature = "chromium")))]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::snapshot_width;
 

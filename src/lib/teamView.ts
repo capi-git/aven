@@ -2,30 +2,25 @@ import { projectKey } from "./paths";
 import { normalizeProjectPath } from "./recents";
 
 /**
- * What each project's Avos screen shows under its header: its Chat (unless
- * you chose another), Changes, Notes or Sub agents;
- * remembered in every window. Overview and Teammates, from when a team had
- * a panel of tabs, open on the Chat (This week and Helping out took them).
+ * What each project's Avos screen shows: its chat, always, with its profile
+ * beside it. The old Board is kept only for the real-app check to read
+ * cards off, for this session (`setTeamView`); remembered in every window.
  */
-export const TEAM_VIEWS = [
-  "chat",
-  "changes",
-  "notes",
-  "agents",
-  "board",
-  "schedule",
-] as const;
+export const TEAM_VIEWS = ["chat", "board"] as const;
 export type TeamView = (typeof TEAM_VIEWS)[number];
 
 /**
- * Saved views from before that open on another now. The Board and the
- * Schedule aren't pages any more (This week took the Board's work, and the
- * Schedule is a sheet), so a choice saved for them opens on the Chat. The
- * real-app check may still show the Board for this session (`setTeamView`).
+ * Saved views from before that open on the chat now: the tabs (Changes,
+ * Notes, Sub agents) went into Avos's chat and profile, the Board's work
+ * into Avos's message on what needs you, the Schedule into a sheet, and
+ * Overview and Teammates went long before.
  */
 const RETIRED_VIEWS: Readonly<Record<string, TeamView>> = {
   overview: "chat",
   teammates: "chat",
+  changes: "chat",
+  notes: "chat",
+  agents: "chat",
   board: "chat",
   schedule: "chat",
 };

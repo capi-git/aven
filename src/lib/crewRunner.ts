@@ -215,6 +215,8 @@ export type CrewRunnerDeps = {
   /** Stop a chat's turn. */
   stopChat: (sessionId: string) => void;
   copy: {
+    /** Stop Try it running the copy: its files are about to change. */
+    serveStop?: (copy: string) => Promise<void>;
     /** Make the copy when missing; made again, it starts `at` the stack. */
     prepare: (
       cwd: string,
@@ -888,10 +890,7 @@ export class CrewRunner {
         mayStartHelpers,
         mayAddJob: talkMayAddJob(talk, member.role),
         mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
-        helpersOn: {
-          research: !!cardResearcher(fresh),
-          mockup: !!cardDesigner(fresh),
-        },
+        helpersOn: { mockup: !!cardDesigner(fresh) },
         guidance: crewGuidanceText({
           ...(member.instructions ? { instructions: member.instructions } : {}),
           ...(member.memory ? { memory: member.memory } : {}),
@@ -1014,17 +1013,24 @@ export class CrewRunner {
     // A rule or a goal, taken down from your own words only.
     const keep = isLead && yours && crew.on && !failed;
     // A question for the Researcher or a screen for the Designer: their own
-    // cards, as the box once made them.
+    // cards, as the box once made them. Avos has no web, so a link goes to
+    // the Researcher, brought in (or back on) when the team has none on.
     if (keep && (said.research || said.mockup)) {
-      const { addQuestionCard } = await import("./crewActions");
+      const { addQuestionCard, bringInResearcher } =
+        await import("./crewActions");
       for (const [text, kind] of [
         [said.research, "research"],
         [said.mockup, "mockup"],
       ] as const)
         if (text) {
-          const made = await addQuestionCard(path, text, kind, now).catch(
-            (error) => ({ problem: errorText(error) }),
-          );
+          const ready =
+            kind === "research" ? bringInResearcher(path) : { broughtIn: null };
+          const made =
+            "problem" in ready
+              ? ready
+              : await addQuestionCard(path, text, kind, now, {
+                  ...(ready.broughtIn ? { broughtIn: ready.broughtIn } : {}),
+                }).catch((error) => ({ problem: errorText(error) }));
           if (made.problem)
             updateCrew(path, (current) =>
               withFeed(current, {
@@ -1557,6 +1563,8 @@ export class CrewRunner {
     } catch (error) {
       throw new Error(`Couldn't make Avos's copy: ${botCopyError(error)}`);
     }
+    // Work starts in the copy: Try it would show it half done.
+    await this.deps.copy.serveStop?.(copy.path).catch(() => {});
     const sources = await this.deps.copy
       .sources(copy.path)
       .catch(() => crew.copy?.sources);

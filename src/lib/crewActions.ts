@@ -96,6 +96,7 @@ import { notifyGitChanged } from "./fs";
 import { projectKey, projectName } from "./paths";
 import { projectAppearance } from "./projectAppearance";
 import { avosIntro, avosUnmet } from "./avos";
+import { prBranch, prText } from "./avosReview";
 import {
   botCopyError,
   botCopyHost,
@@ -446,6 +447,8 @@ export async function tellCrewWork(
   path: string,
   text: string,
   now = Date.now(),
+  /** Said to the Builder after your words, as what the card is about. */
+  about?: string,
 ): Promise<string | null> {
   const words = text.trim().slice(0, CREW_NOTE_MAX);
   if (!words) return null;
@@ -455,9 +458,15 @@ export async function tellCrewWork(
     return null;
   }
   const title = crewTaskTitle(words);
+  const note = [
+    words.toLowerCase() !== title.toLowerCase() ? words : "",
+    about?.trim() ?? "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const card = await addFeatureIdea(path, {
     title,
-    ...(words.toLowerCase() !== title.toLowerCase() ? { note: words } : {}),
+    ...(note ? { note } : {}),
   });
   if (!card) return "Couldn't add the card to the Board.";
   return giveCardToCrew(path, card, now);
@@ -477,6 +486,8 @@ export async function tellTeam(
   now = Date.now(),
   /** The chat you wrote it from with @Avos (a message to Avos only). */
   from?: CrewMessageFrom,
+  /** For a card: what it is about, said to the Builder after your words. */
+  about?: string,
 ): Promise<string | null> {
   const words = text.trim();
   if (!words) return null;
@@ -518,7 +529,7 @@ export async function tellTeam(
   if (as === "rule") tellCrew(path, words, now);
   else if (as === "goal") setCrewGoal(path, words, now);
   else {
-    const problem = await tellCrewWork(path, words, now);
+    const problem = await tellCrewWork(path, words, now, about);
     if (problem) return problem;
   }
   // The Feed's own line for what you wrote: your message stands for it.
@@ -901,6 +912,41 @@ function designerProblem(crew: Crew): string | null {
     : NO_DESIGNER;
 }
 
+/** How the Researcher came to look into a question Avos passed it. */
+export type ResearcherBroughtIn = "added" | "on";
+
+/**
+ * The Researcher, there and on for a question Avos passes it from your
+ * message (Avos itself has no web): added as the ready-made Researcher when
+ * the team has none, or turned back on. Its web follows Access, as any
+ * Researcher's does. Resolves with how it came (null when it was on), or
+ * what you need to do first.
+ */
+export function bringInResearcher(
+  path: string,
+): { broughtIn: ResearcherBroughtIn | null } | { problem: string } {
+  const crew = getCrew(path);
+  if (!crew?.on) return { problem: AVOS_ASLEEP };
+  if (cardResearcher(crew)) return { broughtIn: null };
+  const off = crew.members.find((member) => member.role === "researcher");
+  if (off) {
+    const problem = updateCrewMember(path, off.id, { paused: false });
+    return problem ? { problem } : { broughtIn: "on" };
+  }
+  const added = addCrewPreset(
+    path,
+    "researcher",
+    crewModelFor(crewModelsHere(), "researcher"),
+  );
+  if (!("error" in added)) return { broughtIn: "added" };
+  return {
+    problem:
+      added.error === HELPERS_FULL
+        ? "Avos needs the Researcher to look into that, but it has 8 helpers already. Remove one in Settings, then ask again."
+        : added.error,
+  };
+}
+
 /**
  * A new question for the Researcher ("Research: …") or screen for the
  * Designer ("Design: …"), typed in the Add an idea box or set up with the
@@ -919,6 +965,8 @@ export async function addQuestionCard(
     whileOff?: boolean;
     /** Whose words it is: yours, or a setup suggestion (quoted as data). */
     from?: "you" | "setup";
+    /** Avos brought the Researcher in for it (see `bringInResearcher`). */
+    broughtIn?: ResearcherBroughtIn;
   } = {},
 ): Promise<{ card: FeatureCard | null; problem: string | null }> {
   const crew = getCrew(path);
@@ -963,6 +1011,7 @@ export async function addQuestionCard(
       current,
       member?.id ?? (kind === "research" ? "researcher" : "designer"),
     );
+    const them = member?.name ? who : `the ${who}`;
     return withFeed(current, {
       at: now,
       kind: "note",
@@ -970,9 +1019,13 @@ export async function addQuestionCard(
       cardId: id,
       title: clean,
       text:
-        kind === "research"
-          ? `You asked ${who} “${clean}”`
-          : `You asked ${who} to mock up “${clean}”`,
+        kind === "mockup"
+          ? `You asked ${who} to mock up “${clean}”`
+          : options.broughtIn === "added"
+            ? `Avos brought in ${them} to look into “${clean}”`
+            : options.broughtIn === "on"
+              ? `Avos turned ${them} back on to look into “${clean}”`
+              : `You asked ${who} “${clean}”`,
     });
   });
   return { card, problem: null };
@@ -1888,6 +1941,172 @@ export async function applyCrewBatch(
   return null;
 }
 
+/**
+ * Send the batch, or up to one of its cards, as a pull request instead of
+ * applying it: exactly the change you reviewed (`to`, `hash`), which Aven
+ * puts on the project's main branch as one commit, pushes to a new `avos/`
+ * branch and opens a pull request from. Avos itself never pushes, and your
+ * files stay as they are. Its cards leave Avos's branch as sent, each
+ * keeping the pull request's address. Resolves with that address, or why
+ * it couldn't.
+ */
+export async function openCrewBatchPr(
+  path: string,
+  shown: { to: string; hash: string },
+  now = Date.now(),
+): Promise<{ url: string } | { error: string }> {
+  if (!shown.to || !shown.hash) return { error: REVIEW_FIRST };
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  if (!crew?.copy || !batch) return { error: NOT_ON_BRANCH };
+  const cards = batchTo(batch, shown.to);
+  if (!cards) return { error: BRANCH_MOVED };
+  const chain = cards.map((card) => ({
+    commit: card.stacked!.commit,
+    hash: stackedHash(card) ?? "",
+  }));
+  if (chain.some((card) => !card.hash)) return { error: REVIEW_FIRST };
+  const copy = crew.copy;
+  let range: BotDiff;
+  try {
+    range = await botCopyHost.range(copy.path, batch.from, shown.to);
+  } catch (error) {
+    logError("Crew pull request", error);
+    return { error: botCopyError(error) };
+  }
+  if (shown.hash !== range.hash) return { error: BRANCH_MOVED };
+  const guarded = protectedFixPaths(range.files.map((file) => file.path));
+  if (guarded.length)
+    return {
+      error: `Aven didn't send this: it changes settings or hooks that could run commands as you (${guarded.join(", ")}). Take it over in a chat to send that part yourself.`,
+    };
+  const text = prText(cards);
+  let url: string;
+  try {
+    url = await botCopyHost.publishRange(
+      path,
+      copy.path,
+      batch.from,
+      shown.to,
+      shown.hash,
+      chain,
+      { branch: prBranch(text.title, now), ...text },
+    );
+  } catch (error) {
+    if (isFixChanged(error)) return { error: BRANCH_MOVED };
+    logError("Crew pull request", error);
+    const why = errorText(error);
+    return {
+      error: /doesn't fit/.test(why)
+        ? why
+        : `Couldn't open the pull request: ${why}`,
+    };
+  }
+  const sent = new Set(cards.map((card) => card.id));
+  const to = shown.to;
+  updateCrew(path, (current) => {
+    let next: Crew = current;
+    for (const card of current.cards)
+      if (sent.has(card.id))
+        next = withCard(
+          next,
+          withInboxResolved(
+            { ...markApplied(card, now), pr: url },
+            "done",
+            now,
+          ),
+        );
+    const left = stackedCards({ ...next, stack: { base: to } }).length;
+    next = { ...next, stack: left ? { base: to } : undefined };
+    if (!next.stack) delete next.stack;
+    const only = cards.length === 1 ? cards[0] : undefined;
+    return withFeed(next, {
+      at: now,
+      kind: "applied",
+      who: "you",
+      ...(only ? { cardId: only.id, title: only.title } : {}),
+      text: only
+        ? `Opened a pull request for “${only.title}”`
+        : `Opened a pull request for ${cards.length} cards: ${cards
+            .map((card) => card.title)
+            .join(" · ")}`,
+    });
+  });
+  for (const card of cards) await moveFeatureCard(path, card.id, "shipped", "");
+  return { url };
+}
+
+/**
+ * Try it: run Avos's copy, while it holds exactly the change you reviewed
+ * (`to`, `hash`) and nothing Apply would refuse, on its own port. Aven runs
+ * it, not an agent, with none of your keys or `.env` files. Resolves with
+ * its address once it answers, or why it couldn't.
+ */
+export async function tryCrewBatch(
+  path: string,
+  shown: { to: string; hash: string },
+): Promise<{ url: string } | { error: string }> {
+  if (!shown.to || !shown.hash) return { error: REVIEW_FIRST };
+  const crew = getCrew(path);
+  const batch = crewBatch(crew);
+  if (!crew?.copy || !batch) return { error: NOT_ON_BRANCH };
+  const cards = batchTo(batch, shown.to);
+  if (!cards) return { error: BRANCH_MOVED };
+  const chain = cards.map((card) => ({
+    commit: card.stacked!.commit,
+    hash: stackedHash(card) ?? "",
+  }));
+  if (chain.some((card) => !card.hash)) return { error: REVIEW_FIRST };
+  try {
+    return await botCopyHost.serve(
+      crew.copy.path,
+      batch.from,
+      shown.to,
+      shown.hash,
+      chain,
+    );
+  } catch (error) {
+    if (isFixChanged(error)) return { error: BRANCH_MOVED };
+    logError("Try Avos's copy", error);
+    return { error: errorText(error) };
+  }
+}
+
+/** Stop running Avos's copy for Try it, if it runs. */
+export function stopCrewTry(path: string): Promise<void> {
+  const copy = getCrew(path)?.copy?.path;
+  return copy
+    ? botCopyHost.serveStop(copy).catch((error) => {
+        logError("Stop Avos's copy", error);
+      })
+    : Promise.resolve();
+}
+
+/**
+ * Ask Avos for changes to the work you're reviewing: your words become a
+ * card that builds on top of Avos's branch, told what it changes, and is
+ * checked like any other before it joins the batch. Resolves with why it
+ * couldn't, or null.
+ */
+export function askAvosForChanges(
+  path: string,
+  words: string,
+  titles: readonly string[],
+  now = Date.now(),
+): Promise<string | null> {
+  const named = titles.map((title) => `“${title}”`).join(", ");
+  return tellTeam(
+    path,
+    words,
+    "card",
+    now,
+    undefined,
+    named
+      ? `This asks for changes to ${named}, which ${titles.length === 1 ? "waits" : "wait"} on Avos's branch for review: change it there, on top of it.`
+      : undefined,
+  );
+}
+
 /** The card the crew is at work on (or that waits on you) builds on its branch. */
 const BUILDS_ON_TOP = (title: string) =>
   `“${title}” builds on top of Avos's branch. Finish it or throw it away first.`;
@@ -2217,6 +2436,8 @@ export function crewScopeList(
   return { scope: [...seen] };
 }
 
+const HELPERS_FULL = "Avos has at most 8 helpers.";
+
 /**
  * A mark none of the crew wears yet: `own` (its role's, or a custom
  * member's) when free, else the first free one.
@@ -2264,7 +2485,7 @@ export function addCrewMember(
       }.`,
     };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "Avos has at most 8 helpers." };
+    return { error: HELPERS_FULL };
   const harness =
     input.harness &&
     crewAgentAllowed(input.harness) &&
@@ -2464,7 +2685,7 @@ export function addCrewPreset(
   if (presetInCrew(crew, preset))
     return { error: "It's helping Avos already." };
   if (crew.members.filter((member) => member.role !== "fixer").length >= 8)
-    return { error: "Avos has at most 8 helpers." };
+    return { error: HELPERS_FULL };
   if (
     (preset.role === "scout" ||
       preset.role === "lead" ||

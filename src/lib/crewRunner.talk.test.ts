@@ -11,6 +11,7 @@ import { AVOS_TALK_MODEL } from "./crewModels";
 import { TALK_HOPS, parseTalk, talkMayAddJob } from "./crewTalk";
 import {
   crewLead,
+  crewRoleUsesWeb,
   ensureAvos,
   getCrew,
   newCrew,
@@ -20,6 +21,10 @@ import {
   type Crew,
 } from "./crews";
 import { ideaWaits } from "./crewLimits";
+import {
+  memoryFeatureCardBackend,
+  setFeatureCardBackend,
+} from "./featureCards";
 import { localDay } from "./projectBots";
 import { resetProjectBotsCache } from "./projectBots";
 import type { BotSendOptions } from "./projectBotRunner";
@@ -942,6 +947,110 @@ describe("Avos answering you", () => {
     expect(crew.notes).toEqual([]);
     expect(crew.goal).toBeUndefined();
     runner.stop();
+  });
+
+  describe("passing a link to the Researcher", () => {
+    // Avos has no web: a page could steer it. A link goes to the Researcher.
+    const ASKED =
+      "Read https://thebrainrotapp.com and sort its features against Pom";
+    const passes = () =>
+      talk(
+        { line: "The Researcher is reading it.", research: ASKED },
+        "I can't open sites myself, so the Researcher is reading it now.",
+      );
+    const notes = () =>
+      getCrew(PATH)!
+        .feed.filter((entry) => entry.kind === "note")
+        .map((entry) => entry.text);
+    const asked = () =>
+      getCrew(PATH)!.cards.find((card) => card.kind === "research");
+
+    beforeEach(() => setFeatureCardBackend(memoryFeatureCardBackend()));
+    afterEach(() => setFeatureCardBackend(null));
+
+    it("brings in the Researcher when Avos has none, and asks it", async () => {
+      team();
+      expect(
+        getCrew(PATH)!.members.some((member) => member.role === "researcher"),
+      ).toBe(false);
+      const { runner, sent, settle } = harness({ lead: passes });
+      runner.start();
+      await tellTeam(PATH, "Look at thebrainrotapp.com", "lead", NOON);
+      await settle();
+      // Offered with no Researcher on.
+      expect(sent[0]!.text).toContain('"research"');
+      const crew = getCrew(PATH)!;
+      const researchers = crew.members.filter(
+        (member) => member.role === "researcher",
+      );
+      expect(researchers).toHaveLength(1);
+      expect(researchers[0]).toMatchObject({ preset: "researcher" });
+      expect(researchers[0]!.paused).toBeUndefined();
+      // Its web follows Access, which lets it read the web as it starts.
+      expect(crewRoleUsesWeb(crew, "researcher")).toBe(true);
+      expect(asked()).toMatchObject({ title: ASKED, kind: "research" });
+      expect(notes()).toContain(
+        `Avos brought in the Researcher to look into “${ASKED}”`,
+      );
+      // Its turn on the question is the Researcher tests' (they have a copy).
+      runner.stop();
+    });
+
+    it("turns the team's Researcher back on", async () => {
+      team((crew) => ({
+        ...crew,
+        members: [
+          ...crew.members,
+          { id: "researcher", role: "researcher", paused: true },
+        ],
+      }));
+      const { runner, settle } = harness({ lead: passes });
+      runner.start();
+      await tellTeam(PATH, "Look at thebrainrotapp.com", "lead", NOON);
+      await settle();
+      const researchers = getCrew(PATH)!.members.filter(
+        (member) => member.role === "researcher",
+      );
+      expect(researchers).toHaveLength(1);
+      expect(researchers[0]!.paused).toBeUndefined();
+      expect(asked()).toMatchObject({ title: ASKED });
+      expect(notes()).toContain(
+        `Avos turned the Researcher back on to look into “${ASKED}”`,
+      );
+      runner.stop();
+    });
+
+    it("says what to do when Avos has no room for it", async () => {
+      team((crew) => {
+        const have = crew.members.filter(
+          (member) => member.role !== "fixer",
+        ).length;
+        return {
+          ...crew,
+          members: [
+            ...crew.members,
+            ...Array.from({ length: 8 - have }, (_, index) => ({
+              id: `builder-${index + 2}`,
+              role: "builder" as const,
+            })),
+          ],
+        };
+      });
+      const { runner, settle } = harness({ lead: passes });
+      runner.start();
+      await tellTeam(PATH, "Look at thebrainrotapp.com", "lead", NOON);
+      await settle();
+      const crew = getCrew(PATH)!;
+      expect(crew.members.some((member) => member.role === "researcher")).toBe(
+        false,
+      );
+      expect(asked()).toBeUndefined();
+      expect(notes()).toContain(
+        "Avos needs the Researcher to look into that, but it has 8 helpers already. Remove one in Settings, then ask again.",
+      );
+      expect(notes().join("\n")).not.toMatch(/screenshot/i);
+      runner.stop();
+    });
   });
 
   it("answers on the quick model unless you picked one for it", async () => {

@@ -120,6 +120,43 @@ export const botCopyHost = {
       cards,
     }),
   /**
+   * Open a pull request with exactly the reviewed range: Aven puts its patch
+   * on the remote's main branch as one commit, pushes that to `branch` (an
+   * `avos/` name) and opens the pull request. Resolves with its URL.
+   */
+  publishRange: (
+    cwd: string,
+    copy: string,
+    from: string,
+    to: string,
+    hash: string,
+    cards: readonly { commit: string; hash: string }[],
+    pr: { branch: string; title: string; body: string },
+  ) =>
+    invoke<string>("bot_copy_publish_range", {
+      cwd,
+      copy,
+      from,
+      to,
+      hash,
+      cards,
+      ...pr,
+    }),
+  /**
+   * Try it: run the copy, holding exactly the reviewed range, on its own
+   * port. Resolves with its address once it answers.
+   */
+  serve: (
+    copy: string,
+    from: string,
+    to: string,
+    hash: string,
+    cards: readonly { commit: string; hash: string }[],
+  ) =>
+    invoke<{ url: string }>("bot_copy_serve", { copy, from, to, hash, cards }),
+  /** Stop the copy's Try it server, if one runs. */
+  serveStop: (copy: string) => invoke<void>("bot_copy_serve_stop", { copy }),
+  /**
    * Replay the stacked cards onto the user's files now, each its own commit
    * again. A card that no longer fits leaves the stack exactly as it was.
    */

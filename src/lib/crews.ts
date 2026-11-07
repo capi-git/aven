@@ -403,6 +403,11 @@ export type CrewHandoff = {
   ran: CrewRan[];
   /** Something only you can answer: the card waits for it. */
   question?: string;
+  /**
+   * Pages of the running app it changed ("/pricing"), for the before and
+   * after pictures in Avos's Review. Only when it changed what people see.
+   */
+  pages?: string[];
 };
 
 export type CrewFinding = {
@@ -584,6 +589,8 @@ export type CrewCard = {
   };
   /** Planned by the crew towards its goal. */
   goal?: true;
+  /** Sent to you as a pull request (its URL) instead of applied to your files. */
+  pr?: string;
   /** Taken down by this member from your words in its chat (`from: "member"`). */
   fromMember?: string;
 };
@@ -1207,12 +1214,35 @@ function readHandoff(value: unknown): CrewHandoff | undefined {
   const raw = value as Partial<CrewHandoff> | null;
   if (!raw || typeof raw !== "object") return undefined;
   const question = text(raw.question, 400);
+  const pages = appPages(raw.pages);
   return {
     summary: text(raw.summary) ?? "",
     howToCheck: strings(raw.howToCheck, 6, 300),
     ran: readRan(raw.ran),
     ...(question ? { question } : {}),
+    ...(pages.length ? { pages } : {}),
   };
+}
+
+/** Pages pictured for a Review at most, per card. */
+export const PAGES_MAX = 3;
+
+/**
+ * Paths in the running app ("/pricing", "/settings?tab=team"): a path on
+ * the app's own address only, never another site or a file.
+ */
+export function appPages(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const pages = value
+    .filter((page): page is string => typeof page === "string")
+    .map((page) => page.trim())
+    .filter(
+      (page) =>
+        page.length <= 120 &&
+        /^\/(?![/\\])[^\s\\]*$/.test(page) &&
+        !/^\/[^/?#]*:/.test(page),
+    );
+  return [...new Set(pages)].slice(0, PAGES_MAX);
 }
 
 function readVerdict(value: unknown): CrewVerdict | undefined {
@@ -1457,7 +1487,14 @@ export function readCrewCard(value: unknown): CrewCard | null {
     ...(error ? { error } : {}),
     ...(stacked ? { stacked } : {}),
     ...(raw.goal === true ? { goal: true as const } : {}),
+    ...(prUrl(raw.pr) ? { pr: prUrl(raw.pr)! } : {}),
   };
+}
+
+/** A pull request's web address, as kept on a card: https only. */
+export function prUrl(value: unknown): string | undefined {
+  const url = text(value, 400);
+  return url && /^https:\/\/[^\s/]+\/\S+$/.test(url) ? url : undefined;
 }
 
 export const CREW_INSTRUCTIONS_MAX = 2_000;

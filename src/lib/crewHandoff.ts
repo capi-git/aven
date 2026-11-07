@@ -5,6 +5,7 @@ import {
 } from "./automationReview";
 import {
   CREW_MEMORY_MAX,
+  appPages,
   readFinding,
   readRan,
   type CrewFinding,
@@ -126,6 +127,7 @@ export function parseHandoff(text: string): CrewHandoff | null {
   const fields = block ? json(block.body) : null;
   if (!fields) return null;
   const question = botLine(fields.question, 400);
+  const pages = appPages(fields.pages);
   return {
     summary: botLine(fields.summary, 600),
     howToCheck: botLines(fields.howToCheck, HOW_TO_CHECK_MAX),
@@ -135,6 +137,7 @@ export function parseHandoff(text: string): CrewHandoff | null {
       ...(ran.note ? { note: botLine(ran.note, 200) } : {}),
     })),
     ...(question ? { question } : {}),
+    ...(pages.length ? { pages } : {}),
   };
 }
 

@@ -84,7 +84,7 @@ export function crewBrief(input: CrewBriefInput): string {
       sandboxLine(input.copyPath, input.project),
       NEVER,
       "Keep to the card: small and scoped. If it would take more than about 15 files, a new top-level folder, or a choice only the user can make, don't guess: ask, using the question field below.",
-      `End every turn with exactly one block like this, as the very last thing in your reply:\n\`\`\`${HANDOFF_FENCE}\n{"summary": "One or two sentences on what you changed.", "howToCheck": ["Step one", "Step two"], "ran": [{"command": "npm test", "ok": true, "note": "48 passed"}]}\n\`\`\`\nAdd "question": "…" only when you need the user's answer before you can go on; the card then waits for them.`,
+      `End every turn with exactly one block like this, as the very last thing in your reply:\n\`\`\`${HANDOFF_FENCE}\n{"summary": "One or two sentences on what you changed.", "howToCheck": ["Step one", "Step two"], "ran": [{"command": "npm test", "ok": true, "note": "48 passed"}]}\n\`\`\`\nAdd "question": "…" only when you need the user's answer before you can go on; the card then waits for them. When you changed what people see in an app, add "pages": ["/pricing"] with up to three paths of the running app that show it, so the user gets before and after pictures of them.`,
       MEMORY_RULE,
       ASKED_FOR_WORK,
       UNTRUSTED_RULE,
