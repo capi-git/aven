@@ -245,14 +245,15 @@ export const AGENT_STATE_FACES: Readonly<Record<AgentState, AgentFace>> = {
 
 /**
  * Each role's own face, shown at rest, as a label and while watching, so a
- * Builder reads as a Builder: Avos its prompt, the Builder `< >`, the
+ * Builder reads as a Builder: Avos its square eyes (blinking now and then
+ * at rest), the Builder `< >`, the
  * Checker a tick, the Scout a diamond, the Researcher a question, the
  * Designer a star, Security a shield, the project's bot (the Fixer) a
  * wrench. Working,
  * needing you and ready show the state's face instead, the same for all.
  */
 export const AGENT_ROLE_FACES: Readonly<Record<AgentOutfit, AgentFace>> = {
-  headset: "prompt",
+  headset: "squares",
   hat: "code",
   tick: "check",
   diamond: "diamond",
