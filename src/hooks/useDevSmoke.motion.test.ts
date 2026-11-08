@@ -47,7 +47,7 @@ type Flaws = {
   stackReacts?: boolean;
   /** The sidebar's Stack stays closed when the project opens. */
   fanStuck?: boolean;
-  /** The sidebar row never shows its running dot. */
+  /** Neither the project's row nor its chat's shows its agent working. */
   noRunningDot?: boolean;
   /** Home's working agent mark does not animate. */
   stillWhileWorking?: boolean;
@@ -150,14 +150,26 @@ function app(flaws: Flaws = {}) {
   };
   // A project's agent (Home's tiles): Bot, typing while it works.
   const mark = (working: boolean) =>
-    `<span class="dot-mark agent-mark" data-agent="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><span class="agent-bob"><svg class="agent-body"><path class="agent-head"></path></svg>${working ? `<i class="agent-key" style="animation-name: ${flaws.stillWhileWorking ? "none" : "agent-type"}"></i>` : ""}</span></span>`;
+    `<span class="dot-mark agent-mark" data-agent="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><span class="agent-bob"><svg class="agent-body"><path class="agent-head"></path></svg>${working ? `<i class="agent-eyes" style="animation-name: ${flaws.stillWhileWorking ? "none" : "agent-scan"}"></i>` : ""}</span></span>`;
   function draw() {
     const working = state.sessions.some((session) => session.busy);
     document.body.innerHTML = `
       <div class="personal-project-row" data-project-path="${PROJECT}">
-        <button class="personal-project-open">${stack(working)}${working && !flaws.noRunningDot ? '<span class="personal-project-status"><span class="personal-project-running"></span></span>' : ""}</button>
+        <button class="personal-project-open">${stack(working)}${working && !expanded && !flaws.noRunningDot ? '<span class="personal-project-status"><span class="personal-project-running"></span></span>' : ""}</button>
         <button class="personal-project-disclosure" aria-expanded="${expanded}"></button>
       </div>
+      ${
+        // Open, the project's chats are listed, and a working one shows its
+        // agent's screen on its own row instead of the project's.
+        expanded
+          ? state.sessions
+              .map(
+                (session) =>
+                  `<div data-session-card="${session.id}"><span class="personal-task-lead">${session.busy && !flaws.noRunningDot ? '<span class="personal-task-agent"><span class="dot-mark agent-mark" data-agent="working"></span></span>' : ""}</span></div>`,
+              )
+              .join("")
+          : ""
+      }
       <div class="personal-workspace-content"${homeOpen ? " hidden" : ""}>
         <div data-session-drop="${focused}"><div data-composer><textarea style="visibility: visible"></textarea></div></div>
       </div>
@@ -279,22 +291,20 @@ describe("the real-app check's motion steps", () => {
     expect(mark.detail).toBe("The mark reacted (cheer) as the turn ended");
   });
 
-  it("fail when the row never says its agent is running", async () => {
+  it("fail when the sidebar never says its agent is working", async () => {
     const mark = named(
       await check({ noRunningDot: true }),
       "the project's Stack",
     );
     expect(mark.passed).toBe(false);
-    expect(mark.detail).toContain(
-      "the project's row to show its agent running",
-    );
+    expect(mark.detail).toContain("the sidebar to show its agent working");
   });
 
   it("fail when Home's working agent mark stands still", async () => {
     const home = named(await check({ stillWhileWorking: true }), "Home shows");
     expect(home.passed).toBe(false);
     expect(home.detail).toBe(
-      "On Home, the working agent's mark its animation is none, expected agent-type",
+      "On Home, the working agent's mark its animation is none, expected agent-scan",
     );
   });
 

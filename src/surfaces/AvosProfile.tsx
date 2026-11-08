@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
-import { ChevronDown, MoreHorizontal } from "../chrome/icons";
+import { ChevronDown, ChevronRight, MoreHorizontal } from "../chrome/icons";
+import { CrewFeed } from "./CrewBoard";
 import { helperWord, type AvosGlance, type AvosWeekRow } from "../lib/avos";
-import { avosRemembers } from "../lib/avosProfile";
+import { avosFinishedToday, avosRemembers } from "../lib/avosProfile";
 import {
   allowMoreRunsToday,
   clearCrewGoal,
@@ -37,13 +38,17 @@ export type AvosProfileProps = {
   members: readonly CrewMemberView[];
   /** Today's runs are used up: "Allow 10 more today" applies. */
   dailyCap: boolean;
+  /** For what finished today. */
+  now: number;
   onOpen: (row: AvosWeekRow) => void;
   /** A helper's posts, in the chat. */
   onHelper: (id: string) => void;
   /** Everything it remembers, in a sheet. */
   onNotes: () => void;
-  onSchedule: () => void;
-  onActivity: () => void;
+  /** A member's name, by its id or role, for what the helpers did. */
+  name: (who: string) => string;
+  /** The day's limits, over what the helpers did. */
+  limits: string;
 };
 
 export function AvosProfile(props: AvosProfileProps) {
@@ -165,20 +170,36 @@ export function AvosSections({
   crew,
   watching,
   members,
+  now,
   onOpen,
   onHelper,
   onNotes,
+  name,
+  limits,
 }: Pick<
   AvosProfileProps,
   | "project"
   | "crew"
   | "watching"
   | "members"
+  | "now"
   | "onOpen"
   | "onHelper"
   | "onNotes"
+  | "name"
+  | "limits"
 >) {
   const remembers = avosRemembers(crew);
+  const finished = avosFinishedToday(crew, now);
+  // What the helpers did opens under its line, not in a window of its own.
+  const [activityOpen, setActivityOpen] = useState(false);
+  // What the helpers did, folded into one line: what finished today, else
+  // all of it.
+  const activity = finished
+    ? `${finished} finished today`
+    : crew.feed.length
+      ? "All activity"
+      : "";
   const helpers = members.filter((member) => member.role !== "lead");
   const subAgents = crew.helpers ?? [];
   return (
@@ -197,6 +218,108 @@ export function AvosSections({
               {row.text}
             </button>
           ))}
+        </section>
+      ) : null}
+      {helpers.length || subAgents.length || activity ? (
+        <section className="avos-profile-section" data-avos-profile="helpers">
+          <h2>Helpers</h2>
+          {helpers.map((member) => {
+            const word = helperWord(member);
+            const state =
+              word === "Needs you"
+                ? "needs"
+                : word === "Working"
+                  ? "working"
+                  : "resting";
+            return (
+              <button
+                key={member.id}
+                type="button"
+                className="avos-profile-helper"
+                data-avos-helper={member.id}
+                data-state={state}
+                title={member.line ?? member.roleLabel}
+                onClick={() => onHelper(member.id)}
+              >
+                <CrewCritter
+                  path={project}
+                  role={member.role}
+                  {...(member.critter ? { critter: member.critter } : {})}
+                  state={state}
+                  className="avos-profile-helper-mark"
+                />
+                <span className="avos-profile-helper-text">
+                  <span className="avos-profile-helper-name">
+                    {member.name}
+                  </span>
+                  {state !== "resting" && member.line ? (
+                    <span className="avos-profile-helper-line">
+                      {member.line}
+                    </span>
+                  ) : null}
+                </span>
+                {/* Only that it needs you: its screen says it's working. */}
+                {state === "needs" ? (
+                  <span className="avos-profile-helper-word" data-needs-you>
+                    Needs you
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+          {/* A helper's own one-job helper, while it works. */}
+          {subAgents.map((helper) => (
+            <p
+              key={helper.id}
+              className="avos-profile-helper"
+              data-avos-sub-agent={helper.id}
+              data-state="working"
+              title={helper.doing?.text}
+            >
+              <CrewCritter
+                path={project}
+                role="helper"
+                state="working"
+                className="avos-profile-helper-mark"
+              />
+              <span className="avos-profile-helper-text">
+                <span className="avos-profile-helper-name">
+                  {helper.name ?? "Helper"}
+                </span>
+                {helper.doing?.text ? (
+                  <span className="avos-profile-helper-line">
+                    {helper.doing.text}
+                  </span>
+                ) : null}
+              </span>
+            </p>
+          ))}
+          {activity ? (
+            <button
+              type="button"
+              className="avos-profile-more avos-profile-finished"
+              data-avos-finished
+              aria-expanded={activityOpen}
+              onClick={() => setActivityOpen((open) => !open)}
+            >
+              {activity}
+              <ChevronRight
+                className="avos-profile-finished-chevron"
+                aria-hidden
+              />
+            </button>
+          ) : null}
+          {activity && activityOpen ? (
+            <div
+              className="crew-activity avos-profile-activity"
+              data-avos-activity
+            >
+              {limits ? (
+                <p className="avos-profile-activity-note">{limits}</p>
+              ) : null}
+              <CrewFeed crew={crew} name={name} />
+            </div>
+          ) : null}
         </section>
       ) : null}
       {remembers.total ? (
@@ -219,96 +342,32 @@ export function AvosSections({
           </button>
         </section>
       ) : null}
-      {helpers.length || subAgents.length ? (
-        <section className="avos-profile-section" data-avos-profile="helpers">
-          <h2>Helpers</h2>
-          {helpers.map((member) => {
-            const word = helperWord(member);
-            return (
-              <button
-                key={member.id}
-                type="button"
-                className="avos-profile-helper"
-                data-avos-helper={member.id}
-                title={member.line ?? member.roleLabel}
-                onClick={() => onHelper(member.id)}
-              >
-                <CrewCritter
-                  path={project}
-                  role={member.role}
-                  {...(member.critter ? { critter: member.critter } : {})}
-                  state={
-                    word === "Needs you"
-                      ? "needs"
-                      : word === "Working"
-                        ? "working"
-                        : "resting"
-                  }
-                  className="avos-profile-helper-mark"
-                />
-                <span className="avos-profile-helper-name">{member.name}</span>
-                <span
-                  className="avos-profile-helper-word"
-                  data-needs-you={word === "Needs you" || undefined}
-                >
-                  {word}
-                </span>
-              </button>
-            );
-          })}
-          {/* A helper's own one-job helper, while it works. */}
-          {subAgents.map((helper) => (
-            <p
-              key={helper.id}
-              className="avos-profile-helper"
-              data-avos-sub-agent={helper.id}
-              title={helper.doing?.text}
-            >
-              <CrewCritter
-                path={project}
-                role="helper"
-                state="working"
-                className="avos-profile-helper-mark"
-              />
-              <span className="avos-profile-helper-name">
-                {helper.name ?? "Sub agent"}
-              </span>
-              <span className="avos-profile-helper-word">Working</span>
-            </p>
-          ))}
-        </section>
-      ) : null}
     </>
   );
 }
 
 /**
- * ⋯ beside Avos's name: Schedule, Activity and Add a helper; Stop now and
- * more runs only while they apply; Pause and Settings.
+ * ⋯ beside Avos's name: Pause and Settings, with Stop now and more runs
+ * only while they apply. Schedules, helpers and the rest are things you ask
+ * Avos for in its chat, or find in Settings.
  */
 function AvosMore({
   crew,
   glance,
   dailyCap,
-  onSchedule,
-  onActivity,
-}: Pick<
-  AvosProfileProps,
-  "crew" | "glance" | "dailyCap" | "onSchedule" | "onActivity"
->) {
+}: Pick<AvosProfileProps, "crew" | "glance" | "dailyCap">) {
   const workspace = useCrewWorkspace();
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const items: ExplorerMenuItem[] = [
-    { kind: "item", id: "schedule", label: "Schedule" },
-    { kind: "item", id: "activity", label: "Activity" },
-    { kind: "item", id: "add", label: "Add a helper…" },
     ...(glance.note === "working"
       ? [{ kind: "item" as const, id: "stop", label: "Stop now" }]
       : []),
     ...(dailyCap
       ? [{ kind: "item" as const, id: "more", label: "Allow 10 more today" }]
       : []),
-    { kind: "sep" },
+    ...(glance.note === "working" || dailyCap
+      ? [{ kind: "sep" as const }]
+      : []),
     crew.paused
       ? { kind: "item", id: "resume", label: "Resume Avos" }
       : { kind: "item", id: "pause", label: "Pause Avos" },
@@ -338,10 +397,7 @@ function AvosMore({
           onClose={() => setMenu(null)}
           onPick={(id) => {
             setMenu(null);
-            if (id === "schedule") onSchedule();
-            else if (id === "activity") onActivity();
-            else if (id === "add") workspace?.openSettings(crew.path, "add");
-            else if (id === "stop") void stopCrewNow(crew.path);
+            if (id === "stop") void stopCrewNow(crew.path);
             else if (id === "more") allowMoreRunsToday(crew.path);
             else if (id === "pause" || id === "resume")
               setCrewPaused(crew.path, id === "pause");

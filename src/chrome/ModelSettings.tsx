@@ -1,11 +1,10 @@
 import { harnessDescriptor } from "../lib/harness/descriptors";
-import { AiIdea, Check, Gauge, Zap } from "./icons";
+import { AiIdea, Gauge, Zap } from "./icons";
 import "./ModelControls.css";
 import {
   useMemo,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
@@ -107,24 +106,41 @@ export function modelSettingsSummary(
   return { effort, fast };
 }
 
-// Tile shimmer (ported upstream work, see docs/UPSTREAM.md), extended to the
-// standard effort levels. Provider order is not a strength ranking (Grok lists
-// the highest first), so match values without changing what the provider gets.
-type EffortTone = "low" | "medium" | "high" | "xhigh" | "ultra" | "max";
-
-function effortTileTone(value: string): EffortTone | undefined {
+/** Effort levels from weakest to strongest, by their usual names. */
+function effortRank(value: string): number | undefined {
   const normalized = value.toLowerCase();
-  if (
-    normalized === "low" ||
-    normalized === "medium" ||
-    normalized === "high"
-  ) {
-    return normalized;
-  }
-  if (normalized === "xhigh" || normalized === "extra-high") return "xhigh";
-  if (normalized === "max") return "max";
-  if (normalized.startsWith("ultra")) return "ultra";
+  const ranks: Readonly<Record<string, number>> = {
+    none: 0,
+    minimal: 1,
+    low: 2,
+    medium: 3,
+    high: 4,
+    xhigh: 5,
+    "extra-high": 5,
+    max: 6,
+  };
+  if (normalized in ranks) return ranks[normalized];
+  if (normalized.startsWith("ultra")) return 7;
   return undefined;
+}
+
+/**
+ * A model's effort levels, weakest first, so the dots fill left to right.
+ * Providers don't all list them that way (Grok lists the highest first);
+ * a list with a level we can't place keeps the provider's order.
+ */
+export function effortOrder<T extends { value: string }>(
+  options: readonly T[],
+): T[] {
+  const ranked = options.map((option, index) => ({
+    option,
+    index,
+    rank: effortRank(option.value),
+  }));
+  if (ranked.some((item) => item.rank === undefined)) return [...options];
+  return ranked
+    .sort((a, b) => a.rank! - b.rank! || a.index - b.index)
+    .map((item) => item.option);
 }
 
 /**
@@ -132,52 +148,21 @@ function effortTileTone(value: string): EffortTone | undefined {
  * one, and the ones that cost much more time. Only shown, never chosen for
  * you.
  */
-const EFFORT_HINTS: Partial<Record<EffortTone, string>> = {
+const EFFORT_HINTS: Readonly<Record<string, string>> = {
   low: "Quickest replies. Good for small, clear changes.",
   xhigh: "Very thorough. Noticeably slower.",
+  "extra-high": "Very thorough. Noticeably slower.",
   max: "Most thorough. Often several times slower.",
 };
 
 /** The hint for an effort value, if it has one. */
 export function effortHint(value: string): string | undefined {
-  const tone = effortTileTone(value);
-  return tone ? EFFORT_HINTS[tone] : undefined;
-}
-
-const EFFORT_TILE_COLUMNS = 32;
-const EFFORT_TILE_ROWS = 5;
-
-function EffortTileShimmer() {
-  const centerColumn = (EFFORT_TILE_COLUMNS - 1) / 2;
-  const centerRow = (EFFORT_TILE_ROWS - 1) / 2;
-  return (
-    <span className="model-effort-tiles" aria-hidden="true">
-      {Array.from(
-        { length: EFFORT_TILE_COLUMNS * EFFORT_TILE_ROWS },
-        (_, index) => {
-          const column = index % EFFORT_TILE_COLUMNS;
-          const row = Math.floor(index / EFFORT_TILE_COLUMNS);
-          const distance = Math.hypot(
-            (column - centerColumn) / centerColumn,
-            (row - centerRow) / centerRow,
-          );
-          const filled = (index * 73 + index * index * 19 + 23) % 101 < 65;
-          return (
-            <span
-              key={index}
-              className={`model-effort-tile${filled ? " model-effort-tile-filled" : ""}`}
-              style={{ "--tile-distance": distance } as CSSProperties}
-            />
-          );
-        },
-      )}
-    </span>
-  );
+  return EFFORT_HINTS[value.toLowerCase()];
 }
 
 /**
- * The model's settings as sections of the agent panel: effort levels as
- * tiles, other choices as segmented buttons and on/off settings as switches.
+ * The model's settings as sections of the agent panel: effort levels as a
+ * row of dots, other choices as segmented buttons and on/off settings as switches.
  * A change applies at once and the panel stays open.
  */
 export function ModelSettingsSections({
@@ -243,52 +228,62 @@ function EffortChoices({
   value: string;
   onChange: (value: string) => void;
 }) {
-  // The row under the pointer or keyboard plays the tile ripple; only that
-  // row mounts its tiles.
-  const [active, setActive] = useState<number | null>(null);
-  const known = setting.options.some((option) => option.value === value);
+  // The level under the pointer or keyboard: the dots light up to it, and
+  // the line under them names it. Only a click or Enter chooses it.
+  const [pointed, setPointed] = useState<number | null>(null);
+  const options = useMemo(
+    () => effortOrder(setting.options),
+    [setting.options],
+  );
+  const selected = options.findIndex((option) => option.value === value);
+  const shown = pointed ?? selected;
+  const named = shown >= 0 ? options[shown] : undefined;
+  const hint = named ? effortHint(named.value) : undefined;
   return (
     <div
-      role="radiogroup"
-      aria-label={setting.label}
-      className="agent-effort-list"
-      onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) =>
-        moveRadioFocus(event)
-      }
-      onMouseLeave={() => setActive(null)}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-          setActive(null);
-      }}
+      className="agent-effort"
+      data-preview={(pointed !== null && pointed !== selected) || undefined}
     >
-      {setting.options.map((option, index) => {
-        const selected = option.value === value;
-        const tone = effortTileTone(option.value);
-        const highlighted = index === active;
-        return (
+      <div
+        role="radiogroup"
+        aria-label={setting.label}
+        className="agent-effort-dots"
+        onKeyDown={(event: ReactKeyboardEvent<HTMLDivElement>) =>
+          moveRadioFocus(event)
+        }
+        onMouseLeave={() => setPointed(null)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+            setPointed(null);
+        }}
+      >
+        {options.map((option, index) => (
           <button
             key={option.value}
             type="button"
             role="radio"
-            aria-checked={selected}
+            aria-checked={index === selected}
+            aria-label={option.label}
             title={effortHint(option.value)}
-            tabIndex={selected || (!known && index === 0) ? 0 : -1}
-            data-effort-tone={tone}
-            data-effort-active={tone && highlighted ? true : undefined}
-            onMouseEnter={() => setActive(index)}
-            onFocus={() => setActive(index)}
+            tabIndex={
+              index === selected || (selected < 0 && index === 0) ? 0 : -1
+            }
+            data-lit={index <= shown || undefined}
+            onMouseEnter={() => setPointed(index)}
+            onFocus={() => setPointed(index)}
             onClick={() => onChange(option.value)}
-            className={`model-control-option agent-choice-row${tone ? " model-effort-option" : ""}`}
+            className="model-control-option agent-effort-step"
           >
-            {tone && highlighted ? <EffortTileShimmer /> : null}
-            <span className="model-effort-dot" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate">{option.label}</span>
-            {selected ? (
-              <Check className="agent-choice-check" strokeWidth={2} />
-            ) : null}
+            <span className="agent-effort-pip" aria-hidden="true" />
           </button>
-        );
-      })}
+        ))}
+      </div>
+      {named ? (
+        <p className="agent-effort-value" aria-hidden="true">
+          {named.label}
+          {hint ? ` · ${hint}` : ""}
+        </p>
+      ) : null}
     </div>
   );
 }

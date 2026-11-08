@@ -298,10 +298,16 @@
 }
 .personal-shell .personal-navigation .personal-project-running {
   display: inline-block;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--color-content);
+  width: 18px;
+  height: 18px;
+}
+.personal-shell
+  .personal-navigation
+  .personal-project-running
+  .dot-mark.personal-project-running-mark {
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 .personal-shell .personal-navigation .personal-project-memory {
   display: none;
@@ -476,6 +482,7 @@
   flex-shrink: 0;
   color: var(--personal-muted);
 }
+/* The profile preview's working chat. */
 .personal-shell .personal-navigation .personal-task-working-dot {
   display: inline-block;
   flex-shrink: 0;
@@ -483,6 +490,20 @@
   height: 5px;
   border-radius: 50%;
   background: var(--color-content);
+}
+/* A chat's agent while it works, or when its work is ready for you: its
+   little screen in the title's lead slot. */
+.personal-shell .personal-navigation .personal-task-agent {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.personal-shell
+  .personal-navigation
+  .personal-task-agent
+  .dot-mark.personal-task-agent-mark {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 /* Only projects get a mark and a heavier name. A chat is a quieter title, and
    brightens when it's in front, working or needs you. Its time waits for the
@@ -496,7 +517,7 @@
     :hover,
     :focus-visible,
     [data-session-selected="true"],
-    :has(.personal-task-working-dot),
+    :has(.personal-task-agent),
     :has(.personal-task-status:not([data-row-time]))
   )
   .personal-task-title {

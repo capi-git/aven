@@ -455,67 +455,91 @@ function RunsOn({
           </p>
         ) : null}
       </div>
-      <div className="teammate-field">
-        <div className="teammate-field-label">
-          <b>Model</b>
-          <span>Its usual model; a card can pick another</span>
-        </div>
-        <ModelList
-          label="Model"
-          models={shown}
-          value={model}
-          onChange={pickModel}
-        />
-        {tucked.length ? (
-          <>
-            <button
-              type="button"
-              className="teammate-older"
-              aria-expanded={older}
-              data-crew-older-models
-              onClick={() => setOlder(!older)}
-            >
-              Older models
-              <ChevronDown className="teammate-older-chevron size-3" />
-            </button>
-            {older ? (
-              <ModelList
-                label="Older models"
-                models={tucked}
-                value={model}
-                onChange={pickModel}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </div>
-      {effort ? (
-        <div className="teammate-field">
-          <div className="teammate-field-label">
-            <b>Effort</b>
-            <span>How hard it thinks</span>
-          </div>
-          <Segmented
-            label="Effort"
-            className="teammate-segmented teammate-segmented-small"
-            // Many efforts (Opus has eight) wrap into rows of four.
-            {...(effort.options.length >= 5 ? { columns: 4 } : {})}
-            value={
-              effort.options.some((option) => option.value === member.effort)
-                ? member.effort!
-                : ""
-            }
-            options={[
-              { value: "", label: "Default" },
-              ...effort.options.map((option) => ({
-                value: option.value,
-                label: option.label,
-              })),
-            ]}
-            onChange={(value) => onChange({ effort: value || null })}
+      {/* The Builder: Avos picks its model and effort for each job until
+          you pick them yourself. */}
+      {member.role === "builder" ? (
+        <div className="teammate-row" data-crew-avos-picks>
+          <span>
+            Let Avos choose
+            <small className="teammate-small">
+              It picks a model and effort for each job
+            </small>
+          </span>
+          <Toggle
+            label="Let Avos choose"
+            tone="neutral"
+            on={!member.chosen}
+            onChange={(on) => onChange({ chosen: !on })}
           />
         </div>
       ) : null}
+      {member.role === "builder" && !member.chosen ? null : (
+        <>
+          <div className="teammate-field">
+            <div className="teammate-field-label">
+              <b>Model</b>
+              <span>Its usual model; a card can pick another</span>
+            </div>
+            <ModelList
+              label="Model"
+              models={shown}
+              value={model}
+              onChange={pickModel}
+            />
+            {tucked.length ? (
+              <>
+                <button
+                  type="button"
+                  className="teammate-older"
+                  aria-expanded={older}
+                  data-crew-older-models
+                  onClick={() => setOlder(!older)}
+                >
+                  Older models
+                  <ChevronDown className="teammate-older-chevron size-3" />
+                </button>
+                {older ? (
+                  <ModelList
+                    label="Older models"
+                    models={tucked}
+                    value={model}
+                    onChange={pickModel}
+                  />
+                ) : null}
+              </>
+            ) : null}
+          </div>
+          {effort ? (
+            <div className="teammate-field">
+              <div className="teammate-field-label">
+                <b>Effort</b>
+                <span>How hard it thinks</span>
+              </div>
+              <Segmented
+                label="Effort"
+                className="teammate-segmented teammate-segmented-small"
+                // Many efforts (Opus has eight) wrap into rows of four.
+                {...(effort.options.length >= 5 ? { columns: 4 } : {})}
+                value={
+                  effort.options.some(
+                    (option) => option.value === member.effort,
+                  )
+                    ? member.effort!
+                    : ""
+                }
+                options={[
+                  { value: "", label: "Default" },
+                  ...effort.options.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  })),
+                ]}
+                onChange={(value) => onChange({ effort: value || null })}
+              />
+            </div>
+          ) : null}
+        </>
+      )}
     </>
   );
 }

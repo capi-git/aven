@@ -129,12 +129,44 @@ button.avos-profile-helper:hover {
   width: 15px;
   height: 15px;
 }
-.avos-profile-helper-name {
+.avos-profile-helper-text {
+  display: flex;
   min-width: 0;
   flex: 1 1 auto;
+  flex-direction: column;
+}
+.avos-profile-helper-name,
+.avos-profile-helper-line {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* What it's doing, under its name, while it works or needs you. */
+.avos-profile-helper-line {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 16px;
+}
+.avos-profile-helper:is([data-state="working"], [data-state="needs"]) {
+  height: auto;
+  min-height: 40px;
+  padding-block: 4px;
+}
+.avos-profile-helper .helm-work-dots.avos-profile-helper-dots {
+  flex: none;
+  color: var(--color-content);
+}
+/* What finished today, folded into one line that opens the activity. */
+.avos-profile-finished {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.avos-profile-finished-chevron {
+  width: 12px;
+  height: 12px;
 }
 .avos-profile-helper-word {
   flex: none;
@@ -219,4 +251,22 @@ button.avos-profile-helper:hover {
 .avos-profile-sheet .avos-sheet-body {
   gap: 18px;
   font-size: var(--text-ui-label);
+}
+/* Open: the chevron turns down, and what the helpers did opens under it. */
+.avos-profile-finished[aria-expanded="true"] .avos-profile-finished-chevron {
+  transform: rotate(90deg);
+}
+.avos-profile-activity {
+  margin: 6px -4px 0;
+}
+.avos-profile-activity-note {
+  margin: 0 4px 4px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+.avos-profile-activity .crew-feed {
+  padding: 0;
+}
+.avos-profile-activity .crew-feed-scroll {
+  max-height: min(48vh, 420px);
 }

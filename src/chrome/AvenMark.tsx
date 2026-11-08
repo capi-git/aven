@@ -15,8 +15,14 @@ const DOTS = avenMarkDots();
  */
 export function AvenMark({
   className = "size-[15px]",
+  climb = false,
 }: {
   className?: string;
+  /**
+   * Its steps light in turn from the bottom up, twice, then it rests: Aven
+   * climbing, as the logo does when it moves (index.css).
+   */
+  climb?: boolean;
 }) {
   return (
     <svg
@@ -31,6 +37,15 @@ export function AvenMark({
           cx={dot.cx}
           cy={dot.cy}
           r={AVEN_MARK_DOT_RADIUS}
+          {...(climb
+            ? {
+                className: "aven-mark-climb",
+                // The bottom step first, up to the top one.
+                style: {
+                  animationDelay: `${(AVEN_MARK_GRID.height - 0.5 - dot.cy) * 110}ms`,
+                },
+              }
+            : {})}
         />
       ))}
     </svg>

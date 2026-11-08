@@ -60,3 +60,31 @@ export function avosRemembers(
   const all = [...crew.notes.map((note) => note.text.trim()), ...memories];
   return { lines: all.slice(0, limit), total: all.length };
 }
+
+/** The start of `now`'s day, on this computer's clock. */
+function dayStart(now: number): number {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/**
+ * What Avos's helpers finished today: each helper's answer, and each job
+ * that came back ready, with findings or a mock-up. The profile folds them
+ * into one line that opens the activity.
+ */
+export function avosFinishedToday(
+  crew: Pick<Crew, "feed">,
+  now: number,
+): number {
+  const from = dayStart(now);
+  return crew.feed.filter(
+    (entry) =>
+      entry.at >= from &&
+      entry.at <= now &&
+      ((entry.kind === "say" && entry.who === "helper") ||
+        entry.kind === "ready" ||
+        entry.kind === "findings" ||
+        entry.kind === "mockup"),
+  ).length;
+}

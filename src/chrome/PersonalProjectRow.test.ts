@@ -126,14 +126,19 @@ it("shows the project as its Stack in its colour, fanned only while it is open",
   expect(stack().hasAttribute("data-open")).toBe(false);
 });
 
-it("keeps the Stack still while an agent runs: a small dot says so", async () => {
+it("keeps the Stack still while an agent runs: its little working screen says so", async () => {
   await render({ running: 1, waiting: 0, unread: 0 });
   const mark = host.querySelector<HTMLElement>(".project-mark")!;
   expect(mark.dataset.kind).toBe("stack");
   expect(mark.hasAttribute("data-active")).toBe(false);
-  expect(host.querySelector(".dot-mark")).toBeNull();
+  expect(host.querySelector(".dot-mark-lit")).toBeNull();
   expect(host.querySelector(".personal-project-running")).not.toBeNull();
-  // The stylesheet shows the dot beside any mark, not only a logo.
+  // An agent's screen, working, beside the project's own still mark.
+  const agent = host.querySelector<HTMLElement>(
+    ".personal-project-running .agent-mark",
+  )!;
+  expect(agent.dataset.agent).toBe("working");
+  // The stylesheet shows it beside any mark, not only a logo.
   const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
   expect(css).toMatch(
     /\.personal-navigation \.personal-project-running \{\s*display: inline-block;/,
@@ -152,7 +157,10 @@ it("shows a logo instead of the Stack when one is set, open or not", async () =>
     /^asset:\/\/localhost\/logos\/aven\.png/,
   );
   expect(mark.querySelector(".stack-mark")).toBeNull();
-  // A logo stays still too, with the running dot.
+  // Open, the agent's own row says it works: the project's row doesn't.
+  expect(host.querySelector(".personal-project-running")).toBeNull();
+  // Folded, a logo stays still too, with its agent's working screen.
+  await render({ running: 1, waiting: 0, unread: 0 }, false);
   expect(host.querySelector(".personal-project-running")).not.toBeNull();
 });
 

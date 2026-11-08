@@ -1,11 +1,9 @@
 import {
   createContext,
-  memo,
   useContext,
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useWakeAt } from "../hooks/useWakeAt";
@@ -14,7 +12,6 @@ import {
   doneWords,
   HELM_DONE_MS,
   HELM_STOPPED_MS,
-  HELM_WORK_DOTS,
   helmClock,
   helmWork,
   helmWorkWords,
@@ -22,7 +19,6 @@ import {
   type HelmOutcome,
   type HelmWork,
 } from "../lib/composerHelm";
-import { DOT_VIEW_BOX } from "../lib/dotSigils";
 import type { Session } from "../lib/session";
 import { sessionAgentSummary } from "../lib/sessionAgents";
 import {
@@ -33,6 +29,7 @@ import { visibleInterval } from "../lib/visibleInterval";
 import { Bot, Check, ListEnd, X } from "./icons";
 import { Popover } from "./Popover";
 import { SessionAgentList } from "./SessionAgentList";
+import { AgentMark } from "./AgentMark";
 
 /**
  * What the chat's turn is doing, for the helm's speech bubble. The chat's
@@ -312,58 +309,21 @@ function Queued({ count }: { count: number }) {
 }
 
 /**
- * The dots beside the mark: a 5×5 grid drawing what the turn does
- * (`HelmWork`). Pointed at, the middle nine light as Stop over the rest.
- * Each pattern is a few paths whose opacity moves; nothing runs in script.
+ * The agent's little screen beside its words, moving with the turn: working
+ * while it thinks, writes or runs a tool, watching while something holds it
+ * up, asking while it needs you. Pointed at, it is the Stop.
  */
-const WorkDots = memo(function WorkDots({
-  work,
-  stop,
-}: {
-  work: HelmWork;
-  /** The dots are the Stop button. */
-  stop: boolean;
-}) {
-  const lit = (kind: string, paths: readonly string[]) =>
-    paths.map((d, index) => (
-      <path
-        key={`${work}-${index}`}
-        className={`helm-work-lit ${kind}`}
-        d={d}
-        style={{ "--i": index } as CSSProperties}
-      />
-    ));
-  return (
-    <svg
-      className="helm-work-dots"
-      viewBox={DOT_VIEW_BOX}
-      aria-hidden
-      focusable="false"
-    >
-      <g className="helm-work-art">
-        <path className="helm-work-grid" d={HELM_WORK_DOTS.grid} />
-        {work === "think"
-          ? lit("helm-work-ripple", HELM_WORK_DOTS.rings)
-          : null}
-        {work === "write" ? lit("helm-work-line", HELM_WORK_DOTS.lines) : null}
-        {work === "tool"
-          ? lit("helm-work-sweep", HELM_WORK_DOTS.diagonals)
-          : null}
-        {work === "held" ? lit("helm-work-held", [HELM_WORK_DOTS.grid]) : null}
-        {work === "needs" ? (
-          <path className="helm-work-bang" d={HELM_WORK_DOTS.bang} />
-        ) : null}
-        {/* From the outside in. */}
-        {work === "stopping"
-          ? lit("helm-work-out", [...HELM_WORK_DOTS.rings].reverse())
-          : null}
-      </g>
-      {stop ? (
-        <path className="helm-work-stop-dots" d={HELM_WORK_DOTS.stop} />
-      ) : null}
-    </svg>
-  );
-});
+function HelmScreen({ work }: { work: HelmWork }) {
+  const state =
+    work === "needs"
+      ? "needs"
+      : work === "held"
+        ? "watching"
+        : work === "stopping"
+          ? "still"
+          : "working";
+  return <AgentMark state={state} className="helm-work-screen" />;
+}
 
 /**
  * A running turn in the bubble: how long it has run (shown when pointed
@@ -404,11 +364,12 @@ function RunningSay({
             else onStop?.();
           }}
         >
-          <WorkDots work={work} stop />
+          <HelmScreen work={work} />
+          <i className="helm-work-stop" aria-hidden />
         </button>
       ) : (
         <span className="helm-work">
-          <WorkDots work={work} stop={false} />
+          <HelmScreen work={work} />
         </span>
       )}
       <span

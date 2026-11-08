@@ -158,6 +158,26 @@ describe("Sidebar folder session dragging", () => {
     );
   }
 
+  it("lifts the card into the tabs' floating chip, which lands when let go", async () => {
+    const source = await start();
+    // The same copy a tab drag lifts, standing in for the card.
+    const preview = document.querySelector<HTMLElement>(
+      "[data-sortable-preview]",
+    );
+    expect(preview).not.toBeNull();
+    expect(preview!.querySelector("[data-sortable-copy]")).not.toBeNull();
+    expect(source.hasAttribute("data-sortable-motion")).toBe(true);
+    expect(source.className).not.toContain("opacity-40");
+    await pointer(window, "pointerup", 105);
+    await act(
+      async () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(order()).toEqual(["c", "a", "b"]);
+  });
+
   it("shows an insertion line, preserves selection, and restores the dragged order after reopening", async () => {
     await render();
     expect(order()).toEqual(["a", "b", "c"]);

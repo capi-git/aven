@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTalk, talkAnswerText, talkMessage } from "./crewTalk";
+import { jobReport, parseTalk, talkAnswerText, talkMessage } from "./crewTalk";
 
 const block = (fields: Record<string, unknown>) =>
   `\`\`\`aven-talk\n${JSON.stringify(fields)}\n\`\`\``;
@@ -88,5 +88,72 @@ describe("what Avos's reply can keep", () => {
     expect(brief().replace("There is no Board", "")).not.toMatch(
       /on the Board/,
     );
+  });
+});
+
+describe("a job's report to Avos", () => {
+  it("says what came of it, in its helpers' words, as data", () => {
+    const text = jobReport({
+      title: "Tab drag",
+      outcome: { ready: 2 },
+      builder: "Builder",
+      checker: "Checker",
+      round: {
+        handoff: {
+          summary: "Measured the drop spot after the picture moves.",
+          howToCheck: [],
+          ran: [{ command: "npm test -- tabDrag", ok: true }],
+        },
+        verdict: {
+          pass: true,
+          summary: "Drags land where they should.",
+          mustFix: [],
+          later: [],
+          ran: [],
+        },
+        change: {
+          base: "b",
+          hash: "h",
+          files: 2,
+          additions: 40,
+          deletions: 14,
+          paths: [],
+        },
+      },
+    });
+    expect(text.split("\n")).toEqual([
+      "“Tab drag” is ready, after round 2.",
+      "Builder: Measured the drop spot after the picture moves.",
+      "Checker: Drags land where they should.",
+      "Ran: npm test -- tabDrag (passed).",
+      "Changed 2 files (+40 −14).",
+    ]);
+    expect(
+      jobReport({
+        title: "Tab drag",
+        outcome: { stopped: "It used all 3 rounds." },
+        builder: "Builder",
+        checker: "Checker",
+      }),
+    ).toBe("“Tab drag” stopped: It used all 3 rounds.");
+  });
+
+  it("asks Avos to say it briefly, with no cards, jobs or rules", () => {
+    const prompt = talkMessage({
+      talk: {
+        from: "checker",
+        text: "“Tab drag” is ready.",
+        hop: 3,
+        answer: true,
+        report: true,
+      },
+      fromName: "Checker",
+      isLead: true,
+      others: [],
+      mayAsk: false,
+    });
+    expect(prompt).toContain("Checker finished a job you handed out.");
+    expect(prompt).toContain("Add no cards, jobs or rules for it.");
+    expect(prompt).not.toContain("answered what you asked");
   });
 });

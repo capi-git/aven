@@ -60,7 +60,28 @@ it("lets Avos read your folder before there's a copy, and change nothing in it",
   expect(launchRefusal("avos-chat", "/Users/me")).toMatch(/only in its own/);
 });
 
-it("still keeps every other helper out until the copy exists", () => {
+it("lets a helper Avos started read your folder too, as Avos does", () => {
+  updateCrew(PROJECT, (crew) => ({
+    ...crew,
+    helpers: [
+      {
+        id: "helper-1",
+        role: "helper",
+        name: "Audit the Users page",
+        helperOf: "lead",
+        sessionId: "helper-chat",
+      },
+    ],
+  }));
+  const helper = crewChatPermissions("helper-chat")!;
+  expect(helper.refuse).toBeUndefined();
+  expect(helper).toMatchObject({ readOnly: true, workFolder: PROJECT });
+  expect(helper.sandbox?.filesystem?.denyWrite).toContain(PROJECT);
+  expect(helper.sandbox?.network?.allowedDomains).toEqual([]);
+  expect(launchRefusal("helper-chat", PROJECT)).toBeNull();
+});
+
+it("still keeps every teammate that changes files out until the copy exists", () => {
   expect(launchRefusal("builder-chat", PROJECT)).toMatch(/copy isn't ready/);
 });
 

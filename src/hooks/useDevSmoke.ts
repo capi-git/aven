@@ -383,18 +383,18 @@ function homeAgentTile(path: string): HTMLElement | null {
 
 /**
  * Why an agent's Bot is not working as it should, or null: in its working
- * state, typing (its lit key stepping along its three keys) unless reduced
- * motion keeps it still.
+ * state, its eyes scanning side to side unless reduced motion keeps it
+ * still.
  */
 function workingAgentProblem(mark: HTMLElement | null): string | null {
   if (!mark) return "is missing";
   if (mark.dataset.agent !== "working")
     return `is ${mark.dataset.agent ?? "not an agent's Bot"}, not working`;
-  const key = mark.querySelector(".agent-key");
-  if (!key) return "has no lit key";
+  const key = mark.querySelector(".agent-eyes");
+  if (!key) return "has no face";
   return animationProblem(
     getComputedStyle(key).animationName,
-    "agent-type",
+    "agent-scan",
     prefersReducedMotion(),
   );
 }
@@ -2792,7 +2792,8 @@ export async function runDevSmoke(
     );
 
   // What moves. The project's Stack in the sidebar stays still while its
-  // agent works (a small dot says it is running) and when the turn ends,
+  // agent works (its working screen says so, on the project's row while
+  // folded, on the chat's row while open) and when the turn ends,
   // and fans exactly while the project is open, folding back when it
   // closes. The pinned sidebar is the one drawn in this window (the
   // floating one draws in its own).
@@ -2828,9 +2829,15 @@ export async function runDevSmoke(
             ".personal-project-disclosure",
           ) ?? null;
         const isOpen = () => fold()?.getAttribute("aria-expanded") === "true";
+        // Its agent's working screen shows once: on the project's row while
+        // the project is folded, on the chat's own row while it is open.
         const runningDot = () =>
-          (row()?.querySelector(".personal-project-running")?.getClientRects()
-            .length ?? 0) > 0;
+          ((isOpen()
+            ? document.querySelector(
+                `[data-session-card="${CSS.escape(typedTask.id)}"] .personal-task-agent .agent-mark[data-agent="working"]`,
+              )
+            : row()?.querySelector(".personal-project-running")
+          )?.getClientRects().length ?? 0) > 0;
         const logo = mark()?.dataset.kind === "logo";
         let seen: string | null = null;
         const settle = async (open: boolean, when: string) => {
@@ -2873,7 +2880,7 @@ export async function runDevSmoke(
           await waitFor(
             runningDot,
             5_000,
-            "the project's row to show its agent running",
+            "the sidebar to show its agent working",
           );
           await settle(opened, "While the agent worked");
           if (mark()?.hasAttribute("data-active"))
@@ -2893,9 +2900,9 @@ export async function runDevSmoke(
         await waitFor(
           () => !runningDot(),
           5_000,
-          "the running dot to go once the turn ended",
+          "its working screen to go once the turn ended",
         );
-        if (logo) return "a logo: still, with the running dot";
+        if (logo) return "a logo: still, with its working screen";
         return reduced
           ? "still while working; fanned and folded without motion (reduced motion)"
           : "still while working; fanned and folded";
