@@ -1150,11 +1150,12 @@ export async function checkTeamTalk(
     const folder = plain(project);
     for (const who of ["lead", "checker", "helper"]) {
       // Only this team's: the log holds every team this check has run. Avos
-      // reads your folder until the copy is made, then works in it.
+      // and its helpers only read: they read your folder until the copy is
+      // made, then work in it.
       const mine = turns.filter((turn) => {
         if (turn.crew !== who) return false;
         const cwd = plain(String(turn.launch ?? "").split("cwd=")[1] ?? "");
-        return cwd === copy || (who === "lead" && cwd === folder);
+        return cwd === copy || (who !== "checker" && cwd === folder);
       });
       if (!mine.length) throw new Error(`The stand-in logged no ${who} turn`);
       for (const turn of mine) {
@@ -1172,7 +1173,7 @@ export async function checkTeamTalk(
     const left = getCrew(project);
     return `the Lead asked the Checker and a helper, ${
       left?.helperRuns?.count ?? 0
-    } helper run, every turn sandboxed (Avos in your folder until the copy, the rest in it)`;
+    } helper run, every turn sandboxed (Avos and its helper in your folder until the copy, the Checker in it)`;
   } finally {
     await tidy(project);
   }

@@ -76,10 +76,10 @@ describe("a working mark", () => {
     return element;
   };
   const working =
-    '<span class="dot-mark agent-mark helm-critter" data-agent="working"><span class="agent-bob"><svg></svg><i class="agent-key"></i></span></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
+    '<span class="dot-mark agent-mark helm-critter" data-agent="working"><span class="agent-bob"><svg></svg><i class="agent-eyes"></i></span></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
 
   it("types while it works and says for how long", () => {
-    expect(helmWorkingProblem(helm(working), "agent-type", false)).toBeNull();
+    expect(helmWorkingProblem(helm(working), "agent-scan", false)).toBeNull();
     expect(helmWorkingProblem(helm(working), "none", true)).toBeNull();
   });
 
@@ -96,9 +96,9 @@ describe("a working mark", () => {
         "",
         false,
       ),
-    ).toBe("the mark is not typing");
+    ).toBe("the mark is not scanning");
     expect(helmWorkingProblem(helm(working), "none", false)).toBe(
-      "the typing: its animation is none, expected agent-type",
+      "the scanning: its animation is none, expected agent-scan",
     );
   });
 });

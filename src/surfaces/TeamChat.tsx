@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { ArrowRight, CornerDownRight, MoveUp, X } from "../chrome/icons";
+import { CornerDownRight, MoveUp, X } from "../chrome/icons";
 import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
 import {
   projectDisplayName,
@@ -44,6 +44,8 @@ import {
   crewMemberName,
   getCrew,
   isTime,
+  updateCrew,
+  withoutNote,
   type Crew,
   type CrewMessageKind,
 } from "../lib/crews";
@@ -493,33 +495,46 @@ function Thread({
         ))}
         {working.length ? (
           <ol className="team-posts" aria-label="Working now">
-            {working.map((member) => (
-              <li
-                key={`live:${member.id}`}
-                className="team-post"
-                data-live
-                data-team-live={member.id}
-              >
-                <CrewCritter
-                  path={project}
-                  role={member.role}
-                  {...(member.critter ? { critter: member.critter } : {})}
-                  state="working"
-                  className="team-post-mark"
-                />
-                <div className="team-post-body">
-                  <p className="team-post-head">
-                    <b>{member.name}</b>
-                    <time>now</time>
-                  </p>
+            {working.map((member) =>
+              member.role === "lead" ? (
+                // Avos writing: its words as they come, then its dots.
+                <li
+                  key={`live:${member.id}`}
+                  className="team-reply"
+                  data-live
+                  data-team-live={member.id}
+                >
                   <LiveText
                     project={project}
                     memberId={member.id}
                     line={member.line ?? ""}
+                    dots="think"
                   />
-                </div>
-              </li>
-            ))}
+                </li>
+              ) : (
+                <li
+                  key={`live:${member.id}`}
+                  className="team-work"
+                  data-live
+                  data-team-live={member.id}
+                >
+                  <CrewCritter
+                    path={project}
+                    role={member.role}
+                    {...(member.critter ? { critter: member.critter } : {})}
+                    state="working"
+                    className="team-work-mark"
+                  />
+                  <b className="team-work-name">{member.name}</b>
+                  <LiveText
+                    project={project}
+                    memberId={member.id}
+                    line={member.line ?? ""}
+                    dots="tool"
+                  />
+                </li>
+              ),
+            )}
           </ol>
         ) : null}
         {forYou}
@@ -548,18 +563,39 @@ function LiveText({
   project,
   memberId,
   line,
+  dots,
 }: {
   project: string;
   memberId: string;
   line: string;
+  /** The work dots after it, as the message box draws them. */
+  dots: "think" | "tool";
 }) {
   const writing = useCrewLiveReply(project, memberId);
+  // Avos's own line wears its little working screen (its reply has no
+  // mark); a helper's row has its mark already.
+  const status = (
+    <span className="team-live-status">
+      {dots === "think" ? (
+        <CrewCritter
+          path={project}
+          role="lead"
+          state="working"
+          className="team-live-mark"
+        />
+      ) : null}
+      {writing ? null : <span>{line || "Thinking"}</span>}
+    </span>
+  );
   return writing ? (
-    <p className="team-post-text" data-team-live-reply>
-      {writing}
-    </p>
+    <>
+      <p className="team-post-text" data-team-live-reply>
+        {writing}
+      </p>
+      {status}
+    </>
   ) : (
-    <p className="team-post-text">{line}…</p>
+    <span className="team-post-text team-work-text">{status}</span>
   );
 }
 
@@ -671,6 +707,21 @@ function PostView({
       >
         {post.needsYou ? <i className="team-event-dot" aria-hidden /> : null}
         {post.text} <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
+        {post.forget ? (
+          <>
+            {" · "}
+            <button
+              type="button"
+              className="team-post-link"
+              data-avos-undo-rule
+              onClick={() =>
+                updateCrew(project, (crew) => withoutNote(crew, post.forget!))
+              }
+            >
+              Undo
+            </button>
+          </>
+        ) : null}
         {post.asks ? (
           <>
             {" "}
@@ -679,60 +730,57 @@ function PostView({
         ) : null}
       </li>
     );
+  const links = (
+    <>
+      {post.asks ? <AnswerLink cardId={post.asks} onAnswer={onAnswer} /> : null}
+      {post.action === "set-up-git" && workspace?.setUpGit ? (
+        <button
+          type="button"
+          className="team-post-link"
+          data-avos-set-up-git
+          onClick={() => workspace.setUpGit?.(project)}
+        >
+          Set up Git
+        </button>
+      ) : null}
+    </>
+  );
+  // Avos answers as any chat's agent does: its words, no mark or name.
+  if (post.author.role === "lead" && !post.work && !post.handoff)
+    return (
+      <li
+        className="team-reply"
+        data-team-post={post.author.id}
+        data-needs-you={post.needsYou || undefined}
+        title={clock(post.at)}
+      >
+        <p className="team-post-text">{post.text}</p>
+        {links}
+      </li>
+    );
+  // The work behind its answers: a helper started or done, a teammate
+  // passing work on. One line each, under its name; the whole of it on hover.
+  const label = post.handoff ? post.handoff.label : undefined;
   return (
     <li
-      className="team-post"
+      className="team-work"
       data-team-post={post.author.id}
       data-needs-you={post.needsYou || undefined}
+      title={[post.card, post.text].filter(Boolean).join(": ")}
     >
       <AuthorMark
         project={project}
         author={post.author}
-        className="team-post-mark"
+        className="team-work-mark"
       />
-      <div className="team-post-body">
-        <p className="team-post-head">
-          <b>{post.author.name}</b>
-          <time dateTime={isoTime(post.at)}>{clock(post.at)}</time>
-          {post.card ? (
-            <span className="team-post-card">{post.card}</span>
-          ) : null}
-        </p>
-        <p className="team-post-text">{post.text}</p>
-        {post.handoff ? (
-          <span className="team-handoff" data-team-handoff>
-            <AuthorMark
-              project={project}
-              author={post.handoff.from}
-              className="team-handoff-mark"
-            />
-            <ArrowRight className="team-handoff-arrow" aria-hidden />
-            {post.handoff.to === "you" ? (
-              <i className="team-handoff-you" aria-hidden />
-            ) : (
-              <AuthorMark
-                project={project}
-                author={post.handoff.to}
-                className="team-handoff-mark"
-              />
-            )}
-            <span>{post.handoff.label}</span>
-          </span>
-        ) : null}
-        {post.asks ? (
-          <AnswerLink cardId={post.asks} onAnswer={onAnswer} />
-        ) : null}
-        {post.action === "set-up-git" && workspace?.setUpGit ? (
-          <button
-            type="button"
-            className="team-post-link"
-            data-avos-set-up-git
-            onClick={() => workspace.setUpGit?.(project)}
-          >
-            Set up Git
-          </button>
-        ) : null}
-      </div>
+      <b className="team-work-name">{post.author.name}</b>
+      <span className="team-post-text team-work-text">{post.text}</span>
+      {label ? (
+        <span className="team-work-label" data-team-handoff>
+          {label}
+        </span>
+      ) : null}
+      {links}
     </li>
   );
 }

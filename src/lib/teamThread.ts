@@ -66,6 +66,8 @@ export type TeamPost =
       asks?: string;
       /** What it offers you: Set up Git, when building needs it. */
       action?: CrewFeedAction;
+      /** A line of the work behind Avos's answer (a helper started, done). */
+      work?: true;
     }
   | {
       kind: "you";
@@ -91,6 +93,8 @@ export type TeamPost =
       needsYou?: boolean;
       /** The card whose question waits on you: Answer writes to it. */
       asks?: string;
+      /** A rule Avos just saved, still kept: Undo forgets it. */
+      forget?: string;
     }
   | {
       /** A job the team keeps: "Keeping an eye on … · <schedule> · Change". */
@@ -207,6 +211,58 @@ const ROLES = new Set<string>([
   "fixer",
 ]);
 
+/** "Avos started a helper: Audit the Users page". */
+const HELPER_START = /^.+? started a helper: (.+)$/;
+/** "Helper “Audit the Users page”: …", "… finished.", "… didn't finish." */
+const HELPER_DONE = /^Helper “(.+?)”(?:: (.+)| finished\.| didn't finish\.)$/s;
+
+/** A helper Avos started, by the name it gave it (helpers come and go). */
+function helperAuthor(title: string): TeamAuthor {
+  return { id: `helper:${title}`, role: "helper", name: title };
+}
+
+/** "Avos will remember: Keep surfaces grey". */
+const REMEMBERED = /^.+? will remember: (.+)$/s;
+
+/** "A message to Audit the Users page didn't go through: …". */
+const UNSENT = /^A message to (.+) didn't go through: (.+)$/s;
+
+/**
+ * Messages that didn't go through for the same reason, one after another,
+ * said once: "Messages to A and B didn't go through: …".
+ */
+function mergeUnsent(posts: TeamPost[]): TeamPost[] {
+  const out: TeamPost[] = [];
+  let run: { to: string[]; why: string; at: number; id: string } | null = null;
+  const flush = () => {
+    if (!run) return;
+    const names =
+      run.to.length === 1
+        ? `A message to ${run.to[0]}`
+        : `Messages to ${run.to.slice(0, -1).join(", ")} and ${run.to.at(-1)}`;
+    out.push({
+      kind: "event",
+      id: run.id,
+      at: run.at,
+      text: `${names} didn't go through: ${run.why}`,
+    });
+    run = null;
+  };
+  for (const post of posts) {
+    const unsent = post.kind === "event" ? UNSENT.exec(post.text) : null;
+    if (unsent && run && run.why === unsent[2]) {
+      if (!run.to.includes(unsent[1]!)) run.to.push(unsent[1]!);
+      continue;
+    }
+    flush();
+    if (unsent)
+      run = { to: [unsent[1]!], why: unsent[2]!, at: post.at, id: post.id };
+    else out.push(post);
+  }
+  flush();
+  return out;
+}
+
 /** The teammate a Feed entry is by: the member it names, else its role's first. */
 function entryAuthor(
   crew: Crew,
@@ -289,8 +345,35 @@ function postOf(
       ...(entry.member ? { about: entry.member } : {}),
     };
   }
+  // A helper Avos started finished: a line of Avos's work, under its name.
+  if (entry.kind === "say" && entry.who === "helper") {
+    const done = HELPER_DONE.exec(entry.text);
+    if (done)
+      return {
+        kind: "post",
+        id: entry.id,
+        at: entry.at,
+        author: helperAuthor(done[1]!),
+        text: done[2]
+          ? plain(done[2])
+          : entry.text.endsWith("didn't finish.")
+            ? "Didn't finish"
+            : "Finished",
+        work: true,
+      };
+  }
   const by = entryAuthor(crew, entry, name);
-  if (!by)
+  if (!by) {
+    // "Avos will remember: …", while the rule is still kept: Undo.
+    const remembered =
+      entry.kind === "note" && entry.who === "aven"
+        ? REMEMBERED.exec(entry.text)
+        : null;
+    const rule = remembered
+      ? crew.notes.find(
+          (note) => note.text === remembered[1] && note.at === entry.at,
+        )
+      : undefined;
     return {
       kind: "event",
       id: entry.id,
@@ -300,7 +383,9 @@ function postOf(
       ...(entry.kind === "stuck" && waiting(entry)
         ? { needsYou: true, ...asks(crew, entry) }
         : {}),
+      ...(rule ? { forget: rule.id } : {}),
     };
+  }
   const base = {
     kind: "post" as const,
     id: entry.id,
@@ -376,7 +461,16 @@ function postOf(
         handoff: { from: by, to: "you", label: "Mock-up for you" },
       };
     // The Lead answers you; teammates talking to each other stay quiet.
-    case "say":
+    case "say": {
+      // A helper it started is a line of its work, under the helper's name.
+      const started = by.role === "lead" ? HELPER_START.exec(entry.text) : null;
+      if (started)
+        return {
+          ...base,
+          author: helperAuthor(started[1]!),
+          text: "Started",
+          work: true,
+        };
       return by.role === "lead"
         ? { ...base, text: plain(entry.text) }
         : {
@@ -385,6 +479,7 @@ function postOf(
             at: entry.at,
             text: plain(entry.text),
           };
+    }
     default:
       return { ...base, text: plain(withoutName(entry.text, by.name)) };
   }
@@ -462,7 +557,7 @@ export function teamPosts(
   }
   if (jobs) posts.push(...jobPosts(crew, jobs));
   const order = (post: TeamPost) => (post.kind === "you" ? 0 : 1);
-  return (
+  return mergeUnsent(
     posts
       // A moment no Date can show is left out, never drawn.
       .filter((post) => isTime(post.at))
@@ -473,7 +568,7 @@ export function teamPosts(
           order(a.post) - order(b.post) ||
           a.index - b.index,
       )
-      .map((item) => item.post)
+      .map((item) => item.post),
   );
 }
 

@@ -130,7 +130,12 @@ const radio = (group: string, text: string) =>
     ...panel()!.querySelectorAll<HTMLButtonElement>(
       `[aria-label="${group}"] [role="radio"], [aria-label="${group}"] [role="menuitemradio"]`,
     ),
-  ].find((item) => item.textContent?.includes(text))!;
+  ].find(
+    (item) =>
+      // An effort level is a dot, named by its label.
+      item.getAttribute("aria-label") === text ||
+      item.textContent?.includes(text),
+  )!;
 async function open() {
   await act(async () => pill().click());
 }

@@ -152,7 +152,7 @@ describe("crew marks", () => {
       ["watching", "watching"],
       ["working", "working"],
       ["needs-you", "needs"],
-      ["fix-ready", "resting"],
+      ["fix-ready", "ready"],
       ["paused", "still"],
     ] as const) {
       await draw(createElement(BotCritter, { path: APP, status }));

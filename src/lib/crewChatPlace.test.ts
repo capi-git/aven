@@ -9,6 +9,7 @@ const chat = {
 };
 const lead = { role: "lead" as const, harness: "claude" as const };
 const builder = { role: "builder" as const, harness: "claude" as const };
+const helper = { role: "helper" as const, harness: "claude" as const };
 const model = () => "claude:opus-5.5";
 const copy = {
   path: "/data/crews/site",
@@ -54,6 +55,15 @@ describe("where a helper's chat runs", () => {
         model,
       ),
     ).toBeNull();
+  });
+
+  it("lets a helper Avos started read your folder until there's a copy, then moves it in", () => {
+    // Avos asked a Checker and started a helper at once: the Checker is
+    // still making the copy (or the folder has no Git and never will).
+    expect(crewChatPlace(chat, { on: true }, helper, model)).toBeNull();
+    expect(
+      crewChatPlace(chat, { on: true, copy }, helper, model),
+    ).toMatchObject({ restart: true, chat: { worktreeCwd: copy.path } });
   });
 
   it("keeps every other helper out until the copy exists, and says why", () => {

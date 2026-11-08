@@ -5,7 +5,8 @@ The mark is Rise: a 5 x 5 staircase of round off-white dots, one more on each
 row down, climbing to the top-left. Icons of 16 px and under draw four steps
 in bigger dots instead, so the steps stay countable. On the app icon the
 mark sits on a tile of
-smoky glass: dark grey at 70% opacity so the wallpaper shows through, a sheen
+the agents' glass: their dark screen, nearly solid, with a faint honeycomb of
+dots fading down it at 64 px and up, a sheen
 that lightens the top, a thin bright rim along the top edge, a soft shadow
 inside the bottom and a soft drop shadow, like macOS icons on glass. The dots
 carry a faint white glow there; in the interface they are plain.
@@ -45,8 +46,8 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 ICONS = ROOT / "src-tauri/icons"
 SCALE = 4  # supersampling factor
-GLASS = (42, 43, 48)  # #2a2b30
-GLASS_ALPHA = 0.70
+GLASS = (29, 29, 35)  # #1d1d23, the agents' screen
+GLASS_ALPHA = 0.94
 WHITE = (242, 242, 240)  # #f2f2f0
 # The banner and the installer sidebar: near-black, neutral greys, no colour.
 BACKDROP = (10, 10, 11)
@@ -145,8 +146,27 @@ def tile(n, box, radius, shadow=True):
         layer.putalpha(ImageChops.multiply(alpha, body))
         return layer
 
-    # The glass itself: dark grey the wallpaper shows through.
+    # The glass itself: the agents' dark screen, the wallpaper barely through.
     glass = masked(GLASS, Image.new("L", (n, n), round(255 * GLASS_ALPHA)))
+    # Its faint honeycomb of dots, as on the agents' screens, fading down the
+    # tile; only where there is room for it (64 px and up).
+    honeycomb = Image.new("L", (n, n), 0)
+    if side / SCALE >= 64:
+        pitch = side * 0.046
+        dot = pitch * 0.17
+        draw = ImageDraw.Draw(honeycomb)
+        row = 0
+        y = box[1] + pitch * 0.5
+        while y < box[3]:
+            x = box[0] + pitch * (0.5 if row % 2 else 1.0)
+            fade = max(0.0, 1 - 0.65 * (y - box[1]) / side)
+            value = round(255 * 0.09 * fade)
+            while x < box[2]:
+                draw.ellipse((x - dot, y - dot, x + dot, y + dot), fill=value)
+                x += pitch
+            y += pitch * 0.87
+            row += 1
+    honey = masked((255, 255, 255), honeycomb)
     # Sheen: white at the top, gone by 45% of the way down, slanted a little
     # (CSS `linear-gradient(165deg, ...)`).
     sheen = masked(
@@ -160,7 +180,7 @@ def tile(n, box, radius, shadow=True):
     ImageDraw.Draw(rim).rounded_rectangle(box, radius=radius, outline=255, width=max(2, round(side * 0.009)))
     rim_layer = Image.new("RGBA", (n, n), (255, 255, 255, 0))
     rim_layer.putalpha(ImageChops.multiply(rim, ramp(n, box, lambda u, v: 0.6 - 0.34 * v)))
-    for layer in (glass, sheen, inner, rim_layer):
+    for layer in (glass, honey, sheen, inner, rim_layer):
         out = Image.alpha_composite(out, layer)
     return out
 
@@ -227,13 +247,32 @@ def interface_mark(size):
 
 
 def glyph_layer(size):
-    """Icon Composer layer: the dots alone; icon.json supplies the fill.
+    """Icon Composer layer: the honeycomb and the stairs; icon.json supplies
+    the fill.
 
     Icon Composer's canvas is the whole tile, so the mark takes the same
     share of the canvas as it takes of the tile in the app icon.
     """
     n = size * SCALE
-    image = draw_dots(Image.new("RGBA", (n, n), (0, 0, 0, 0)), (0, 0, n, n), APP_SHARE)
+    base = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    # The agents' honeycomb, faint and fading down, under the stairs.
+    honeycomb = Image.new("L", (n, n), 0)
+    pitch = n * 0.046
+    dot = pitch * 0.17
+    draw = ImageDraw.Draw(honeycomb)
+    row, y = 0, pitch * 0.5
+    while y < n:
+        x = pitch * (0.5 if row % 2 else 1.0)
+        value = round(255 * 0.09 * max(0.0, 1 - 0.65 * y / n))
+        while x < n:
+            draw.ellipse((x - dot, y - dot, x + dot, y + dot), fill=value)
+            x += pitch
+        y += pitch * 0.87
+        row += 1
+    layer = Image.new("RGBA", (n, n), (255, 255, 255, 0))
+    layer.putalpha(honeycomb)
+    base = Image.alpha_composite(base, layer)
+    image = draw_dots(base, (0, 0, n, n), APP_SHARE)
     return image.resize((size, size), Image.LANCZOS)
 
 

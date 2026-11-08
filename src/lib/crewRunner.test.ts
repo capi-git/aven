@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { TALK_HOPS } from "./crewTalk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CrewRunner,
@@ -525,6 +526,35 @@ describe("the loop with stand-in agents", () => {
     // Nothing else is queued, so nothing more starts.
     await h.advance(10 * MINUTE);
     expect(h.sent).toHaveLength(4);
+    h.runner.stop();
+  });
+
+  it("tells Avos what came of a job, for it to tell you in its own words", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("A switch and a theme store."),
+        copy: { hash: "h1", files: ["src/theme.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ members: [{ id: "lead", role: "lead" }, ...NO_SCOUT] });
+    give();
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(MINUTE + 5_000);
+    await h.advance(MINUTE + 5_000);
+    expect(card().stage).toBe("ready");
+    const report = getCrew(PATH)!.talks?.find((talk) => talk.report);
+    expect(report).toMatchObject({
+      from: "checker",
+      to: "lead",
+      answer: true,
+      hop: TALK_HOPS,
+    });
+    expect(report!.text).toContain(
+      "“Dark mode toggle” is ready, after round 1.",
+    );
+    expect(report!.text).toContain("A switch and a theme store.");
     h.runner.stop();
   });
 

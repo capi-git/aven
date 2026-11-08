@@ -1,8 +1,10 @@
 import { addAvosJob } from "./avosJobs";
 import { setCrewLiveReply } from "./crewLiveReply";
-import { avosTalkModel } from "./crewModels";
+import { avosPickChoices, avosPickOverride, avosTalkModel } from "./crewModels";
 import {
+  TALK_HOPS,
   TALK_TEXT_MAX,
+  jobReport,
   parseTalk,
   talkAnswerText,
   talkMayAddJob,
@@ -110,6 +112,7 @@ import {
   withHelper,
   withoutHelper,
   withTalk,
+  crewLead,
   withCrewRun,
   withMemberMemory,
   securityReviewBy,
@@ -806,12 +809,20 @@ export class CrewRunner {
     )
       return;
     try {
-      // Avos reads your folder until there's a copy (a project without Git
-      // has none): only a helper that works in the copy waits for one.
+      // Avos reads your folder until there's a copy. Everyone else waits for
+      // one, a helper too (starting in your folder as the copy is made, its
+      // chat would be moved before it ran). Only where no copy can be made,
+      // a project without Git, does a helper read your folder, as Avos does.
       if (!crew.copy && member.role !== "lead") {
-        const prepared = await this.prepareCopy(path, false);
-        if (!prepared) return;
-        crew = prepared.crew;
+        let prepared: { crew: Crew } | null | undefined;
+        try {
+          prepared = await this.prepareCopy(path, false);
+        } catch (error) {
+          if (member.role !== "helper") throw error;
+          prepared = undefined;
+        }
+        if (prepared === null) return;
+        if (prepared) crew = prepared.crew;
       }
       // Avos answers on a quick model unless you picked one for it.
       const quick = avosTalkModel(member);
@@ -891,6 +902,13 @@ export class CrewRunner {
         mayAddJob: talkMayAddJob(talk, member.role),
         mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
         helpersOn: { mockup: !!cardDesigner(fresh) },
+        // Let Avos choose: it picks the Builder's model and effort per card.
+        ...(member.role === "lead" && talk.from === "you" && !talk.routine
+          ? (() => {
+              const picks = avosPickChoices(fresh);
+              return picks ? { picks } : {};
+            })()
+          : {}),
         guidance: crewGuidanceText({
           ...(member.instructions ? { instructions: member.instructions } : {}),
           ...(member.memory ? { memory: member.memory } : {}),
@@ -1129,6 +1147,15 @@ export class CrewRunner {
           size: asked.size,
           ...(asked.why ? { why: asked.why } : {}),
           ...(yours ? {} : { by: "lead" as const }),
+          // Avos's pick of the Builder's model and effort for it.
+          ...(asked.model || asked.effort
+            ? {
+                pick: {
+                  ...(asked.model ? { model: asked.model } : {}),
+                  ...(asked.effort ? { effort: asked.effort } : {}),
+                },
+              }
+            : {}),
         });
       });
       if (!member) return next;
@@ -1459,6 +1486,13 @@ export class CrewRunner {
             from: idea ? "scout" : "you",
             ...(idea ? { size: idea.size } : {}),
             maxRounds: crew.limits.roundsPerCard,
+            ...(() => {
+              const override = avosPickOverride(
+                crewMember(crew, "builder"),
+                idea?.pick,
+              );
+              return override ? { override } : {};
+            })(),
           },
           now,
         ),
@@ -2506,6 +2540,40 @@ export class CrewRunner {
     next = withMemberId(next, memberId, (member) =>
       member.doing ? { ...member, doing: undefined } : member,
     );
+    // What came of it goes back to Avos, which tells you in its own words,
+    // over the buttons to review it. A question asks you itself.
+    const lead = crewLead(next);
+    if (
+      lead &&
+      memberOn(lead) &&
+      next.on &&
+      (event.kind === "ready" || event.kind === "stuck")
+    )
+      next = withTalk(next, {
+        at: now,
+        from: memberId,
+        fromName:
+          role === "builder"
+            ? builder
+            : role === "checker"
+              ? checker
+              : security,
+        to: lead.id,
+        text: jobReport({
+          title: card.title,
+          outcome:
+            event.kind === "ready"
+              ? { ready: event.round }
+              : { stopped: event.text },
+          builder,
+          checker,
+          ...(round ? { round } : {}),
+        }),
+        // Nothing is passed on for it, and nothing comes back.
+        hop: TALK_HOPS,
+        answer: true,
+        report: true,
+      });
     return next;
   }
 

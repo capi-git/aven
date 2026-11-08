@@ -433,6 +433,13 @@
   color: var(--color-content);
   font-size: var(--text-ui-body);
 }
+/* Where a rule came from, under it: "You, 5 Nov". */
+.team-notes-from {
+  display: block;
+  margin-top: 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
 .team-notes .team-notes-forget {
   display: inline;
   width: auto;

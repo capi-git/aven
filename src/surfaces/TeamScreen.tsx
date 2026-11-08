@@ -25,7 +25,13 @@ import {
   type AvosWeekRow,
 } from "../lib/avos";
 import { subscribeCrewTell, takeCrewReview } from "../lib/crewActions";
-import { crewMemberById, stackedCards, type Crew } from "../lib/crews";
+import { avosPickOverride, pickLabel } from "../lib/crewModels";
+import {
+  crewMember,
+  crewMemberById,
+  stackedCards,
+  type Crew,
+} from "../lib/crews";
 import { crewMemberViews, type CrewBoardActionId } from "../lib/crewView";
 import type { BotStatus } from "../lib/projectBots";
 import {
@@ -48,11 +54,10 @@ import {
   AvosSections,
   type AvosProfileProps,
 } from "./AvosProfile";
-import { CrewFeed } from "./CrewBoard";
 import { AvosReview } from "./AvosReview";
 import { BatchCard, CrewBatchSheet } from "./TeamBatch";
 import { TeamChat } from "./TeamChat";
-import { TeamNotes, TeamSchedule } from "./TeamPanel";
+import { TeamNotes } from "./TeamPanel";
 import type { BoardTop } from "./WorkBoard";
 import "./TeamScreen.css";
 
@@ -118,8 +123,6 @@ export function TeamScreen({
   // sets the view itself): nothing on screen leads there.
   const [saved, save] = useTeamView(project);
   const [reviewing, setReviewing] = useState(false);
-  const [activity, setActivity] = useState(false);
-  const [schedule, setSchedule] = useState(false);
   const [notes, setNotes] = useState(false);
   // The narrow header's profile, in a sheet.
   const [profile, setProfile] = useState(false);
@@ -263,11 +266,18 @@ export function TeamScreen({
       if (!give || card.crew?.later) continue;
       // Set aside with Not now: it waits behind the "set aside" line.
       const aside = !!crew.notNow?.includes(card.id);
+      // Avos's pick of the Builder's model and effort, while it chooses.
+      const pick = avosPickOverride(
+        crewMember(crew, "builder"),
+        crew.ideas?.[card.id]?.pick,
+      );
+      const picked = pickLabel(pick);
       rows.push({
         id: `idea:${card.id}`,
         kind: "idea",
         text: card.title,
         ...(card.crew?.line ? { line: card.crew.line } : {}),
+        ...(picked ? { pick: picked } : {}),
         cardId: card.id,
         actions: aside ? [give] : [give, { id: "not-now", label: "Not now" }],
         deletable: true,
@@ -294,6 +304,7 @@ export function TeamScreen({
     watching: week.watching,
     members,
     dailyCap,
+    now,
     onOpen: open,
     onHelper: (id) => {
       setProfile(false);
@@ -304,8 +315,8 @@ export function TeamScreen({
       setProfile(false);
       setNotes(true);
     },
-    onSchedule: () => setSchedule(true),
-    onActivity: () => setActivity(true),
+    name,
+    limits: view.limits,
   };
   return (
     <section
@@ -410,8 +421,8 @@ export function TeamScreen({
       {notes ? (
         <Modal
           onClose={() => setNotes(false)}
-          title="Notes"
-          description="What Avos and its helpers remember"
+          title="What Avos remembers"
+          description="Your rules, and what it learned about this project"
           className="avos-notes-sheet"
         >
           <div className="avos-sheet-body">
@@ -425,28 +436,6 @@ export function TeamScreen({
           project={project}
           onClose={() => setReviewing(false)}
         />
-      ) : null}
-      {schedule ? (
-        <Modal
-          onClose={() => setSchedule(false)}
-          title="Schedule"
-          description="When Avos and its helpers work"
-          className="avos-schedule-sheet"
-        >
-          <div className="avos-sheet-body">
-            <TeamSchedule crew={crew} />
-          </div>
-        </Modal>
-      ) : null}
-      {activity ? (
-        <Modal
-          onClose={() => setActivity(false)}
-          title="Activity"
-          description={`${projectDisplayName(project, labels)}'s Avos · ${view.limits}`}
-          className="crew-activity"
-        >
-          <CrewFeed crew={crew} name={name} />
-        </Modal>
       ) : null}
     </section>
   );

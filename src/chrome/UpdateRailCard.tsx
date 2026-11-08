@@ -22,7 +22,8 @@ export function UpdateRailCard({ update, onOpen, onDismiss }: Props) {
         className="flex w-full items-start gap-2 rounded-md px-2 py-2 pr-8 text-left hover:bg-content/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-(--aven-focus-ring)"
       >
         <span className="mt-0.5 grid size-[18px] shrink-0 place-items-center text-content">
-          <AvenMark />
+          {/* Updated: Aven's mark climbs, then rests. */}
+          <AvenMark climb />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-ui-label font-medium leading-tight text-content">

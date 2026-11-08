@@ -1070,6 +1070,12 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             onPointerEnter={() => clearTimer()}
             onKeyDown={onDialogKey}
           >
+            {/* Its dots down to the mark it opened from. */}
+            <span className="helm-dialog-tail" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </span>
             <div className="helm-dialog-frame">
               <div className="helm-dialog-body">
                 {page === "main" ? (

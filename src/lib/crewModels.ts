@@ -96,3 +96,66 @@ export function avosTalkModel(
     return undefined;
   return known(AVOS_TALK_MODEL) ? { model: AVOS_TALK_MODEL } : undefined;
 }
+
+/** How many of a provider's models Avos picks from: its newest. */
+const PICKS_SHOWN = 4;
+
+/**
+ * What Avos may pick from for the Builder's jobs, when you've let it
+ * choose: the Builder's provider's newest models, each with the efforts it
+ * takes. None when you picked its model yourself, or there's no Builder.
+ */
+export function avosPickChoices(
+  crew: Pick<Crew, "members">,
+  models: (harness: HarnessId) => readonly { id: string }[] = (harness) =>
+    pickerModelsFor(harness),
+): string | undefined {
+  const builder = crewMember(crew as Crew, "builder");
+  if (!builder || builder.chosen) return undefined;
+  const { harness } = crewMemberApp(builder);
+  const listed = models(harness)
+    .slice(0, PICKS_SHOWN)
+    .map((model) => {
+      const effort = crewEffortSetting(harness, model.id);
+      return effort?.options.length
+        ? `${model.id} (${effort.options.map((option) => option.value).join(", ")})`
+        : model.id;
+    });
+  if (!listed.length) return undefined;
+  return [
+    "Pick the Builder's model and effort for each card, for how hard it is: a small, clear fix on a lighter model or a low effort; fiddly or large work on the strongest, with more effort. Use only these, by id, with an effort from its list:",
+    ...listed.map((line) => `- ${line}`),
+  ].join("\n");
+}
+
+/**
+ * A card's model and effort for its Builder: Avos's pick, while you've let
+ * it choose (the Builder isn't `chosen`). An unknown model or effort is
+ * dropped again where the chat opens (`crewChatModel`).
+ */
+export function avosPickOverride(
+  builder: Pick<CrewMember, "chosen"> | undefined,
+  pick: { model?: string; effort?: string } | undefined,
+): { model?: string; effort?: string } | undefined {
+  if (!builder || builder.chosen || !pick) return undefined;
+  const out = {
+    ...(pick.model ? { model: pick.model } : {}),
+    ...(pick.effort ? { effort: pick.effort } : {}),
+  };
+  return out.model || out.effort ? out : undefined;
+}
+
+/** Avos's pick in words, as the plan shows it: "Opus 5.5 · High". */
+export function pickLabel(
+  pick: { model?: string; effort?: string } | undefined,
+): string | undefined {
+  if (!pick?.model && !pick?.effort) return undefined;
+  const model = pick.model ? findModel(pick.model) : undefined;
+  const effort =
+    pick.effort && model
+      ? crewEffortSetting(model.harness, model.id)?.options.find(
+          (option) => option.value === pick.effort,
+        )?.label
+      : undefined;
+  return [model?.name, effort ?? pick.effort].filter(Boolean).join(" · ");
+}

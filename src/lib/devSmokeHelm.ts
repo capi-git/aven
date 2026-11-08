@@ -54,13 +54,13 @@ export function helmStopProblem(
   return null;
 }
 
-/** A working agent's lit key at the helm, whose typing animation is read. */
+/** A working agent's face at the helm, whose scanning animation is read. */
 export const HELM_TYPING_SELECTOR =
-  '.helm-critter[data-agent="working"] .agent-key';
+  '.helm-critter[data-agent="working"] .agent-eyes';
 
 /**
  * Why the helm is not showing a working agent, or null: its Bot in the
- * running pose, typing (its lit key stepping along, unless reduced motion
+ * running pose, scanning (its eyes moving side to side, unless reduced motion
  * keeps it still), and the bubble saying what it does with a clock.
  */
 export function helmWorkingProblem(
@@ -72,13 +72,13 @@ export function helmWorkingProblem(
   if ((helm as HTMLElement).dataset.pose !== "running")
     return `the mark is ${(helm as HTMLElement).dataset.pose ?? "unposed"}, not running`;
   if (!helm.querySelector(HELM_TYPING_SELECTOR))
-    return "the mark is not typing";
+    return "the mark is not scanning";
   const bubble = helm.querySelector('[data-helm-say="running"]');
   if (!bubble) return "the mark's bubble says nothing";
   if (!bubble.querySelector('[role="timer"]'))
     return "the bubble shows no elapsed time";
-  const typing = animationProblem(typingAnimation, "agent-type", reducedMotion);
-  return typing ? `the typing: ${typing}` : null;
+  const typing = animationProblem(typingAnimation, "agent-scan", reducedMotion);
+  return typing ? `the scanning: ${typing}` : null;
 }
 
 /**

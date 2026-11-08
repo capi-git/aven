@@ -48,11 +48,14 @@ const {
   sendClaudeTurn,
   stopClaudeSession,
   restoreClaudeTaskLists,
+  inPlaceChange,
   __claudeTestReset,
 } = await import("./claude");
+const { claudeSettingsKey } = await import("./claudeProtocol");
 const { claudeAdapter } = await import("./claudeAdapter");
 const {
   HARNESS_IDLE_PARK_MS,
+  reconnectHarnessSession,
   registerHarness,
   resetHarnessIdlePark,
   sendHarnessTurn,
@@ -1610,7 +1613,11 @@ describe("claude background shells", () => {
   });
 
   /** The next turn in the same chat, on `model`, until it sends its prompt. */
-  async function nextTurn(model: string, answer?: "success" | "error") {
+  async function nextTurn(
+    model: string,
+    answer?: "success" | "error",
+    access: { runtimeMode?: RuntimeMode; intent?: TurnIntent } = {},
+  ) {
     const prompts = parse().filter((m) => m.type === "user").length;
     const events: HarnessEvent[] = [];
     const turn = sendClaudeTurn({
@@ -1618,7 +1625,8 @@ describe("claude background shells", () => {
       cwd: "/repo",
       model,
       modelSettings: {},
-      runtimeMode: "supervised",
+      runtimeMode: access.runtimeMode ?? "supervised",
+      intent: access.intent,
       text: "carry on",
       attachments: [],
       onEvent: (event) => events.push(event),
@@ -1715,6 +1723,220 @@ describe("claude background shells", () => {
     expect(spawned[1]).toContain("claude-opus-5");
   });
 
+  const modeRequests = () =>
+    parse()
+      .map((m) => m.request as Record<string, unknown> | undefined)
+      .filter((request) => request?.subtype === "set_permission_mode");
+  /** Answer the latest access switch the running CLI was asked for. */
+  async function answerMode(answer: "success" | "error", count: number) {
+    await waitFor(() => modeRequests().length === count, "set_permission_mode");
+    const request = parse()
+      .filter(
+        (m) =>
+          (m.request as Record<string, unknown> | undefined)?.subtype ===
+          "set_permission_mode",
+      )
+      .at(-1)!;
+    emit({
+      type: "control_response",
+      response: {
+        subtype: answer,
+        request_id: request.request_id,
+        ...(answer === "error" ? { error: "not allowed" } : {}),
+      },
+    });
+  }
+  async function untilPrompt(next: { prompts: number }) {
+    await waitFor(
+      () => parse().filter((m) => m.type === "user").length > next.prompts,
+      "the next prompt",
+    );
+  }
+  async function devServerRunning(runtimeMode: RuntimeMode = "supervised") {
+    const first = await startTurn("s1", { runtimeMode });
+    shellStarted("dev");
+    emit({ type: "result", subtype: "success" });
+    await first.turn;
+  }
+
+  it("changes the access mode in the running CLI while a dev server runs", async () => {
+    await devServerRunning();
+
+    const next = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "auto-accept-edits",
+    });
+    await answerMode("success", 1);
+    await untilPrompt(next);
+    expect(modeRequests()).toEqual([
+      { subtype: "set_permission_mode", mode: "acceptEdits" },
+    ]);
+    expect(switchRequest()).toBeUndefined();
+    expect(killed).toEqual([]);
+    expect(spawned).toHaveLength(1);
+    emit({ type: "result", subtype: "success" });
+    await next.turn;
+
+    // Settled in the new mode: the turn after asks for nothing.
+    const again = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "auto-accept-edits",
+    });
+    await untilPrompt(again);
+    expect(modeRequests()).toHaveLength(1);
+    emit({ type: "result", subtype: "success" });
+    await again.turn;
+  });
+
+  it("plans in the running CLI and comes back out of plan mode", async () => {
+    await devServerRunning("auto");
+
+    const plan = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "auto",
+      intent: "plan",
+    });
+    await answerMode("success", 1);
+    await untilPrompt(plan);
+    // Aven answers as in plan mode: writes are refused without a prompt.
+    emit({
+      type: "control_request",
+      request_id: "write_1",
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Write",
+        input: { file_path: "/repo/src/new.ts" },
+      },
+    });
+    await waitFor(
+      () =>
+        parse().some(
+          (m) =>
+            (m.response as Record<string, unknown> | undefined)?.request_id ===
+            "write_1",
+        ),
+      "the write answer",
+    );
+    const write = parse().find(
+      (m) =>
+        (m.response as Record<string, unknown> | undefined)?.request_id ===
+        "write_1",
+    );
+    expect(
+      (
+        (write!.response as Record<string, unknown>).response as Record<
+          string,
+          unknown
+        >
+      ).behavior,
+    ).toBe("deny");
+    emit({ type: "result", subtype: "success" });
+    await plan.turn;
+
+    const build = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "auto",
+    });
+    await answerMode("success", 2);
+    await untilPrompt(build);
+    expect(modeRequests()).toEqual([
+      { subtype: "set_permission_mode", mode: "plan" },
+      { subtype: "set_permission_mode", mode: "auto" },
+    ]);
+    expect(killed).toEqual([]);
+    expect(spawned).toHaveLength(1);
+    emit({ type: "result", subtype: "success" });
+    await build.turn;
+  });
+
+  it("changes the model and the access mode together in the running CLI", async () => {
+    await devServerRunning("full-access");
+
+    const next = await nextTurn("claude:claude-opus-5", undefined, {
+      runtimeMode: "supervised",
+    });
+    await answerMode("success", 1);
+    await waitFor(() => !!switchRequest(), "set_model");
+    emit({
+      type: "control_response",
+      response: { subtype: "success", request_id: switchRequest()!.request_id },
+    });
+    await untilPrompt(next);
+    expect(modeRequests()).toEqual([
+      { subtype: "set_permission_mode", mode: "default" },
+    ]);
+    expect(switchRequest()?.request).toEqual({
+      subtype: "set_model",
+      model: "claude-opus-5",
+    });
+    expect(killed).toEqual([]);
+    expect(spawned).toHaveLength(1);
+    emit({ type: "result", subtype: "success" });
+    await next.turn;
+  });
+
+  it("starts a new CLI when the running one refuses the new access mode", async () => {
+    await devServerRunning();
+
+    const next = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "auto",
+    });
+    await answerMode("error", 1);
+    await waitFor(() => killed.includes("s1"), "the old CLI stopped");
+    await finishInNewCli(next);
+    expect(spawned[1][spawned[1].indexOf("--permission-mode") + 1]).toBe(
+      "auto",
+    );
+  });
+
+  it("starts a new CLI for Full access, which the running one can't enter", async () => {
+    await devServerRunning();
+
+    const next = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "full-access",
+    });
+    await finishInNewCli(next);
+    expect(modeRequests()).toEqual([]);
+    expect(killed).toEqual(["s1"]);
+    expect(spawned[1]).toContain("--allow-dangerously-skip-permissions");
+  });
+
+  it("plans in a new CLI after Full access, where plan mode would skip prompts", async () => {
+    await devServerRunning("full-access");
+
+    const next = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "full-access",
+      intent: "plan",
+    });
+    await finishInNewCli(next);
+    expect(modeRequests()).toEqual([]);
+    expect(spawned[1][spawned[1].indexOf("--permission-mode") + 1]).toBe(
+      "plan",
+    );
+    expect(spawned[1]).not.toContain("--allow-dangerously-skip-permissions");
+  });
+
+  it("starts a new CLI for a new access mode when no shell runs, as before", async () => {
+    const first = await startTurn("s1");
+    emit({ type: "result", subtype: "success" });
+    await first.turn;
+
+    const next = await nextTurn("claude:claude-sonnet-5", undefined, {
+      runtimeMode: "auto",
+    });
+    await finishInNewCli(next);
+    expect(modeRequests()).toEqual([]);
+    expect(killed).toEqual(["s1"]);
+  });
+
+  it("still ends the dev server on Reconnect", async () => {
+    registerHarness(claudeAdapter);
+    try {
+      await devServerRunning();
+      reconnectHarnessSession("claude", "s1");
+      await waitFor(() => killed.includes("s1"), "the CLI stopped");
+      expect(modeRequests()).toEqual([]);
+    } finally {
+      resetHarnessIdlePark();
+    }
+  });
+
   it("starts a new CLI for a new model when no shell runs, as before", async () => {
     const first = await startTurn("s1");
     emit({ type: "result", subtype: "success" });
@@ -1724,6 +1946,41 @@ describe("claude background shells", () => {
     await finishInNewCli(next);
     expect(switchRequest()).toBeUndefined();
     expect(killed).toEqual(["s1"]);
+  });
+});
+
+describe("settings a running Claude CLI can change", () => {
+  const key = (
+    overrides: Partial<Parameters<typeof claudeSettingsKey>[0]> = {},
+  ) =>
+    claudeSettingsKey({
+      model: "claude-sonnet-5",
+      effort: "high",
+      runtimeMode: "supervised",
+      hooks: true,
+      ...overrides,
+    });
+
+  it("names a new model or access mode", () => {
+    expect(inPlaceChange(key(), key({ runtimeMode: "auto" }))).toEqual({
+      model: false,
+      mode: true,
+    });
+    expect(
+      inPlaceChange(
+        key(),
+        key({ model: "claude-opus-5", runtimeMode: "full-access" }),
+      ),
+    ).toEqual({ model: true, mode: true });
+    expect(inPlaceChange(key(), key())).toEqual({ model: false, mode: false });
+  });
+
+  it("leaves anything else to a new CLI", () => {
+    expect(inPlaceChange(key(), key({ effort: "low" }))).toBeNull();
+    expect(inPlaceChange(key(), key({ fast: "true" }))).toBeNull();
+    expect(inPlaceChange(key(), key({ context: "1m" }))).toBeNull();
+    expect(inPlaceChange(key(), key({ hooks: false }))).toBeNull();
+    expect(inPlaceChange(key(), key({ permissions: "rules" }))).toBeNull();
   });
 });
 

@@ -91,3 +91,10 @@
 .avos-for-you-quiet .avos-asks {
   width: 100%;
 }
+
+/* A plan of jobs: Go and Change under its rows. */
+.avos-plan-buttons {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 0;
+}

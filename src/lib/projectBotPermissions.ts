@@ -717,10 +717,10 @@ export function crewChatPermissions(
   // The Designer writes its one file: not read-only for the app, but every
   // other path is refused by its rules and sandbox.
   const readOnly = !CREW_ROLE_INFO[role].edits;
-  // Avos reads your own folder until the project has a copy (one without
-  // Git never does): read-only, offline, and kept from writing anything
-  // there by its sandbox as well as its rules.
-  const inYourFolder = !crew.copy && role === "lead";
+  // Avos and its helpers read your own folder until the project has a copy
+  // (one without Git never does): read-only, offline, and kept from writing
+  // anything there by their sandbox as well as their rules.
+  const inYourFolder = !crew.copy && (role === "lead" || role === "helper");
   const refuse = found.retired
     ? "This chat's teammate was removed, so it didn't start."
     : !crew.on

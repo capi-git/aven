@@ -1,3 +1,4 @@
+import { avosPickOverride } from "./crewModels";
 import { holdIdeaStarts } from "./crewLimits";
 import { useSyncExternalStore } from "react";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
@@ -45,6 +46,7 @@ import {
   crewAgentsFor,
   CREW_LIMIT_RANGES,
   CREW_ROLE_INFO,
+  crewMember,
   crewMemberById,
   memberCritter,
   newMemberId,
@@ -766,7 +768,15 @@ export async function giveCardToCrew(
                     ...(chosen.effort ? { effort: chosen.effort } : {}),
                   },
                 }
-              : {}),
+              : (() => {
+                  // Let Avos choose: its pick for the Builder that takes it.
+                  const override = avosPickOverride(
+                    crewMemberById(current, chosen.builderId) ??
+                      crewMember(current, "builder"),
+                    idea?.pick,
+                  );
+                  return override ? { override } : {};
+                })()),
           },
           now,
         ),
@@ -2515,6 +2525,11 @@ export type CrewMemberChange = {
   harness?: string;
   model?: string | null;
   effort?: string | null;
+  /**
+   * False hands its model and effort back to Avos to pick for each job;
+   * picking a model or effort yourself makes it yours.
+   */
+  chosen?: boolean;
   instructions?: string | null;
   /** Paths or globs, as a list or as you typed them (one per line, or commas). */
   scope?: readonly string[] | string | null;
@@ -2724,6 +2739,15 @@ export function updateCrewMember(
         set("model", cleanText(change.model, 200));
       if (change.effort !== undefined)
         set("effort", cleanText(change.effort, 40));
+      // Picking its model or effort yourself is choosing; Let Avos choose
+      // hands them back.
+      if (change.chosen === false) set("chosen", undefined);
+      else if (
+        change.chosen === true ||
+        (change.model !== undefined && change.model !== null) ||
+        (change.effort !== undefined && change.effort !== null)
+      )
+        set("chosen", true);
       if (change.instructions !== undefined)
         set(
           "instructions",

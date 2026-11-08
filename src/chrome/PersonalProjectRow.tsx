@@ -36,6 +36,7 @@ import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 import { ProjectMark } from "./ProjectMark";
 import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
+import { CrewCritter } from "./CrewCritter";
 
 type Props = {
   path: string;
@@ -210,7 +211,12 @@ export function PersonalProjectRow({
           <span ref={labelRef} className="personal-project-label">
             {label}
           </span>
-          <ProjectRowStatus status={status} memoryUpdated={memoryUnseen} />
+          <ProjectRowStatus
+            path={path}
+            folded={!expanded}
+            status={status}
+            memoryUpdated={memoryUnseen}
+          />
         </button>
         <button
           type="button"
@@ -317,16 +323,26 @@ export function PersonalProjectRow({
  * Quiet, right-aligned status: a small brain after Aven updated the
  * project's memory (until it is opened), an amber dot while something waits
  * for the user, the unread reply count, and the changed-file count. A running
- * agent is a small dot: the project's mark stays still.
+ * agent is its little working screen: the project's mark stays still.
  */
 function ProjectRowStatus({
+  path,
+  folded,
   status,
   memoryUpdated = false,
 }: {
+  /** Its project: an agent at work there wears its colour. */
+  path: string;
+  /**
+   * Folded, its row is the only place to say an agent works there; open,
+   * the agent's own row says it, once.
+   */
+  folded: boolean;
   status?: ProjectStatus;
   memoryUpdated?: boolean;
 }) {
-  const { running, waiting, unread, files } = status ?? {};
+  const { waiting, unread, files } = status ?? {};
+  const running = folded && status?.running;
   if (!running && !waiting && !unread && !files && !memoryUpdated) return null;
   return (
     <span className="personal-project-status" aria-hidden>
@@ -337,7 +353,17 @@ function ProjectRowStatus({
           data-memory-updated
         />
       ) : null}
-      {running ? <span className="personal-project-running" /> : null}
+      {running ? (
+        // An agent at work: its little screen, in the project's colour.
+        <span className="personal-project-running">
+          <CrewCritter
+            path={path}
+            role="lead"
+            state="working"
+            className="personal-project-running-mark"
+          />
+        </span>
+      ) : null}
       {waiting ? <span className="personal-project-waiting" /> : null}
       {unread ? (
         <span className="personal-project-unread">{unread}</span>

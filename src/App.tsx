@@ -11407,10 +11407,12 @@ export default function App({
     ) => {
       const member = crewMemberById(crew, memberId);
       if (!member || member.role === "fixer") return null;
-      // Avos reads your folder until the project has a copy (one without
-      // Git never does); every other helper works only in the copy.
+      // Avos and the helpers it starts only read: they read your folder
+      // until the project has a copy (one without Git never does). Everyone
+      // else works only in the copy.
       const copy = crew.copy?.path;
-      if (!copy && member.role !== "lead") return null;
+      if (!copy && member.role !== "lead" && member.role !== "helper")
+        return null;
       // Its app now: a Checker that couldn't be locked down on Codex runs on
       // Claude for this session.
       const app = crewMemberApp(member);

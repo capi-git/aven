@@ -214,11 +214,58 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
   line-height: 16px;
 }
 
-/* Effort levels keep the tile ripple; a dot gives each level its color. */
-.agent-effort-list {
+/* Effort: a dot per level the model has, weakest to strongest, lit up to
+   the chosen one; pointed at, they light up to that one, fainter, and the
+   line under them names it. */
+.agent-effort {
+  padding: 0 var(--aven-menu-row-x) 4px;
+}
+.agent-effort-dots {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  margin-inline: -4px;
+}
+.agent-effort-step {
+  display: grid;
+  flex: 1 1 0;
+  place-items: center;
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+}
+.agent-effort-step:focus-visible {
+  outline: 1px solid var(--aven-focus-ring, var(--color-accent));
+  outline-offset: -1px;
+}
+.agent-effort-pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-content);
+  opacity: 0.18;
+  transition: opacity 120ms ease-out;
+}
+.agent-effort-step[data-lit] .agent-effort-pip {
+  opacity: 0.9;
+}
+.agent-effort[data-preview] .agent-effort-step[data-lit] .agent-effort-pip {
+  opacity: 0.55;
+}
+.agent-effort-value {
+  margin: 0;
+  overflow: hidden;
+  color: var(--toolbar-panel-muted);
+  font-size: var(--text-ui-caption);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-effort-pip {
+    transition: none;
+  }
 }
 /* Menu rows: 26px, the menu's hover; the check marks the chosen one. */
 .agent-choice-row {
@@ -236,16 +283,6 @@ html.theme-light :is(.agent-pill-usage, .agent-panel-usage) {
 }
 .agent-choice-row:hover {
   background: var(--toolbar-panel-hover);
-}
-.model-effort-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: var(--aven-radius-capsule);
-  background: var(
-    --model-effort-color,
-    color-mix(in srgb, var(--color-content) 30%, transparent)
-  );
 }
 .agent-choice-check {
   width: var(--aven-menu-icon);
