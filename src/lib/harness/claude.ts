@@ -134,6 +134,11 @@ type Live = {
   runtimeMode: RuntimeMode;
   planning: boolean;
   settingsKey: string;
+  /**
+   * Launched in Full access (`--allow-dangerously-skip-permissions`): only
+   * such a CLI can switch into it, and in plan mode it skips prompts too.
+   */
+  bypassAvailable: boolean;
   onEvent: (event: HarnessEvent) => void;
   approvals: Map<number, PendingApproval>;
   questions: Map<number, PendingQuestion>;
@@ -471,19 +476,19 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     return existing;
   }
   // A new model while a background shell runs (a dev server the agent
-  // started): switched in the running CLI, since a new one would end the
-  // shell with it. Anything else, or a switch it refuses, starts afresh.
+  // started), or a new access mode or plan mode: changed in the running CLI,
+  // since a new one would end the shell with it. Anything else, or a change
+  // it refuses, starts afresh. Reconnect stops the CLI outright elsewhere.
   if (
     existing &&
     !existing.apiErrorReported &&
     !existing.retired &&
     existing.backgroundShells.size > 0 &&
     existing.cwd === input.cwd &&
-    existing.planning === planning &&
-    onlyModelChanged(existing.settingsKey, settingsKey) &&
-    (await switchModel(input.sessionId, existing, input))
+    (await changeInPlace(input.sessionId, existing, input, settingsKey))
   ) {
     existing.settingsKey = settingsKey;
+    existing.planning = planning;
     existing.onEvent = input.onEvent;
     existing.runtimeMode = effectiveRuntimeMode(input);
     return existing;
@@ -532,6 +537,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     runtimeMode: effectiveRuntimeMode(input),
     planning,
     settingsKey,
+    bypassAvailable: launch.permissionMode === "bypassPermissions",
     onEvent: input.onEvent,
     approvals: new Map(),
     questions: new Map(),
@@ -1876,33 +1882,95 @@ function waitForInit(live: Live, timeoutMs: number): Promise<void> {
   });
 }
 
-/** How long a running CLI has to answer a model switch. */
+/** How long a running CLI has to answer a model or access switch. */
 const SWITCH_TIMEOUT_MS = 5_000;
 
+/** Where the model and access mode sit in a `claudeSettingsKey`. */
+const KEY_MODEL = 0;
+const KEY_EFFORT = 1;
+const KEY_RUNTIME_MODE = 5;
+
 /**
- * Whether two settings keys (`claudeSettingsKey`) differ in their model
- * alone, with the effort the CLI launched with unchanged for the new one.
+ * What a running CLI must change to match a new settings key
+ * (`claudeSettingsKey`), or null when only a new process can: anything but
+ * the model and the access mode differs, or a new model would launch with
+ * another effort.
  */
-function onlyModelChanged(before: string, after: string): boolean {
-  const [model, effort, ...rest] = before.split("|");
-  const [nextModel, nextEffort, ...nextRest] = after.split("|");
-  return (
-    model !== nextModel &&
-    effort === nextEffort &&
-    rest.join("|") === nextRest.join("|") &&
-    normalizeClaudeCliEffort(effort || undefined, model) ===
-      normalizeClaudeCliEffort(effort || undefined, nextModel)
-  );
+export function inPlaceChange(
+  before: string,
+  after: string,
+): { model: boolean; mode: boolean } | null {
+  const was = before.split("|");
+  const next = after.split("|");
+  if (was.length !== next.length) return null;
+  for (let i = 0; i < was.length; i++) {
+    if (i === KEY_MODEL || i === KEY_RUNTIME_MODE) continue;
+    if (was[i] !== next[i]) return null;
+  }
+  const effort = was[KEY_EFFORT] || undefined;
+  const model = was[KEY_MODEL] !== next[KEY_MODEL];
+  if (
+    model &&
+    normalizeClaudeCliEffort(effort, was[KEY_MODEL]) !==
+      normalizeClaudeCliEffort(effort, next[KEY_MODEL])
+  ) {
+    return null;
+  }
+  return { model, mode: was[KEY_RUNTIME_MODE] !== next[KEY_RUNTIME_MODE] };
 }
 
-/** Ask the running CLI to use the chat's model now; false if it didn't. */
-async function switchModel(
+/**
+ * Bring the running CLI to the chat's model, access mode and plan mode
+ * without a new process; false if nothing changed or it couldn't.
+ */
+async function changeInPlace(
   sessionId: string,
   live: Live,
   input: HarnessSessionInput,
+  settingsKey: string,
 ): Promise<boolean> {
-  const model = launchOptions(input, undefined, live.claudeSessionId).model;
-  if (!model) return false;
+  const change = inPlaceChange(live.settingsKey, settingsKey);
+  if (!change) return false;
+  const planning = input.intent === "plan";
+  const mode = change.mode || live.planning !== planning;
+  if (!change.model && !mode) return false;
+  const launch = launchOptions(input, undefined, live.claudeSessionId);
+  if (mode) {
+    const permissionMode = launch.permissionMode;
+    // Full access needs its launch flag, which also lets plan mode skip
+    // prompts: a CLI launched otherwise can't enter it, and one launched in
+    // it plans in a new process as before.
+    if (!permissionMode) return false;
+    if (permissionMode === "bypassPermissions" && !live.bypassAvailable)
+      return false;
+    if (permissionMode === "plan" && live.bypassAvailable) return false;
+    if (
+      !(await sendControl(sessionId, live, {
+        subtype: "set_permission_mode",
+        mode: permissionMode,
+      }))
+    )
+      return false;
+  }
+  if (change.model) {
+    if (!launch.model) return false;
+    if (
+      !(await sendControl(sessionId, live, {
+        subtype: "set_model",
+        model: launch.model,
+      }))
+    )
+      return false;
+  }
+  return true;
+}
+
+/** Send a control request and wait for it to succeed; false if it didn't. */
+async function sendControl(
+  sessionId: string,
+  live: Live,
+  request: Record<string, unknown>,
+): Promise<boolean> {
   const id = nextControlId(live);
   const answered = new Promise<ClaudeControlResponse | null>((resolve) => {
     const timer = setTimeout(() => {
@@ -1915,10 +1983,7 @@ async function switchModel(
     });
   });
   try {
-    await writeJson(
-      sessionId,
-      buildControlRequest(id, { subtype: "set_model", model }),
-    );
+    await writeJson(sessionId, buildControlRequest(id, request));
   } catch {
     live.controlWaits.get(id)?.(null);
     live.controlWaits.delete(id);
