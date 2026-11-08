@@ -809,13 +809,20 @@ export class CrewRunner {
     )
       return;
     try {
-      // Avos and the helpers it starts read your folder until there's a copy
-      // (a project without Git has none): only a teammate that works in the
-      // copy waits for one.
-      if (!crew.copy && member.role !== "lead" && member.role !== "helper") {
-        const prepared = await this.prepareCopy(path, false);
-        if (!prepared) return;
-        crew = prepared.crew;
+      // Avos reads your folder until there's a copy. Everyone else waits for
+      // one, a helper too (starting in your folder as the copy is made, its
+      // chat would be moved before it ran). Only where no copy can be made,
+      // a project without Git, does a helper read your folder, as Avos does.
+      if (!crew.copy && member.role !== "lead") {
+        let prepared: { crew: Crew } | null | undefined;
+        try {
+          prepared = await this.prepareCopy(path, false);
+        } catch (error) {
+          if (member.role !== "helper") throw error;
+          prepared = undefined;
+        }
+        if (prepared === null) return;
+        if (prepared) crew = prepared.crew;
       }
       // Avos answers on a quick model unless you picked one for it.
       const quick = avosTalkModel(member);
