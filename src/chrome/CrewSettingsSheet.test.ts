@@ -88,7 +88,7 @@ describe("the team's settings", () => {
     updateCrew(PATH, (crew) => ({
       ...crew,
       members: [
-        { id: "lead", role: "lead", model: "claude:sonnet-9" },
+        { id: "lead", role: "lead", model: "claude:sonnet-9", chosen: true },
         ...crew.members.map((member) =>
           member.id === "checker"
             ? {

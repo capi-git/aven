@@ -1227,7 +1227,7 @@ export class CrewRunner {
         // do); when Avos picks per job, on what its asker runs on.
         const app = crewMemberApp(member);
         const runs = helperRunsOn(next) ?? {
-          model: app.model ?? avosTalkModel(member)?.model ?? "",
+          model: avosTalkModel(member)?.model ?? app.model ?? "",
         };
         const runsHarness = findModel(runs.model)?.harness ?? app.harness;
         const helper: CrewMember = {

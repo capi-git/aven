@@ -23,11 +23,18 @@ describe("the model Avos answers you on", () => {
 
   it("is yours when you picked one, or on Codex, or for another helper", () => {
     expect(
-      avosTalkModel({ role: "lead", model: "claude:opus-5-5" }, known),
+      avosTalkModel(
+        { role: "lead", model: "claude:opus-5-5", chosen: true },
+        known,
+      ),
     ).toBeUndefined();
-    expect(avosTalkModel({ role: "lead", harness: "codex" }, known)).toBe(
-      undefined,
-    );
+    expect(
+      avosTalkModel({ role: "lead", harness: "codex", chosen: true }, known),
+    ).toBe(undefined);
+    // A model Aven gave it when it started isn't yours: Opus 5.5 still.
+    expect(
+      avosTalkModel({ role: "lead", model: "claude:haiku" }, known),
+    ).toEqual({ model: AVOS_MODEL, effort: "medium" });
     expect(avosTalkModel({ role: "builder" }, known)).toBeUndefined();
   });
 

@@ -1,4 +1,4 @@
-import { avosPickOverride } from "./crewModels";
+import { avosPickOverride, helperRunsOn } from "./crewModels";
 import { holdIdeaStarts } from "./crewLimits";
 import { useSyncExternalStore } from "react";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
@@ -2541,7 +2541,9 @@ export function addCrewMember(
     id = newMemberId(current, role);
     const critter = freeMark(current, template === "custom" ? "custom" : role);
     const name = cleanText(input.name, 40);
-    const model = harness ? cleanText(input.model, 200) : undefined;
+    const picked = harness ? cleanText(input.model, 200) : undefined;
+    const runs = picked ? undefined : newHelperRuns(current, role, harness);
+    const model = picked ?? runs?.model;
     const instructions = cleanText(input.instructions, CREW_INSTRUCTIONS_MAX);
     const member: CrewMember = {
       id,
@@ -2552,17 +2554,13 @@ export function addCrewMember(
       ...(job ? { job } : {}),
       ...(harness ? { harness } : {}),
       ...(model ? { model } : {}),
+      ...(runs?.effort ? { effort: runs.effort } : {}),
       ...(instructions ? { instructions } : {}),
     };
-    const next = { ...current, members: [...current.members, member] };
-    // Said in Avos's chat, so you see who joined.
-    return withFeed(next, {
-      at: Date.now(),
-      kind: "note",
-      who: "aven",
-      member: id,
-      text: `${crewMemberName(next, id)} has been added to the team.`,
-    });
+    return withJoined(
+      { ...current, members: [...current.members, member] },
+      id,
+    );
   });
   return { id };
 }
@@ -2711,7 +2709,9 @@ function withPreset(
     crewAgentsFor(preset.role).includes(app.harness)
       ? app.harness
       : undefined;
-  const model = harness ? cleanText(app?.model, 200) : undefined;
+  const runs = newHelperRuns(crew, preset.role, harness);
+  const model =
+    runs?.model ?? (harness ? cleanText(app?.model, 200) : undefined);
   const member: CrewMember = {
     id: newMemberId(crew, preset.role),
     role: preset.role,
@@ -2722,8 +2722,35 @@ function withPreset(
     ...(preset.scope?.length ? { scope: [...preset.scope] } : {}),
     ...(harness ? { harness } : {}),
     ...(model ? { model } : {}),
+    ...(runs?.effort ? { effort: runs.effort } : {}),
   };
-  return { ...crew, members: [...crew.members, member] };
+  return withJoined({ ...crew, members: [...crew.members, member] }, member.id);
+}
+
+/**
+ * What a helper you add runs on: what new helpers run on (Opus 5.5 ·
+ * Medium until you pick), on Claude. A Checker or Security keeps its own
+ * pick, other eyes than the Builder's; so does one on another app.
+ */
+function newHelperRuns(
+  crew: Crew,
+  role: CrewRole,
+  harness: string | undefined,
+): { model: string; effort?: string } | undefined {
+  if (role === "checker" || role === "security") return undefined;
+  if (harness && harness !== "claude") return undefined;
+  return helperRunsOn(crew);
+}
+
+/** Said in Avos's chat when a helper joins, so you see who's there. */
+function withJoined(crew: Crew, id: string): Crew {
+  return withFeed(crew, {
+    at: Date.now(),
+    kind: "note",
+    who: "aven",
+    member: id,
+    text: `${crewMemberName(crew, id)} has been added to the team.`,
+  });
 }
 
 /**

@@ -101,8 +101,8 @@ export function memberApp(member: CrewMember): {
   return {
     harness: app.harness,
     model:
-      app.model ??
       avosTalkModel(member)?.model ??
+      app.model ??
       preferredModelId(app.harness),
   };
 }
@@ -155,7 +155,7 @@ export function memberAppLine(
   }
   const { model } = app;
   // Avos on its own default says its effort too: "Opus 5.5 · Medium".
-  const effort = member.effort ?? avosTalkModel(member)?.effort;
+  const effort = avosTalkModel(member)?.effort ?? member.effort;
   const label = effort
     ? crewEffortSetting(harness, model)?.options.find(
         (option) => option.value === effort,

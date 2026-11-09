@@ -243,7 +243,7 @@ describe("a helper's page", () => {
         id: "1",
         at: 2,
         title: "Add /health",
-        texts: ["Started", "Added a /health endpoint."],
+        texts: ["Added a /health endpoint."],
       },
       { id: "3", at: 3, title: "Fix tabs", texts: ["Started"] },
     ]);

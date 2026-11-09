@@ -1153,7 +1153,7 @@ describe("Avos answering you", () => {
       ...crew,
       members: crew.members.map((member) =>
         member.role === "lead"
-          ? { ...member, model: "claude:opus-5-5" }
+          ? { ...member, model: "claude:opus-5-5", chosen: true as const }
           : member,
       ),
     }));

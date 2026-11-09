@@ -724,6 +724,10 @@ export function helperSteps(
         texts: [text],
       });
   }
+  // "Started" says nothing once there's what it did.
+  for (const step of steps)
+    if (step.texts.length > 1)
+      step.texts = step.texts.filter((text) => text !== "Started");
   return steps;
 }
 

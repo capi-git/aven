@@ -982,7 +982,12 @@ function HelpersBody({
 function HelperModelSection({ crew }: { crew: Crew }) {
   const path = crew.path;
   const runs = helperRunsOn(crew);
-  const models = pickerModelsFor("claude");
+  // The default first, then the rest as the model picker lists them.
+  const models = [...pickerModelsFor("claude")].sort(
+    (a, b) =>
+      Number(b.id === HELPER_MODEL_DEFAULT.model) -
+      Number(a.id === HELPER_MODEL_DEFAULT.model),
+  );
   const value = runs ? runs.model : "avos";
   const known = runs ? findModel(runs.model) : undefined;
   const effort = known ? crewEffortSetting(known.harness, known.id) : undefined;

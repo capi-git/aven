@@ -90,12 +90,21 @@ export const AVOS_EFFORT = "medium";
  * its own model.
  */
 export function avosTalkModel(
-  member: Pick<CrewMember, "role" | "model" | "harness" | "fallback">,
+  member: Pick<
+    CrewMember,
+    "role" | "model" | "harness" | "fallback" | "chosen"
+  >,
   known: (id: string) => boolean = (id) => !!findModel(id),
 ): { model: string; effort: string } | undefined {
-  if (member.role !== "lead" || member.model || member.fallback)
+  // A model Aven gave Avos when it started (a lighter one, once) isn't
+  // yours: only one you picked on its page (`chosen`) replaces Opus 5.5.
+  if (
+    member.role !== "lead" ||
+    (member.model && member.chosen) ||
+    member.fallback
+  )
     return undefined;
-  if (crewMemberApp(member as CrewMember).harness !== "claude")
+  if (member.chosen && crewMemberApp(member as CrewMember).harness !== "claude")
     return undefined;
   return known(AVOS_MODEL)
     ? { model: AVOS_MODEL, effort: AVOS_EFFORT }

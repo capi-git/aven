@@ -211,6 +211,15 @@ describe("adding and removing members", () => {
       member: "checker-2",
       text: `${crewMemberName(crew, "checker-2")} has been added to the team.`,
     });
+    // A helper you add runs on what new helpers run on; a Checker keeps
+    // other eyes.
+    expect(crewMemberById(crew, "builder-2")).toMatchObject({
+      model: "claude:opus-5.5",
+      effort: "medium",
+    });
+    expect(crewMemberById(crew, "checker-2")?.model).not.toBe(
+      "claude:opus-5.5",
+    );
     expect(crewMemberById(crew, "builder-3")?.harness).toBeUndefined();
     expect(crewMemberById(crew, "checker-2")?.harness).toBe("codex");
     expect(crewMemberName(crew, "builder-2")).not.toBe(
