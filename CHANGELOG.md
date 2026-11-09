@@ -4,6 +4,7 @@
 
 ### Changed
 
+- **Avos's chat reads as a group chat.** It no longer tells you what you just pressed ("You gave Avos …", "Updated Avos's branch …", "Applied …"); Activity keeps those. A helper that joins says so: "Researcher joined the chat".
 - **Avos's goal is said once, in its panel.** One line that opens to all of its words when pressed, a word for where it stands and one action. The chat no longer repeats the goal when Avos saves it, when you press Keep going, or while it waits.
 - **Helpers you haven't set follow the Helpers setting.** A Researcher, Scout, Designer or other helper runs on what Avos settings → Helpers says (Opus 5.5 · Medium to start) until you pick a model on its own page; then it keeps yours. The Checker and Security keep their own, so a different model looks over the work.
 

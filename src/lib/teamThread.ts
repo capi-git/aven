@@ -175,6 +175,18 @@ export function teamWording(text: string): string {
     .join("");
 }
 
+/** Aven's line after Update onto your files, in any of its wordings. */
+const RESTACKED = /^Updated .+ branch onto your files/;
+
+/**
+ * A helper joining reads as it does in any group chat: "Researcher joined
+ * the chat". Lines saved before said "has been added to the team."
+ */
+function joinedWording(text: string): string {
+  const joined = /^(.+) has been added to (?:the team|Avos)\.$/.exec(text);
+  return joined ? `${joined[1]} joined the chat` : text;
+}
+
 /** "Builder started “X”" from Builder: "Started “X”". */
 function withoutName(text: string, name: string): string {
   for (const lead of [`${name} `, `${name}'s `]) {
@@ -326,6 +338,8 @@ function postOf(
   rules: ReadonlySet<string>,
   /** Whether this stuck line still waits on you. */
   waiting: (entry: CrewFeedEntry) => boolean,
+  /** Whether this line of yours is what a message you wrote led to. */
+  answersYou: (entry: CrewFeedEntry) => boolean,
 ): TeamPost | null {
   if (entry.who === "you") {
     if (yourWords(entry))
@@ -338,6 +352,11 @@ function postOf(
           ? { as: "rule" as const }
           : {}),
       };
+    // What you pressed isn't told back to you ("You gave Avos …", "You
+    // paused Avos", "Applied … to your files"): Activity keeps it. What a
+    // message you wrote did ("keep going": "You resumed Avos") is its
+    // answer, and stays.
+    if (!answersYou(entry)) return null;
     return {
       kind: "event",
       id: entry.id,
@@ -346,6 +365,14 @@ function postOf(
       ...(entry.member ? { about: entry.member } : {}),
     };
   }
+  // The result of your own Update onto your files: Review says it where it
+  // matters ("Moved onto your latest files, not checked again since").
+  if (
+    entry.kind === "note" &&
+    entry.who === "aven" &&
+    RESTACKED.test(entry.text)
+  )
+    return null;
   // A helper Avos started finished: a line of Avos's work, under its name.
   if (entry.kind === "say" && entry.who === "helper") {
     const done = HELPER_DONE.exec(entry.text);
@@ -379,7 +406,7 @@ function postOf(
       kind: "event",
       id: entry.id,
       at: entry.at,
-      text: plain(teamWording(entry.text)),
+      text: plain(joinedWording(teamWording(entry.text))),
       ...(entry.member ? { about: entry.member } : {}),
       ...(entry.kind === "stuck" && waiting(entry)
         ? { needsYou: true, ...asks(crew, entry) }
@@ -532,6 +559,11 @@ export function teamPosts(
     !!entry.cardId &&
     lastStuck.get(entry.cardId) === entry.id &&
     crewCard(crew, entry.cardId)?.stage === "stuck";
+  // A message to Avos and what it did are saved at the same moment.
+  const wroteAt = new Set(
+    messages.filter((message) => !message.to).map((message) => message.at),
+  );
+  const answersYou = (entry: CrewFeedEntry) => wroteAt.has(entry.at);
   const posts: TeamPost[] = [];
   for (const message of messages) {
     const to = message.to ? crewMemberById(crew, message.to) : undefined;
@@ -555,7 +587,7 @@ export function teamPosts(
     if (said.has(entry.id)) continue;
     // Where the goal stands is in Avos's panel, once.
     if (goalStateLine(entry)) continue;
-    const post = postOf(crew, entry, name, rules, waiting);
+    const post = postOf(crew, entry, name, rules, waiting, answersYou);
     if (post) posts.push(post);
   }
   if (jobs) posts.push(...jobPosts(crew, jobs));

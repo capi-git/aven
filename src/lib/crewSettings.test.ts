@@ -204,14 +204,12 @@ describe("adding and removing members", () => {
     expect(new Set(critters).size).toBe(critters.length);
     // Each one is said in Avos's chat as it joins.
     expect(
-      crew.feed.filter((entry) =>
-        entry.text.endsWith("has been added to the team."),
-      ),
+      crew.feed.filter((entry) => entry.text.endsWith("joined the chat")),
     ).toHaveLength(3);
     expect(crew.feed.at(-1)).toMatchObject({
       kind: "note",
       member: "checker-2",
-      text: `${crewMemberName(crew, "checker-2")} has been added to the team.`,
+      text: `${crewMemberName(crew, "checker-2")} joined the chat`,
     });
     // A helper you add runs on what new helpers run on; a Checker keeps
     // other eyes.

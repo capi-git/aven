@@ -194,15 +194,15 @@ describe("the team thread", () => {
       posts.map((post) => [post.kind, "text" in post ? post.text : ""]),
     ).toEqual([
       ["you", "Build a timer screen: start, pause and a ring."],
-      ["event", "You paused Avos"],
+      // "You paused Avos" was a button you pressed: it isn't told back.
       // Your own words from before messages: yours, a standing rule.
       ["you", "Use pnpm"],
       ["event", "Quiet hours, 11 pm–8 am. Nothing new starts."],
       ["you", "Can you check the ring in light mode?"],
     ]);
     expect(posts[0]).toMatchObject({ as: "card" });
-    expect(posts[2]).toMatchObject({ as: "rule" });
-    expect(posts[4]).toMatchObject({ to: { id: "designer" } });
+    expect(posts[1]).toMatchObject({ as: "rule" });
+    expect(posts[3]).toMatchObject({ to: { id: "designer" } });
   });
 
   it("shows a message saved before it named its Feed line once", () => {
@@ -243,6 +243,58 @@ describe("the team thread", () => {
       text: 'Added 2 ideas: Haptics · Keep the time {"x": 1}',
     });
     expect((post as { text: string }).text).not.toContain("\n");
+  });
+
+  it("doesn't tell you what you pressed, and says a helper joined the chat", () => {
+    const crew = crewWith([
+      {
+        at: DAY,
+        kind: "note",
+        who: "you",
+        cardId: "c1",
+        title: "Reject non-GET requests with a 405",
+        text: "You gave Avos “Reject non-GET requests with a 405”",
+      },
+      {
+        at: DAY + MIN,
+        kind: "note",
+        who: "aven",
+        text: "Updated Avos's branch onto your files (5 cards): replayed, not checked again, so Review them before you apply",
+      },
+      {
+        at: DAY + 2 * MIN,
+        kind: "applied",
+        who: "you",
+        cardId: "c1",
+        title: "Reject non-GET requests with a 405",
+        text: "Applied “Reject non-GET requests with a 405” to your files",
+      },
+      // A line saved before joins read as a chat's do, and one saved since.
+      {
+        at: DAY + 3 * MIN,
+        kind: "note",
+        who: "aven",
+        member: "designer",
+        text: "Researcher has been added to the team.",
+      },
+      {
+        at: DAY + 4 * MIN,
+        kind: "note",
+        who: "aven",
+        member: "designer",
+        text: "Scout joined the chat",
+      },
+    ]);
+    expect(
+      teamPosts(crew, nameOf(crew)).map((post) => [
+        post.kind,
+        (post as { text: string }).text,
+      ]),
+    ).toEqual([
+      ["event", "Researcher joined the chat"],
+      ["event", "Scout joined the chat"],
+    ]);
+    expect(crew.feed).toHaveLength(5);
   });
 
   it("leaves where the goal stands to Avos's panel: the chat doesn't repeat it", () => {

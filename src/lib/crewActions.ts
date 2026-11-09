@@ -2881,7 +2881,7 @@ function withJoined(crew: Crew, id: string): Crew {
     kind: "note",
     who: "aven",
     member: id,
-    text: `${crewMemberName(crew, id)} has been added to the team.`,
+    text: `${crewMemberName(crew, id)} joined the chat`,
   });
 }
 
