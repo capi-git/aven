@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Avos no longer tells you to check a live page yourself.** When an answer depends on what a site shows now, Avos answers from the project and sends its Researcher to read the page.
+
 ## [0.1.175] - 2026-11-09
 
 ### Changed

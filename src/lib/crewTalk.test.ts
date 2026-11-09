@@ -78,6 +78,9 @@ describe("what Avos's reply can keep", () => {
     expect(yours).toContain("You have no web");
     expect(yours).toContain("the Researcher is reading it");
     expect(yours).toContain("Never ask the user for screenshots");
+    // What is live now is the Researcher's to check, never the user's.
+    expect(yours).toContain("Never tell the user to go and check a page");
+    expect(yours).toContain("put the check of the live page under research");
     // Only from your own message.
     expect(brief()).not.toContain('"research"');
   });

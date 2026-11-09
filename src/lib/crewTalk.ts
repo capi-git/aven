@@ -299,6 +299,10 @@ function howToAnswer(input: {
                 // Avos has no web (a page could steer it): a link goes to
                 // the Researcher, whom Aven brings in when the team has none.
                 "You have no web. When the user shares a link, or wants a website, an app or anything online looked at (or how others do it), put the question, with its link, under research: the Researcher reads it, and its findings come back to the user here. Say in your answer that the Researcher is reading it. Never ask the user for screenshots or a list of its features instead.",
+                // What a live site shows now is the Researcher's to check,
+                // never the user's: "please check the page" hands the job
+                // back to them.
+                "The same goes when an answer depends on what is live now (whether something is posted or published, what a page shows today): answer what the project shows, and put the check of the live page under research in the same reply, with its address when you know it. Never tell the user to go and check a page themselves. If they ask why you can't see a site, say in a sentence that you read the project and your Researcher reads the web, and send the Researcher.",
                 ...(input.helpersOn?.mockup
                   ? [
                       "When they want a screen designed or mocked up, put it under mockup: the Designer makes a mock-up the user can build from.",
