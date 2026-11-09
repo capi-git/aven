@@ -43,7 +43,7 @@ const TIP_X: f64 = 320.0;
 const TIP_Y: f64 = 36.0;
 
 /// The dot: about a fingertip wide, as Aven's own pointer.
-const DOT: f64 = 18.0;
+const DOT: f64 = 14.0;
 const TAG_HEIGHT: f64 = 22.0;
 /// Room before Bot and after the words.
 const TAG_LEAD: f64 = 3.0;

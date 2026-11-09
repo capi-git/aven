@@ -24,7 +24,7 @@ SUPERSAMPLE = 4
 
 # Canvas side and dot radius in CSS pixels, for every image. Hotspot: SIDE / 2.
 SIDE = 32
-RADIUS = 9.0
+RADIUS = 7.0
 # How far the dot's edge melts, in CSS pixels.
 EDGE = 1.0
 # The shadow: offset down, softness (Gaussian sigma), all in CSS pixels.
