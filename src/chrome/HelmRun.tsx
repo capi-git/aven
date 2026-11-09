@@ -29,7 +29,6 @@ import { visibleInterval } from "../lib/visibleInterval";
 import { Bot, Check, ListEnd, X } from "./icons";
 import { Popover } from "./Popover";
 import { SessionAgentList } from "./SessionAgentList";
-import { AgentMark } from "./AgentMark";
 
 /**
  * What the chat's turn is doing, for the helm's speech bubble. The chat's
@@ -309,26 +308,10 @@ function Queued({ count }: { count: number }) {
 }
 
 /**
- * The agent's little screen beside its words, moving with the turn: working
- * while it thinks, writes or runs a tool, watching while something holds it
- * up, asking while it needs you. Pointed at, it is the Stop.
- */
-function HelmScreen({ work }: { work: HelmWork }) {
-  const state =
-    work === "needs"
-      ? "needs"
-      : work === "held"
-        ? "watching"
-        : work === "stopping"
-          ? "still"
-          : "working";
-  return <AgentMark state={state} className="helm-work-screen" />;
-}
-
-/**
  * A running turn in the bubble: how long it has run (shown when pointed
- * at), the dots, which are its one Stop, and a few words. Pressing Stop
- * says "Stopping" until the turn ends.
+ * at), a small stop square, which is its one Stop, and a few words. The
+ * agent itself shows once, at the box's end. Pressing Stop says "Stopping"
+ * until the turn ends.
  */
 function RunningSay({
   say,
@@ -364,14 +347,9 @@ function RunningSay({
             else onStop?.();
           }}
         >
-          <HelmScreen work={work} />
           <i className="helm-work-stop" aria-hidden />
         </button>
-      ) : (
-        <span className="helm-work">
-          <HelmScreen work={work} />
-        </span>
-      )}
+      ) : null}
       <span
         className="helm-say-text"
         role="status"
