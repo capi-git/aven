@@ -98,7 +98,7 @@ export type RaceRecord = {
   createdAt: number;
   /** The base includes the project's uncommitted changes. */
   uncommitted: boolean;
-  /** Untracked project files were not copied into the lanes. */
+  /** Some untracked project files were too large or too many to copy. */
   untracked: boolean;
   lanes: RaceLaneRecord[];
   state: RaceState;

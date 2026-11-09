@@ -370,14 +370,15 @@ describe("settings navigation", () => {
     async (besideRail) => {
       await mount("general", besideRail);
       await search("blur");
-      await click(result("Glass"));
+      await click(result("Translucency"));
       expect(onSection).toHaveBeenLastCalledWith("appearance");
       expect(container.querySelector("h1")?.textContent).toBe("Appearance");
       expect(searchInput().value).toBe("");
       expect(resultList()).toBeNull();
       expect(sectionList()).not.toBeNull();
-      const destination =
-        container.querySelector<HTMLElement>("#setting-glass")!;
+      const destination = container.querySelector<HTMLElement>(
+        "#setting-translucency",
+      )!;
       expect(destination).not.toBeNull();
       expect(focusIsWithin(destination)).toBe(true);
       // happy-dom permits focus on an ordinary div; real browsers require a
@@ -470,7 +471,9 @@ describe("settings navigation", () => {
     expect(container.querySelector("h1")?.textContent).toBe("Appearance");
     expect(searchInput().value).toBe("blur");
     expect(resultList()).not.toBeNull();
-    const unpicked = container.querySelector<HTMLElement>("#setting-glass")!;
+    const unpicked = container.querySelector<HTMLElement>(
+      "#setting-translucency",
+    )!;
     expect(unpicked.dataset.searchMatch).toBeUndefined();
     expect(focusIsWithin(unpicked)).toBe(false);
     expect(onClose).not.toHaveBeenCalled();

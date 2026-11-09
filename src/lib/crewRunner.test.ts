@@ -1273,6 +1273,39 @@ describe("the Scout: ideas start themselves, within limits", () => {
     h.runner.stop();
   });
 
+  it("builds a large job Avos took down from your words at once, as Avos's, off the Scout's count", async () => {
+    const h = harness({
+      builder: () => ({
+        text: handoff("Built"),
+        copy: { hash: "h1", files: ["src/admin.ts"] },
+      }),
+      checker: () => ({ text: verdict([]) }),
+    });
+    onCrew({ scoutAt: NOON });
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      ideas: { audit: { at: NOON, size: "large", asked: true } },
+    }));
+    h.board.set("audit", {
+      id: "audit",
+      title: "Fix the admin pages",
+      column: "idea",
+      chatIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+      movedAt: 1,
+    });
+    h.runner.start();
+    await h.advance(0);
+    const crew = getCrew(PATH)!;
+    expect(card("audit")).toMatchObject({ from: "lead" });
+    expect(crew.autoStarts).toBeUndefined();
+    expect(crew.feed.map((entry) => entry.text)).toContain(
+      "Avos started “Fix the admin pages”",
+    );
+    h.runner.stop();
+  });
+
   it("Avos with no Builder yet leaves the Board's ideas to you, and brings in helpers for one it took down from your words", async () => {
     const bring = vi.fn((path: string) =>
       updateCrew(path, (crew) => ({
@@ -1314,15 +1347,38 @@ describe("the Scout: ideas start themselves, within limits", () => {
     idea("asked", "Fix the pricing table", 2);
     updateCrew(PATH, (crew) => ({
       ...crew,
-      ideas: { ...crew.ideas, asked: { at: NOON, size: "small" } },
+      ideas: { ...crew.ideas, asked: { at: NOON, size: "small", asked: true } },
     }));
     await h.advance(MINUTE);
     expect(bring).toHaveBeenCalledWith(PATH);
     expect(card("asked")).toMatchObject({
-      from: "scout",
+      from: "lead",
       title: "Fix the pricing table",
     });
     expect(crewCard(getCrew(PATH)!, "old")).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("brings in its Builder to plan a goal when it has no one to plan it", async () => {
+    const bring = vi.fn((path: string) =>
+      updateCrew(path, (crew) => ({
+        ...crew,
+        members: [...crew.members, { id: "builder", role: "builder" }],
+      })),
+    );
+    const h = harness(
+      {},
+      { bringInBuilders: bring, buildingProblem: async () => null },
+    );
+    onCrew({
+      members: [{ id: "lead", role: "lead" }],
+      goal: { text: "Finish the admin pages", at: NOON },
+    });
+    h.runner.start();
+    await h.advance(0);
+    expect(bring).toHaveBeenCalledWith(PATH);
+    // It never stopped the goal for want of a planner.
+    expect(getCrew(PATH)!.goal?.done).toBeUndefined();
     h.runner.stop();
   });
 

@@ -8,7 +8,9 @@ import { mockupStoreRoot } from "./crewMockups";
 import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import {
+  AVOS_MAY_NOT_READ,
   CREW_ROLE_INFO,
+  avosMayRead,
   crewAccess,
   crewRoleUsesBrowser,
   crewRoleUsesWeb,
@@ -167,7 +169,7 @@ export function absolutePathRule(folder: string): string {
 
 /** What a team's Access never changes. */
 export const TEAM_ALWAYS_LINE =
-  "Everything stays in Avos's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access. Teammates don't use connections.";
+  "Everything stays in Avos's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access. Helpers don't use connections.";
 
 /** Who Access reaches, in one line; the roles it doesn't follow. */
 export const TEAM_ACCESS_SCOPE_LINE =
@@ -725,9 +727,12 @@ export function crewChatPermissions(
     ? "This chat's teammate was removed, so it didn't start."
     : !crew.on
       ? "Avos is off, so this chat didn't start. Open Avos to wake it."
-      : !crew.copy && !inYourFolder
-        ? "The project's copy isn't ready yet, so this chat didn't start. Wait a moment, then send again."
-        : undefined;
+      : // Nothing reads the project until you've said Avos may.
+        !avosMayRead(crew)
+        ? AVOS_MAY_NOT_READ
+        : !crew.copy && !inYourFolder
+          ? "The project's copy isn't ready yet, so this chat didn't start. Wait a moment, then send again."
+          : undefined;
   const offline = crew.planning === found.member.id;
   return {
     mode: "auto",

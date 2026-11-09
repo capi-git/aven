@@ -664,3 +664,130 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
 }
+
+/* Avos's settings: its mark in the header, and rows in one card under a
+   page's title or a small heading, split by hairlines. */
+.crew-settings .dot-mark.crew-settings-head-mark {
+  width: 40px;
+  height: 40px;
+}
+
+.crew-settings-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0 14px;
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-inset-card, var(--aven-hover));
+}
+
+.crew-settings-card > .bot-sheet-row {
+  min-height: 48px;
+}
+
+.crew-settings-card > .bot-sheet-row:last-child {
+  border-bottom: 0;
+}
+
+.crew-settings-card > button.bot-sheet-row.crew-settings-member {
+  width: calc(100% + 28px);
+  margin: 0 -14px;
+  padding: 0 14px;
+}
+
+.crew-settings-card > button.bot-sheet-row.crew-settings-member:first-child {
+  border-top-left-radius: var(--aven-radius-card);
+  border-top-right-radius: var(--aven-radius-card);
+}
+
+.crew-settings-card > button.bot-sheet-row.crew-settings-member:last-child {
+  border-bottom-left-radius: var(--aven-radius-card);
+  border-bottom-right-radius: var(--aven-radius-card);
+}
+
+.bot-sheet-row.crew-settings-summary {
+  min-height: 56px;
+}
+
+.crew-settings-card > .crew-settings-add {
+  margin: 0 -10px;
+  padding: 10px;
+  align-self: stretch;
+}
+
+.crew-settings-summary-marks .dot-mark.crew-critter {
+  width: 22px;
+  height: 22px;
+}
+
+.crew-settings-card + .bot-sheet-note,
+.crew-settings-section .crew-settings-card + .bot-sheet-note {
+  margin-top: 8px;
+}
+
+/* A row's spans are text columns; its helpers' marks stay in a row. */
+.bot-sheet-row.crew-settings-summary > .crew-critters {
+  flex-direction: row;
+  gap: 3px;
+}
+
+/* More, at the foot of the limits' card. */
+.crew-settings-card > .crew-settings-disclosure {
+  min-height: 40px;
+}
+
+.crew-settings-card > .bot-sheet-row.crew-settings-hours {
+  min-height: 40px;
+}
+
+.crew-settings-card + [data-crew-access] {
+  margin-top: 12px;
+}
+
+/* Avos's Instructions and Memory pages: a box for your words, then one row
+   a rule or a fact, its words on the left and Forget on the right. */
+.crew-settings-instructions {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: var(--text-ui-body);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.bot-sheet-row.crew-settings-fact {
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 0;
+  font-size: var(--text-ui-body);
+  line-height: 1.45;
+}
+
+.bot-sheet-row.crew-settings-fact > span {
+  flex: 1 1 auto;
+}
+
+.crew-settings-fact-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: var(--text-ui-body);
+}
+
+.crew-settings-memory-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.crew-settings-memory-foot .bot-sheet-note {
+  margin: 0;
+}
+
+.crew-settings-instructions + .crew-settings-section {
+  padding-top: 18px;
+}

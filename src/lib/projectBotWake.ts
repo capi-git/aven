@@ -212,7 +212,7 @@ function syncLines(sync: BotSyncNote | null): string[] {
     return [
       `Aven synced your copy to the user's current files (commit ${sync.base.slice(0, 10)}${
         sync.uncommitted ? ", including their uncommitted changes" : ""
-      }).${sync.untracked ? " Files the user hasn't added to git yet are not in your copy." : ""}`,
+      }).${sync.untracked ? " Some files the user hasn't added to git (very large ones, or a great many) are not in your copy." : ""}`,
     ];
   if (sync.kind === "fix-waiting")
     return [

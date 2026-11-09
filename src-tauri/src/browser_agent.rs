@@ -5153,6 +5153,7 @@ mod tests {
             harness: Some("claude".into()),
             title: Some("Fix the form".into()),
             tone: None,
+            faces: None,
         });
         bind_scope(
             &mut grants,

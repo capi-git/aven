@@ -1,6 +1,12 @@
 import { addAvosJob } from "./avosJobs";
 import { setCrewLiveReply } from "./crewLiveReply";
-import { avosPickChoices, avosPickOverride, avosTalkModel } from "./crewModels";
+import {
+  avosPickChoices,
+  avosPickOverride,
+  avosTalkModel,
+  builderRunsOn,
+  helperRunsOn,
+} from "./crewModels";
 import {
   TALK_HOPS,
   TALK_TEXT_MAX,
@@ -163,6 +169,7 @@ import {
 } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
 import { botBranch, jobIsLive } from "./projectBots";
+import { findModel } from "./models";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
 import type { BotSyncNote } from "./projectBotWake";
 import { replyHeadline } from "./projectBotWake";
@@ -824,12 +831,12 @@ export class CrewRunner {
         if (prepared === null) return;
         if (prepared) crew = prepared.crew;
       }
-      // Avos answers on a quick model unless you picked one for it.
-      const quick = avosTalkModel(member);
+      // Avos runs on Opus 5.5 at Medium unless you picked a model for it.
+      const avos = avosTalkModel(member);
       const chat = await this.deps.ensureChat(
         crew,
         member.id,
-        ...(quick ? [quick] : []),
+        ...(avos ? [avos] : []),
       );
       if (!chat) throw new Error(`Couldn't open ${toName}'s chat.`);
       if (chatAtWork(chat)) {
@@ -866,8 +873,10 @@ export class CrewRunner {
       if (!claimed) return;
       const fresh = getCrew(path) ?? crew;
       // A turn that could read the web starts nobody: a page could ask it to.
+      // Nor does one whose crew turned quick helpers off.
       const mayStartHelpers =
         member.role !== "helper" &&
+        fresh.limits.helpersPerDay > 0 &&
         !talk.answer &&
         !crewRoleUsesWeb(fresh, member.role) &&
         !crewRoleUsesBrowser(fresh, member.role);
@@ -877,7 +886,7 @@ export class CrewRunner {
         sessionId: chat.id,
         turnId,
         live: talk.from === "you" && !talk.routine,
-        ...(quick ? { quick: true } : {}),
+        ...(avos ? { quick: true } : {}),
         mayStartHelpers,
       });
       this.updateWorking();
@@ -902,6 +911,7 @@ export class CrewRunner {
         mayAddJob: talkMayAddJob(talk, member.role),
         mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
         helpersOn: { mockup: !!cardDesigner(fresh) },
+        ...(fresh.askBeforeBuilding ? { asksFirst: true } : {}),
         // Let Avos choose: it picks the Builder's model and effort per card.
         ...(member.role === "lead" && talk.from === "you" && !talk.routine
           ? (() => {
@@ -1146,7 +1156,7 @@ export class CrewRunner {
           at: now + index,
           size: asked.size,
           ...(asked.why ? { why: asked.why } : {}),
-          ...(yours ? {} : { by: "lead" as const }),
+          ...(yours ? { asked: true } : { by: "lead" as const }),
           // Avos's pick of the Builder's model and effort for it.
           ...(asked.model || asked.effort
             ? {
@@ -1213,14 +1223,21 @@ export class CrewRunner {
           });
           break;
         }
+        // On what you picked for new helpers (Opus 5.5 · Medium until you
+        // do); when Avos picks per job, on what its asker runs on.
         const app = crewMemberApp(member);
+        const runs = helperRunsOn(next) ?? {
+          model: avosTalkModel(member)?.model ?? app.model ?? "",
+        };
+        const runsHarness = findModel(runs.model)?.harness ?? app.harness;
         const helper: CrewMember = {
           id: `helper-${this.newId()}`.slice(0, 40),
           role: "helper",
           name: asked.title.slice(0, 40),
           helperOf: member.id,
-          harness: app.harness,
-          ...(app.model ? { model: app.model } : {}),
+          harness: runsHarness === "codex" ? "codex" : "claude",
+          ...(runs.model ? { model: runs.model } : {}),
+          ...("effort" in runs && runs.effort ? { effort: runs.effort } : {}),
         };
         next = withTalk(
           withFeed(withHelper(next, helper, now), {
@@ -1390,6 +1407,15 @@ export class CrewRunner {
     if (crew.goal && !crew.goal.done && waiting)
       return this.hold(crew, crewReviewGate(waiting));
     if (crew.goal && !crew.goal.done) {
+      // No one to plan it yet: Avos brings in its Builder, which plans the
+      // goal's next card, as it would build Avos's own jobs.
+      if (!goalPlanner(crew) && this.deps.bringInBuilders) {
+        const problem = await this.deps.buildingProblem?.(path);
+        if (!problem) {
+          this.deps.bringInBuilders(path);
+          return;
+        }
+      }
       if (!goalPlanner(crew)) return this.stopGoal(crew, NO_PLANNER, now);
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
@@ -1475,6 +1501,9 @@ export class CrewRunner {
       // Not now, or a card the team has, since the Board was read: it waits.
       if (ideaStartsHeld(path) || ideaWaits(crew, card, now)) return crew;
       const idea = crew.ideas?.[card.id];
+      // Avos's own job: its own, not the Scout's, and not on the Scout's
+      // count of ideas that start by themselves.
+      const avos = !!idea?.asked;
       started = true;
       let next = withCard(
         crew,
@@ -1483,13 +1512,14 @@ export class CrewRunner {
             id: card.id,
             title: card.title,
             brief: [card.title, card.note].filter(Boolean).join("\n\n"),
-            from: idea ? "scout" : "you",
+            from: avos ? "lead" : idea ? "scout" : "you",
             ...(idea ? { size: idea.size } : {}),
             maxRounds: crew.limits.roundsPerCard,
             ...(() => {
               const override = avosPickOverride(
                 crewMember(crew, "builder"),
                 idea?.pick,
+                crew,
               );
               return override ? { override } : {};
             })(),
@@ -1499,7 +1529,8 @@ export class CrewRunner {
       );
       if (idea) {
         next = withIdea(next, card.id, { ...idea, autoStarted: true });
-        next = { ...next, autoStarts: bumpToday(next.autoStarts, now) };
+        if (!avos)
+          next = { ...next, autoStarts: bumpToday(next.autoStarts, now) };
       }
       return withFeed(next, {
         at: now,
@@ -1507,9 +1538,11 @@ export class CrewRunner {
         who: "aven",
         cardId: card.id,
         title: card.title,
-        text: idea
-          ? `Started ${this.deps.name(crew, "scout")}'s idea “${card.title}” by itself`
-          : `Started your idea “${card.title}” by itself`,
+        text: avos
+          ? `Avos started “${card.title}”`
+          : idea
+            ? `Started ${this.deps.name(crew, "scout")}'s idea “${card.title}” by itself`
+            : `Started your idea “${card.title}” by itself`,
       });
     });
     if (!started) return;
@@ -1826,7 +1859,9 @@ export class CrewRunner {
       const chat = await this.deps.ensureChat(
         crew,
         memberId,
-        role === "builder" ? card.override : undefined,
+        role === "builder"
+          ? builderRunsOn(crew, crewMemberById(crew, memberId), card)
+          : undefined,
       );
       if (!chat)
         throw new Error(

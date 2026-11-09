@@ -1,238 +1,383 @@
-//! Bot and the work dots, drawn with Core Animation for the desktop bar and
-//! the agent pointer, the way Aven's own interface draws them (Bot's shapes
-//! are `AGENT_GEOMETRY` in src/lib/agentMark.ts; the dots are DESIGN.md's
-//! 5×5 grid). Layers only: nothing here redraws per frame in code, and every
-//! animation is a repeating Core Animation of opacity.
-use crate::desktop_presence::Dots;
+//! Bot, every agent's mark, drawn with Core Animation for the desktop bar
+//! and the agent pointer the way Aven's own interface draws it (AgentMark
+//! in src/chrome/AgentMark.tsx): a little dark screen with a face of 13 by
+//! 9 dots lit on it, in the agent's colour, that changes with what it is
+//! doing. Layers only: nothing here redraws per frame in code, and what
+//! moves are repeating Core Animations of transform and opacity.
+use crate::desktop_faces::{Face, Faces, Mood, COLUMNS, ROWS};
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2_app_kit::NSColor;
 use objc2_foundation::{NSArray, NSNumber, NSPoint, NSRect, NSSize, NSString};
 use objc2_quartz_core::{
-    kCAFillModeBackwards, CACurrentMediaTime, CAKeyframeAnimation, CALayer, CAMediaTiming,
-    CAMediaTimingFunction,
+    kCAGradientLayerConic, CABasicAnimation, CAGradientLayer, CAKeyframeAnimation, CALayer,
+    CAMediaTiming, CAMediaTimingFunction, CATransaction,
 };
 
-/// Bot's dark face plate and glowing eyes (`--agent-plate`, `--agent-glow`).
-const PLATE: [f64; 3] = [0.090, 0.090, 0.102];
-const GLOW: [f64; 3] = [0.969, 0.969, 0.961];
-/// Its eyes and light while it needs you.
-const AMBER: [f64; 3] = [0.95, 0.70, 0.30];
-/// Below this size its eyes and antenna are bigger and its bolts go.
-const SMALL: f64 = 24.0;
-const SMALL_SCALE: f64 = 1.3;
-/// Bot's drawing box, in its own units.
-const BOX: f64 = 64.0;
-const BODY: &str = "body";
-const LIGHT: &str = "light";
+/// The screen's glass (`--agent-screen`).
+const GLASS: [f64; 3] = [0.114, 0.114, 0.137];
+/// What needs you (`--aven-needs-you` on dark glass).
+const AMBER: [f64; 3] = [1.0, 0.624, 0.039];
+/// The stop square's ink.
+const INK: [f64; 3] = [0.969, 0.969, 0.961];
 
-/// The dots: 3-point dots 2 points apart, 23 points square.
-const DOT: f64 = 3.0;
-const GAP: f64 = 2.0;
-pub(super) const DOTS_SIZE: f64 = DOT * 5.0 + GAP * 4.0;
-/// A dot at rest, and lit.
-const DIM: f32 = 0.2;
+/// The screen is the middle band of the mark's square, 72 of its 100 units
+/// tall; its face's dots sit 6.6 units apart.
+const BAND_TOP: f64 = 14.0;
+const BAND: f64 = 72.0;
+const PITCH: f64 = 6.6;
 
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
 }
 
-fn color(rgb: [f64; 3]) -> Retained<NSColor> {
-    NSColor::colorWithSRGBRed_green_blue_alpha(rgb[0], rgb[1], rgb[2], 1.0)
+fn color(rgb: [f64; 3], alpha: f64) -> Retained<NSColor> {
+    NSColor::colorWithSRGBRed_green_blue_alpha(rgb[0], rgb[1], rgb[2], alpha)
 }
 
-fn part(parent: &CALayer, frame: NSRect, radius: f64, rgb: [f64; 3], name: Option<&str>) {
+fn mix(a: [f64; 3], b: [f64; 3], amount: f64) -> [f64; 3] {
+    [0, 1, 2].map(|index| a[index] + (b[index] - a[index]) * amount)
+}
+
+/// The screen's height for its width.
+pub(super) fn screen_height(width: f64) -> f64 {
+    width * BAND / 100.0
+}
+
+/// A face dot's width, in the mark's 100 units: below 36 points its dots
+/// grow until they nearly touch, so a small mark reads as the big one.
+fn dot_units(width: f64) -> f64 {
+    if width < 19.5 {
+        6.1
+    } else if width < 35.5 {
+        5.6
+    } else {
+        4.4
+    }
+}
+
+/// A cell's centre on the screen, in points from its top left.
+fn cell_centre(width: f64, row: usize, column: usize) -> (f64, f64) {
+    let unit = width / 100.0;
+    let x = 50.0 + (column as f64 - (COLUMNS as f64 - 1.0) / 2.0) * PITCH;
+    let y = 50.0 + (row as f64 - (ROWS as f64 - 1.0) / 2.0) * PITCH - BAND_TOP;
+    (x * unit, y * unit)
+}
+
+/// The face's colour: amber while it needs you, else the agent's own.
+fn face_color(mood: Mood, tone: [f64; 3]) -> [f64; 3] {
+    if mood == Mood::Needs {
+        AMBER
+    } else {
+        tone
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct Look {
+    face: Face,
+    mood: Mood,
+    tone: [f64; 3],
+    hover: bool,
+    reduce_motion: bool,
+}
+
+/// One agent's screen, kept between renders so a new state changes it in
+/// place.
+pub(super) struct Screen {
+    root: Retained<CALayer>,
+    /// The light that runs round its edge while it works.
+    comet: Retained<CAGradientLayer>,
+    glass: Retained<CALayer>,
+    /// Its frame while it needs you.
+    ring: Retained<CALayer>,
+    /// The face's dots; dimmed under Stop.
+    face: Retained<CALayer>,
+    eyes: Retained<CALayer>,
+    stop: Retained<CALayer>,
+    width: f64,
+    shown: Option<Look>,
+}
+
+fn layer(parent: &CALayer, frame: NSRect) -> Retained<CALayer> {
     let layer = CALayer::new();
     layer.setFrame(frame);
-    layer.setCornerRadius(radius);
-    layer.setBackgroundColor(Some(&color(rgb).CGColor()));
-    if let Some(name) = name {
-        layer.setName(Some(&NSString::from_str(name)));
-    }
     parent.addSublayer(&layer);
+    layer
 }
 
-/// Bot at `size` points in `tone`, its eyes and light amber when it `needs`
-/// the user. The layer's frame is `size` square at the origin.
-pub(super) fn bot(size: f64, tone: [f64; 3], needs: bool) -> Retained<CALayer> {
-    let root = CALayer::new();
-    root.setFrame(rect(0.0, 0.0, size, size));
-    // Top-left origin, as the SVG is drawn.
-    root.setGeometryFlipped(true);
-    let unit = size / BOX;
-    let small = size < SMALL;
-    let k = if small { SMALL_SCALE } else { 1.0 };
-    let at = |x: f64, y: f64, w: f64, h: f64| rect(x * unit, y * unit, w * unit, h * unit);
-    let eye = if needs { AMBER } else { GLOW };
-    if !small {
-        for x in [8.0, 51.0] {
-            part(&root, at(x, 32.0, 5.0, 11.0), 2.5 * unit, tone, Some(BODY));
-        }
+fn without_actions(operation: impl FnOnce()) {
+    CATransaction::begin();
+    CATransaction::setDisableActions(true);
+    operation();
+    CATransaction::commit();
+}
+
+fn number(value: f64) -> Retained<NSNumber> {
+    NSNumber::new_f64(value)
+}
+
+fn ease() -> Retained<CAMediaTimingFunction> {
+    CAMediaTimingFunction::functionWithControlPoints(0.42, 0.0, 0.58, 1.0)
+}
+
+fn linear() -> Retained<CAMediaTimingFunction> {
+    CAMediaTimingFunction::functionWithControlPoints(0.0, 0.0, 1.0, 1.0)
+}
+
+/// Back and forth between `from` and `to`, for good.
+fn swing(key: &str, from: f64, to: f64, half: f64) -> Retained<CABasicAnimation> {
+    let animation = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str(key)));
+    unsafe {
+        animation.setFromValue(Some(&number(from)));
+        animation.setToValue(Some(&number(to)));
     }
-    // The antenna: its stalk from the head up, and the light on top.
-    let stalk = 2.6 * k;
-    part(
-        &root,
-        at(32.0 - stalk / 2.0, 13.0, stalk, 9.0),
-        stalk / 2.0 * unit,
-        tone,
-        Some(BODY),
-    );
-    let light = 4.0 * k;
-    part(
-        &root,
-        at(32.0 - light, 10.0 - light, light * 2.0, light * 2.0),
-        light * unit,
-        eye,
-        Some(LIGHT),
-    );
-    part(
-        &root,
-        at(12.0, 21.0, 40.0, 33.0),
-        11.0 * unit,
-        tone,
-        Some(BODY),
-    );
-    part(&root, at(17.0, 27.0, 30.0, 21.0), 7.5 * unit, PLATE, None);
-    let r = 3.6 * k;
-    for x in [25.0, 39.0] {
-        part(
+    animation.setDuration(half);
+    animation.setAutoreverses(true);
+    animation.setRepeatCount(f32::INFINITY);
+    animation.setTimingFunction(Some(&ease()));
+    animation
+}
+
+/// Through `values` at `times` (0 to 1) every `duration` seconds, for good.
+fn cycle(key: &str, values: &[f64], times: &[f64], duration: f64) -> Retained<CAKeyframeAnimation> {
+    let animation = CAKeyframeAnimation::animationWithKeyPath(Some(&NSString::from_str(key)));
+    let values: Vec<Retained<NSNumber>> = values.iter().copied().map(number).collect();
+    let objects: Vec<&AnyObject> = values.iter().map(|value| -> &AnyObject { value }).collect();
+    let times: Vec<Retained<NSNumber>> = times.iter().copied().map(number).collect();
+    unsafe { animation.setValues(Some(&NSArray::from_slice(&objects))) };
+    animation.setKeyTimes(Some(&NSArray::from_retained_slice(&times)));
+    animation.setDuration(duration);
+    animation.setRepeatCount(f32::INFINITY);
+    animation
+}
+
+impl Screen {
+    /// A screen `width` points wide (`screen_height` tall) at the origin.
+    pub(super) fn new(width: f64) -> Self {
+        let height = screen_height(width);
+        let root = CALayer::new();
+        root.setFrame(rect(0.0, 0.0, width, height));
+        // Top-left origin, as the SVG is drawn.
+        root.setGeometryFlipped(true);
+        root.setCornerRadius(width * 0.2);
+        root.setMasksToBounds(true);
+        let comet = CAGradientLayer::new();
+        let side = width * 1.5;
+        comet.setFrame(rect(
+            (width - side) / 2.0,
+            (height - side) / 2.0,
+            side,
+            side,
+        ));
+        unsafe { comet.setType(kCAGradientLayerConic) };
+        comet.setStartPoint(NSPoint::new(0.5, 0.5));
+        comet.setEndPoint(NSPoint::new(0.5, 0.0));
+        comet.setHidden(true);
+        root.addSublayer(&comet);
+        let glass = layer(&root, rect(0.0, 0.0, width, height));
+        glass.setBorderWidth(0.5);
+        glass.setBorderColor(Some(&color([1.0; 3], 0.08).CGColor()));
+        let ring = layer(&root, rect(0.0, 0.0, width, height));
+        ring.setOpacity(0.0);
+        let face = layer(&root, rect(0.0, 0.0, width, height));
+        let eyes = layer(&face, rect(0.0, 0.0, width, height));
+        let stop_side = (width * 0.32).round();
+        let stop = layer(
             &root,
-            at(x - r, 37.0 - r, r * 2.0, r * 2.0),
-            r * unit,
-            eye,
-            Some(LIGHT),
+            rect(
+                (width - stop_side) / 2.0,
+                (height - stop_side) / 2.0,
+                stop_side,
+                stop_side,
+            ),
         );
-    }
-    root
-}
-
-/// Recolours a Bot made by [`bot`] without rebuilding it.
-pub(super) fn tint_bot(root: &CALayer, tone: [f64; 3], needs: bool) {
-    let Some(parts) = (unsafe { root.sublayers() }) else {
-        return;
-    };
-    let body = NSString::from_str(BODY);
-    let light = NSString::from_str(LIGHT);
-    for layer in parts.iter() {
-        let name = layer.name();
-        if name
-            .as_deref()
-            .is_some_and(|name| name.isEqualToString(&body))
-        {
-            layer.setBackgroundColor(Some(&color(tone).CGColor()));
-        } else if name
-            .as_deref()
-            .is_some_and(|name| name.isEqualToString(&light))
-        {
-            layer.setBackgroundColor(Some(&color(if needs { AMBER } else { GLOW }).CGColor()));
+        stop.setCornerRadius(stop_side * 0.2);
+        stop.setBackgroundColor(Some(&color(INK, 1.0).CGColor()));
+        stop.setOpacity(0.0);
+        Self {
+            root,
+            comet,
+            glass,
+            ring,
+            face,
+            eyes,
+            stop,
+            width,
+            shown: None,
         }
     }
-}
 
-/// The 5×5 dots, `DOTS_SIZE` square at the origin, in the text colour.
-pub(super) fn dots() -> Retained<CALayer> {
-    let root = CALayer::new();
-    root.setFrame(rect(0.0, 0.0, DOTS_SIZE, DOTS_SIZE));
-    root.setGeometryFlipped(true);
-    for row in 0..5 {
-        for column in 0..5 {
-            let dot = CALayer::new();
-            dot.setFrame(rect(
-                f64::from(column) * (DOT + GAP),
-                f64::from(row) * (DOT + GAP),
-                DOT,
-                DOT,
-            ));
-            dot.setCornerRadius(DOT / 2.0);
-            dot.setBackgroundColor(Some(&color(GLOW).CGColor()));
-            dot.setOpacity(DIM);
-            root.addSublayer(&dot);
+    pub(super) fn layer(&self) -> &CALayer {
+        &self.root
+    }
+
+    /// Shows the agent's face for `mood` in `tone`; `hover` dims it under a
+    /// stop square (the screen is its Stop). Does nothing when nothing
+    /// changed, so a running motion carries on.
+    pub(super) fn show(
+        &mut self,
+        faces: &Faces,
+        mood: Mood,
+        tone: [f64; 3],
+        hover: bool,
+        reduce_motion: bool,
+    ) {
+        let look = Look {
+            face: faces.face(mood),
+            mood,
+            tone,
+            hover,
+            reduce_motion,
+        };
+        if self.shown == Some(look) {
+            return;
         }
+        let redraw = self.shown.is_none_or(|shown| {
+            shown.face != look.face || shown.mood != look.mood || shown.tone != look.tone
+        });
+        without_actions(|| {
+            self.face.setOpacity(if hover { 0.2 } else { 1.0 });
+            self.stop.setOpacity(if hover { 0.95 } else { 0.0 });
+            if redraw
+                || self
+                    .shown
+                    .is_some_and(|shown| shown.reduce_motion != reduce_motion)
+            {
+                self.draw(look);
+            }
+        });
+        self.shown = Some(look);
     }
-    root
-}
 
-/// When each dot lights within one loop, and how long a loop lasts.
-fn timing(mode: Dots, row: u32, column: u32) -> (f64, f64) {
-    let (r, c) = (f64::from(row), f64::from(column));
-    match mode {
-        // Out from the middle.
-        Dots::Ripple => ((r - 2.0).hypot(c - 2.0) * 0.14, 1.4),
-        // Row by row, left to right.
-        Dots::Lines => ((r * 5.0 + c) * 0.055, 1.6),
-        // Corner to corner.
-        Dots::Sweep => ((r + c) * 0.075, 1.2),
-        Dots::Breathe => (0.0, 2.6),
-    }
-}
-
-/// A still picture of the mode, for Reduce motion.
-fn still(mode: Dots, row: u32, column: u32) -> f32 {
-    let (r, c) = (f64::from(row), f64::from(column));
-    let lit = match mode {
-        Dots::Ripple => 1.0 - (r - 2.0).hypot(c - 2.0) / 2.9,
-        Dots::Lines => {
-            if row < 3 {
-                1.0
-            } else {
-                0.0
+    fn draw(&self, look: Look) {
+        let width = self.width;
+        let height = screen_height(width);
+        let ink = face_color(look.mood, look.tone);
+        let ink_cg = color(ink, 1.0).CGColor();
+        // Its dots.
+        unsafe { self.eyes.setSublayers(None) };
+        let dot = dot_units(width) * width / 100.0;
+        for row in 0..ROWS {
+            for column in 0..COLUMNS {
+                // A prompt's cursor is lit too: it blinks only at rest,
+                // which the desktop never shows.
+                if look.face.dot(row, column).is_none() {
+                    continue;
+                }
+                let (x, y) = cell_centre(width, row, column);
+                let cell = layer(&self.eyes, rect(x - dot / 2.0, y - dot / 2.0, dot, dot));
+                cell.setCornerRadius(dot / 2.0);
+                cell.setBackgroundColor(Some(&ink_cg));
             }
         }
-        Dots::Sweep => 1.0 - (r + c) / 8.0,
-        Dots::Breathe => 0.4,
-    };
-    DIM + (1.0 - DIM) * lit.clamp(0.0, 1.0) as f32
-}
-
-/// Whether the dot belongs to the middle nine, which light as a square while
-/// the dots are pointed at: pressing them stops the agent.
-fn in_square(row: u32, column: u32) -> bool {
-    (1..=3).contains(&row) && (1..=3).contains(&column)
-}
-
-/// Draws `mode` on dots made by [`dots`]. `hover` shows the Stop square.
-pub(super) fn set_dots(root: &CALayer, mode: Dots, hover: bool, reduce_motion: bool) {
-    let Some(parts) = (unsafe { root.sublayers() }) else {
-        return;
-    };
-    let now = CACurrentMediaTime();
-    let key = NSString::from_str("dots");
-    for (index, dot) in parts.iter().enumerate() {
-        let (row, column) = ((index / 5) as u32, (index % 5) as u32);
-        dot.removeAllAnimations();
-        if hover {
-            dot.setOpacity(if in_square(row, column) { 1.0 } else { 0.08 });
-            continue;
-        }
-        if reduce_motion {
-            dot.setOpacity(still(mode, row, column));
-            continue;
-        }
-        let (delay, duration) = timing(mode, row, column);
-        let (low, high) = if mode == Dots::Breathe {
-            (0.22, 0.6)
+        // Its glass, tinted and framed while it needs you; inset while the
+        // light runs round its edge.
+        let framed = look.mood == Mood::Needs;
+        let working = look.mood == Mood::Working;
+        let inset = if working {
+            (width * 0.05).max(1.0)
         } else {
-            (f64::from(DIM), 1.0)
+            0.0
         };
-        dot.setOpacity(low as f32);
-        let animation =
-            CAKeyframeAnimation::animationWithKeyPath(Some(&NSString::from_str("opacity")));
-        let values = [low, high, low].map(NSNumber::new_f64);
-        let objects: Vec<&objc2::runtime::AnyObject> = values
-            .iter()
-            .map(|value| -> &objc2::runtime::AnyObject { value })
-            .collect();
-        unsafe { animation.setValues(Some(&NSArray::from_slice(&objects))) };
-        let times = [0.0, 0.35, 1.0].map(NSNumber::new_f64);
-        animation.setKeyTimes(Some(&NSArray::from_retained_slice(&times)));
-        animation.setDuration(duration);
-        animation.setRepeatCount(f32::INFINITY);
-        animation.setBeginTime(now + delay);
-        animation.setFillMode(unsafe { kCAFillModeBackwards });
-        animation.setTimingFunction(Some(&CAMediaTimingFunction::functionWithControlPoints(
-            0.4, 0.0, 0.2, 1.0,
-        )));
-        dot.addAnimation_forKey(&animation, Some(&key));
+        let glass_frame = rect(inset, inset, width - inset * 2.0, height - inset * 2.0);
+        let radius = if working { width * 0.15 } else { width * 0.2 };
+        for layer in [&self.glass, &self.ring] {
+            layer.setFrame(glass_frame);
+            layer.setCornerRadius(radius);
+        }
+        let glass = if framed { mix(GLASS, ink, 0.22) } else { GLASS };
+        self.glass
+            .setBackgroundColor(Some(&color(glass, 1.0).CGColor()));
+        self.ring.setBorderWidth((width * 0.045).max(1.0));
+        self.ring.setBorderColor(Some(&ink_cg));
+        self.ring.setOpacity(if framed { 1.0 } else { 0.0 });
+        let clear = color(look.tone, 0.0).CGColor();
+        let lit = color(look.tone, 1.0).CGColor();
+        let colors: [&AnyObject; 3] = [
+            unsafe { &*((&*clear) as *const _ as *const AnyObject) },
+            unsafe { &*((&*clear) as *const _ as *const AnyObject) },
+            unsafe { &*((&*lit) as *const _ as *const AnyObject) },
+        ];
+        unsafe { self.comet.setColors(Some(&NSArray::from_slice(&colors))) };
+        let stops = [0.0, 0.62, 1.0].map(number);
+        self.comet
+            .setLocations(Some(&NSArray::from_retained_slice(&stops)));
+        self.comet.setHidden(!working);
+        self.animate(look);
+    }
+
+    /// Its motion: working and needing you repeat for as long as they last;
+    /// watching is slow and small. Reduce motion: a still face.
+    fn animate(&self, look: Look) {
+        for layer in [&self.eyes, &self.ring] {
+            layer.removeAllAnimations();
+        }
+        self.comet.removeAllAnimations();
+        if look.reduce_motion {
+            return;
+        }
+        let width = self.width;
+        let add = |layer: &CALayer, animation: &objc2_quartz_core::CAAnimation, key: &str| {
+            layer.addAnimation_forKey(animation, Some(&NSString::from_str(key)));
+        };
+        match look.mood {
+            Mood::Still => {}
+            Mood::Watching => {
+                // Looks one way, blinks, looks the other way, blinks.
+                let shift = width * 0.040625;
+                let look_about = cycle(
+                    "transform.translation.x",
+                    &[-shift, shift, -shift],
+                    &[0.0, 0.5, 1.0],
+                    7.4,
+                );
+                look_about.setTimingFunction(Some(&ease()));
+                add(&self.eyes, &look_about, "look");
+                let blink = cycle(
+                    "transform.scale.y",
+                    &[1.0, 0.12, 1.0, 1.0, 0.12, 1.0, 1.0],
+                    &[0.0, 0.009, 0.018, 0.5, 0.509, 0.518, 1.0],
+                    7.4,
+                );
+                blink.setTimingFunction(Some(&linear()));
+                add(&self.eyes, &blink, "blink");
+            }
+            Mood::Working => {
+                // Its eyes scan while the light runs round.
+                add(
+                    &self.eyes,
+                    &swing("transform.translation.x", -width * 0.11, width * 0.11, 0.8),
+                    "scan",
+                );
+                let spin = CABasicAnimation::animationWithKeyPath(Some(&NSString::from_str(
+                    "transform.rotation.z",
+                )));
+                unsafe {
+                    spin.setFromValue(Some(&number(0.0)));
+                    spin.setToValue(Some(&number(std::f64::consts::TAU)));
+                }
+                spin.setDuration(1.3);
+                spin.setRepeatCount(f32::INFINITY);
+                spin.setTimingFunction(Some(&linear()));
+                add(&self.comet, &spin, "spin");
+            }
+            Mood::Needs => {
+                // Its prompt nudges you, and its frame breathes.
+                let nudge = cycle(
+                    "transform.translation.x",
+                    &[0.0, width * 0.07, 0.0],
+                    &[0.0, 0.5, 1.0],
+                    1.2,
+                );
+                nudge.setTimingFunction(Some(&ease()));
+                add(&self.eyes, &nudge, "nudge");
+                let dim = cycle("opacity", &[1.0, 0.55, 1.0], &[0.0, 0.5, 1.0], 1.2);
+                dim.setTimingFunction(Some(&ease()));
+                add(&self.eyes, &dim, "dim");
+                add(&self.ring, &swing("opacity", 0.45, 1.0, 1.2), "breathe");
+            }
+        }
     }
 }
 
@@ -320,23 +465,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_stop_square_is_the_middle_nine() {
-        let lit = (0..25)
-            .filter(|index| in_square(index / 5, index % 5))
-            .count();
-        assert_eq!(lit, 9);
-        assert!(in_square(2, 2) && !in_square(0, 2) && !in_square(2, 4));
+    fn the_face_fills_the_screen_and_stays_inside_it() {
+        for width in [16.0, 20.0, 24.0, 40.0] {
+            let height = screen_height(width);
+            let dot = dot_units(width) * width / 100.0;
+            let (left, top) = cell_centre(width, 0, 0);
+            let (right, bottom) = cell_centre(width, ROWS - 1, COLUMNS - 1);
+            assert!(
+                left - dot / 2.0 > 0.0 && right + dot / 2.0 < width,
+                "{width}"
+            );
+            assert!(
+                top - dot / 2.0 > 0.0 && bottom + dot / 2.0 < height,
+                "{width}"
+            );
+            // Centred.
+            assert!(((left + right) / 2.0 - width / 2.0).abs() < 1e-9);
+            assert!(((top + bottom) / 2.0 - height / 2.0).abs() < 1e-9);
+        }
     }
 
     #[test]
-    fn every_mode_lights_within_one_loop() {
-        for mode in [Dots::Ripple, Dots::Lines, Dots::Sweep, Dots::Breathe] {
-            for index in 0..25 {
-                let (delay, duration) = timing(mode, index / 5, index % 5);
-                assert!(delay >= 0.0 && delay < duration, "{mode:?} {index}");
-                let level = still(mode, index / 5, index % 5);
-                assert!((DIM..=1.0).contains(&level));
-            }
-        }
+    fn small_screens_draw_bolder_dots() {
+        assert!(dot_units(16.0) > dot_units(24.0));
+        assert!(dot_units(24.0) > dot_units(40.0));
+    }
+
+    #[test]
+    fn needing_you_is_amber_whatever_its_colour() {
+        let purple = [0.75, 0.62, 0.92];
+        assert_eq!(face_color(Mood::Needs, purple), AMBER);
+        assert_eq!(face_color(Mood::Working, purple), purple);
+        assert_eq!(face_color(Mood::Watching, purple), purple);
     }
 }

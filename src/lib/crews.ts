@@ -237,8 +237,29 @@ export type CrewScoutSchedule = "off" | "daily" | "weekly";
 /** Something you asked a teammate to do by itself, every day or week. */
 export type CrewRoutine = { text: string; every: "day" | "week"; at: number };
 
-/** How many helpers may run: for one teammate, the team, and a day. */
+/**
+ * How many helpers may run: for one teammate and the team at once, and a
+ * day unless the crew sets its own (`limits.helpersPerDay`).
+ */
 export const CREW_HELPERS = { perAgent: 2, team: 4, day: 10 } as const;
+
+/**
+ * Whether Avos and its helpers may read this project: you allowed it, or
+ * it is on or ran before Aven asked (you'd already let it; turning it on
+ * now waits for your answer).
+ */
+export function avosMayRead(
+  crew: Pick<Crew, "readAccess" | "on" | "onAt"> | undefined,
+): boolean {
+  if (!crew) return false;
+  return crew.readAccess
+    ? crew.readAccess === "allowed"
+    : crew.on || typeof crew.onAt === "number";
+}
+
+/** Said when Avos may not read the project yet. */
+export const AVOS_MAY_NOT_READ =
+  "Avos needs your OK to read this project. Allow it on Avos's screen or in its settings.";
 
 /** The agents a crew member may run on: the apps that enforce its rules. */
 export const CREW_AGENTS = ["claude", "codex"] as const;
@@ -321,6 +342,8 @@ export type CrewLimits = {
   turnMinutes: number;
   /** Cards waiting on the crew's branch before it starts no new one. */
   readyCap: number;
+  /** Quick helpers Avos and its helpers may start a day; 0 for none. */
+  helpersPerDay: number;
   quiet: BotQuietHours;
 };
 
@@ -346,6 +369,7 @@ export const CREW_LIMIT_RANGES = {
   turnMinutes: [5, 120],
   pauseAtPercent: [10, 100],
   readyCap: [1, 20],
+  helpersPerDay: [0, 30],
 } as const satisfies Record<string, readonly [number, number]>;
 export type CrewLimitName = keyof typeof CREW_LIMIT_RANGES;
 export const CREW_ALL_RUNS_RANGE = [1, 500] as const;
@@ -360,6 +384,7 @@ export function defaultCrewLimits(): CrewLimits {
     pauseAtPercent: CREW_DEFAULT_PAUSE_PERCENT,
     turnMinutes: CREW_DEFAULT_TURN_MINUTES,
     readyCap: CREW_DEFAULT_READY_CAP,
+    helpersPerDay: CREW_HELPERS.day,
     quiet: { ...BOT_DEFAULT_QUIET },
   };
 }
@@ -525,8 +550,12 @@ export type CrewCard = {
   title: string;
   /** What to build: the card's title and note. */
   brief: string;
-  /** You, or an idea from the Scout, Security's sweep or the Researcher (quoted as data). */
-  from: "you" | "scout" | "security" | "member" | "researcher" | "setup";
+  /**
+   * You, Avos (a job it planned from your request), or an idea from the
+   * Scout, Security's sweep or the Researcher (quoted as data).
+   */
+  from:
+    "you" | "lead" | "scout" | "security" | "member" | "researcher" | "setup";
   /**
    * A question for the Researcher: one read-only turn that ends in
    * Findings, never in a change to apply.
@@ -624,6 +653,12 @@ export type CrewIdea = {
   declined?: boolean;
   /** It started by itself. */
   autoStarted?: boolean;
+  /**
+   * Avos took it down from your own message: Avos's job, started at once
+   * whatever its size (unless you asked it to wait). One from a routine or
+   * another agent's words is `by: "lead"` and waits for you.
+   */
+  asked?: boolean;
   /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
   by?: "security" | "researcher" | "setup" | "lead";
   /** Avos's pick of the Builder's model and effort for it, and why. */
@@ -644,6 +679,18 @@ function readPick(value: unknown): CrewPick | undefined {
         ...(why ? { why } : {}),
       }
     : undefined;
+}
+
+/** What new helpers run on: a model and effort, or Avos's pick per job. */
+export type CrewHelperModel = { model: string; effort?: string } | "avos";
+
+function readHelperModel(value: unknown): CrewHelperModel | undefined {
+  if (value === "avos") return "avos";
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as { model?: unknown; effort?: unknown };
+  const model = text(raw.model, 200);
+  const effort = text(raw.effort, 40);
+  return model ? { model, ...(effort ? { effort } : {}) } : undefined;
 }
 
 /** A model and effort Avos picked for a job, and why, in a few words. */
@@ -724,6 +771,24 @@ export type Crew = {
   /** The Builder, Checker and Scout are at work. The Fixer has its own switch. */
   on: boolean;
   onAt?: number;
+  /**
+   * Your answer to "Can Avos read this project?". Until you allow it, Avos
+   * and its helpers read nothing. An Avos that ran before Aven asked counts
+   * as allowed (`avosMayRead`).
+   */
+  readAccess?: "allowed" | "declined";
+  /**
+   * What the helpers Avos sets to work run on: Builders you haven't set
+   * yourself, and the quick helpers it starts. A model and effort you
+   * picked, or "avos" to let Avos pick per job. Unset: Opus 5.5 · Medium.
+   */
+  helperModel?: CrewHelperModel;
+  /**
+   * Avos's own jobs wait for your Build it, as they did before Avos built
+   * by itself. Off (unset): what Avos plans builds at once in its copy, and
+   * you review it before it reaches your folder.
+   */
+  askBeforeBuilding?: boolean;
   createdAt: number;
   members: CrewMember[];
   limits: CrewLimits;
@@ -1468,6 +1533,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
     title,
     brief: text(raw.brief, CREW_BRIEF_MAX) ?? title,
     from:
+      raw.from === "lead" ||
       raw.from === "scout" ||
       raw.from === "security" ||
       raw.from === "member" ||
@@ -1755,6 +1821,7 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.outside === true ? { outside: true } : {}),
         ...(idea.declined === true ? { declined: true } : {}),
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
+        ...(idea.asked === true ? { asked: true } : {}),
         ...(idea.by === "security" ||
         idea.by === "researcher" ||
         idea.by === "setup" ||
@@ -1872,6 +1939,7 @@ export function readCrew(value: unknown): Crew | null {
       pauseAtPercent: limit("pauseAtPercent"),
       turnMinutes: limit("turnMinutes"),
       readyCap: limit("readyCap"),
+      helpersPerDay: limit("helpersPerDay"),
       quiet: {
         on: typeof quiet?.on === "boolean" ? quiet.on : base.limits.quiet.on,
         start: finite(quiet?.start, 0, 1439, base.limits.quiet.start),
@@ -1922,6 +1990,14 @@ export function readCrew(value: unknown): Crew | null {
     ...(helpers.length ? { helpers } : {}),
     ...(helperRuns ? { helperRuns } : {}),
     ...(about ? { about } : {}),
+    ...(raw.readAccess === "allowed" || raw.readAccess === "declined"
+      ? { readAccess: raw.readAccess }
+      : {}),
+    ...(raw.askBeforeBuilding === true ? { askBeforeBuilding: true } : {}),
+    ...(() => {
+      const helperModel = readHelperModel(raw.helperModel);
+      return helperModel ? { helperModel } : {};
+    })(),
     cards,
     feed,
     notes,
@@ -3166,7 +3242,7 @@ export function helpersLeft(crew: Crew, parentId: string, now: number): number {
       CREW_HELPERS.perAgent -
         running.filter((helper) => helper.helperOf === parentId).length,
       CREW_HELPERS.team - running.length,
-      CREW_HELPERS.day - today,
+      crew.limits.helpersPerDay - today,
     ),
   );
 }

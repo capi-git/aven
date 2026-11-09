@@ -2,8 +2,8 @@ import type { AgentState } from "./agentMark";
 import { reviewHeading } from "./automationReview";
 import { sameProjectPath } from "./recents";
 import { avosJobRuns, avosJobs } from "./avosJobs";
-import { crewStatus } from "./crewView";
-import type { Crew } from "./crews";
+import { crewMemberViews, crewStatus } from "./crewView";
+import type { Crew, CrewRole } from "./crews";
 import type { CrewMemberView } from "./crewView";
 import type { BotStatus } from "./projectBots";
 import type { ScheduledAgent, ScheduledRun } from "./scheduledAgents";
@@ -26,6 +26,48 @@ export const AVOS_NOTE_LABEL: Readonly<Record<AvosNote, string>> = {
   working: "Working",
 };
 
+/**
+ * One of Avos's helpers at work, as its small face beside Avos: working,
+ * waiting on you, or with its work ready. Quick helpers count as working.
+ */
+export type AvosHelperMark = {
+  id: string;
+  role: CrewRole;
+  critter?: string;
+  state: "working" | "needs" | "ready";
+};
+
+/**
+ * Avos's helpers at work now, working first, then those waiting on you
+ * or ready: what sits beside Avos in the sidebar and on its tab.
+ */
+export function avosHelperMarks(crew: Crew | undefined): AvosHelperMark[] {
+  if (!crew?.on) return [];
+  const marks: AvosHelperMark[] = [];
+  for (const view of crewMemberViews(crew, { name: (who) => who })) {
+    if (view.role === "lead" || view.role === "fixer") continue;
+    const state =
+      view.status === "ready"
+        ? "ready"
+        : view.status === "needs-you"
+          ? "needs"
+          : view.active || view.status === "working"
+            ? "working"
+            : null;
+    if (state)
+      marks.push({
+        id: view.id,
+        role: view.role,
+        ...(view.critter ? { critter: view.critter } : {}),
+        state,
+      });
+  }
+  for (const helper of crew.helpers ?? [])
+    marks.push({ id: helper.id, role: "helper", state: "working" });
+  const order = { working: 0, needs: 1, ready: 2 } as const;
+  return marks.sort((a, b) => order[a.state] - order[b.state]);
+}
+
 /** One project's Avos at a glance: the sidebar's row and Home's line. */
 export type AvosGlance = {
   path: string;
@@ -33,6 +75,8 @@ export type AvosGlance = {
   state: AgentState;
   /** One line on what it's doing or what waits for you. */
   line: string;
+  /** Its helpers at work, while it works or needs you. */
+  helpers?: AvosHelperMark[];
 };
 
 /** Whether you've met this project's Avos (it is stored with its voice). */
@@ -155,10 +199,12 @@ export function avosGlance(
     ...(input.fixer ? { fixer: input.fixer } : {}),
     ...(input.busy ? { busy: input.busy } : {}),
   });
+  const helpers = avosHelperMarks(crew);
+  const withHelpers = helpers.length ? { helpers } : {};
   if (status === "needs-you" || status === "ready" || (crew.on && reviews))
-    return { path, note: "needs-you", state: "needs", line };
+    return { path, note: "needs-you", state: "needs", line, ...withHelpers };
   if (status === "working")
-    return { path, note: "working", state: "working", line };
+    return { path, note: "working", state: "working", line, ...withHelpers };
   if (!crew.on || status === "paused")
     return { path, note: null, state: "resting", line };
   return { path, note: null, state: "watching", line };

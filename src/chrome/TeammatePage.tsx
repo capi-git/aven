@@ -422,7 +422,11 @@ function RunsOn({
     ...rest.filter((item) => item.id === model),
   ];
   const tucked = rest.filter((item) => item.id !== model);
-  const pickModel = (id: string) => onChange({ model: id });
+  // Picking Avos's model makes it yours: until then it runs on Opus 5.5.
+  const pickModel = (id: string) =>
+    onChange(
+      member.role === "lead" ? { model: id, chosen: true } : { model: id },
+    );
   return (
     <>
       <div className="teammate-field">
@@ -534,7 +538,13 @@ function RunsOn({
                     label: option.label,
                   })),
                 ]}
-                onChange={(value) => onChange({ effort: value || null })}
+                onChange={(value) =>
+                  onChange(
+                    member.role === "lead"
+                      ? { effort: value || null, model, chosen: true }
+                      : { effort: value || null },
+                  )
+                }
               />
             </div>
           ) : null}

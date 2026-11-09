@@ -1,12 +1,22 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { Segmented, Toggle } from "../surfaces/SettingsControls";
+import { Segmented, Select, Toggle } from "../surfaces/SettingsControls";
+import {
+  crewEffortSetting,
+  HELPER_MODEL_DEFAULT,
+  helperRunsOn,
+} from "../lib/crewModels";
+import { findModel, pickerModelsFor } from "../lib/models";
 import {
   firstCardChatText,
+  setAvosReadAccess,
   setCrewAccess,
+  setCrewAskBeforeBuilding,
   setCrewLimit,
-  setCrewPaused,
   setCrewQuietHours,
+  setMemberMemory,
+  tellCrew,
+  setCrewHelperModel,
   setCrewRoutes,
   setDefaultBuilder,
   teammateChatReady,
@@ -15,12 +25,21 @@ import {
   useCrewWorkspace,
 } from "../lib/crewActions";
 import { quietText } from "../lib/crewLimits";
+import { memoryFacts, withoutMemoryFact } from "../lib/avosProfile";
+import { plural } from "../lib/words";
 import {
   crewMemberById,
   crewMemberName,
   crewMembers,
   defaultBuilder,
   CREW_ACCESS_LEVELS,
+  CREW_INSTRUCTIONS_MAX,
+  CREW_MEMORY_MAX,
+  CREW_NOTE_MAX,
+  updateCrew,
+  withoutNote,
+  CREW_HELPERS,
+  avosMayRead,
   crewAccess,
   crewAccessLevel,
   type CrewAccessLevel,
@@ -77,12 +96,33 @@ const ALL_RUNS_CHOICES = [20, 30, 40, 60, 80, 100, 150, 200, 300, 500].filter(
 type Page =
   | { kind: "crew" }
   /** A teammate's page, and the page it was opened from (its way back). */
-  | { kind: "member"; id: string; from: "crew" | "add" }
-  | { kind: "add" };
+  | { kind: "member"; id: string; from: "crew" | "add" | "helpers" }
+  | { kind: "add" }
+  /** One of Avos's rows' own pages. */
+  | { kind: "instructions" }
+  | { kind: "memory" }
+  | { kind: "helpers" }
+  | { kind: "access" }
+  | { kind: "limits" };
+
+/** The pages `initialPage` may name besides a helper's id. */
+const NAMED_PAGES = [
+  "add",
+  "instructions",
+  "memory",
+  "helpers",
+  "access",
+  "limits",
+] as const;
+
+/** The way back's page, by where a page was opened from. */
+const BACK_LABEL = { crew: "", add: "Add a helper", helpers: "Helpers" };
 
 /**
- * Avos's settings: its helpers, who builds what, its limits and quiet
- * hours, Pause and Turn off. Add a helper adds helpers or starts from a
+ * Avos's settings: four rows, each opening its own page: Avos's model (its
+ * own page), its helpers (who builds what and its quick helpers with
+ * them), Access, and Limits with quiet hours. The switch turns Avos on and
+ * off; Pause is in Avos's ⋯. Add a helper adds helpers or starts from a
  * suggested set; a helper's own page sets its name and
  * mark, its job, your instructions, where it works, what it runs on and
  * when it works. None of these change what a teammate may do: that comes
@@ -115,10 +155,10 @@ export function CrewSettingsSheet({
   const project = appearance?.label || projectName(path);
   const nameId = useId();
   const [page, setPage] = useState<Page>(() =>
-    initialPage === "add"
-      ? { kind: "add" }
+    (NAMED_PAGES as readonly string[]).includes(initialPage ?? "")
+      ? { kind: initialPage as (typeof NAMED_PAGES)[number] }
       : initialPage
-        ? { kind: "member", id: initialPage, from: "crew" }
+        ? { kind: "member", id: initialPage, from: "helpers" }
         : { kind: "crew" },
   );
   // Why its chat didn't open, said on the teammate's page.
@@ -126,6 +166,7 @@ export function CrewSettingsSheet({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [confirmingOff, setConfirmingOff] = useState(false);
+  const allRuns = useCrewsAllRunsPerDay();
   // The helper whose Remove was pressed in the list: asked once, in place.
   const [removing, setRemoving] = useState<string | null>(null);
   useEffect(() => {
@@ -138,14 +179,14 @@ export function CrewSettingsSheet({
   const from = page.kind === "member" ? page.from : "crew";
   useEffect(() => {
     // Removed (here or in another window): back where it was opened from.
-    if (gone) setPage(from === "add" ? { kind: "add" } : { kind: "crew" });
+    if (gone) setPage({ kind: from });
   }, [gone, from]);
   if (!crew || gone) return null;
   const toPage = (next: Page) => {
     setChatProblem(null);
+    setRemoving(null);
     setPage(next);
   };
-  const toCrew = () => toPage({ kind: "crew" });
   const turnOn = async () => {
     setBusy(true);
     setProblem(null);
@@ -153,23 +194,19 @@ export function CrewSettingsSheet({
     setBusy(false);
     if (error) setProblem(error);
   };
-  const back = (
-    <button type="button" className="crew-settings-back" onClick={toCrew}>
-      <ChevronLeft className="size-3.5" />
-      {project}'s Avos
-    </button>
-  );
-  // A helper opened from Add a helper goes back there.
-  const backToBuild = (
+  // The way back, above a page's title: to Avos's four rows, or to the page
+  // a helper was opened from.
+  const backTo = (to: "crew" | "add" | "helpers") => (
     <button
       type="button"
       className="crew-settings-back"
-      onClick={() => toPage({ kind: "add" })}
+      onClick={() => toPage({ kind: to })}
     >
       <ChevronLeft className="size-3.5" />
-      Add a helper
+      {to === "crew" ? `${project}'s Avos` : BACK_LABEL[to]}
     </button>
   );
+  const back = backTo("crew");
   // One sheet whose header and body follow the page, so moving between
   // pages never closes and opens it again.
   let header: {
@@ -233,7 +270,7 @@ export function CrewSettingsSheet({
       ),
       description: teammateSubtitle(member, project),
       leading: <MemberMark path={path} member={member} />,
-      above: from === "add" ? backToBuild : back,
+      above: backTo(from),
       trailing: (
         <span className="teammate-head-actions">
           <button
@@ -290,7 +327,7 @@ export function CrewSettingsSheet({
       description:
         "Avos brings in helpers when work needs them. You can add one yourself, and change anyone later.",
       leading: <ProjectMark path={path} className="team-build-head-mark" />,
-      above: back,
+      above: backTo("helpers"),
       size: "lg",
       className: "team-build-sheet",
     };
@@ -304,21 +341,87 @@ export function CrewSettingsSheet({
         onClose={onClose}
       />
     );
-  } else {
-    const members = crewMembers(crew).filter(
-      (entry) => entry.role !== "fixer" || !!fixerName,
+  } else if (page.kind === "instructions") {
+    header = {
+      title: "Instructions",
+      description: "What Avos reads at every turn, in your words.",
+      above: back,
+    };
+    body = <InstructionsBody crew={crew} />;
+  } else if (page.kind === "memory") {
+    header = {
+      title: "Memory",
+      description: "What Avos has learned about this project.",
+      above: back,
+    };
+    body = (
+      <MemoryBody
+        crew={crew}
+        onOpenMember={(id) => toPage({ kind: "member", id, from: "crew" })}
+      />
     );
+  } else if (page.kind === "helpers") {
+    header = {
+      title: "Helpers",
+      description: "Avos hands them work and tells you when it's ready.",
+      above: back,
+    };
+    // Remove on a helper's row asks once, in place of the list.
+    const removingMember = removing
+      ? crewMemberById(crew, removing)
+      : undefined;
+    body = removingMember ? (
+      <div className="bot-sheet-body">
+        <RemoveHelperConfirm
+          crew={crew}
+          id={removingMember.id}
+          name={crewMemberName(crew, removingMember.id, fixerName)}
+          onCancel={() => setRemoving(null)}
+        />
+      </div>
+    ) : (
+      <HelpersBody
+        crew={crew}
+        fixerName={fixerName}
+        onOpenMember={(id) => toPage({ kind: "member", id, from: "helpers" })}
+        onRemoveMember={setRemoving}
+        onAdd={() => toPage({ kind: "add" })}
+      />
+    );
+  } else if (page.kind === "access") {
+    header = {
+      title: "Access",
+      description: "What Avos's helpers may do without asking you.",
+      above: back,
+    };
+    body = (
+      <div className="bot-sheet-body" data-crew-settings-page="access">
+        <AccessSection crew={crew} />
+      </div>
+    );
+  } else if (page.kind === "limits") {
+    header = {
+      title: "Limits",
+      description: "How much Avos does, and when.",
+      above: back,
+    };
+    body = (
+      <div className="bot-sheet-body" data-crew-settings-page="limits">
+        <LimitsSection crew={crew} allRuns={allRuns} />
+      </div>
+    );
+  } else {
     header = {
       title: `${project}'s Avos`,
+      description: crew.on
+        ? "On while Aven is open and your Mac is awake"
+        : "Off. Nothing new starts until you turn it on",
       leading: (
         <span className="bot-sheet-critter">
-          <CrewCritters
+          <CrewCritter
             path={path}
-            roles={members.map((entry) => ({
-              id: entry.id,
-              role: entry.role,
-              ...(entry.critter ? { critter: memberCritter(entry) } : {}),
-            }))}
+            role="lead"
+            className="crew-settings-head-mark"
           />
         </span>
       ),
@@ -337,24 +440,12 @@ export function CrewSettingsSheet({
         </span>
       ),
     };
-    const removingMember = removing
-      ? crewMemberById(crew, removing)
-      : undefined;
-    body = removingMember ? (
+    body = confirmingOff ? (
       <div className="bot-sheet-body">
-        <RemoveHelperConfirm
-          crew={crew}
-          id={removingMember.id}
-          name={crewMemberName(crew, removingMember.id, fixerName)}
-          onCancel={() => setRemoving(null)}
-        />
-      </div>
-    ) : confirmingOff ? (
-      <div className="bot-sheet-body">
-        <p className="bot-sheet-question">Turn the team off?</p>
+        <p className="bot-sheet-question">Turn Avos off?</p>
         <p className="bot-sheet-note">
-          What it is doing stops and nothing new starts. Its cards and its copy
-          stay, so Ready work is still there when you turn it on.
+          What it is doing stops and nothing new starts. Its work and its copy
+          stay, so what's ready is still there when you turn it on.
         </p>
         <div className="bot-sheet-actions">
           <button
@@ -380,13 +471,11 @@ export function CrewSettingsSheet({
     ) : (
       <CrewBody
         crew={crew}
-        members={members}
         fixerName={fixerName}
+        allRuns={allRuns}
         problem={problem}
         onOpenMember={(id) => toPage({ kind: "member", id, from: "crew" })}
-        onRemoveMember={setRemoving}
-        onAdd={() => toPage({ kind: "add" })}
-        onClose={onClose}
+        onPage={(kind) => toPage({ kind })}
       />
     );
   }
@@ -422,9 +511,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * A teammate's one detail in the team's list: what it runs on ("Claude ·
  * Opus 5.5"), and a word when it isn't as usual ("off").
  */
-function memberDetail(member: CrewMember): string {
+function memberDetail(member: CrewMember, crew: Crew): string {
   if (member.role === "fixer") return "Fixes what breaks";
-  return [memberAppLine(member), member.paused ? "off" : ""]
+  return [memberAppLine(member, crew), member.paused ? "off" : ""]
     .filter(Boolean)
     .join(" · ");
 }
@@ -432,33 +521,405 @@ function memberDetail(member: CrewMember): string {
 // ---------------------------------------------------------------------------
 // The crew
 
+/** Access in a word, as its row says it. */
+const ACCESS_WORD: Readonly<Record<CrewAccessLevel, string>> = {
+  ask: "Ask first",
+  auto: "Auto",
+  full: "Full access",
+};
+
+/** The helpers Avos's settings list: everyone but Avos (and a Fixer the project lacks). */
+function settingsHelpers(crew: Crew, fixerName: string | undefined) {
+  return crewMembers(crew).filter(
+    (entry) => entry.role !== "lead" && (entry.role !== "fixer" || !!fixerName),
+  );
+}
+
+/** One of Avos's four rows: its name, one line, and the way to its page. */
+function SummaryRow({
+  id,
+  title,
+  detail,
+  extra,
+  onOpen,
+}: {
+  id: string;
+  title: string;
+  detail: string;
+  extra?: ReactNode;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="bot-sheet-row crew-settings-member crew-settings-summary"
+      data-crew-summary={id}
+      onClick={onOpen}
+    >
+      <span>
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </span>
+      {extra}
+      <ChevronRight className="crew-settings-chevron size-3.5" />
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Avos's four rows
+
 function CrewBody({
   crew,
-  members,
   fixerName,
+  allRuns,
   problem,
+  onOpenMember,
+  onPage,
+}: {
+  crew: Crew;
+  fixerName?: string;
+  allRuns: number;
+  /** Why Avos couldn't turn on. */
+  problem: string | null;
+  onOpenMember: (id: string) => void;
+  onPage: (
+    kind: "instructions" | "memory" | "helpers" | "access" | "limits",
+  ) => void;
+}) {
+  const path = crew.path;
+  const lead = crewMembers(crew).find((member) => member.role === "lead");
+  const helpers = settingsHelpers(crew, fixerName);
+  const level = crewAccessLevel(crewAccess(crew));
+  const quiet = crew.limits.quiet;
+  return (
+    <div className="bot-sheet-body" data-crew-settings={path}>
+      <div className="crew-settings-card">
+        {lead ? (
+          <SummaryRow
+            id="model"
+            title="Model"
+            detail={memberAppLine(lead)}
+            onOpen={() => onOpenMember(lead.id)}
+          />
+        ) : null}
+        {lead ? (
+          <SummaryRow
+            id="instructions"
+            title="Instructions"
+            detail={
+              firstLine(lead.instructions) ??
+              (crew.notes.length
+                ? plural(crew.notes.length, "rule")
+                : "Your standing words to Avos")
+            }
+            onOpen={() => onPage("instructions")}
+          />
+        ) : null}
+        {lead ? (
+          <SummaryRow
+            id="memory"
+            title="Memory"
+            detail={
+              memoryFacts(lead.memory).length
+                ? plural(memoryFacts(lead.memory).length, "thing") +
+                  " it learned"
+                : "Nothing yet. It notes what it learns as it works"
+            }
+            onOpen={() => onPage("memory")}
+          />
+        ) : null}
+        <SummaryRow
+          id="helpers"
+          title="Helpers"
+          detail={
+            helpers.length
+              ? helpers
+                  .map((member) => crewMemberName(crew, member.id, fixerName))
+                  .join(", ")
+              : "Avos brings them in when work needs them"
+          }
+          extra={
+            helpers.length ? (
+              <CrewCritters
+                path={path}
+                className="crew-settings-summary-marks"
+                roles={helpers.map((entry) => ({
+                  id: entry.id,
+                  role: entry.role,
+                  ...(entry.critter ? { critter: memberCritter(entry) } : {}),
+                }))}
+              />
+            ) : null
+          }
+          onOpen={() => onPage("helpers")}
+        />
+        <SummaryRow
+          id="access"
+          title="Access"
+          detail={
+            avosMayRead(crew)
+              ? `${ACCESS_WORD[level]} · nothing reaches your folder until you Apply`
+              : "Can't read this project yet"
+          }
+          onOpen={() => onPage("access")}
+        />
+        <SummaryRow
+          id="limits"
+          title="Limits"
+          detail={[
+            `${crew.limits.runsPerDay} runs a day`,
+            quiet.on ? `quiet ${quietText(quiet)}` : "",
+            allRuns < crew.limits.runsPerDay ? `${allRuns} for every Avos` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          onOpen={() => onPage("limits")}
+        />
+      </div>
+      {problem ? (
+        <p className="bot-sheet-problem" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A text's first line worth showing, or undefined when it has none. */
+function firstLine(text: string | undefined): string | undefined {
+  const line = text
+    ?.split("\n")
+    .map((entry) => entry.trim())
+    .find(Boolean);
+  return line || undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Instructions and memory, as a Mono's Soul and Memory
+
+/**
+ * What Avos reads at every turn: your standing words to it, and the rules
+ * you gave for every job (each with Forget, and a field to add one).
+ */
+function InstructionsBody({ crew }: { crew: Crew }) {
+  const lead = crewMembers(crew).find((member) => member.role === "lead");
+  const [text, setText] = useState(lead?.instructions ?? "");
+  const [rule, setRule] = useState("");
+  const addRule = () => {
+    const words = rule.trim();
+    if (!words) return;
+    tellCrew(crew.path, words);
+    setRule("");
+  };
+  return (
+    <div className="bot-sheet-body" data-crew-settings-page="instructions">
+      {lead ? (
+        <textarea
+          className="aven-field crew-settings-instructions"
+          aria-label="Instructions"
+          rows={8}
+          maxLength={CREW_INSTRUCTIONS_MAX}
+          placeholder="Like “Keep changes small, and say what you changed in a line”"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={() =>
+            updateCrewMember(crew.path, lead.id, { instructions: text })
+          }
+        />
+      ) : null}
+      <Section title="For every job">
+        <div className="crew-settings-card">
+          {crew.notes.map((note) => (
+            <div
+              key={note.id}
+              className="bot-sheet-row crew-settings-fact"
+              data-avos-rule={note.id}
+            >
+              <span>{note.text}</span>
+              <button
+                type="button"
+                className="crew-settings-remove-link"
+                onClick={() =>
+                  updateCrew(crew.path, (current) =>
+                    withoutNote(current, note.id),
+                  )
+                }
+              >
+                Forget
+              </button>
+            </div>
+          ))}
+          <form
+            className="bot-sheet-row crew-settings-fact"
+            onSubmit={(event) => {
+              event.preventDefault();
+              addRule();
+            }}
+          >
+            <input
+              className="aven-field crew-settings-fact-input"
+              aria-label="Add a rule for every job"
+              placeholder="Add a rule for every job"
+              maxLength={CREW_NOTE_MAX}
+              value={rule}
+              onChange={(event) => setRule(event.target.value)}
+            />
+            <button
+              type="submit"
+              className="crew-settings-remove-link"
+              disabled={!rule.trim()}
+            >
+              Add
+            </button>
+          </form>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * What Avos has learned, one fact a row with Forget, all of it editable as
+ * text; then what each helper learned, which opens its page.
+ */
+function MemoryBody({
+  crew,
+  onOpenMember,
+}: {
+  crew: Crew;
+  onOpenMember: (id: string) => void;
+}) {
+  const lead = crewMembers(crew).find((member) => member.role === "lead");
+  const memory = lead?.memory ?? "";
+  const facts = memoryFacts(memory);
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(memory);
+  const [problem, setProblem] = useState<string | null>(null);
+  const helpers = crewMembers(crew).filter(
+    (member) =>
+      member.role !== "lead" && member.role !== "fixer" && member.memory,
+  );
+  return (
+    <div className="bot-sheet-body" data-crew-settings-page="memory">
+      {lead && editing ? (
+        <textarea
+          className="aven-field crew-settings-instructions"
+          aria-label="Memory"
+          rows={10}
+          maxLength={CREW_MEMORY_MAX}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={() => {
+            setProblem(
+              setMemberMemory(crew.path, lead.id, text.trim() || null),
+            );
+            setEditing(false);
+          }}
+          autoFocus
+        />
+      ) : facts.length && lead ? (
+        <div className="crew-settings-card" data-avos-memory>
+          {facts.map((fact) => (
+            <div
+              key={`${fact.line}:${fact.text}`}
+              className="bot-sheet-row crew-settings-fact"
+              data-avos-fact
+            >
+              <span>{fact.text}</span>
+              <button
+                type="button"
+                className="crew-settings-remove-link"
+                onClick={() =>
+                  setProblem(
+                    setMemberMemory(
+                      crew.path,
+                      lead.id,
+                      withoutMemoryFact(memory, fact.line),
+                    ),
+                  )
+                }
+              >
+                Forget
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="bot-sheet-note">
+          Nothing yet. Avos notes what it learns about this project as it works,
+          and reads it back at every turn.
+        </p>
+      )}
+      {lead && !editing ? (
+        <div className="crew-settings-memory-foot">
+          <button
+            type="button"
+            className="crew-settings-disclosure"
+            data-avos-memory-edit
+            onClick={() => {
+              setText(memory);
+              setEditing(true);
+            }}
+          >
+            Edit as text
+          </button>
+          {facts.length ? (
+            <span className="bot-sheet-note">
+              {plural(facts.length, "line")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {problem ? (
+        <p className="bot-sheet-problem" role="alert">
+          {problem}
+        </p>
+      ) : null}
+      {helpers.length ? (
+        <Section title="What its helpers learned">
+          <div className="crew-settings-card">
+            {helpers.map((member) => (
+              <SummaryRow
+                key={member.id}
+                id={`memory:${member.id}`}
+                title={crewMemberName(crew, member.id)}
+                detail={firstLine(member.memory) ?? ""}
+                onOpen={() => onOpenMember(member.id)}
+              />
+            ))}
+          </div>
+        </Section>
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+
+function HelpersBody({
+  crew,
+  fixerName,
   onOpenMember,
   onRemoveMember,
   onAdd,
-  onClose,
 }: {
   crew: Crew;
-  members: readonly CrewMember[];
   fixerName?: string;
-  /** Why the team couldn't turn on. */
-  problem: string | null;
   onOpenMember: (id: string) => void;
   /** Ask to remove a helper (never Avos or the Fixer). */
   onRemoveMember: (id: string) => void;
   onAdd: () => void;
-  onClose: () => void;
 }) {
   const path = crew.path;
-  const allRuns = useCrewsAllRunsPerDay();
+  const helpers = settingsHelpers(crew, fixerName);
+  const builders = crew.members.filter((member) => member.role === "builder");
+  const perDay = crew.limits.helpersPerDay;
   return (
-    <div className="bot-sheet-body" data-crew-settings={path}>
-      <Section title="Helpers">
-        {members.map((member) => {
+    <div className="bot-sheet-body" data-crew-settings-page="helpers">
+      <div className="crew-settings-card">
+        {helpers.map((member) => {
           const name = crewMemberName(crew, member.id, fixerName);
           return (
             <div key={member.id} className="crew-settings-member-line">
@@ -479,11 +940,11 @@ function CrewBody({
                   <strong>
                     <MemberTitle name={name} title={memberLabel(member)} />
                   </strong>
-                  <small>{memberDetail(member)}</small>
+                  <small>{memberDetail(member, crew)}</small>
                 </span>
                 <ChevronRight className="crew-settings-chevron size-3.5" />
               </button>
-              {member.role === "lead" || member.role === "fixer" ? null : (
+              {member.role === "fixer" ? null : (
                 <button
                   type="button"
                   className="crew-settings-row-remove"
@@ -506,36 +967,140 @@ function CrewBody({
           <Plus className="size-3.5" />
           Add a helper
         </button>
-      </Section>
-      <AccessSection crew={crew} />
-      <RoutingSection crew={crew} />
-      <LimitsSection crew={crew} allRuns={allRuns} />
-      {problem ? (
-        <p className="bot-sheet-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-      <div className="bot-sheet-actions">
-        {crew.on ? (
-          <button
-            type="button"
-            className="team-card-button"
-            data-variant="ghost"
-            onClick={() => setCrewPaused(path, !crew.paused)}
-          >
-            {crew.paused ? "Resume Avos" : "Pause Avos"}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          className="team-card-button"
-          data-variant="primary"
-          onClick={onClose}
-        >
-          Done
-        </button>
       </div>
+      {builders.length > 1 ? <RoutingSection crew={crew} /> : null}
+      <HelperModelSection crew={crew} />
+      <Section title="Quick helpers">
+        <div className="crew-settings-card">
+          <LimitRow
+            title="Let Avos start quick helpers"
+            detail="Helpers for one question, started by Avos"
+          >
+            <Toggle
+              label="Let Avos start quick helpers"
+              tone="neutral"
+              on={perDay > 0}
+              onChange={(on) =>
+                setCrewLimit(path, "helpersPerDay", on ? CREW_HELPERS.day : 0)
+              }
+            />
+          </LimitRow>
+          {perDay > 0 ? (
+            <LimitRow
+              title="At most a day"
+              detail="Across Avos and its helpers"
+            >
+              <NumberPick
+                label="Quick helpers a day"
+                value={perDay}
+                choices={LIMIT_CHOICES.helpersPerDay.filter(
+                  (value) => value > 0,
+                )}
+                onChange={(value) => setCrewLimit(path, "helpersPerDay", value)}
+              />
+            </LimitRow>
+          ) : null}
+        </div>
+        <p className="bot-sheet-note">
+          Avos starts them to look things up. They only read, and leave when
+          done.
+        </p>
+      </Section>
     </div>
+  );
+}
+
+/**
+ * What the helpers Avos sets to work run on: one model and effort for new
+ * helpers and the Builders you haven't set yourself, or Avos's pick.
+ */
+function HelperModelSection({ crew }: { crew: Crew }) {
+  const path = crew.path;
+  const runs = helperRunsOn(crew);
+  // The default first, then the rest as the model picker lists them.
+  const models = [...pickerModelsFor("claude")].sort(
+    (a, b) =>
+      Number(b.id === HELPER_MODEL_DEFAULT.model) -
+      Number(a.id === HELPER_MODEL_DEFAULT.model),
+  );
+  const value = runs ? runs.model : "avos";
+  const known = runs ? findModel(runs.model) : undefined;
+  const effort = known ? crewEffortSetting(known.harness, known.id) : undefined;
+  const pickModel = (id: string) => {
+    if (id === "avos") return setCrewHelperModel(path, "avos");
+    const setting = crewEffortSetting("claude", id);
+    // Keep the effort when the new model takes it, else its own default.
+    const keep =
+      runs?.effort &&
+      setting?.options.some((option) => option.value === runs.effort)
+        ? runs.effort
+        : undefined;
+    const next = { model: id, ...(keep ? { effort: keep } : {}) };
+    setCrewHelperModel(
+      path,
+      next.model === HELPER_MODEL_DEFAULT.model &&
+        next.effort === HELPER_MODEL_DEFAULT.effort
+        ? null
+        : next,
+    );
+  };
+  return (
+    <Section title="Model">
+      <div className="crew-settings-card" data-crew-helper-model>
+        <LimitRow
+          title="Helpers run on"
+          detail="New helpers, and Builders you haven't set yourself"
+        >
+          <Select
+            label="Helpers run on"
+            value={value}
+            options={[
+              ...models.map((model) => ({
+                value: model.id,
+                label: model.name.replace(/^Claude /, ""),
+              })),
+              {
+                value: "avos",
+                label: "Let Avos choose",
+                description: "It picks a model and effort for each job",
+              },
+            ]}
+            onChange={pickModel}
+          />
+        </LimitRow>
+        {runs && effort ? (
+          <LimitRow title="Effort" detail="How hard they think">
+            <Select
+              label="Effort"
+              value={runs.effort ?? ""}
+              options={[
+                { value: "", label: "Default" },
+                ...effort.options.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                })),
+              ]}
+              onChange={(value) => {
+                const next = {
+                  model: runs.model,
+                  ...(value ? { effort: value } : {}),
+                };
+                setCrewHelperModel(
+                  path,
+                  next.model === HELPER_MODEL_DEFAULT.model &&
+                    value === HELPER_MODEL_DEFAULT.effort
+                    ? null
+                    : next,
+                );
+              }}
+            />
+          </LimitRow>
+        ) : null}
+      </div>
+      <p className="bot-sheet-note">
+        A Builder you set yourself keeps its own model.
+      </p>
+    </Section>
   );
 }
 
@@ -572,8 +1137,41 @@ function AccessSection({ crew }: { crew: Crew }) {
   const access = crewAccess(crew);
   const level = crewAccessLevel(access);
   const [customising, setCustomising] = useState(false);
+  const mayRead = avosMayRead(crew);
   return (
-    <Section title="Access">
+    <section className="crew-settings-section" aria-label="Access">
+      <div className="crew-settings-card" data-crew-read-access>
+        <LimitRow
+          title="Read this project"
+          detail={
+            mayRead
+              ? "Avos and its helpers read your files to answer you and plan work"
+              : "Off: Avos stays off and reads nothing"
+          }
+        >
+          <Toggle
+            label="Read this project"
+            tone="neutral"
+            on={mayRead}
+            onChange={(on) => void setAvosReadAccess(path, on)}
+          />
+        </LimitRow>
+        <LimitRow
+          title="Ask before building"
+          detail={
+            crew.askBeforeBuilding
+              ? "What Avos plans waits for you to say Build it"
+              : "What Avos plans starts at once in its copy; you review it before it reaches your folder"
+          }
+        >
+          <Toggle
+            label="Ask before building"
+            tone="neutral"
+            on={!!crew.askBeforeBuilding}
+            onChange={(on) => setCrewAskBeforeBuilding(path, on)}
+          />
+        </LimitRow>
+      </div>
       <div data-crew-access role="radiogroup" aria-label="Access">
         {ACCESS_CHOICES.map((choice) => (
           <button
@@ -656,7 +1254,7 @@ function AccessSection({ crew }: { crew: Crew }) {
           </ul>
         </div>
       ) : null}
-    </Section>
+    </section>
   );
 }
 
@@ -686,145 +1284,122 @@ function Disclosure({
 }
 
 /**
- * The crew's limits: one line saying them all, and Edit limits › for the
- * common ones (each one's why is its tooltip), with the rest under More.
+ * Avos's limits, on their own page: the common ones (each one's why is its
+ * tooltip), quiet hours, and the rest under More.
  */
 function LimitsSection({ crew, allRuns }: { crew: Crew; allRuns: number }) {
   const path = crew.path;
   const quiet = crew.limits.quiet;
-  const [open, setOpen] = useState(false);
   const [more, setMore] = useState(false);
   const limit = (name: CrewLimitName) => (value: number) =>
     setCrewLimit(path, name, value);
-  const summary = [
-    `${crew.limits.runsPerDay} runs a day`,
-    `${crew.limits.roundsPerCard} ${crew.limits.roundsPerCard === 1 ? "round" : "rounds"} a card`,
-    `pauses at ${crew.limits.pauseAtPercent}% of your week`,
-    // "8 am" stays together on one line.
-    quiet.on
-      ? `quiet ${quietText(quiet).replace(/ (am|pm)/g, "\u00a0$1")}`
-      : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
   return (
-    <Section title="Limits">
-      <div className="crew-settings-line">
-        <span data-crew-limits-summary>{summary}</span>
-        <Disclosure
-          label="Edit limits"
-          open={open}
-          onToggle={() => setOpen(!open)}
-          data-crew-edit-limits
-        />
-      </div>
-      {open ? (
-        <div className="crew-settings-deeper" data-crew-limits-open>
-          <LimitRow title="Rounds a card" detail="Then it stops and asks you">
-            <NumberPick
-              label="Rounds a card"
-              value={crew.limits.roundsPerCard}
-              choices={LIMIT_CHOICES.roundsPerCard}
-              onChange={limit("roundsPerCard")}
-            />
-          </LimitRow>
-          <LimitRow
-            title="Runs a day"
-            detail="One run is one bot turn, the Fixer's included"
-          >
-            <NumberPick
-              label="Runs a day"
-              value={crew.limits.runsPerDay}
-              choices={LIMIT_CHOICES.runsPerDay}
-              onChange={limit("runsPerDay")}
-            />
-          </LimitRow>
-          <LimitRow
-            title="Pause at"
-            detail="Of your Claude week, so your own chats keep working"
-          >
-            <NumberPick
-              label="Pause at percent of your Claude week"
-              value={crew.limits.pauseAtPercent}
-              choices={LIMIT_CHOICES.pauseAtPercent}
-              format={(value) => `${value}%`}
-              onChange={limit("pauseAtPercent")}
-            />
-          </LimitRow>
-          <LimitRow
-            title="Quiet hours"
-            detail={
-              quiet.on
-                ? `Nothing new starts ${quietText(quiet)}`
-                : "Avos may start work at any hour"
-            }
-          >
-            <Toggle
-              label="Quiet hours"
-              tone="neutral"
-              on={quiet.on}
-              onChange={(on) => setCrewQuietHours(path, { ...quiet, on })}
-            />
-          </LimitRow>
-          {quiet.on ? <QuietHours path={path} quiet={quiet} /> : null}
-          <Disclosure
-            label="More"
-            open={more}
-            onToggle={() => setMore(!more)}
-            data-crew-limits-more
+    <section className="crew-settings-section" aria-label="Limits">
+      <div className="crew-settings-card" data-crew-limits-open>
+        <LimitRow
+          title="Runs a day"
+          detail="One run is one bot turn, the Fixer's included"
+        >
+          <NumberPick
+            label="Runs a day"
+            value={crew.limits.runsPerDay}
+            choices={LIMIT_CHOICES.runsPerDay}
+            onChange={limit("runsPerDay")}
           />
-          {more ? (
-            <>
-              <LimitRow
-                title="Runs a day, all teams"
-                detail="A ceiling for every Avos together"
-              >
-                <NumberPick
-                  label="Runs a day, all teams"
-                  value={allRuns}
-                  choices={ALL_RUNS_CHOICES}
-                  onChange={setCrewsAllRunsPerDay}
-                />
-              </LimitRow>
-              <LimitRow
-                title="Scout ideas that build by themselves"
-                detail="A day, not large ones or from outside. 0 for none. Yours always build"
-              >
-                <NumberPick
-                  label="Scout ideas that build by themselves a day"
-                  value={crew.limits.autoStartsPerDay}
-                  choices={LIMIT_CHOICES.autoStartsPerDay}
-                  onChange={limit("autoStartsPerDay")}
-                />
-              </LimitRow>
-              <LimitRow
-                title="Cards waiting for you"
-                detail="Passed cards on Avos's branch before it starts no new one"
-              >
-                <NumberPick
-                  label="Cards waiting for you"
-                  value={crew.limits.readyCap}
-                  choices={LIMIT_CHOICES.readyCap}
-                  onChange={limit("readyCap")}
-                />
-              </LimitRow>
-              <LimitRow
-                title="Stop a turn after"
-                detail="The card waits for you with why"
-              >
-                <NumberPick
-                  label="Stop a turn after"
-                  value={crew.limits.turnMinutes}
-                  choices={LIMIT_CHOICES.turnMinutes}
-                  format={(value) => `${value} min`}
-                  onChange={limit("turnMinutes")}
-                />
-              </LimitRow>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </Section>
+        </LimitRow>
+        <LimitRow
+          title="Quiet hours"
+          detail={
+            quiet.on
+              ? `Nothing new starts ${quietText(quiet)}`
+              : "Avos may start work at any hour"
+          }
+        >
+          <Toggle
+            label="Quiet hours"
+            tone="neutral"
+            on={quiet.on}
+            onChange={(on) => setCrewQuietHours(path, { ...quiet, on })}
+          />
+        </LimitRow>
+        {quiet.on ? <QuietHours path={path} quiet={quiet} /> : null}
+        <LimitRow
+          title="Pause near your usage limit"
+          detail="At this much of your Claude week, so your own chats keep working"
+        >
+          <NumberPick
+            label="Pause at percent of your Claude week"
+            value={crew.limits.pauseAtPercent}
+            choices={LIMIT_CHOICES.pauseAtPercent}
+            format={(value) => `${value}%`}
+            onChange={limit("pauseAtPercent")}
+          />
+        </LimitRow>
+        <Disclosure
+          label="More"
+          open={more}
+          onToggle={() => setMore(!more)}
+          data-crew-limits-more
+        />
+        {more ? (
+          <>
+            <LimitRow title="Rounds a card" detail="Then it stops and asks you">
+              <NumberPick
+                label="Rounds a card"
+                value={crew.limits.roundsPerCard}
+                choices={LIMIT_CHOICES.roundsPerCard}
+                onChange={limit("roundsPerCard")}
+              />
+            </LimitRow>
+            <LimitRow
+              title="Runs a day, every Avos"
+              detail="A ceiling for every project's Avos together"
+            >
+              <NumberPick
+                label="Runs a day, every Avos"
+                value={allRuns}
+                choices={ALL_RUNS_CHOICES}
+                onChange={setCrewsAllRunsPerDay}
+              />
+            </LimitRow>
+            <LimitRow
+              title="Scout ideas that build by themselves"
+              detail="A day, not large ones or from outside. 0 for none. Yours always build"
+            >
+              <NumberPick
+                label="Scout ideas that build by themselves a day"
+                value={crew.limits.autoStartsPerDay}
+                choices={LIMIT_CHOICES.autoStartsPerDay}
+                onChange={limit("autoStartsPerDay")}
+              />
+            </LimitRow>
+            <LimitRow
+              title="Cards waiting for you"
+              detail="Passed cards on Avos's branch before it starts no new one"
+            >
+              <NumberPick
+                label="Cards waiting for you"
+                value={crew.limits.readyCap}
+                choices={LIMIT_CHOICES.readyCap}
+                onChange={limit("readyCap")}
+              />
+            </LimitRow>
+            <LimitRow
+              title="Stop a turn after"
+              detail="The card waits for you with why"
+            >
+              <NumberPick
+                label="Stop a turn after"
+                value={crew.limits.turnMinutes}
+                choices={LIMIT_CHOICES.turnMinutes}
+                format={(value) => `${value} min`}
+                onChange={limit("turnMinutes")}
+              />
+            </LimitRow>
+          </>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

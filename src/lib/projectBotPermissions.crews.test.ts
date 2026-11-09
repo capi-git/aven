@@ -544,6 +544,13 @@ describe("a team's or bot's chat stays on its own app", () => {
     expect(teammateChatRefusal(chat("b-chat", "claude", PROJECT))).toMatch(
       /only in its own copy/,
     );
+    // Once you've said Avos may not read the project, nothing runs in it.
+    updateCrew(PROJECT, (current) => ({ ...current, readAccess: "declined" }));
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toMatch(
+      /needs your OK to read this project/,
+    );
+    updateCrew(PROJECT, (current) => ({ ...current, readAccess: "allowed" }));
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBeNull();
     updateCrew(PROJECT, (current) => ({ ...current, on: false }));
     expect(teammateChatRefusal(chat("b-chat", "claude"))).toMatch(
       /Avos is off/,

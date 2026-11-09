@@ -1,4 +1,6 @@
 import {
+  SIDEBAR_BLUR_MAX,
+  SIDEBAR_BLUR_MIN,
   SIDEBAR_OPACITY_MAX,
   SIDEBAR_OPACITY_MIN,
   STATUS_BAR_OPACITY_MAX,
@@ -6,55 +8,58 @@ import {
 import { clamp } from "./math";
 
 /**
- * One Glass slider stands in for background opacity, blur, "Include
- * workspace" and the status bar tint. Its value is how see-through the window
- * is, in percent: 0 is Solid, and the top of the range is the most
- * transparent window Aven allows (5% opacity).
+ * Two sliders set the window's glass. Opacity is how solid the window's own
+ * surface is, in percent: 100 is Solid, 5 the most see-through window Aven
+ * allows. Translucency is how clearly the desktop shows through it: 100 is
+ * clear glass, 0 fully frosted.
+ *
+ * Both read the workspace's saved opacity and blur, which earlier versions
+ * already stored separately, so an existing look reads back unchanged. The
+ * former single Glass slider moved both together; the blur barely changed
+ * while the dark tint did, so it read as "darker" rather than "more glass".
  */
-export const GLASS_LEVEL_MIN = 0;
-export const GLASS_LEVEL_MAX = Math.round(
-  (SIDEBAR_OPACITY_MAX - SIDEBAR_OPACITY_MIN) * 100,
-);
-
-/** One blur pixel for every three points of glass puts Aven's default
- *  (52% opacity, blur 16) exactly on the curve and keeps the most
- *  see-through window at a moderate, cheap-to-composite 32. */
-const GLASS_POINTS_PER_BLUR_PIXEL = 3;
+export const OPACITY_PERCENT_MIN = Math.round(SIDEBAR_OPACITY_MIN * 100);
+export const OPACITY_PERCENT_MAX = Math.round(SIDEBAR_OPACITY_MAX * 100);
+export const TRANSLUCENCY_MIN = 0;
+export const TRANSLUCENCY_MAX = 100;
 
 /** The status bar keeps a little more body than the window, so the default
  *  glass keeps its 65% bar and Solid makes it solid. */
 const STATUS_BAR_OPACITY_PER_WINDOW_OPACITY = 1.25;
 
-export type GlassSettings = {
+export type OpacitySettings = {
   opacity: number;
-  blur: number;
   bodyGlass: boolean;
   statusBarOpacity: number;
 };
 
-/** The slider position for a saved window opacity. Reading it never
- *  rewrites the saved opacity, blur or status bar. */
-export function glassLevelFromOpacity(opacity: number): number {
-  if (!Number.isFinite(opacity)) return GLASS_LEVEL_MIN;
-  return clamp(
-    Math.round((1 - opacity) * 100),
-    GLASS_LEVEL_MIN,
-    GLASS_LEVEL_MAX,
+function wholeIn(value: number, min: number, max: number, fallback: number) {
+  return Number.isFinite(value) ? clamp(Math.round(value), min, max) : fallback;
+}
+
+/** The Opacity slider position for a saved window opacity. */
+export function opacityPercentFromOpacity(opacity: number): number {
+  return wholeIn(
+    opacity * 100,
+    OPACITY_PERCENT_MIN,
+    OPACITY_PERCENT_MAX,
+    OPACITY_PERCENT_MAX,
   );
 }
 
-/** Everything one slider position sets together. Solid is opaque with blur
- *  off and no desktop behind sessions; any glass shows the desktop there too,
- *  as "Include workspace" did. */
-export function glassSettingsForLevel(level: number): GlassSettings {
-  const glass = Number.isFinite(level)
-    ? clamp(Math.round(level), GLASS_LEVEL_MIN, GLASS_LEVEL_MAX)
-    : GLASS_LEVEL_MIN;
-  const opacity = (100 - glass) / 100;
+/** What one Opacity position sets: Solid shows no desktop behind sessions;
+ *  any glass shows it there too. Blur is the Translucency slider's. */
+export function glassSettingsForOpacity(percent: number): OpacitySettings {
+  const opacity =
+    wholeIn(
+      percent,
+      OPACITY_PERCENT_MIN,
+      OPACITY_PERCENT_MAX,
+      OPACITY_PERCENT_MAX,
+    ) / 100;
   return {
     opacity,
-    blur: Math.round(glass / GLASS_POINTS_PER_BLUR_PIXEL),
-    bodyGlass: glass > GLASS_LEVEL_MIN,
+    bodyGlass: opacity < SIDEBAR_OPACITY_MAX,
     statusBarOpacity: Math.min(
       STATUS_BAR_OPACITY_MAX,
       Math.round(opacity * STATUS_BAR_OPACITY_PER_WINDOW_OPACITY * 100) / 100,
@@ -62,7 +67,27 @@ export function glassSettingsForLevel(level: number): GlassSettings {
   };
 }
 
-/** The slider's readout: "Solid", or how see-through the window is. */
-export function glassLevelLabel(level: number): string {
-  return level <= GLASS_LEVEL_MIN ? "Solid" : `${level}%`;
+export function opacityLabel(percent: number): string {
+  return percent >= OPACITY_PERCENT_MAX ? "Solid" : `${percent}%`;
+}
+
+/** The Translucency slider position for a saved blur radius. */
+export function translucencyFromBlur(blur: number): number {
+  const radius = wholeIn(blur, SIDEBAR_BLUR_MIN, SIDEBAR_BLUR_MAX, 0);
+  return Math.round(TRANSLUCENCY_MAX - (radius / SIDEBAR_BLUR_MAX) * 100);
+}
+
+/** The blur radius for a Translucency position: less blur, more shows. */
+export function blurForTranslucency(translucency: number): number {
+  const value = wholeIn(
+    translucency,
+    TRANSLUCENCY_MIN,
+    TRANSLUCENCY_MAX,
+    TRANSLUCENCY_MAX,
+  );
+  return Math.round(((TRANSLUCENCY_MAX - value) / 100) * SIDEBAR_BLUR_MAX);
+}
+
+export function translucencyLabel(translucency: number): string {
+  return translucency >= TRANSLUCENCY_MAX ? "Clear" : `${translucency}%`;
 }

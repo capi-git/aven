@@ -5,8 +5,8 @@
 //! Unlike a race lane, the copy is kept between jobs, so the dependencies an
 //! agent installed there (`node_modules` and other git-ignored folders)
 //! survive. Before each job it is synced to what the user sees: the base is
-//! the project's HEAD plus its uncommitted tracked changes (`git stash
-//! create`, as a race starts from), checked out with `--force` and cleaned
+//! the project's HEAD plus its uncommitted changes and untracked files (see
+//! `race::prepare_for`, as a race starts from), checked out with `--force` and cleaned
 //! with `git clean -fd`, never `-x`, so ignored folders stay. Reading the
 //! bot's changes, applying them to the user's files and removing the copy go
 //! through the race code (see `race.rs`), which never stages into the copy's
@@ -42,7 +42,8 @@ pub struct BotSync {
     pub base: String,
     /// The base includes the project's uncommitted changes.
     pub uncommitted: bool,
-    /// Untracked project files exist; the copy does not have them.
+    /// Some untracked project files were too large or too many to copy; the
+    /// copy does not have them.
     pub untracked: bool,
     /// Settings files an agent had left in the copy, now removed (see
     /// `PLANTED`).
