@@ -110,7 +110,7 @@ describe("the critter's speech bubble", () => {
     ["reasoning", "think", "Thinking", "Thinking"],
     ["assistant", "write", "Writing", "Writing a reply"],
   ] as const)(
-    "draws a %s block's work on its agent's screen, in a few words",
+    "says a %s block's work in a few words",
     async (role, work, text, hint) => {
       session.blocks.push({ id: "b", role, text: "…", streaming: true });
       await render();
@@ -119,29 +119,22 @@ describe("the critter's speech bubble", () => {
       expect(words.textContent).toBe(text);
       expect(words.title).toBe(hint);
       expect(words.hasAttribute("data-loud")).toBe(false);
-      expect(
-        host.querySelector<HTMLElement>(".helm-work .agent-mark")?.dataset
-          .agent,
-      ).toBe("working");
     },
   );
 
-  it("makes its agent's screen the one Stop, which says Stopping until the turn ends", async () => {
+  it("has one Stop, a small square with no agent beside the words, which says Stopping until the turn ends", async () => {
     session.blocks.push({ id: "a", role: "assistant", text: "Hi" });
     await render();
     const stopButton = host.querySelector<HTMLButtonElement>(
       'button[aria-label="Stop"]',
     )!;
-    expect(stopButton.querySelector(".agent-mark")).not.toBeNull();
-    // A stop square shows over it while it is pointed at.
+    // The agent shows once, at the box's end: never beside its words.
+    expect(bubble()?.querySelector(".agent-mark")).toBeNull();
     expect(stopButton.querySelector(".helm-work-stop")).not.toBeNull();
     await act(async () => stopButton.click());
     expect(stop).toHaveBeenCalledWith("session");
     expect(bubble()?.dataset.work).toBe("stopping");
     expect(host.querySelector('[role="status"]')?.textContent).toBe("Stopping");
-    expect(
-      host.querySelector<HTMLElement>(".helm-work .agent-mark")?.dataset.agent,
-    ).toBe("still");
     // A new turn starts afresh.
     session = {
       ...session,
@@ -179,8 +172,6 @@ describe("the critter's speech bubble", () => {
     await render({ stopInBar: true, placement: "attention" });
     expect(bubble()?.textContent).toContain("Working");
     expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
-    // Its screen still says it works; nothing on it stops it.
-    expect(host.querySelector(".helm-work .agent-mark")).not.toBeNull();
     expect(host.querySelector(".helm-work-stop")).toBeNull();
   });
 
@@ -198,9 +189,6 @@ describe("the critter's speech bubble", () => {
     expect(words.textContent).toBe("Needs you");
     expect(words.title).toBe("Needs you · Approval needed");
     expect(words.hasAttribute("data-loud")).toBe(true);
-    expect(
-      host.querySelector<HTMLElement>(".helm-work .agent-mark")?.dataset.agent,
-    ).toBe("needs");
     expect(host.querySelector('[aria-label="Stop"]')).not.toBeNull();
     session = {
       ...session,

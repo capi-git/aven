@@ -844,13 +844,8 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   }
 }
 
-/* The agent's little screen in the bubble: its Stop. Pointed at, its face
-   dims and a stop square shows over it. */
-.helm-work .dot-mark.helm-work-screen {
-  display: block;
-  width: 22px;
-  height: 22px;
-}
+/* The bubble's Stop: a small quiet square, brighter when pointed at. The
+   agent itself shows once, at the box's end. */
 .helm-work {
   position: relative;
 }
@@ -863,13 +858,10 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   margin: -3.5px 0 0 -3.5px;
   border-radius: 1.5px;
   background: var(--helm-ink);
-  opacity: 0;
+  opacity: 0.5;
   transition: opacity 120ms ease-out;
   pointer-events: none;
 }
 button.helm-work:is(:hover, :focus-visible) .helm-work-stop {
   opacity: 0.95;
-}
-button.helm-work:is(:hover, :focus-visible) .agent-eyes {
-  opacity: 0.2;
 }
