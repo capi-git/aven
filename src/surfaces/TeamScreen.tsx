@@ -47,13 +47,16 @@ import { reviewHeading } from "../lib/automationReview";
 import { plural } from "../lib/words";
 import type { BoardCard, BoardColumnId } from "../lib/workBoard";
 import { AvosForYou, type AvosAsk } from "./AvosForYou";
+import type { AvosProfileProps } from "./AvosProfile";
 import {
-  AvosBar,
-  AvosGoal,
-  AvosProfile,
-  AvosSections,
-  type AvosProfileProps,
-} from "./AvosProfile";
+  AVOS_TABS,
+  AvosPanel,
+  AvosPanelBar,
+  AvosTabBody,
+  type AvosPanelProps,
+  type AvosTab,
+} from "./AvosPanel";
+import { avosJobs } from "../lib/avosJobs";
 import { CrewAnswerBox, CrewFeed } from "./CrewBoard";
 import { AvosReview } from "./AvosReview";
 import { BatchCard, CrewBatchSheet } from "./TeamBatch";
@@ -65,15 +68,17 @@ import "./TeamScreen.css";
 
 /**
  * A project's Avos (13B of the Avos mocks), like a messenger with someone
- * you work with: the chat, with Avos's profile beside it (its Bot, name and
+ * you work with: the chat, with Avos's panel beside it (Overview, Helpers,
+ * Documents, Habits and Changes, as a Mono's in MonoCode; its Bot, name and
  * ⋯, what it's up to, what it keeps an eye on, remembers and who's
  * helping). What needs you is Avos's own message at the end of the chat,
- * with its buttons. On a narrow pane the profile folds into one header.
+ * with its buttons. On a narrow pane the panel folds into one header whose
+ * tab icons open in a sheet.
  * Meeting Avos for the first time is the chat alone. The work stays in a
  * copy until you press Apply.
  */
 
-/** Below this width Avos's profile folds into a header over the chat. */
+/** Below this width Avos's panel folds into a header over the chat. */
 const PROFILE_NARROW = 720;
 
 export function TeamScreen({
@@ -128,8 +133,9 @@ export function TeamScreen({
   const [notes, setNotes] = useState(false);
   // What the helpers did, in a sheet.
   const [activity, setActivity] = useState(false);
-  // The narrow header's profile, in a sheet.
-  const [profile, setProfile] = useState(false);
+  // Avos's panel: its open tab beside the chat, or (narrow) in a sheet.
+  const [tab, setTab] = useState<AvosTab>("overview");
+  const [sheet, setSheet] = useState<AvosTab | null>(null);
   // A card waiting on your answer, open in its own sheet.
   const [answering, setAnswering] = useState<string | null>(null);
   useEffect(() => {
@@ -146,7 +152,7 @@ export function TeamScreen({
   useEffect(() => {
     if (reviewing && !hasBatch) setReviewing(false);
   }, [reviewing, hasBatch]);
-  // A helper in the profile shows its posts.
+  // A helper in the panel shows its posts.
   const chat = useRef<{
     select: (id: string | null) => void;
   } | null>(null);
@@ -176,9 +182,9 @@ export function TeamScreen({
   );
   const week = useMemo(() => avosWeek(crew, { jobs, now }), [crew, jobs, now]);
   const [measure, narrow] = useNarrow<HTMLElement>(PROFILE_NARROW);
-  // Wide again: the profile stands beside the chat, so its sheet goes.
+  // Wide again: the panel stands beside the chat, so its sheet goes.
   useEffect(() => {
-    if (!narrow) setProfile(false);
+    if (!narrow) setSheet(null);
   }, [narrow]);
   const shown = !meeting && saved === "board" ? "board" : "chat";
   const workspace = useTeamWorkspace();
@@ -303,24 +309,37 @@ export function TeamScreen({
     now,
     onOpen: open,
     onHelper: (id) => {
-      setProfile(false);
+      setSheet(null);
       save("chat");
       chat.current?.select(id);
     },
     onNotes: () => {
-      setProfile(false);
+      setSheet(null);
       setNotes(true);
     },
     onActivity: () => {
-      setProfile(false);
+      setSheet(null);
       setActivity(true);
     },
     onReview: () => {
-      setProfile(false);
+      setSheet(null);
       setReviewing(true);
     },
     batch: view.batch ?? null,
     name,
+  };
+  const panelProps: AvosPanelProps = {
+    ...profileProps,
+    tab,
+    onTab: setTab,
+    jobs: avosJobs(project, agents),
+    runs,
+    shipped: [...columns.shipped].sort((a, b) => b.at - a.at),
+    range,
+    onOpenJob: (id) => {
+      setSheet(null);
+      openAutomation(id);
+    },
   };
   return (
     <section
@@ -334,7 +353,7 @@ export function TeamScreen({
     >
       <div className="avos-main">
         {meeting || !narrow ? null : (
-          <AvosBar {...profileProps} onProfile={() => setProfile(true)} />
+          <AvosPanelBar {...panelProps} sheet={sheet} onSheet={setSheet} />
         )}
         {/* The chat stays put under the Board, so its place and what you
             were writing are there when you come back. */}
@@ -404,12 +423,12 @@ export function TeamScreen({
           onClose={() => setReviewing(false)}
         />
       ) : (
-        <AvosProfile {...profileProps} />
+        <AvosPanel {...panelProps} />
       )}
-      {profile ? (
+      {sheet ? (
         <Modal
-          onClose={() => setProfile(false)}
-          title="Avos"
+          onClose={() => setSheet(null)}
+          title={AVOS_TABS.find((entry) => entry.id === sheet)?.label ?? "Avos"}
           leading={
             <CrewCritter
               path={project}
@@ -420,9 +439,11 @@ export function TeamScreen({
           }
           className="avos-profile-sheet"
         >
-          <div className="avos-sheet-body">
-            <AvosGoal project={project} goal={view.goal} />
-            <AvosSections {...profileProps} />
+          <div
+            className="avos-sheet-body avos-panel-sheet"
+            data-avos-sheet={sheet}
+          >
+            <AvosTabBody {...panelProps} tab={sheet} />
           </div>
         </Modal>
       ) : null}

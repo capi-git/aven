@@ -1,0 +1,254 @@
+/* Avos's side panel: one header of five tabs over one scrolling body, as a
+   Mono's in MonoCode, in Aven's greys. The open tab shows its name beside
+   its icon; Changes carries how many wait. */
+.avos-profile.avos-panel {
+  width: 380px;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.avos-panel-head {
+  display: flex;
+  height: 44px;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--aven-line);
+}
+.avos-panel-head .avos-profile-more-button {
+  margin-left: auto;
+}
+
+.avos-tabs {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+.avos-tab {
+  display: inline-flex;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  cursor: var(--aven-cursor-pointer);
+}
+.avos-tab:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.avos-tab[aria-selected="true"] {
+  padding: 0 9px;
+  background: var(--aven-selected, var(--aven-hover));
+  color: var(--color-content);
+}
+.avos-tab-badge {
+  display: inline-flex;
+  min-width: 15px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-hover);
+  color: var(--color-content);
+  font-size: var(--text-ui-caption);
+}
+
+.avos-panel-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 18px 18px 20px;
+}
+.avos-panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.avos-panel-sheet .avos-panel-stack {
+  gap: 20px;
+}
+
+.avos-panel-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.avos-panel-line {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: var(--text-ui-body);
+  line-height: 1.45;
+}
+.avos-panel-line > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avos-panel-when {
+  flex: none;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-weight: 400;
+}
+.avos-panel-empty {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+}
+.avos-panel-centre {
+  margin-top: 48px;
+  text-align: center;
+}
+
+/* What it did: 26 weeks of days, grey only, whiter for more. */
+.avos-panel-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: repeat(26, minmax(0, 1fr));
+  grid-template-rows: repeat(7, 8px);
+  gap: 3px;
+}
+.avos-panel-grid > i {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+}
+.avos-panel-grid > i[data-level="1"] {
+  background: color-mix(in srgb, var(--color-content) 20%, transparent);
+}
+.avos-panel-grid > i[data-level="2"] {
+  background: color-mix(in srgb, var(--color-content) 36%, transparent);
+}
+.avos-panel-grid > i[data-level="3"] {
+  background: color-mix(in srgb, var(--color-content) 56%, transparent);
+}
+.avos-panel-grid > i[data-level="4"] {
+  background: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+
+.avos-panel-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.avos-panel-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-inset-card, var(--aven-hover));
+}
+.avos-panel-tile-value {
+  font-size: var(--text-ui-title);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.avos-panel-tile-label {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* Documents: what it wrote up, one card each. */
+.avos-panel-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-inset-card, var(--aven-hover));
+}
+.avos-panel-doc-title {
+  font-weight: 500;
+}
+.avos-panel-doc-kind {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-panel-doc-text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  line-height: 1.5;
+  user-select: text;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+}
+
+/* Habits: one row each, its words on the left and its switch on the right. */
+.avos-panel-habit {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 12px;
+}
+.avos-panel-habit + .avos-panel-habit {
+  border-top: 1px solid var(--aven-line);
+}
+.avos-panel-habit-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  text-align: left;
+  cursor: var(--aven-cursor-pointer);
+}
+
+/* Changes: what's ready, one row each, then Review and Apply. */
+.avos-panel-change {
+  margin: 0;
+  padding: 11px 0;
+  font-size: var(--text-ui-body);
+}
+.avos-panel-change + .avos-panel-change {
+  border-top: 1px solid var(--aven-line);
+}
+.avos-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.avos-panel-spacer {
+  flex: 1 1 auto;
+}
+.avos-panel-problem {
+  margin: 0;
+  color: var(--aven-needs-you);
+  font-size: var(--text-ui-label);
+}
+
+/* Narrow: the tabs are icons in Avos's header. */
+.avos-bar .avos-tabs {
+  flex: none;
+}
+.avos-bar .avos-tab {
+  padding: 0 6px;
+}

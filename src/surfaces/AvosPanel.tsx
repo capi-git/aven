@@ -1,0 +1,607 @@
+import { type ReactNode } from "react";
+import { CrewCritter } from "../chrome/CrewCritter";
+import {
+  Clock,
+  File,
+  GitCompare,
+  Kanban,
+  MessageMultiple,
+} from "../chrome/icons";
+import { Toggle } from "./SettingsControls";
+import { useBatchActions, type BatchRange } from "../hooks/useTeamPipeline";
+import type { CrewFindings, CrewMockup } from "../lib/crews";
+import type { PipelineBatch } from "../lib/crewPipeline";
+import {
+  describeSchedule,
+  formatRunTime,
+  setScheduledAgentEnabled,
+  type ScheduledAgent,
+  type ScheduledRun,
+} from "../lib/scheduledAgents";
+import { localDay } from "../lib/projectBots";
+import { plural } from "../lib/words";
+import type { BoardCard } from "../lib/workBoard";
+import {
+  AvosGoal,
+  AvosMore,
+  AvosSections,
+  readyTitle,
+  type AvosProfileProps,
+} from "./AvosProfile";
+import "./AvosPanel.css";
+
+/**
+ * Avos's side panel, as a Mono's in MonoCode: one header of five tabs and
+ * one body. Overview (who it is, what it did, today, up next), Helpers (who
+ * is working now and what finished), Documents (what it wrote up: findings
+ * and mock-ups), Habits (its jobs on a schedule) and Changes (what's ready
+ * to review and apply, and what you applied). On a narrow pane the tabs
+ * are icons in Avos's header and open in a sheet.
+ */
+
+export type AvosTab =
+  "overview" | "helpers" | "documents" | "habits" | "changes";
+
+export const AVOS_TABS: readonly {
+  id: AvosTab;
+  label: string;
+  icon: (props: { size?: number }) => ReactNode;
+}[] = [
+  { id: "overview", label: "Overview", icon: Kanban },
+  { id: "helpers", label: "Helpers", icon: MessageMultiple },
+  { id: "documents", label: "Documents", icon: File },
+  { id: "habits", label: "Habits", icon: Clock },
+  { id: "changes", label: "Changes", icon: GitCompare },
+];
+
+export type AvosPanelProps = AvosProfileProps & {
+  tab: AvosTab;
+  onTab: (tab: AvosTab) => void;
+  /** Its jobs, oldest first, and their runs. */
+  jobs: readonly ScheduledAgent[];
+  runs: readonly ScheduledRun[];
+  /** Work you applied, newest first. */
+  shipped: readonly BoardCard[];
+  /** What Apply all lands, read from the branch. */
+  range: BatchRange | null;
+  onOpenJob: (id: string) => void;
+};
+
+const DAY = 24 * 60 * 60_000;
+
+/** The start of `at`'s day, on this computer's clock. */
+function dayStart(at: number): number {
+  const day = new Date(at);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+/** The tab row: icons, and the open tab's name beside its icon. */
+function AvosTabs({
+  tab,
+  onTab,
+  badge,
+  compact = false,
+}: {
+  tab: AvosTab | null;
+  onTab: (tab: AvosTab) => void;
+  /** How many changes wait in Changes. */
+  badge: number;
+  compact?: boolean;
+}) {
+  return (
+    <div className="avos-tabs" role="tablist" aria-label="Avos">
+      {AVOS_TABS.map(({ id, label, icon: Icon }) => {
+        const open = tab === id;
+        return (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            className="avos-tab"
+            aria-selected={open}
+            aria-label={label}
+            title={label}
+            data-avos-tab={id}
+            onClick={() => onTab(id)}
+          >
+            <Icon size={14} />
+            {open && !compact ? <span>{label}</span> : null}
+            {id === "changes" && badge ? (
+              <span className="avos-tab-badge">{badge}</span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Beside the chat on a wide pane: the tabs over one body. */
+export function AvosPanel(props: AvosPanelProps) {
+  const { crew, tab, onTab, batch } = props;
+  return (
+    <aside
+      className="avos-profile avos-panel"
+      aria-label="Avos"
+      data-crew-header={crew.path}
+      data-avos-panel={tab}
+    >
+      <div className="avos-panel-head">
+        <AvosTabs tab={tab} onTab={onTab} badge={batch?.cards.length ?? 0} />
+        <AvosMore {...props} />
+      </div>
+      <div className="avos-panel-body" role="tabpanel">
+        <AvosTabBody {...props} />
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * On a narrow pane: one header over the chat, Avos's Bot and name, a line,
+ * and the tabs as icons; a tab opens in a sheet (`onSheet`).
+ */
+export function AvosPanelBar(
+  props: AvosPanelProps & {
+    sheet: AvosTab | null;
+    onSheet: (tab: AvosTab) => void;
+  },
+) {
+  const { project, glance, line, batch, sheet, onSheet } = props;
+  return (
+    <header className="avos-bar" data-avos-bar>
+      <button
+        type="button"
+        className="avos-bar-who"
+        aria-label="Avos's overview"
+        aria-haspopup="dialog"
+        onClick={() => onSheet("overview")}
+      >
+        <CrewCritter
+          path={project}
+          role="lead"
+          state={glance.state}
+          className="avos-bar-mark"
+        />
+        <span className="avos-bar-name">Avos</span>
+      </button>
+      <p
+        className="avos-bar-line"
+        data-avos-note={glance.note ?? undefined}
+        title={line}
+      >
+        {line}
+      </p>
+      <AvosTabs
+        tab={sheet}
+        onTab={onSheet}
+        badge={batch?.cards.length ?? 0}
+        compact
+      />
+      <AvosMore {...props} />
+    </header>
+  );
+}
+
+/** The open tab's body. */
+export function AvosTabBody(props: AvosPanelProps) {
+  switch (props.tab) {
+    case "helpers":
+      return (
+        <div className="avos-panel-stack" data-avos-panel-body="helpers">
+          <AvosSections {...props} parts={["helpers", "activity"]} />
+        </div>
+      );
+    case "documents":
+      return <AvosDocuments {...props} />;
+    case "habits":
+      return <AvosHabits {...props} />;
+    case "changes":
+      return <AvosChanges {...props} />;
+    default:
+      return <AvosOverview {...props} />;
+  }
+}
+
+/** Who it is, what it did these six months, today, up next, new today. */
+function AvosOverview(props: AvosPanelProps) {
+  const { project, crew, glance, line, goal, batch, shipped, jobs, runs, now } =
+    props;
+  const today = dayStart(now);
+  const appliedToday = shipped.filter((card) => card.at >= today).length;
+  const helpersToday =
+    crew.helperRuns?.day === localDay(now)
+      ? crew.helperRuns.count
+      : (crew.helpers?.length ?? 0);
+  const jobIds = new Set(jobs.map((job) => job.id));
+  const runsToday = runs.filter(
+    (run) => jobIds.has(run.scheduleId) && run.startedAt >= today,
+  ).length;
+  const dueToday = jobs.filter(
+    (job) =>
+      job.enabled && job.nextRunAt !== null && job.nextRunAt < today + DAY,
+  ).length;
+  const next = jobs
+    .filter((job) => job.enabled && job.nextRunAt !== null)
+    .sort((a, b) => a.nextRunAt! - b.nextRunAt!)[0];
+  const newToday = [
+    ...shipped
+      .filter((card) => card.at >= today)
+      .map((card) => ({
+        id: card.id,
+        text: `${card.title} · applied`,
+        at: card.at,
+      })),
+    ...crew.cards
+      .filter((card) => card.findings && card.findings.readAt >= today)
+      .map((card) => ({
+        id: `f:${card.id}`,
+        text: `${card.title} · findings`,
+        at: card.findings!.readAt,
+      })),
+  ]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 4);
+  return (
+    <div className="avos-panel-stack" data-avos-panel-body="overview">
+      <div className="avos-profile-id">
+        <div className="avos-profile-top">
+          <CrewCritter
+            path={project}
+            role="lead"
+            state={glance.state}
+            className="avos-profile-mark"
+          />
+          <div className="avos-profile-who">
+            <h1 className="avos-profile-name">Avos</h1>
+            <p
+              className="avos-profile-line"
+              data-crew-sentence
+              data-avos-note={glance.note ?? undefined}
+              title={line}
+            >
+              {line}
+            </p>
+          </div>
+        </div>
+        <AvosGoal project={project} goal={goal} />
+      </div>
+      <AvosActivityGrid shipped={shipped} now={now} />
+      <section className="avos-profile-section" data-avos-profile="today">
+        <h2>Today</h2>
+        <div className="avos-panel-tiles">
+          <AvosTile
+            value={String(batch?.cards.length ?? 0)}
+            label="Ready to review"
+          />
+          <AvosTile value={String(appliedToday)} label="Applied" />
+          <AvosTile value={String(helpersToday)} label="Helpers run" />
+          <AvosTile
+            value={`${runsToday}/${Math.max(runsToday, dueToday)}`}
+            label="Habits run"
+          />
+        </div>
+      </section>
+      <section className="avos-profile-section" data-avos-profile="next">
+        <h2>Up next</h2>
+        {next ? (
+          <p className="avos-panel-line">
+            <span>{next.name}</span>
+            <span className="avos-panel-when">
+              {formatRunTime(next.nextRunAt!, now)}
+            </span>
+          </p>
+        ) : (
+          <p className="avos-panel-empty">
+            Nothing scheduled. Ask Avos to do something on a habit.
+          </p>
+        )}
+      </section>
+      <section className="avos-profile-section" data-avos-profile="new">
+        <h2>New today</h2>
+        {newToday.length ? (
+          newToday.map((row) => (
+            <p key={row.id} className="avos-panel-line">
+              <span>{row.text}</span>
+              <span className="avos-panel-when">
+                {formatRunTime(row.at, now)}
+              </span>
+            </p>
+          ))
+        ) : (
+          <p className="avos-panel-empty">Nothing new yet today.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function AvosTile({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="avos-panel-tile">
+      <span className="avos-panel-tile-value">{value}</span>
+      <span className="avos-panel-tile-label">{label}</span>
+    </div>
+  );
+}
+
+const WEEKS = 26;
+
+/**
+ * What it did: a grid of the last 26 weeks, a day a square, greyer to
+ * whiter for more of its work you applied that day. Grey only (no tints).
+ */
+export function activityLevels(
+  applied: readonly number[],
+  now: number,
+): number[] {
+  const end = dayStart(now);
+  const first = end - (WEEKS * 7 - 1) * DAY;
+  const counts = new Array<number>(WEEKS * 7).fill(0);
+  for (const at of applied) {
+    const day = Math.round((dayStart(at) - first) / DAY);
+    if (day >= 0 && day < counts.length) counts[day]! += 1;
+  }
+  return counts.map((count) => (count >= 4 ? 4 : count));
+}
+
+function AvosActivityGrid({
+  shipped,
+  now,
+}: {
+  shipped: readonly BoardCard[];
+  now: number;
+}) {
+  const levels = activityLevels(
+    shipped.map((card) => card.at),
+    now,
+  );
+  const total = levels.reduce((sum, level) => sum + (level ? 1 : 0), 0);
+  const applied = shipped.filter(
+    (card) => card.at >= dayStart(now) - (WEEKS * 7 - 1) * DAY,
+  ).length;
+  return (
+    <section className="avos-profile-section" data-avos-profile="did">
+      <h2 className="avos-panel-heading-row">
+        <span>What it did</span>
+        <span className="avos-panel-when">
+          {applied
+            ? `${plural(applied, "change")} applied in 6 months`
+            : "Nothing applied yet"}
+        </span>
+      </h2>
+      <div
+        className="avos-panel-grid"
+        role="img"
+        aria-label={`Work applied on ${plural(total, "day")} in the last 6 months`}
+      >
+        {levels.map((level, index) => (
+          <i key={index} data-level={level} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** What it wrote up: the Researcher's findings and the Designer's mock-ups. */
+function AvosDocuments({ crew, now }: AvosPanelProps) {
+  const docs = crew.cards
+    .flatMap((card) => {
+      const rows: {
+        id: string;
+        title: string;
+        at: number;
+        findings?: CrewFindings;
+        mockup?: CrewMockup;
+      }[] = [];
+      if (card.findings)
+        rows.push({
+          id: `f:${card.id}`,
+          title: card.title,
+          at: card.findings.readAt,
+          findings: card.findings,
+        });
+      if (card.mockup)
+        rows.push({
+          id: `m:${card.id}`,
+          title: card.title,
+          at: card.mockup.madeAt,
+          mockup: card.mockup,
+        });
+      return rows;
+    })
+    .sort((a, b) => b.at - a.at);
+  if (!docs.length)
+    return (
+      <div className="avos-panel-stack" data-avos-panel-body="documents">
+        <p className="avos-panel-empty avos-panel-centre">
+          Ask Avos to look something up or sketch a screen, and what it writes
+          shows up here.
+        </p>
+      </div>
+    );
+  return (
+    <div className="avos-panel-stack" data-avos-panel-body="documents">
+      {docs.map((doc) => (
+        <article key={doc.id} className="avos-panel-doc" data-avos-doc={doc.id}>
+          <p className="avos-panel-line">
+            <span className="avos-panel-doc-title">{doc.title}</span>
+            <span className="avos-panel-when">
+              {formatRunTime(doc.at, now)}
+            </span>
+          </p>
+          <p className="avos-panel-doc-kind">
+            {doc.findings
+              ? `Findings · ${plural(doc.findings.sources, "source")}`
+              : "Mock-up"}
+          </p>
+          <p className="avos-panel-doc-text">
+            {doc.findings ? doc.findings.summary : doc.mockup!.note}
+          </p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+/** Its jobs on a schedule, each with a switch; opening one shows its runs. */
+function AvosHabits({ jobs, runs, now, onOpenJob }: AvosPanelProps) {
+  if (!jobs.length)
+    return (
+      <div className="avos-panel-stack" data-avos-panel-body="habits">
+        <p className="avos-panel-empty avos-panel-centre">
+          Ask Avos to do something on a schedule, like a morning digest or a
+          weekly check.
+        </p>
+      </div>
+    );
+  return (
+    <div className="avos-panel-stack" data-avos-panel-body="habits">
+      <div className="avos-profile-card">
+        {jobs.map((job) => {
+          const last = runs
+            .filter((run) => run.scheduleId === job.id)
+            .sort((a, b) => b.startedAt - a.startedAt)[0];
+          return (
+            <div
+              key={job.id}
+              className="avos-panel-habit"
+              data-avos-habit={job.id}
+            >
+              <button
+                type="button"
+                className="avos-panel-habit-text"
+                onClick={() => onOpenJob(job.id)}
+              >
+                <span className="avos-profile-helper-name">{job.name}</span>
+                <span className="avos-profile-helper-meta">
+                  {describeSchedule(job.schedule)}
+                </span>
+                <span className="avos-profile-helper-meta">
+                  {last
+                    ? `${formatRunTime(last.startedAt, now)}: ${last.summary || "ran"}`
+                    : job.enabled && job.nextRunAt !== null
+                      ? `First run ${formatRunTime(job.nextRunAt, now)}`
+                      : "Off"}
+                </span>
+              </button>
+              <Toggle
+                label={job.name}
+                tone="neutral"
+                on={job.enabled}
+                onChange={(on) => setScheduledAgentEnabled(job.id, on)}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <p className="avos-panel-empty">
+        Ask Avos in the chat to add or change one. A habit only posts when it
+        has something to tell you.
+      </p>
+    </div>
+  );
+}
+
+/** What's ready to review and apply, and what you applied. */
+function AvosChanges(props: AvosPanelProps) {
+  const { batch, shipped, now } = props;
+  const applied = shipped.slice(0, 6);
+  return (
+    <div className="avos-panel-stack" data-avos-panel-body="changes">
+      {batch?.cards.length ? (
+        <AvosReady {...props} batch={batch} />
+      ) : (
+        <p className="avos-panel-empty">
+          Nothing waiting. What Avos builds comes here for you to review.
+        </p>
+      )}
+      {applied.length ? (
+        <section className="avos-profile-section" data-avos-profile="applied">
+          <h2>Applied</h2>
+          {applied.map((card) => (
+            <p key={card.id} className="avos-panel-line">
+              <span>{card.title}</span>
+              <span className="avos-panel-when">
+                {formatRunTime(card.at, now)}
+              </span>
+            </p>
+          ))}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function AvosReady({
+  crew,
+  batch,
+  range,
+  onReview,
+}: AvosPanelProps & { batch: PipelineBatch }) {
+  const actions = useBatchActions(crew, batch, range);
+  return (
+    <section className="avos-profile-section" data-avos-profile="ready">
+      <h2 className="avos-panel-heading-row">
+        <span>Ready to review · {batch.cards.length}</span>
+        {range ? (
+          <span className="avos-panel-when">{plural(range.files, "file")}</span>
+        ) : null}
+      </h2>
+      <div className="avos-profile-card">
+        {batch.cards.map((card) => (
+          <p
+            key={card.id}
+            className="avos-panel-change"
+            data-avos-change={card.id}
+          >
+            {card.title}
+          </p>
+        ))}
+      </div>
+      {actions.problem ? (
+        <p className="avos-panel-problem" role="alert">
+          {actions.problem}
+        </p>
+      ) : null}
+      <div className="avos-panel-actions">
+        <button
+          type="button"
+          className="team-card-button"
+          data-avos-panel-review
+          onClick={onReview}
+        >
+          Review
+        </button>
+        <span className="avos-panel-spacer" />
+        {actions.restack ? (
+          <button
+            type="button"
+            className="team-card-button"
+            disabled={actions.busy}
+            onClick={actions.update}
+          >
+            Update onto your files
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="team-card-button"
+            data-variant="primary"
+            data-avos-panel-apply
+            disabled={actions.busy || !range || batch.reviewFirst}
+            title={batch.reviewFirst ? "Review it first" : undefined}
+            onClick={actions.applyAll}
+          >
+            {batch.cards.length === 1 ? "Apply" : "Apply all"}
+          </button>
+        )}
+      </div>
+      <p className="avos-panel-empty">
+        Review shows the pictures and code beside the chat. {readyTitle(batch)}{" "}
+        stays in Avos's copy until you apply it.
+      </p>
+    </section>
+  );
+}

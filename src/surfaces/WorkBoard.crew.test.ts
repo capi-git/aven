@@ -338,11 +338,17 @@ const teamMenu = async () =>
       .querySelector<HTMLButtonElement>('[aria-label="More for Avos"]')!
       .click(),
   );
-/** What the helpers did, from its line under them in Avos's profile. */
-const openActivity = async () =>
-  act(async () =>
+/** What the helpers did, from its line under them in Avos's Helpers tab. */
+const openActivity = async () => {
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('aside [data-avos-tab="helpers"]')!
+      .click(),
+  );
+  await act(async () =>
     container.querySelector<HTMLButtonElement>("[data-avos-finished]")!.click(),
   );
+};
 const pickMenu = async (label: string) =>
   act(async () =>
     button(document.querySelector("[data-menu]")!, label)!.click(),
@@ -425,8 +431,13 @@ describe("the team view: the Board with the team on it", () => {
       `Starting ${top.textContent}.`,
     );
     expect(stage(top.closest("[data-board-card]")!)).toBe("Next");
-    // No tabs; nothing on screen leads to the Board, so it has a way back.
-    expect(container.querySelector('[role="tab"]')).toBeNull();
+    // Only the panel's tabs; nothing on screen leads to the Board, so it
+    // has a way back.
+    expect(
+      [...container.querySelectorAll('[role="tab"]')].every(
+        (tab) => !!tab.closest("[data-crew-header]"),
+      ),
+    ).toBe(true);
     expect(button(container, "Back to the chat")).toBeDefined();
     // No header over it: no board title, no strip, no Feed beside it.
     expect(container.querySelector(".work-board-header")).toBeNull();

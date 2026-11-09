@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
 import { memberAppLine } from "../chrome/crewSettingsParts";
 import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
-import { ChevronDown, ChevronRight, MoreHorizontal } from "../chrome/icons";
+import { ChevronRight, MoreHorizontal } from "../chrome/icons";
 import { helperWord, type AvosGlance, type AvosWeekRow } from "../lib/avos";
 import { avosFinishedToday } from "../lib/avosProfile";
 import {
@@ -19,14 +19,10 @@ import type { CrewMemberView } from "../lib/crewView";
 import "./AvosProfile.css";
 
 /**
- * Avos's profile beside its chat, like the details pane beside a
- * messenger's thread, about who's working: its Bot, its name and ⋯ and one
- * line on what it's up to (amber when it needs you), then its helpers with
- * what each is doing and on what, the quick helpers it started, what's
- * ready for you to review, what it keeps an eye on, and what finished
- * earlier today, which opens the activity in a sheet. What it remembers is
- * in ⋯. On a narrow pane it folds into one header over the chat, and its
- * name opens the rest in a sheet.
+ * The pieces of Avos's side panel (AvosPanel.tsx): its goal, its helpers
+ * with what each is doing and on what, the quick helpers it started,
+ * what's ready for you to review, what it keeps an eye on, what finished
+ * earlier today (which opens the activity in a sheet), and its ⋯.
  */
 
 export type AvosProfileProps = {
@@ -57,75 +53,6 @@ export type AvosProfileProps = {
   /** A member's name, by its id or role, for what the helpers did. */
   name: (who: string) => string;
 };
-
-export function AvosProfile(props: AvosProfileProps) {
-  const { project, crew, glance, line } = props;
-  return (
-    <aside
-      className="avos-profile"
-      aria-label="Avos"
-      data-crew-header={crew.path}
-    >
-      <div className="avos-profile-id">
-        <div className="avos-profile-top">
-          <CrewCritter
-            path={project}
-            role="lead"
-            state={glance.state}
-            className="avos-profile-mark"
-          />
-          <div className="avos-profile-who">
-            <h1 className="avos-profile-name">Avos</h1>
-            <p
-              className="avos-profile-line"
-              data-crew-sentence
-              data-avos-note={glance.note ?? undefined}
-              title={line}
-            >
-              {line}
-            </p>
-          </div>
-          <AvosMore {...props} />
-        </div>
-        <AvosGoal project={project} goal={props.goal} />
-      </div>
-      <AvosSections {...props} />
-    </aside>
-  );
-}
-
-/** On a narrow pane: one header over the chat; Avos's name opens the rest. */
-export function AvosBar(props: AvosProfileProps & { onProfile: () => void }) {
-  const { project, glance, line, onProfile } = props;
-  return (
-    <header className="avos-bar" data-avos-bar>
-      <button
-        type="button"
-        className="avos-bar-who"
-        aria-label="Avos's profile"
-        aria-haspopup="dialog"
-        onClick={onProfile}
-      >
-        <CrewCritter
-          path={project}
-          role="lead"
-          state={glance.state}
-          className="avos-bar-mark"
-        />
-        <span className="avos-bar-name">Avos</span>
-        <ChevronDown className="avos-bar-chevron" aria-hidden />
-      </button>
-      <p
-        className="avos-bar-line"
-        data-avos-note={glance.note ?? undefined}
-        title={line}
-      >
-        {line}
-      </p>
-      <AvosMore {...props} />
-    </header>
-  );
-}
 
 /** The goal Avos keeps building towards, where it stands, and its link. */
 export function AvosGoal({
@@ -204,6 +131,8 @@ export function readyTitle(batch: Pick<PipelineBatch, "cards">): string {
  * you, what Avos keeps an eye on, and what finished earlier today, each
  * only when it has something.
  */
+export type AvosSectionPart = "helpers" | "ready" | "watching" | "activity";
+
 export function AvosSections({
   project,
   crew,
@@ -216,7 +145,11 @@ export function AvosSections({
   onActivity,
   onReview,
   name,
-}: Pick<
+  parts = ["helpers", "ready", "watching", "activity"],
+}: {
+  /** Which sections to show (always in this order). */
+  parts?: readonly AvosSectionPart[];
+} & Pick<
   AvosProfileProps,
   | "project"
   | "crew"
@@ -250,7 +183,7 @@ export function AvosSections({
     subAgents.length > 0 || helpers.some((item) => item.state === "working");
   return (
     <>
-      {helpers.length || subAgents.length ? (
+      {parts.includes("helpers") && (helpers.length || subAgents.length) ? (
         <section className="avos-profile-section" data-avos-profile="helpers">
           <h2>{working ? "Working now" : "Helpers"}</h2>
           <div className="avos-profile-card">
@@ -333,7 +266,7 @@ export function AvosSections({
           </div>
         </section>
       ) : null}
-      {batch?.cards.length ? (
+      {parts.includes("ready") && batch?.cards.length ? (
         <section className="avos-profile-section" data-avos-profile="ready">
           <h2>Ready for you</h2>
           <div className="avos-profile-card avos-profile-ready">
@@ -366,7 +299,7 @@ export function AvosSections({
           </div>
         </section>
       ) : null}
-      {watching.length ? (
+      {parts.includes("watching") && watching.length ? (
         <section className="avos-profile-section" data-avos-profile="watching">
           <h2>Keeping an eye on</h2>
           {watching.map((row) => (
@@ -382,7 +315,7 @@ export function AvosSections({
           ))}
         </section>
       ) : null}
-      {activity ? (
+      {parts.includes("activity") && activity ? (
         <button
           type="button"
           className="avos-profile-more avos-profile-finished"
@@ -403,7 +336,7 @@ export function AvosSections({
  * now and more runs only while they apply. Schedules, helpers and the rest
  * are things you ask Avos for in its chat, or find in Settings.
  */
-function AvosMore({
+export function AvosMore({
   crew,
   glance,
   dailyCap,
