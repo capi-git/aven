@@ -26,7 +26,6 @@
   --helm-amber: var(--aven-needs-you);
   --helm-red: var(--aven-danger-text);
   --helm-ok: color-mix(in srgb, var(--color-content) 78%, transparent);
-  --helm-glass-dot: color-mix(in srgb, var(--color-content) 8%, transparent);
   font-family: var(--font-sans);
   font-size: 12px;
   line-height: 16px;
@@ -522,31 +521,8 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   /* It grows out of the mark standing under its right end. */
   transform-origin: calc(100% - 12px) calc(100% + 26px);
 }
-/* The agents' glass: a faint honeycomb of dots over the panel, above the
-   popups' glass (macos-theme.css draws that under it) and under its rows. */
-.helm-dialog-frame::after {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  /* Lit softly from above and darker at the bottom, as an agent's screen,
-     with its dots sparse and fading away down the panel. */
-  background:
-    radial-gradient(circle, var(--helm-glass-dot) 0 0.75px, transparent 1.1px) 0
-      0 / 10px 9px,
-    radial-gradient(circle, var(--helm-glass-dot) 0 0.75px, transparent 1.1px)
-      5px 4.5px / 10px 9px,
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--color-content) 4%, transparent),
-      transparent 40%,
-      rgb(0 0 0 / 0.14)
-    );
-  -webkit-mask-image: linear-gradient(180deg, #000, rgb(0 0 0 / 0.35));
-  mask-image: linear-gradient(180deg, #000, rgb(0 0 0 / 0.35));
-  content: "";
-  pointer-events: none;
-}
+/* Its panel is the popups' own dark glass (macos-theme.css), plain: no
+   dots or shading over it, as every other menu. */
 /* A trail of dots from the mark up to the panel: its screen, opened. */
 .helm-dialog-tail {
   position: absolute;
