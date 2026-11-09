@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+## [0.1.174] - 2026-11-09
+
+### Added
+
+- **Ask Avos once and it does the work.** What you ask Avos builds straight away in its copy of your project, whatever the size, and comes back for you to review before anything reaches your folder. Work from a schedule, another agent or outside material still waits for you.
+- **Avos's side panel has five tabs,** as a Mono's does: Overview (what it did over six months, today's numbers, what's next), Helpers, Documents, Habits and Changes. Drag the edge between the chat and the panel to make it wider or narrower.
+- **Instructions and Memory.** Avos's settings get a page for your standing words and the rules it keeps for every job, and a page for what it has learned about the project, each with Forget.
+- **Helpers stay inside Avos.** A helper opens in the Helpers tab with what it's doing, what Avos asked it and which model it runs on. **Watch beside Avos** opens its chat in a pane next to Avos, never instead of it.
+- **Helpers at work beside Avos.** Avos's sidebar row and tab show the small faces of the helpers working, waiting on you or with work ready, and a new helper pops out of Avos as it starts.
+- **Choose what helpers run on.** Avos settings → Helpers has "Helpers run on" and "Effort", starting on Opus 5.5 · Medium, with "Let Avos choose" for its per-job picks. A Checker or Security keeps its own.
+- **Answer a helper in the chat box.** While a helper's question waits, a plain message in Avos's chat answers it, with a small tag saying which card. The separate answer popup is gone.
+- **Remove a helper** from its row in Avos's Helpers (Remove shows when you point at it) or from its own page, asked once, saying where its work goes.
+- **Glass has two sliders:** Opacity for how solid the window is, and Translucency for how frosted. Your current look is kept.
+
+### Changed
+
+- **Avos runs on Opus 5.5 at Medium** unless you pick a model on its page.
+- **Adding a helper says so** in Avos's chat ("Researcher has been added to Avos.").
+- **Avos rests with its eyes,** square and blinking now and then, and asks before it reads your project.
+- **Agents are faces only.** Bot is its face of lit dots, with no dark box or outline; a soft glow says when it's working, needs you or is ready.
+- **The message box shows its agent once,** at its end. A small stop square beside the running words is the Stop.
+- **The desktop bar and the agent's pointer** draw Bot's face, as in Aven.
+- **Aven's pointer dot is a little smaller.**
+
+### Fixed
+
+- **Review to apply no longer loops** when your project has files you haven't added to Git. Copies of your project for Avos, bots and Races now include them (ignored folders, files over 5 MB and very large piles still stay out), so an agent's change edits your file instead of clashing with it.
+- Watch beside Avos says why when a helper's chat can't open yet, instead of doing nothing.
+- Review fills a narrow window instead of squeezing beside the chat.
+
 ## [0.1.173] - 2026-11-07
 
 ### Added
