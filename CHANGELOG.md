@@ -26,6 +26,7 @@
 - **The message box shows its agent once,** at its end. A small stop square beside the running words is the Stop.
 - **The desktop bar and the agent's pointer** draw Bot's face, as in Aven.
 - **Aven's pointer dot is a little smaller.**
+- **A project's menu no longer offers Add a bot;** new work goes to Avos. A project that has a bot keeps Bot settings.
 
 ### Fixed
 

@@ -62,14 +62,13 @@ async function menuItem(botOn: boolean, onBotSettings: () => void) {
   );
 }
 
-it("offers Add a bot for a project without one, and its settings once it has one", async () => {
+it("offers no Add a bot, and a bot's settings once the project has one", async () => {
   const onBotSettings = vi.fn();
-  const add = await menuItem(false, onBotSettings);
-  expect(add?.textContent).toContain("Add a bot");
-  await act(async () => add!.click());
-  expect(onBotSettings).toHaveBeenCalledTimes(1);
+  expect(await menuItem(false, onBotSettings)).toBeUndefined();
   await act(async () => root.unmount());
   root = createRoot(host);
   const settings = await menuItem(true, onBotSettings);
   expect(settings?.textContent).toContain("Bot settings…");
+  await act(async () => settings!.click());
+  expect(onBotSettings).toHaveBeenCalledTimes(1);
 });
