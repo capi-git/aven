@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
 import {
   Clock,
@@ -18,6 +18,7 @@ import {
   type CrewMockup,
 } from "../lib/crews";
 import { memberAppLine } from "../chrome/crewSettingsParts";
+import { teammateChatReady } from "../lib/crewActions";
 import type { PipelineBatch } from "../lib/crewPipeline";
 import {
   describeSchedule,
@@ -76,8 +77,8 @@ export type AvosPanelProps = AvosProfileProps & {
   /** The helper open in Helpers, by its id, or none (the list). */
   helper: string | null;
   onCloseHelper: () => void;
-  /** Its chat beside Avos, in a split. */
-  onWatch: (id: string) => void;
+  /** Its chat beside Avos, in a split: resolves with why it couldn't. */
+  onWatch: (id: string) => Promise<string | null> | void;
   /** Stop its turn, by its chat. */
   onStopHelper: (sessionId: string) => void;
   /** Its posts, in Avos's chat. */
@@ -716,6 +717,10 @@ function AvosHelperPage(props: AvosPanelProps & { id: string }) {
   const view = members.find((member) => member.id === id);
   const quick = crew.helpers?.find((helper) => helper.id === id);
   const stored = crewMemberById(crew, id);
+  // Why Watch couldn't open its chat, said under it rather than lost.
+  const [problem, setProblem] = useState<{ id: string; text: string } | null>(
+    null,
+  );
   if (!view && !quick)
     return (
       <div className="avos-panel-stack" data-avos-helper-page={id}>
@@ -750,6 +755,9 @@ function AvosHelperPage(props: AvosPanelProps & { id: string }) {
     )
     .slice(-6);
   const sessionId = stored?.sessionId;
+  // A teammate's chat starts with Avos's first job in its copy: until
+  // then there's nothing to watch, so it says so instead of a dead button.
+  const watchable = !quick && teammateChatReady(crew, id);
   return (
     <div className="avos-panel-stack" data-avos-helper-page={id}>
       <button
@@ -783,12 +791,17 @@ function AvosHelperPage(props: AvosPanelProps & { id: string }) {
         </div>
       </div>
       <div className="avos-panel-actions">
-        {quick ? null : (
+        {quick || !watchable ? null : (
           <button
             type="button"
             className="team-card-button"
             data-avos-helper-watch
-            onClick={() => onWatch(id)}
+            onClick={() => {
+              setProblem(null);
+              void Promise.resolve(onWatch(id)).then((why) => {
+                if (why) setProblem({ id, text: why });
+              });
+            }}
           >
             Watch beside Avos
           </button>
@@ -815,6 +828,15 @@ function AvosHelperPage(props: AvosPanelProps & { id: string }) {
           </button>
         )}
       </div>
+      {!quick && !watchable ? (
+        <p className="avos-panel-empty" data-avos-helper-unwatchable>
+          Its chat opens when Avos gives it its first job.
+        </p>
+      ) : problem?.id === id ? (
+        <p className="avos-panel-problem" role="alert">
+          {problem.text}
+        </p>
+      ) : null}
       <section className="avos-profile-section" data-avos-profile="doing">
         <h2>What it's doing</h2>
         {lines.length ? (
@@ -831,7 +853,11 @@ function AvosHelperPage(props: AvosPanelProps & { id: string }) {
             ))}
           </div>
         ) : (
-          <p className="avos-panel-empty">Nothing yet. It's getting started.</p>
+          <p className="avos-panel-empty">
+            {state === "working"
+              ? "Nothing yet. It's getting started."
+              : "Nothing yet. It waits for Avos to give it a job."}
+          </p>
         )}
       </section>
       {brief ? (

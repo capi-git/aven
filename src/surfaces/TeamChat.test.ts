@@ -1159,6 +1159,30 @@ describe("the team chat", () => {
     );
     expect(workspace.openChatBeside).toHaveBeenCalledWith(PROJECT, "checker");
     expect(workspace.openChat).not.toHaveBeenCalled();
+    // A chat that doesn't open says why, under its buttons.
+    workspace.openChatBeside.mockResolvedValueOnce(
+      "Couldn't open Checker's chat.",
+    );
+    await act(async () =>
+      page
+        .querySelector<HTMLButtonElement>("[data-avos-helper-watch]")!
+        .click(),
+    );
+    expect(page.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't open Checker's chat.",
+    );
+    // Before Avos's first job there's no chat to watch: it says so.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => {
+        const next = { ...crew };
+        delete next.copy;
+        return next;
+      }),
+    );
+    expect(page.querySelector("[data-avos-helper-watch]")).toBeNull();
+    expect(
+      page.querySelector("[data-avos-helper-unwatchable]")?.textContent,
+    ).toBe("Its chat opens when Avos gives it its first job.");
     await act(async () =>
       page.querySelector<HTMLButtonElement>("[data-avos-helper-back]")!.click(),
     );

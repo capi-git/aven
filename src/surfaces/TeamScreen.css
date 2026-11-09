@@ -14,6 +14,17 @@
 .team-screen[data-reviewing] {
   grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);
 }
+/* A narrow pane: the review takes the chat's place until it's closed. The
+   chat stays mounted underneath, so what you were writing is kept. */
+.team-screen[data-review-full] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.team-screen[data-review-full] > .avos-main {
+  display: none;
+}
+.team-screen[data-review-full] > .avos-review {
+  border-left: 0;
+}
 
 .avos-main {
   display: flex;

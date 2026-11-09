@@ -67,11 +67,16 @@ describe("Avos's Board", () => {
     expect(rule(panel, ".avos-panel-body")).toContain("overflow-y: auto;");
     // Reviewing Avos's work, the review takes the profile's place, wider.
     expect(teamScreen).toContain(
-      "{meeting || narrow ? null : reviewing && view.batch ? (",
+      "{meeting ? null : reviewing && view.batch ? (",
     );
     expect(teamScreen).toContain("<AvosPanel {...panelProps} />");
     expect(rule(team, ".team-screen[data-reviewing]")).toContain(
       "grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);",
+    );
+    // Narrow, the same review takes the chat's place: no pop-up.
+    expect(teamScreen).not.toContain("<CrewBatchSheet");
+    expect(rule(team, ".team-screen[data-review-full] > .avos-main")).toContain(
+      "display: none;",
     );
   });
 });

@@ -63,7 +63,7 @@ import {
 import { avosJobs } from "../lib/avosJobs";
 import { CrewAnswerBox, CrewFeed } from "./CrewBoard";
 import { AvosReview } from "./AvosReview";
-import { BatchCard, CrewBatchSheet } from "./TeamBatch";
+import { BatchCard } from "./TeamBatch";
 import { TeamCardButton } from "../chrome/TeamCard";
 import { TeamChat } from "./TeamChat";
 import type { BoardTop } from "./WorkBoard";
@@ -344,9 +344,12 @@ export function TeamScreen({
     },
     helper: helperOpen,
     onCloseHelper: () => setHelperOpen(null),
-    onWatch: (id) => {
-      setSheet(null);
-      void crewWorkspace?.openChatBeside?.(project, id);
+    onWatch: async (id) => {
+      const open = crewWorkspace?.openChatBeside;
+      if (!open) return "Couldn't open its chat here.";
+      const why = await open(project, id);
+      if (!why) setSheet(null);
+      return why;
     },
     onStopHelper: (sessionId) => void crewWorkspace?.stop(sessionId),
     onPosts: (id) => {
@@ -362,7 +365,12 @@ export function TeamScreen({
       data-team-view={shown}
       data-meeting={meeting || undefined}
       data-narrow={narrow || undefined}
-      data-reviewing={(reviewing && !!view.batch && !narrow) || undefined}
+      data-reviewing={
+        (!meeting && reviewing && !!view.batch && !narrow) || undefined
+      }
+      data-review-full={
+        (!meeting && reviewing && !!view.batch && narrow) || undefined
+      }
       aria-label={`${projectDisplayName(project, labels)}'s Avos`}
     >
       <div className="avos-main">
@@ -430,13 +438,15 @@ export function TeamScreen({
           </div>
         ) : null}
       </div>
-      {meeting || narrow ? null : reviewing && view.batch ? (
+      {/* Reviewing: beside the chat, or in a narrow pane in its place
+          until you close it. Never a pop-up a page beside could hide. */}
+      {meeting ? null : reviewing && view.batch ? (
         <AvosReview
           crew={crew}
           project={project}
           onClose={() => setReviewing(false)}
         />
-      ) : (
+      ) : narrow ? null : (
         <AvosPanel {...panelProps} />
       )}
       {sheet ? (
@@ -473,13 +483,6 @@ export function TeamScreen({
             <CrewFeed crew={crew} name={name} />
           </div>
         </Modal>
-      ) : null}
-      {reviewing && view.batch && narrow ? (
-        <CrewBatchSheet
-          crew={crew}
-          project={project}
-          onClose={() => setReviewing(false)}
-        />
       ) : null}
       {answeringCard ? (
         <Modal
