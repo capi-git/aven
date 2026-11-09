@@ -14,6 +14,7 @@
 - **Choose what helpers run on.** Avos settings → Helpers has "Helpers run on" and "Effort", starting on Opus 5.5 · Medium, with "Let Avos choose" for its per-job picks. A Checker or Security keeps its own.
 - **Answer a helper in the chat box.** While a helper's question waits, a plain message in Avos's chat answers it, with a small tag saying which card. The separate answer popup is gone.
 - **Remove a helper** from its row in Avos's Helpers (Remove shows when you point at it) or from its own page, asked once, saying where its work goes.
+- **Right-click Avos in the sidebar** for its menu: Open, Stop now while it works, What Avos remembers, Pause and Settings.
 - **Glass has two sliders:** Opacity for how solid the window is, and Translucency for how frosted. Your current look is kept.
 
 ### Changed
