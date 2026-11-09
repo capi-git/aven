@@ -4,6 +4,10 @@
 
 ### Changed
 
+- **Avos's chat is a group chat.** Every message is a bubble under its sender's face and name: Avos, the Builder, the Checker and the rest, with yours on the right. Lists, bold and code are drawn as written. Write to a helper with @ and it answers there, in the same chat. While Avos writes, the box's button is Stop (Escape too).
+
+### Changed
+
 - **Avos's goal has more room.** A quiet row says where it stands, with its one action; the goal's own words sit under it, two lines until you press them. Why it stopped shows only once it's open.
 
 ### Added

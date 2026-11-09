@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { CornerDownRight, File, MoveUp, X } from "../chrome/icons";
+import { CornerDownRight, File, MoveUp, Square, X } from "../chrome/icons";
 import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
 import {
   projectDisplayName,
@@ -83,6 +83,7 @@ import {
   type TeamPost,
 } from "../lib/teamThread";
 import { AutomationReviewCard } from "./AutomationReviewCard";
+import { AgentMarkdown } from "./AgentMarkdown";
 import "./TeamChat.css";
 
 /**
@@ -489,11 +490,12 @@ function Thread({
           <section key={day.key} className="team-day" aria-label={day.label}>
             <h3 className="team-day-label">{day.label}</h3>
             <ol className="team-posts">
-              {day.posts.map((post) => (
+              {day.posts.map((post, index) => (
                 <PostView
                   key={post.id}
                   project={project}
                   post={post}
+                  joined={joinsPrevious(day.posts[index - 1], post)}
                   onAnswer={onAnswer}
                 />
               ))}
@@ -502,46 +504,34 @@ function Thread({
         ))}
         {working.length ? (
           <ol className="team-posts" aria-label="Working now">
-            {working.map((member) =>
-              member.role === "lead" ? (
-                // Avos writing: its words as they come, then its dots.
-                <li
-                  key={`live:${member.id}`}
-                  className="team-reply"
-                  data-live
-                  data-team-live={member.id}
-                >
-                  <LiveText
-                    project={project}
-                    memberId={member.id}
-                    line={member.line ?? ""}
-                    dots="think"
-                  />
-                </li>
-              ) : (
-                <li
-                  key={`live:${member.id}`}
-                  className="team-work"
-                  data-live
-                  data-team-live={member.id}
-                >
-                  <CrewCritter
-                    path={project}
-                    role={member.role}
-                    {...(member.critter ? { critter: member.critter } : {})}
-                    state="working"
-                    className="team-work-mark"
-                  />
-                  <b className="team-work-name">{member.name}</b>
-                  <LiveText
-                    project={project}
-                    memberId={member.id}
-                    line={member.line ?? ""}
-                    dots="tool"
-                  />
-                </li>
-              ),
-            )}
+            {working.map((member) => (
+              // Writing now: its face and name, then its words as they
+              // come, or what it's doing until the first of them.
+              <li
+                key={`live:${member.id}`}
+                className="team-msg"
+                data-live
+                data-team-live={member.id}
+              >
+                <CrewCritter
+                  path={project}
+                  role={member.role}
+                  {...(member.critter ? { critter: member.critter } : {})}
+                  state="working"
+                  className="team-msg-mark"
+                />
+                <div className="team-msg-body">
+                  <b className="team-msg-name">{member.name}</b>
+                  <div className="team-msg-bubble">
+                    <LiveText
+                      project={project}
+                      memberId={member.id}
+                      line={member.line ?? ""}
+                    />
+                  </div>
+                </div>
+              </li>
+            ))}
           </ol>
         ) : null}
         {forYou}
@@ -570,39 +560,39 @@ function LiveText({
   project,
   memberId,
   line,
-  dots,
 }: {
   project: string;
   memberId: string;
   line: string;
-  /** The work dots after it, as the message box draws them. */
-  dots: "think" | "tool";
 }) {
   const writing = useCrewLiveReply(project, memberId);
-  // Avos's own line wears its little working screen (its reply has no
-  // mark); a helper's row has its mark already.
-  const status = (
-    <span className="team-live-status">
-      {dots === "think" ? (
-        <CrewCritter
-          path={project}
-          role="lead"
-          state="working"
-          className="team-live-mark"
-        />
-      ) : null}
-      {writing ? null : <span>{line || "Thinking"}</span>}
-    </span>
-  );
   return writing ? (
-    <>
-      <p className="team-post-text" data-team-live-reply>
-        {writing}
-      </p>
-      {status}
-    </>
+    <div data-team-live-reply>
+      <AgentMarkdown
+        text={writing}
+        cwd={project}
+        streaming
+        className="team-msg-markdown"
+      />
+    </div>
   ) : (
-    <span className="team-post-text team-work-text">{status}</span>
+    <p className="team-post-text team-live-status">{line || "Thinking"}</p>
+  );
+}
+
+/** Messages a minute or two apart by one teammate read as one run. */
+const JOIN_WITHIN_MS = 5 * 60_000;
+
+/** Whether a message follows one by the same teammate closely enough. */
+function joinsPrevious(previous: TeamPost | undefined, post: TeamPost) {
+  return (
+    !!previous &&
+    previous.kind === "post" &&
+    post.kind === "post" &&
+    !previous.work &&
+    !post.work &&
+    previous.author.id === post.author.id &&
+    post.at - previous.at <= JOIN_WITHIN_MS
   );
 }
 
@@ -693,10 +683,13 @@ function AvosMeet({ project }: { project: string }) {
 function PostView({
   project,
   post,
+  joined = false,
   onAnswer,
 }: {
   project: string;
   post: TeamPost;
+  /** It follows a message by the same teammate: no face or name again. */
+  joined?: boolean;
   onAnswer: (cardId: string) => void;
 }) {
   const workspace = useCrewWorkspace();
@@ -815,42 +808,66 @@ function PostView({
       ) : null}
     </>
   );
-  // Avos answers as any chat's agent does: its words, no mark or name.
-  if (post.author.role === "lead" && !post.work && !post.handoff)
+  const label = post.handoff ? post.handoff.label : undefined;
+  // A line of work (a helper started, a helper done): one quiet line under
+  // its name; the whole of it on hover.
+  if (post.work)
     return (
       <li
-        className="team-reply"
+        className="team-work"
         data-team-post={post.author.id}
         data-needs-you={post.needsYou || undefined}
-        title={clock(post.at)}
+        title={[post.card, post.text].filter(Boolean).join(": ")}
       >
-        <p className="team-post-text">{post.text}</p>
+        <AuthorMark
+          project={project}
+          author={post.author}
+          className="team-work-mark"
+        />
+        <b className="team-work-name">{post.author.name}</b>
+        <span className="team-post-text team-work-text">{post.text}</span>
         {links}
       </li>
     );
-  // The work behind its answers: a helper started or done, a teammate
-  // passing work on. One line each, under its name; the whole of it on hover.
-  const label = post.handoff ? post.handoff.label : undefined;
+  // A message, as in any group chat: the teammate's face and name, then
+  // what it said in a bubble. Avos and its helpers alike.
   return (
     <li
-      className="team-work"
+      className="team-msg"
       data-team-post={post.author.id}
       data-needs-you={post.needsYou || undefined}
-      title={[post.card, post.text].filter(Boolean).join(": ")}
+      data-joined={joined || undefined}
+      title={clock(post.at)}
     >
-      <AuthorMark
-        project={project}
-        author={post.author}
-        className="team-work-mark"
-      />
-      <b className="team-work-name">{post.author.name}</b>
-      <span className="team-post-text team-work-text">{post.text}</span>
-      {label ? (
-        <span className="team-work-label" data-team-handoff>
-          {label}
-        </span>
-      ) : null}
-      {links}
+      {joined ? (
+        <span className="team-msg-gutter" aria-hidden />
+      ) : (
+        <AuthorMark
+          project={project}
+          author={post.author}
+          className="team-msg-mark"
+        />
+      )}
+      <div className="team-msg-body">
+        {joined ? null : <b className="team-msg-name">{post.author.name}</b>}
+        <div className="team-msg-bubble">
+          {post.said ? (
+            <AgentMarkdown
+              text={post.said}
+              cwd={project}
+              className="team-msg-markdown"
+            />
+          ) : (
+            <p className="team-post-text">{post.text}</p>
+          )}
+        </div>
+        {label ? (
+          <span className="team-work-label" data-team-handoff>
+            {label}
+          </span>
+        ) : null}
+        {links}
+      </div>
     </li>
   );
 }
@@ -967,6 +984,16 @@ function Composer({
   onPass: (key: string) => void;
 }) {
   const listId = useId();
+  const stopper = useCrewWorkspace();
+  // Avos writing its answer now: the box's button stops it (Escape too),
+  // until you type something to send.
+  const answeringNow = members.find(
+    (member) =>
+      member.role === "lead" && member.status === "working" && member.sessionId,
+  );
+  const stopAvos = () => {
+    if (answeringNow?.sessionId) void stopper?.stop(answeringNow.sessionId);
+  };
   const [text, setText] = useState("");
   // What the box holds now, for a send that ends after you typed more.
   const typed = useRef(text);
@@ -1123,6 +1150,13 @@ function Composer({
       event.preventDefault();
       event.stopPropagation();
       setPicker(null);
+      return;
+    }
+    // Escape stops Avos's answer, as it stops any chat's.
+    if (event.key === "Escape" && answeringNow && !text.trim()) {
+      event.preventDefault();
+      event.stopPropagation();
+      stopAvos();
       return;
     }
     if (
@@ -1294,20 +1328,33 @@ function Composer({
         >
           @
         </button>
-        <button
-          type="submit"
-          className="team-compose-send"
-          aria-label={
-            toName
-              ? `Send to ${toName}`
-              : answering
-                ? "Send answer"
-                : "Send to Avos"
-          }
-          disabled={!text.trim() || sending}
-        >
-          <MoveUp className="size-3.5" />
-        </button>
+        {answeringNow && !text.trim() ? (
+          <button
+            type="button"
+            className="team-compose-send"
+            data-team-stop
+            aria-label="Stop Avos"
+            title="Stop (Esc)"
+            onClick={stopAvos}
+          >
+            <Square className="size-3" />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="team-compose-send"
+            aria-label={
+              toName
+                ? `Send to ${toName}`
+                : answering
+                  ? "Send answer"
+                  : "Send to Avos"
+            }
+            disabled={!text.trim() || sending}
+          >
+            <MoveUp className="size-3.5" />
+          </button>
+        )}
       </form>
       {problem ? (
         <p className="team-compose-problem" role="alert">

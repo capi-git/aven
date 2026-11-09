@@ -329,22 +329,79 @@
   color: var(--color-content);
 }
 
-/* Avos's answer, as any chat's agent answers: its words alone. */
-.team-reply {
+/* A message, as in any group chat: the teammate's face, its name, and what
+   it said in a bubble. Yours sit on the right; everyone else's on the left.
+   A run of messages by one teammate shows its face and name once. */
+.team-msg {
   display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0 1px;
+}
+.team-msg[data-joined] {
+  padding-top: 0;
+}
+.dot-mark.team-msg-mark,
+.team-msg-gutter {
+  width: 30px;
+  height: 22px;
+  flex: none;
+  margin-top: 17px;
+}
+.team-msg-gutter {
+  margin-top: 0;
+  height: 1px;
+}
+.team-msg-body {
+  display: flex;
+  min-width: 0;
+  max-width: min(680px, 86%);
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 6px 0;
+  gap: 3px;
 }
-
-.team-reply .team-post-text {
+.team-msg-name {
+  padding-left: 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+}
+.team-msg-bubble {
+  min-width: 0;
+  max-width: 100%;
+  padding: 7px 12px;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--aven-inset-card, var(--aven-hover));
   color: var(--color-content);
   font-size: var(--text-ui-reading);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
-
-.team-reply[data-live] .team-post-text[data-team-live-reply] {
+.team-msg[data-joined] .team-msg-bubble {
+  border-radius: 14px;
+}
+.team-msg-bubble .team-post-text {
+  margin: 0;
   color: var(--color-content);
+  font-size: inherit;
+}
+/* Its formatted words sit close inside the bubble: no outer gaps. */
+.team-msg-markdown > :first-child {
+  margin-top: 0;
+}
+.team-msg-markdown > :last-child {
+  margin-bottom: 0;
+}
+.team-msg[data-live] .team-live-status {
+  color: var(--aven-muted);
+}
+.team-msg[data-needs-you] .team-msg-bubble {
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--aven-needs-you) 55%, transparent);
+}
+.team-msg .team-work-label {
+  padding-left: 2px;
 }
 
 /* The work behind its answers: one quiet line each, under a small Bot. */

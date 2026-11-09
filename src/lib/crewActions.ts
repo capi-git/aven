@@ -594,8 +594,26 @@ export async function tellTeammate(
   if (!words) return null;
   const crew = getCrew(path);
   if (!crew?.on) return AVOS_ASLEEP;
-  if (!crewMemberById(crew, memberId))
-    return "That helper isn't with Avos any more.";
+  const member = crewMemberById(crew, memberId);
+  if (!member) return "That helper isn't with Avos any more.";
+  // A helper that isn't at work answers here, in the team's chat, as Avos
+  // does: everyone talks in one place. One in the middle of a job gets
+  // your words in its own chat instead, where they steer what it's doing.
+  if (member.role !== "fixer" && !member.doing && memberOn(member)) {
+    updateCrew(path, (current) =>
+      withMessage(
+        withTalk(current, {
+          at: now,
+          from: "you",
+          to: memberId,
+          text: words,
+          hop: 0,
+        }),
+        { at: now, text: words, to: memberId },
+      ),
+    );
+    return null;
+  }
   const send = crewWorkspace()?.sendToMember;
   if (!send) return "Open Aven's main window to write to a helper.";
   const problem = await send(path, memberId, words).catch((error) =>

@@ -1266,6 +1266,8 @@ export class CrewRunner {
         });
       });
       if (!member) return next;
+      // You stopped it (Stop, or Escape in the box): nothing to tell you.
+      if (outcome?.status === "cancelled" && !carrying?.timedOut) return next;
       if (failed)
         return withFeed(next, {
           at: now,

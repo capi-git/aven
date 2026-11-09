@@ -671,10 +671,52 @@ describe("the team chat", () => {
     expect(box().value).toBe("Use pnpm");
   });
 
+  it("draws what each teammate says as a bubble under its name, once for a run of them", async () => {
+    await setUp((crew) => {
+      let next = crew;
+      for (const [index, who, text] of [
+        [1, "lead", "Two things to fix:\n\n- the ring\n- the label"],
+        [2, "checker", "The ring passes in **light mode** too."],
+        [3, "checker", "One note: the label is small."],
+      ] as const)
+        next = withFeed(next, {
+          id: `say-${index}`,
+          at: NOW + index * 1000,
+          kind: "say",
+          who,
+          member: who,
+          text,
+        });
+      return next;
+    });
+    const said = (id: string) =>
+      [
+        ...thread().querySelectorAll<HTMLElement>(
+          `.team-msg[data-team-post="${id}"]`,
+        ),
+      ].filter((post) => !post.hasAttribute("data-live"));
+    const avos = said("lead").at(-1)!;
+    // Avos has a name here too, and its list is a list.
+    expect(avos.querySelector(".team-msg-name")?.textContent).toBe("Avos");
+    expect(avos.querySelectorAll(".team-msg-bubble li")).toHaveLength(2);
+    const [first, second] = said("checker").slice(-2);
+    expect(first!.querySelector(".team-msg-name")?.textContent).toBe("Checker");
+    // Its formatting is drawn, not shown as asterisks.
+    expect(first!.querySelector(".team-msg-bubble")?.textContent).toBe(
+      "The ring passes in light mode too.",
+    );
+    // The next one by the same teammate: no face or name again.
+    expect(second!.hasAttribute("data-joined")).toBe(true);
+    expect(second!.querySelector(".team-msg-name")).toBeNull();
+    expect(second!.querySelector(".team-msg-bubble")?.textContent).toBe(
+      "One note: the label is small.",
+    );
+  });
+
   it("shows what a teammate is writing to you as it's written", async () => {
     await setUp();
     const live = () =>
-      chat().querySelector('[data-team-live="checker"] .team-post-text')
+      chat().querySelector('[data-team-live="checker"] .team-msg-bubble')
         ?.textContent;
     expect(live()).toBe("Checking Timer screen · round 2");
     act(() => setCrewLiveReply(PROJECT, "checker", "The ring looks right"));
