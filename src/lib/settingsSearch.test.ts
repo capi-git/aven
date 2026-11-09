@@ -26,9 +26,10 @@ describe("settings search", () => {
     ["do not disturb", "Quiet mode", "notifications"],
     ["wallpaper", "Chat background", "appearance"],
     ["text size", "Interface scale", "appearance"],
-    ["status bar", "Glass", "appearance"],
-    ["blur", "Glass", "appearance"],
-    ["see through", "Glass", "appearance"],
+    ["status bar", "Opacity", "appearance"],
+    ["blur", "Translucency", "appearance"],
+    ["see through", "Opacity", "appearance"],
+    ["frosted", "Translucency", "appearance"],
     ["accent", "Accent colour", "appearance"],
     ["color", "Accent colour", "appearance"],
     ["copy workspaces", "Use for all workspaces", "appearance"],
@@ -75,25 +76,25 @@ describe("settings search", () => {
   });
 
   it("does not offer native glass controls on unsupported platforms", () => {
-    expect(searchSettings("opacity")[0].label).toBe("Glass");
+    expect(searchSettings("opacity")[0].label).toBe("Opacity");
     platform.nativeGlass = false;
     expect(searchSettings("opacity")).toEqual([]);
-    expect(searchSettings("glass").map(({ label }) => label)).not.toContain(
-      "Glass",
-    );
+    const glassLabels = searchSettings("glass").map(({ label }) => label);
+    expect(glassLabels).not.toContain("Opacity");
+    expect(glassLabels).not.toContain("Translucency");
     expect(searchSettings("blur radius")).toEqual([]);
     expect(searchSettings("include workspace")).toEqual([]);
     expect(searchSettings("theme")[0].label).toBe("Theme");
   });
 
-  it("leads the old window controls to Glass and no longer offers removed settings", () => {
+  it("leads the old window controls to Opacity or Translucency and no longer offers removed settings", () => {
     for (const query of [
       "background opacity",
-      "blur radius",
       "include workspace",
       "status bar opacity",
     ])
-      expect(searchSettings(query)[0]?.label, query).toBe("Glass");
+      expect(searchSettings(query)[0]?.label, query).toBe("Opacity");
+    expect(searchSettings("blur radius")[0]?.label).toBe("Translucency");
     const removed = [
       "Workspace colors",
       "Background opacity",
