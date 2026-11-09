@@ -10,7 +10,7 @@
 //! window an agent is using, so windows in front still cover it.
 use super::{agent_cursor, marks, CGDisplayBounds, CGMainDisplayID};
 use crate::desktop_presence::{
-    self as presence, BarKind, BarModel, BarRow, ButtonAction, ButtonStyle, Dots,
+    self as presence, BarKind, BarModel, BarRow, ButtonAction, ButtonStyle, Dots, Faces, Mood,
 };
 use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchTime};
@@ -34,19 +34,21 @@ use std::time::{Duration, Instant};
 /// One agent's row on the pill, and the pill's padding above and below.
 const ROW: f64 = 30.0;
 const PAD: f64 = 3.0;
-const BOT: f64 = 18.0;
-/// The dots' button: the dots with a little room around them to press.
-const DOTS_BUTTON: f64 = marks::DOTS_SIZE + 4.0;
+/// Bot's screen on a row, which is its Stop, and the room around it to
+/// press.
+const SCREEN: f64 = 24.0;
+const STOP_WIDTH: f64 = SCREEN + 4.0;
+const STOP_HEIGHT: f64 = ROW - 6.0;
 /// Where a row's name starts.
-const NAME_X: f64 = 10.0 + BOT + 7.0 + DOTS_BUTTON + 8.0;
+const NAME_X: f64 = 8.0 + STOP_WIDTH + 6.0;
 /// A row's words get at least this much room, so they rarely cut short as
 /// the agent moves from step to step.
 const TEXT_MIN: f64 = 200.0;
 const PILL_MAX: f64 = 600.0;
 /// A one-agent sentence: Bot, a title, a detail and any further lines.
 const CARD_HEIGHT: f64 = 56.0;
-const CARD_BOT: f64 = 24.0;
-const CARD_TEXT_X: f64 = 14.0 + CARD_BOT + 12.0;
+const CARD_SCREEN: f64 = 30.0;
+const CARD_TEXT_X: f64 = 14.0 + CARD_SCREEN + 12.0;
 const CARD_MIN: f64 = 320.0;
 const CARD_MAX: f64 = 640.0;
 /// Each further line (an upload's files) adds this much height.
@@ -145,17 +147,17 @@ define_class!(
 );
 
 define_class!(
-    /// An agent's work dots, which are its Stop.
+    /// An agent's screen on the bar, which is its Stop.
     #[unsafe(super(NSButton))]
     #[thread_kind = MainThreadOnly]
-    #[name = "AvenDesktopPresenceDots"]
-    struct DotsButton;
-    unsafe impl NSObjectProtocol for DotsButton {}
-    impl DotsButton {
+    #[name = "AvenDesktopPresenceStop"]
+    struct StopButton;
+    unsafe impl NSObjectProtocol for StopButton {}
+    impl StopButton {
         #[unsafe(method(mouseEntered:))]
-        fn mouse_entered(&self, _event: &AnyObject) { dots_hover(self, true); }
+        fn mouse_entered(&self, _event: &AnyObject) { stop_hover(self, true); }
         #[unsafe(method(mouseExited:))]
-        fn mouse_exited(&self, _event: &AnyObject) { dots_hover(self, false); }
+        fn mouse_exited(&self, _event: &AnyObject) { stop_hover(self, false); }
     }
 );
 
@@ -184,16 +186,16 @@ fn posted_by_aven() -> bool {
 }
 
 /// One agent's row as drawn, kept between renders so a new step updates its
-/// words and dots in place rather than rebuilding the bar under the pointer.
+/// words and screen in place rather than rebuilding the bar under the
+/// pointer.
 struct RowViews {
-    bot: Retained<CALayer>,
-    bot_view: Retained<NSView>,
+    button: Retained<StopButton>,
+    /// The screen sits in a plain view behind its button: a button's own
+    /// layer is flipped, which would turn the face upside down.
+    screen_view: Retained<NSView>,
+    screen: marks::Screen,
+    faces: Faces,
     tone: [f64; 3],
-    button: Retained<DotsButton>,
-    /// The dots sit in a plain view behind their button: a button's own
-    /// layer is flipped, which would turn the dots upside down.
-    dots_view: Retained<NSView>,
-    dots: Retained<CALayer>,
     mode: Dots,
     hover: bool,
     name: Retained<NSTextField>,
@@ -746,12 +748,25 @@ impl Bar {
             });
         }
         for (index, row) in model.rows.iter().enumerate() {
-            let bot = marks::bot(BOT, row.tone, false);
-            let bot_view = host(mtm, &bot, rect(0.0, 0.0, BOT, BOT));
-            content.addSubview(&bot_view);
-            let button = DotsButton::alloc(mtm).set_ivars(());
-            let button: Retained<DotsButton> = unsafe {
-                msg_send![super(button), initWithFrame: rect(0.0, 0.0, DOTS_BUTTON, DOTS_BUTTON)]
+            let mut screen = marks::Screen::new(SCREEN);
+            screen.show(
+                &row.faces,
+                row.dots.mood(),
+                row.tone,
+                false,
+                self.reduce_motion,
+            );
+            screen.layer().setFrame(rect(
+                (STOP_WIDTH - SCREEN) / 2.0,
+                (STOP_HEIGHT - marks::screen_height(SCREEN)) / 2.0,
+                SCREEN,
+                marks::screen_height(SCREEN),
+            ));
+            let screen_view = host(mtm, screen.layer(), rect(0.0, 0.0, STOP_WIDTH, STOP_HEIGHT));
+            content.addSubview(&screen_view);
+            let button = StopButton::alloc(mtm).set_ivars(());
+            let button: Retained<StopButton> = unsafe {
+                msg_send![super(button), initWithFrame: rect(0.0, 0.0, STOP_WIDTH, STOP_HEIGHT)]
             };
             button.setBordered(false);
             button.setTitle(&NSString::new());
@@ -763,11 +778,6 @@ impl Bar {
                 let _: () = msg_send![&*button, setToolTip: &*tip];
                 let _: () = msg_send![&*button, setAccessibilityLabel: &*tip];
             }
-            let dots = marks::dots();
-            dots.setFrame(rect(2.0, 2.0, marks::DOTS_SIZE, marks::DOTS_SIZE));
-            marks::set_dots(&dots, row.dots, false, self.reduce_motion);
-            let dots_view = host(mtm, &dots, rect(0.0, 0.0, DOTS_BUTTON, DOTS_BUTTON));
-            content.addSubview(&dots_view);
             track(&button);
             content.addSubview(&button);
             let name = label(mtm, &row.name, 13.0, 0.23, INK);
@@ -775,12 +785,11 @@ impl Bar {
             content.addSubview(&name);
             content.addSubview(&text);
             self.rows.push(RowViews {
-                bot,
-                bot_view,
-                tone: row.tone,
                 button,
-                dots_view,
-                dots,
+                screen_view,
+                screen,
+                faces: row.faces,
+                tone: row.tone,
                 mode: row.dots,
                 hover: false,
                 name,
@@ -790,8 +799,8 @@ impl Bar {
         self.panel.setContentView(Some(&content));
     }
 
-    /// Fills the rows with their agents' words, dots and colours, and lays
-    /// out the pill. Returns its size.
+    /// Fills the rows with their agents' words, screens and colours, and
+    /// lays out the pill. Returns its size.
     fn update_pill(&mut self, rows: &[BarRow]) -> NSSize {
         let mut words: f64 = TEXT_MIN;
         let mut names: f64 = 0.0;
@@ -800,16 +809,16 @@ impl Bar {
             view.text.setStringValue(&NSString::from_str(&row.text));
             names = names.max(text_width(&view.name));
             words = words.max(text_width(&view.text));
-            if view.tone != row.tone {
-                marks::tint_bot(&view.bot, row.tone, false);
-                view.tone = row.tone;
-            }
-            if view.mode != row.dots {
-                view.mode = row.dots;
-                if !view.hover {
-                    marks::set_dots(&view.dots, row.dots, false, self.reduce_motion);
-                }
-            }
+            view.tone = row.tone;
+            view.faces = row.faces;
+            view.mode = row.dots;
+            view.screen.show(
+                &view.faces,
+                view.mode.mood(),
+                view.tone,
+                view.hover,
+                self.reduce_motion,
+            );
         }
         let buttons: f64 = self
             .buttons
@@ -846,16 +855,9 @@ impl Bar {
         let buttons_left = x;
         for (index, view) in self.rows.iter().enumerate() {
             let middle = height - PAD - ROW * (index as f64 + 0.5);
-            view.bot_view
-                .setFrame(rect(10.0, middle - BOT / 2.0, BOT, BOT));
-            let dots = rect(
-                10.0 + BOT + 7.0,
-                middle - DOTS_BUTTON / 2.0,
-                DOTS_BUTTON,
-                DOTS_BUTTON,
-            );
-            view.dots_view.setFrame(dots);
-            view.button.setFrame(dots);
+            let stop = rect(8.0, middle - STOP_HEIGHT / 2.0, STOP_WIDTH, STOP_HEIGHT);
+            view.screen_view.setFrame(stop);
+            view.button.setFrame(stop);
             let name_width = text_width(&view.name);
             let name_height = view.name.frame().size.height;
             view.name.setFrame(rect(
@@ -930,11 +932,24 @@ impl Bar {
         let height = CARD_HEIGHT + LINE_HEIGHT * lines.len() as f64;
         let content = self.content(mtm, width, height, 14.0, false);
         let middle = height - 28.0;
-        let bot = marks::bot(CARD_BOT, model.tone, model.kind == BarKind::Consent);
+        // Asking needs you; a pause holds it up; a stop leaves it still.
+        let mood = match model.kind {
+            BarKind::Consent => Mood::Needs,
+            BarKind::Paused => Mood::Watching,
+            BarKind::Stopped | BarKind::Acting => Mood::Still,
+        };
+        let mut screen = marks::Screen::new(CARD_SCREEN);
+        screen.show(&model.faces, mood, model.tone, false, self.reduce_motion);
+        let screen_height = marks::screen_height(CARD_SCREEN);
         content.addSubview(&host(
             mtm,
-            &bot,
-            rect(14.0, middle - CARD_BOT / 2.0, CARD_BOT, CARD_BOT),
+            screen.layer(),
+            rect(
+                14.0,
+                middle - screen_height / 2.0,
+                CARD_SCREEN,
+                screen_height,
+            ),
         ));
         let text_right = width - 12.0 - buttons_width - 6.0;
         let text_width = (text_right - CARD_TEXT_X).max(40.0);
@@ -987,7 +1002,7 @@ fn pill_hover(inside: bool) {
     });
 }
 
-fn dots_hover(button: &DotsButton, inside: bool) {
+fn stop_hover(button: &StopButton, inside: bool) {
     BAR.with(|slot| {
         let Ok(mut slot) = slot.try_borrow_mut() else {
             return;
@@ -1002,7 +1017,8 @@ fn dots_hover(button: &DotsButton, inside: bool) {
             .find(|row| std::ptr::eq(&*row.button, button))
         {
             row.hover = inside;
-            marks::set_dots(&row.dots, row.mode, inside, reduce_motion);
+            row.screen
+                .show(&row.faces, row.mode.mood(), row.tone, inside, reduce_motion);
         }
     });
 }
@@ -1266,6 +1282,7 @@ pub(super) fn preview() {
                     harness: Some(harness.into()),
                     title: Some("Desktop control preview · no input".into()),
                     tone: Some(tone.into()),
+                    faces: None,
                 })),
             )
         });
@@ -1322,6 +1339,7 @@ pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
                 harness: Some(harness.into()),
                 title: Some(title.into()),
                 tone: Some(tone.into()),
+                faces: None,
             })),
         );
     };
@@ -1363,7 +1381,8 @@ pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
         if pointed {
             if let Some(row) = bar.rows.first_mut() {
                 row.hover = true;
-                marks::set_dots(&row.dots, row.mode, true, true);
+                row.screen
+                    .show(&row.faces, row.mode.mood(), row.tone, true, true);
             }
         }
         // Fully transparent and far off screen: AppKit assembles the

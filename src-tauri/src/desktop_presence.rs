@@ -9,6 +9,7 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use crate::desktop_control::Request;
+pub(crate) use crate::desktop_faces::{Faces, FacesInput, Mood};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
@@ -140,6 +141,9 @@ pub(crate) struct ActorInput {
     /// The chat's project colour, a mark tone name ("blue", "grey"...).
     #[serde(default)]
     pub tone: Option<String>,
+    /// Bot's face in each state, as Aven's interface draws this agent.
+    #[serde(default)]
+    pub faces: Option<FacesInput>,
 }
 
 /// Who is acting: shown in the bar and (later) on the agent pointer.
@@ -155,6 +159,8 @@ pub(crate) struct Actor {
     /// Bot's colour on the desktop bar and pointer: the chat's project
     /// colour, so agents look like they do everywhere else in Aven.
     pub tone: [f64; 3],
+    /// Bot's faces there, as Aven draws this agent.
+    pub faces: Faces,
 }
 
 impl Actor {
@@ -173,6 +179,7 @@ impl Actor {
             title: None,
             color: NEUTRAL,
             tone: GREY_TONE,
+            faces: Faces::default(),
         }
     }
 }
@@ -222,6 +229,7 @@ pub(crate) fn resolve_actor(input: &ActorInput) -> Actor {
             .and_then(|title| clean_label(title, TITLE_LIMIT)),
         color,
         tone: tone_color(input.tone.as_deref()),
+        faces: crate::desktop_faces::resolve(input.faces.as_ref()),
     }
 }
 
@@ -797,7 +805,9 @@ pub(crate) struct BarButton {
     pub style: ButtonStyle,
 }
 
-/// What an agent's work dots draw, as the message box's dots do.
+/// What an agent on the bar is doing, which its screen shows as the
+/// message box's does: working for every step and between them, watching
+/// while something holds it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Dots {
     /// A ripple from the middle: looking, or thinking between steps.
@@ -811,6 +821,14 @@ pub(crate) enum Dots {
 }
 
 impl Dots {
+    /// How its screen shows it (the message box's `HelmScreen`).
+    pub(crate) fn mood(self) -> Mood {
+        match self {
+            Self::Breathe => Mood::Watching,
+            Self::Ripple | Self::Lines | Self::Sweep => Mood::Working,
+        }
+    }
+
     fn for_step(step: Step) -> Self {
         match step {
             Step::Looking | Step::ReadingPage | Step::SavingPage | Step::CapturingPage => {
@@ -822,12 +840,13 @@ impl Dots {
     }
 }
 
-/// One agent on the bar: Bot in its project colour, its dots (which are
-/// its Stop), its name and what it is doing.
+/// One agent on the bar: Bot's screen in its project colour (which is its
+/// Stop), its name and what it is doing.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BarRow {
     pub name: String,
     pub tone: [f64; 3],
+    pub faces: Faces,
     /// After the name: "Clicking “Next…” in Pages". Never typed text.
     pub text: String,
     pub dots: Dots,
@@ -842,8 +861,9 @@ pub(crate) struct BarRow {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BarModel {
     pub kind: BarKind,
-    /// Bot's colour for a one-agent bar.
+    /// Bot's colour and faces for a one-agent bar.
     pub tone: [f64; 3],
+    pub faces: Faces,
     pub title: String,
     pub detail: String,
     /// Further lines under the detail, one each (an upload's files).
@@ -1657,6 +1677,7 @@ impl Presence {
             return Some(BarModel {
                 kind: BarKind::Stopped,
                 tone: actor.tone,
+                faces: actor.faces,
                 title: format!("Stopped {}", actor.called()),
                 detail: "It can\u{2019}t use your Mac until you allow it again".into(),
                 lines: vec![],
@@ -1674,6 +1695,7 @@ impl Presence {
             return Some(BarModel {
                 kind: BarKind::Stopped,
                 tone: actor.tone,
+                faces: actor.faces,
                 title: format!("Stopped {}", actor.called()),
                 detail: "It can\u{2019}t use your other tabs until your next message".into(),
                 lines: vec![],
@@ -1733,7 +1755,8 @@ impl Presence {
             }
             return Some(BarModel {
                 kind: BarKind::Paused,
-                tone: actor.map_or(GREY_TONE, |actor| actor.tone),
+                tone: actor.as_ref().map_or(GREY_TONE, |actor| actor.tone),
+                faces: actor.map_or_else(Faces::default, |actor| actor.faces),
                 title,
                 detail,
                 lines: vec![],
@@ -1748,6 +1771,7 @@ impl Presence {
                 BarRow {
                     name: actor.name,
                     tone: actor.tone,
+                    faces: actor.faces,
                     text: activity.row_text(),
                     dots: if activity.in_flight {
                         Dots::for_step(activity.step)
@@ -1774,6 +1798,7 @@ impl Presence {
             rows.push(BarRow {
                 name: actor.name,
                 tone: actor.tone,
+                faces: actor.faces,
                 text,
                 dots: if tab.in_flight {
                     Dots::for_step(tab.step)
@@ -1788,6 +1813,7 @@ impl Presence {
             rows.push(BarRow {
                 name: actor.name,
                 tone: actor.tone,
+                faces: actor.faces,
                 text: "Paused \u{b7} won\u{2019}t read or use your other tabs".into(),
                 dots: Dots::Breathe,
                 stop: ButtonAction::StopTabs(scope.clone()),
@@ -1823,6 +1849,7 @@ impl Presence {
         Some(BarModel {
             kind: BarKind::Acting,
             tone: rows[0].tone,
+            faces: rows[0].faces,
             title: String::new(),
             detail: String::new(),
             lines: vec![],
@@ -1861,6 +1888,7 @@ impl Presence {
             return BarModel {
                 kind: BarKind::Consent,
                 tone: actor.tone,
+                faces: actor.faces,
                 title: format!(
                     "Let {} upload {} to {}?",
                     actor.called(),
@@ -1894,6 +1922,7 @@ impl Presence {
         BarModel {
             kind: BarKind::Consent,
             tone: actor.tone,
+            faces: actor.faces,
             title,
             detail: match &actor.title {
                 Some(title) => format!("{title} \u{b7} {start}"),
@@ -2074,6 +2103,7 @@ mod tests {
             harness: Some(harness.into()),
             title: title.map(Into::into),
             tone: None,
+            faces: None,
         })
     }
 
@@ -2106,6 +2136,7 @@ mod tests {
                 harness: Some("unknown-harness".into()),
                 title: Some("\u{202e}\u{200b}  ".into()),
                 tone: None,
+                faces: None,
             },
         ] {
             let resolved = resolve_actor(&input);
@@ -3740,6 +3771,7 @@ mod tests {
             harness: Some("codex".into()),
             title: None,
             tone: Some("purple".into()),
+            faces: None,
         });
         // hsl(266 66% 77%), the dark theme's --aven-mark-purple.
         let expected = [0.7498, 0.6182, 0.9218];
