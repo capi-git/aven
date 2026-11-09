@@ -1,5 +1,10 @@
 import { finalFencedBlock } from "./automationReview";
 import {
+  documentRules,
+  withoutDocument,
+  type AvosDocumentMeta,
+} from "./avosDocuments";
+import {
   AUTOMATION_SHAPE,
   asksForAutomation,
   automationRules,
@@ -170,7 +175,8 @@ export function parseTalk(text: string): TalkReply {
  * being written (its fence only partly there) is left out as well.
  */
 export function talkAnswerText(reply: string): string {
-  let text = withoutMemory(reply);
+  // Its document (the card under the reply stands for it) is left out too.
+  let text = withoutDocument(withoutMemory(reply));
   const fence = text.lastIndexOf("```" + TALK_FENCE);
   if (fence >= 0) text = text.slice(0, fence);
   // While streaming: the start of a fence, or of the block's name.
@@ -243,6 +249,8 @@ function howToAnswer(input: {
   picks?: string;
   /** The user asked that Avos's cards wait for their Build it. */
   asksFirst?: boolean;
+  /** Avos's saved documents: it may write one, or revise one of these. */
+  documents?: readonly AvosDocumentMeta[];
 }): string {
   const fields = [
     `"line": "One line for the team chat, under ${TALK_LINE_MAX} characters."`,
@@ -293,6 +301,7 @@ function howToAnswer(input: {
       ? [
           `When the user asks for something built or fixed, put it under cards: your helpers build and check it in your copy, and it comes back to the user here, to review before it reaches their folder. ${input.asksFirst ? "Each card waits for the user to say Build it." : "Cards start at once, whatever their size: don't ask whether to start, and don't hold work back for later unless the user says so."} You never change files yourself. There is no Board or This week: don't mention one, or cards, or goals; say what you're doing in plain words.`,
           ...(input.picks ? [input.picks] : []),
+          ...(input.documents ? [documentRules(input.documents)] : []),
           ...(input.mayKeep
             ? [
                 'When the user tells you something to always or never do from now on ("always use pnpm", "don\'t touch the API"), put it under remember, in their words. When they set or change what the project is working towards, put it under goal. Say in your answer what you saved.',
@@ -352,6 +361,10 @@ export function talkMessage(input: {
   brief?: string;
   /** Its instructions and notes, as any turn carries them. */
   guidance?: string;
+  /** Avos's saved documents: it may write one, or revise one of these. */
+  documents?: readonly AvosDocumentMeta[];
+  /** The document your message names, attached as data. */
+  attached?: string;
 }): string {
   const said = input.talk.routine
     ? `A routine the user set for you:\n\n${input.talk.text}`
@@ -371,6 +384,7 @@ export function talkMessage(input: {
     ...(input.brief ? [input.brief] : []),
     ...(input.guidance ? [input.guidance] : []),
     said,
+    ...(input.attached ? [input.attached] : []),
     howToAnswer(input),
   ].join("\n\n---\n\n");
 }

@@ -11,13 +11,14 @@ import {
   type RefObject,
 } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
-import { CornerDownRight, MoveUp, X } from "../chrome/icons";
+import { CornerDownRight, File, MoveUp, X } from "../chrome/icons";
 import { useCrewLiveReply } from "../hooks/useCrewLiveReply";
 import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
 import { avosIntro, avosUnmet } from "../lib/avos";
+import { openAvosDocument } from "../lib/avosDocuments";
 import {
   questionToAnswer,
   waitingQuestions,
@@ -791,6 +792,25 @@ function PostView({
           onClick={() => workspace.setUpGit?.(project)}
         >
           Set up Git
+        </button>
+      ) : null}
+      {post.doc ? (
+        // The document this reply saved: its card, which opens it in
+        // Avos's panel, beside the chat.
+        <button
+          type="button"
+          className="team-post-doc"
+          data-avos-doc-card={post.doc.id}
+          aria-label={`Open document ${post.doc.title}`}
+          onClick={() => openAvosDocument(project, post.doc!.id)}
+        >
+          <span className="team-post-doc-tile" aria-hidden>
+            <File className="size-3.5" />
+          </span>
+          <span className="team-post-doc-words">
+            <b>{post.doc.title}</b>
+            <small>{post.doc.summary || "Document"}</small>
+          </span>
         </button>
       ) : null}
     </>

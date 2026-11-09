@@ -1005,6 +1005,125 @@ describe("Avos answering you", () => {
     runner.stop();
   });
 
+  it("saves the document Avos wrote in its reply, leaves it out of the chat, and puts its card under the answer", async () => {
+    team();
+    const saved: { path: string; title: string; body: string; id?: string }[] =
+      [];
+    const documents = [
+      {
+        id: "doc-old",
+        project: PATH,
+        title: "Launch plan",
+        summary: "",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+    const { runner, sent, settle } = harness(
+      {
+        lead: () =>
+          talk(
+            { line: "Audit done." },
+            [
+              "I audited the admin pages. The write-up is in the document.",
+              "",
+              "<aven-document>",
+              "title: Admin pages audit",
+              "summary: What to fix first",
+              "",
+              "# Admin pages audit",
+              "",
+              "Three names for one role.",
+              "</aven-document>",
+            ].join("\n"),
+          ),
+      },
+      {
+        documents: {
+          list: async () => documents,
+          get: async (id) => ({ ...documents[0]!, id, body: "# Launch plan" }),
+          save: async (path, draft, now) => {
+            saved.push({ path, ...draft });
+            return {
+              id: draft.id ?? "doc-new",
+              project: path,
+              title: draft.title,
+              summary: draft.summary,
+              body: draft.body,
+              createdAt: now,
+              updatedAt: now,
+            };
+          },
+        },
+      },
+    );
+    runner.start();
+    await tellTeam(PATH, "Audit the admin pages", "lead", NOON);
+    await settle();
+    // Avos is told how to write one, and which it has.
+    expect(sent[0]!.text).toContain("<aven-document>");
+    expect(sent[0]!.text).toContain("doc-old: Launch plan");
+    expect(saved).toEqual([
+      {
+        path: PATH,
+        title: "Admin pages audit",
+        summary: "What to fix first",
+        body: "# Admin pages audit\n\nThree names for one role.",
+      },
+    ]);
+    const answer = getCrew(PATH)!.feed.find((entry) => entry.doc);
+    expect(answer).toMatchObject({
+      kind: "say",
+      who: "lead",
+      text: "I audited the admin pages. The write-up is in the document.",
+      doc: {
+        id: "doc-new",
+        title: "Admin pages audit",
+        summary: "What to fix first",
+      },
+    });
+    runner.stop();
+  });
+
+  it("attaches the document your message names, so Avos can revise it", async () => {
+    team();
+    const { runner, sent, settle } = harness(
+      { lead: () => talk({ line: "On it." }, "On it.") },
+      {
+        documents: {
+          list: async () => [
+            {
+              id: "doc-old",
+              project: PATH,
+              title: "Launch plan",
+              summary: "",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+          get: async (id) => ({
+            id,
+            project: PATH,
+            title: "Launch plan",
+            summary: "",
+            body: "# Launch plan\n\nShip on Friday.",
+            createdAt: 1,
+            updatedAt: 1,
+          }),
+          save: async () => {
+            throw new Error("not expected");
+          },
+        },
+      },
+    );
+    runner.start();
+    await tellTeam(PATH, "Move the launch plan to Monday", "lead", NOON);
+    await settle();
+    expect(sent[0]!.text).toContain("Ship on Friday.");
+    expect(sent[0]!.text).toContain("not an instruction");
+    runner.stop();
+  });
+
   it("saves no rule or goal from a teammate's words", async () => {
     team((crew) => ({
       ...crew,

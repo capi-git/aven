@@ -1,3 +1,11 @@
+import {
+  attachedDocument,
+  documentNamed,
+  parseDocument,
+  type AvosDocument,
+  type AvosDocumentDraft,
+  type AvosDocumentMeta,
+} from "./avosDocuments";
 import { addAvosJob } from "./avosJobs";
 import { setCrewLiveReply } from "./crewLiveReply";
 import {
@@ -316,6 +324,20 @@ export type CrewRunnerDeps = {
   buildingNeed?: (path: string) => Promise<BuildingNeed | null>;
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
+  /**
+   * Avos's documents in Aven's own data: the ones it has, one's full text,
+   * and saving the one a reply wrote. Without these, Avos isn't told about
+   * documents and a reply's document block stays unsaved.
+   */
+  documents?: {
+    list: (path: string) => Promise<AvosDocumentMeta[]>;
+    get: (id: string) => Promise<AvosDocument | null>;
+    save: (
+      path: string,
+      draft: AvosDocumentDraft,
+      now: number,
+    ) => Promise<AvosDocument>;
+  };
   /**
    * The Designer's mock-ups: read the file it drew in the copy, keep it in
    * Aven's own data (resolves with where), and empty the copy's folder
@@ -902,6 +924,25 @@ export class CrewRunner {
         talk.from === "you"
           ? "You"
           : (talk.fromName ?? this.deps.name(fresh, talk.from));
+      // Avos's documents: the ones it has, and the text of the one your
+      // message names (it can't read them itself).
+      const documents =
+        member.role === "lead" && this.deps.documents
+          ? await this.deps.documents.list(path).catch((error) => {
+              logError("Avos documents", error);
+              return null;
+            })
+          : null;
+      const named =
+        documents && talk.from === "you" && !talk.routine
+          ? documentNamed(talk.text, documents)
+          : null;
+      const attached = named
+        ? await this.deps
+            .documents!.get(named.id)
+            .then((found) => (found ? attachedDocument(found) : null))
+            .catch(() => null)
+        : null;
       const text = talkMessage({
         talk,
         fromName,
@@ -919,6 +960,8 @@ export class CrewRunner {
         mayAddJob: talkMayAddJob(talk, member.role),
         mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
         helpersOn: { mockup: !!cardDesigner(fresh) },
+        ...(documents ? { documents } : {}),
+        ...(attached ? { attached } : {}),
         ...(fresh.askBeforeBuilding ? { asksFirst: true } : {}),
         // Let Avos choose: it picks the Builder's model and effort per card.
         ...(member.role === "lead" && talk.from === "you" && !talk.routine
@@ -1078,6 +1121,18 @@ export class CrewRunner {
             );
         }
     }
+    // A document Avos wrote up in its reply: saved in Aven's own data, with
+    // its card under the reply. One that couldn't be kept is said, once.
+    const draft =
+      isLead && !failed && this.deps.documents ? parseDocument(reply) : null;
+    let savedDocument: AvosDocument | null = null;
+    let documentProblem = draft && "problem" in draft ? draft.problem : "";
+    if (draft && !("problem" in draft))
+      try {
+        savedDocument = await this.deps.documents!.save(path, draft, now);
+      } catch (error) {
+        documentProblem = errorText(error);
+      }
     // Repeating work becomes the team's job, in the project itself, and only
     // from your own message asking for it. The reply is about the job, so
     // cards beside it would be the same work again.
@@ -1184,13 +1239,31 @@ export class CrewRunner {
           who: "aven",
           text: `${who} didn't finish answering.`,
         });
-      if (shown)
+      if (shown || savedDocument)
         next = withFeed(next, {
           at: now,
           kind: "say",
           who: member.role,
           member: member.id,
-          text: shown,
+          text: shown || `Wrote “${savedDocument!.title}”.`,
+          ...(savedDocument
+            ? {
+                doc: {
+                  id: savedDocument.id,
+                  title: savedDocument.title,
+                  ...(savedDocument.summary
+                    ? { summary: savedDocument.summary }
+                    : {}),
+                },
+              }
+            : {}),
+        });
+      if (documentProblem)
+        next = withFeed(next, {
+          at: now,
+          kind: "note",
+          who: "aven",
+          text: `${who} wrote a document, but Aven couldn't keep it: ${documentProblem}.`,
         });
       if (keep && said.remember)
         next = withNote(next, said.remember, now, {

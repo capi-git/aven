@@ -5,6 +5,9 @@
 ### Changed
 
 - **Avos's goal has more room.** A quiet row says where it stands, with its one action; the goal's own words sit under it, two lines until you press them. Why it stopped shows only once it's open.
+### Added
+
+- **Avos writes documents.** For a substantial report, review or plan, Avos saves the full text as a document and keeps its chat answer short. A card under the reply opens it in Avos's panel, where Documents lists them: read one there, copy it or delete it. Name a document in a message and Avos can revise it.
 
 ## [0.1.175] - 2026-11-09
 
