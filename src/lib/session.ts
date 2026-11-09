@@ -269,6 +269,8 @@ export type Block = {
     preview?: ToolPreview;
     /** When the call started running, as Aven saw it (epoch ms). Never saved. */
     startedAt?: number;
+    /** The call reached the web: what it brought back is anyone's words. */
+    web?: true;
   };
   approval?: {
     requestId: number;

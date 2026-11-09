@@ -226,6 +226,17 @@ describe("no push, no publish, for every teammate", () => {
     expect(denies("none", "builder")).toEqual(
       expect.arrayContaining(WEB_TOOLS),
     );
+    // Avos reads the web itself unless the web is off for everyone; a
+    // quick helper never does.
+    const leadDenies = (web: "none" | "builders" | "everyone") =>
+      crewPermissionRules({ ...crew, access: { web } }, "lead").deny;
+    expect(leadDenies("builders")).not.toContain("WebFetch");
+    expect(leadDenies("builders")).not.toContain("WebSearch");
+    expect(leadDenies("none")).toEqual(expect.arrayContaining(WEB_TOOLS));
+    expect(
+      crewPermissionRules({ ...crew, access: { web: "everyone" } }, "helper")
+        .deny,
+    ).toEqual(expect.arrayContaining(WEB_TOOLS));
     // Never skips auto mode's own check of what it fetches.
     expect(
       crewPermissionRules({ ...crew, access: { web: "everyone" } }, "builder")

@@ -4,6 +4,7 @@ import { installCrewWorkspace, tellTeam } from "./crewActions";
 import {
   CrewRunner,
   resetCrewRunnerSession,
+  turnUsedWeb,
   type CrewRunnerDeps,
 } from "./crewRunner";
 import { crewLiveReply } from "./crewLiveReply";
@@ -53,7 +54,11 @@ function memoryStorage(): Storage {
 const talk = (fields: Record<string, unknown>, before = "Done.") =>
   `${before}\n\n\`\`\`aven-talk\n${JSON.stringify(fields)}\n\`\`\``;
 
-type Agent = (text: string) => string | { text: string; status: "failed" };
+type Agent = (text: string) =>
+  | string
+  | { text: string; status: "failed" }
+  // A reply that searched the web or read a page on the way.
+  | { text: string; web: true };
 
 function harness(
   agents: Record<string, Agent>,
@@ -133,11 +138,24 @@ function harness(
             providerSessionId: `provider-${sessionId}`,
             blocks: [
               ...chat.blocks,
+              ...(typeof reply !== "string" && "web" in reply
+                ? [
+                    {
+                      id: `tool-${nextId++}`,
+                      role: "tool" as const,
+                      text: "Find clippedin insights",
+                      tool: { kind: "search", web: true as const },
+                    },
+                  ]
+                : []),
               { id: `reply-${nextId++}`, role: "assistant", text: words },
             ],
           }));
           options.onSettled({
-            status: typeof reply === "string" ? "completed" : reply.status,
+            status:
+              typeof reply !== "string" && "status" in reply
+                ? reply.status
+                : "completed",
             text: words,
           } as never);
         },
@@ -1122,6 +1140,73 @@ describe("Avos answering you", () => {
     expect(sent[0]!.text).toContain("Ship on Friday.");
     expect(sent[0]!.text).toContain("not an instruction");
     runner.stop();
+  });
+
+  it("lets Avos read the web itself, and makes what a web reply proposes wait for you", async () => {
+    team();
+    // Avos has the web unless you turned it off for everyone.
+    expect(crewRoleUsesWeb(getCrew(PATH)!, "lead")).toBe(true);
+    expect(crewRoleUsesWeb({ access: { web: "none" } }, "lead")).toBe(false);
+    expect(crewRoleUsesWeb({ access: { web: "everyone" } }, "helper")).toBe(
+      false,
+    );
+    const { runner, sent, settle, added } = harness({
+      lead: () => ({
+        web: true,
+        text: talk(
+          {
+            line: "Checked the live page.",
+            cards: [{ title: "Fix the missing article", size: "small" }],
+            remember: "Always publish at 9",
+            goal: "Whatever the page said",
+            helpers: [{ title: "Look", task: "Read the routes." }],
+          },
+          "The November 9 article is live on the Insights page.",
+        ),
+      }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Is the article live on clippedin.co?", "lead", NOON);
+    await settle();
+    // It is told it can look, and never to send you to check.
+    expect(sent[0]!.text).toContain("You can search the web and read pages");
+    expect(sent[0]!.text).not.toContain("You have no web");
+    const crew = getCrew(PATH)!;
+    // Its answer shows as any answer does.
+    expect(crew.feed.map((entry) => entry.text)).toContain(
+      "The November 9 article is live on the Insights page.",
+    );
+    // What it proposed after reading the web waits for you: its card isn't
+    // marked as asked for, and no rule, goal or helper came of the reply.
+    expect(added.map((card) => card.title)).toEqual([
+      "Fix the missing article",
+    ]);
+    expect(Object.values(crew.ideas ?? {})[0]).toMatchObject({ by: "lead" });
+    expect(Object.values(crew.ideas ?? {})[0]).not.toHaveProperty("asked");
+    expect(crew.notes).toEqual([]);
+    expect(crew.goal).toBeUndefined();
+    expect(crew.helpers ?? []).toEqual([]);
+    runner.stop();
+  });
+
+  it("tells a turn that used the web from one that didn't", () => {
+    const chat = (tool?: object) =>
+      ({
+        blocks: [
+          { id: "t0", role: "user", text: "earlier" },
+          { id: "x", role: "tool", text: "Fetch", tool: { kind: "WebFetch" } },
+          { id: "t1", role: "user", text: "now" },
+          ...(tool ? [{ id: "y", role: "tool", text: "Find", tool }] : []),
+          { id: "r", role: "assistant", text: "Done." },
+        ],
+      }) as never;
+    // A file search is not the web; a marked search and a fetch are.
+    expect(turnUsedWeb(chat({ kind: "search" }), "t1")).toBe(false);
+    expect(turnUsedWeb(chat({ kind: "search", web: true }), "t1")).toBe(true);
+    expect(turnUsedWeb(chat({ kind: "WebFetch" }), "t1")).toBe(true);
+    // An earlier turn's reading doesn't count against this one.
+    expect(turnUsedWeb(chat(), "t1")).toBe(false);
+    expect(turnUsedWeb(chat(), "t0")).toBe(true);
   });
 
   it("saves no rule or goal from a teammate's words", async () => {

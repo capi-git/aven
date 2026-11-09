@@ -996,10 +996,14 @@ export function crewRoleUsesWeb(
   crew: Pick<Crew, "access">,
   role: CrewRole,
 ): boolean {
-  // The Designer draws from the project alone: never the web. Nor the Lead,
-  // whose messages reach everyone else.
-  if (role === "designer" || role === "lead" || role === "helper") return false;
+  // The Designer draws from the project alone: never the web. Nor a quick
+  // helper, which only reads the project.
+  if (role === "designer" || role === "helper") return false;
   const { web } = crewAccess(crew);
+  // Avos reads the web itself unless you turned the web off: it looks at a
+  // live page as a Mono does. What it starts in a reply that used the web
+  // waits for you (see `turnUsedWeb` in crewRunner).
+  if (role === "lead") return web !== "none";
   return (
     web === "everyone" ||
     (web === "builders" && (role === "builder" || role === "researcher"))

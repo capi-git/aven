@@ -114,6 +114,7 @@ export function applyHarnessEvent(
           kind: event.kind,
           status: event.status,
           preview: event.preview,
+          ...(event.web ? { web: true as const } : {}),
           streaming: true,
         }),
         event,
@@ -928,6 +929,7 @@ function upsertTool(
     status?: string;
     detail?: string;
     preview?: ToolPreview;
+    web?: true;
     streaming: boolean;
   },
 ): Session {
@@ -954,6 +956,7 @@ function upsertTool(
         ...(detail ? { detail } : {}),
         ...(preview ? { preview } : {}),
         ...(patch.streaming ? { startedAt: Date.now() } : {}),
+        ...(patch.web ? { web: true as const } : {}),
       },
     });
   }
@@ -1001,6 +1004,8 @@ function upsertTool(
       ...(detail ? { detail } : {}),
       ...(preview ? { preview } : {}),
       ...(startedAt !== undefined ? { startedAt } : {}),
+      // Once a web call, always one: an update never takes the mark off.
+      ...(patch.web || prev.tool?.web ? { web: true as const } : {}),
     },
   };
   return { ...session, blocks };

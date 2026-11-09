@@ -58,6 +58,7 @@ import {
   stringField,
   summarizeToolRequest,
   toClaudePermissionResult,
+  isWebToolName,
   toolKindFromName,
   toolResultsFromUserMessage,
   toolStartFromEvent,
@@ -888,6 +889,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       kind: toolKindFromName(tool.name),
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
+      ...(isWebToolName(tool.name) ? { web: true as const } : {}),
     });
     emitTaskListIfNeeded(live, tool.name, tool.input);
     return;
@@ -982,6 +984,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       kind: toolKindFromName(tool.name),
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
+      ...(isWebToolName(tool.name) ? { web: true as const } : {}),
     });
     if (use.name === "ExitPlanMode") {
       const plan = extractExitPlanModePlan(use.input);
