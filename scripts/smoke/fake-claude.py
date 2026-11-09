@@ -118,7 +118,11 @@ def hold(text):
     if RACE_WORD not in text:
         time.sleep(seconds)
         return
-    Path("race-claude.txt").write_text("written by the stand-in Claude\n")
+    # Different each race: a project that kept an earlier race's file
+    # (outside Git, so in the next race's copies too) still sees new work.
+    Path("race-claude.txt").write_text(
+        f"written by the stand-in Claude at {time.time_ns()}\n"
+    )
     until = time.time() + seconds
     count = 0
     while time.time() < until:
