@@ -135,12 +135,12 @@ export function crewBrief(input: CrewBriefInput): string {
       "When you first meet the user, you have asked them what to keep an eye on and what's coming up this week. Set up what to keep an eye on as a job; take what's coming up as small, concrete cards. Don't bring in helpers until there is work for them.",
       input.copyPath
         ? sandboxLine(input.copyPath, input.project)
-        : `You work in the user's folder (${input.project}) and only read it: your sandbox lets you change nothing there, and reaches nothing on the network. Building happens later in a copy of the project, which needs Git; if this folder has no Git yet and the user asks you to build, say Aven can set up Git for it first.`,
+        : `You work in the user's folder (${input.project}) and only read it: your sandbox lets you change nothing there, and its commands reach nothing on the network. Building happens later in a copy of the project, which needs Git; if this folder has no Git yet and the user asks you to build, say Aven can set up Git for it first.`,
       input.harness === "codex"
         ? "Your sandbox is read-only: you can read everything and run commands that only read."
         : input.copyPath
-          ? "You can't change the project's files in the copy, and you have no web. Put scratch files in the temp folder."
-          : "You can't change any files, and you have no web. Put scratch files in the temp folder.",
+          ? "You can't change the project's files in the copy. Each message says whether you may read the web. Put scratch files in the temp folder."
+          : "You can't change any files. Each message says whether you may read the web. Put scratch files in the temp folder.",
       NEVER,
       MEMORY_RULE,
       UNTRUSTED_RULE,

@@ -55,6 +55,8 @@ export type HarnessEvent =
       kind?: string;
       status?: string;
       preview?: ToolPreview;
+      /** The call reaches the web (a search, or reading a page). */
+      web?: true;
       /** Every path affected when one structured edit changes multiple files. */
       paths?: string[];
     }
