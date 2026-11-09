@@ -681,6 +681,18 @@ function readPick(value: unknown): CrewPick | undefined {
     : undefined;
 }
 
+/** What new helpers run on: a model and effort, or Avos's pick per job. */
+export type CrewHelperModel = { model: string; effort?: string } | "avos";
+
+function readHelperModel(value: unknown): CrewHelperModel | undefined {
+  if (value === "avos") return "avos";
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as { model?: unknown; effort?: unknown };
+  const model = text(raw.model, 200);
+  const effort = text(raw.effort, 40);
+  return model ? { model, ...(effort ? { effort } : {}) } : undefined;
+}
+
 /** A model and effort Avos picked for a job, and why, in a few words. */
 export type CrewPick = { model?: string; effort?: string; why?: string };
 
@@ -765,6 +777,12 @@ export type Crew = {
    * as allowed (`avosMayRead`).
    */
   readAccess?: "allowed" | "declined";
+  /**
+   * What the helpers Avos sets to work run on: Builders you haven't set
+   * yourself, and the quick helpers it starts. A model and effort you
+   * picked, or "avos" to let Avos pick per job. Unset: Opus 5.5 · Medium.
+   */
+  helperModel?: CrewHelperModel;
   /**
    * Avos's own jobs wait for your Build it, as they did before Avos built
    * by itself. Off (unset): what Avos plans builds at once in its copy, and
@@ -1976,6 +1994,10 @@ export function readCrew(value: unknown): Crew | null {
       ? { readAccess: raw.readAccess }
       : {}),
     ...(raw.askBeforeBuilding === true ? { askBeforeBuilding: true } : {}),
+    ...(() => {
+      const helperModel = readHelperModel(raw.helperModel);
+      return helperModel ? { helperModel } : {};
+    })(),
     cards,
     feed,
     notes,

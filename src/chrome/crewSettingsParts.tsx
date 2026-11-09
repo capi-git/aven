@@ -1,4 +1,5 @@
 import { useSyncExternalStore, type ReactNode } from "react";
+import { avosTalkModel, crewEffortSetting } from "../lib/crewModels";
 import { crewAgentAllowed } from "../lib/crewActions";
 import {
   CREW_AGENTS,
@@ -94,7 +95,10 @@ export function memberApp(member: CrewMember): {
   const app = crewMemberApp(member);
   return {
     harness: app.harness,
-    model: app.model ?? preferredModelId(app.harness),
+    model:
+      app.model ??
+      avosTalkModel(member)?.model ??
+      preferredModelId(app.harness),
   };
 }
 
@@ -125,7 +129,16 @@ export function agentWord(id: HarnessId): string {
 export function memberAppLine(member: CrewMember): string {
   if (member.role === "fixer") return "This project's bot";
   const { harness, model } = memberApp(member);
-  return `${agentWord(harness)} · ${shortModelName(model)}`;
+  // Avos on its own default says its effort too: "Opus 5.5 · Medium".
+  const effort = member.effort ?? avosTalkModel(member)?.effort;
+  const label = effort
+    ? crewEffortSetting(harness, model)?.options.find(
+        (option) => option.value === effort,
+      )?.label
+    : undefined;
+  return [agentWord(harness), shortModelName(model), label]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** Why an app can't be picked for this member, or null when it can. */

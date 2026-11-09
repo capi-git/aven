@@ -200,6 +200,17 @@ describe("adding and removing members", () => {
       (member) => member.critter ?? member.role,
     );
     expect(new Set(critters).size).toBe(critters.length);
+    // Each one is said in Avos's chat as it joins.
+    expect(
+      crew.feed.filter((entry) =>
+        entry.text.endsWith("has been added to the team."),
+      ),
+    ).toHaveLength(3);
+    expect(crew.feed.at(-1)).toMatchObject({
+      kind: "note",
+      member: "checker-2",
+      text: `${crewMemberName(crew, "checker-2")} has been added to the team.`,
+    });
     expect(crewMemberById(crew, "builder-3")?.harness).toBeUndefined();
     expect(crewMemberById(crew, "checker-2")?.harness).toBe("codex");
     expect(crewMemberName(crew, "builder-2")).not.toBe(

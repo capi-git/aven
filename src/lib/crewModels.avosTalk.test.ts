@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  AVOS_TALK_MODEL,
+  AVOS_MODEL,
   avosPickChoices,
   avosPickOverride,
   avosTalkModel,
+  builderRunsOn,
   crewEffortSetting,
+  helperRunsOn,
 } from "./crewModels";
 import { parseTalk } from "./crewTalk";
 import { CLAUDE_OPUS_5_5_MODEL } from "./models";
@@ -12,9 +14,10 @@ import { CLAUDE_OPUS_5_5_MODEL } from "./models";
 describe("the model Avos answers you on", () => {
   const known = () => true;
 
-  it("is a quick one when you haven't picked one for Avos", () => {
+  it("is Opus 5.5 at Medium when you haven't picked one for Avos", () => {
     expect(avosTalkModel({ role: "lead" }, known)).toEqual({
-      model: AVOS_TALK_MODEL,
+      model: AVOS_MODEL,
+      effort: "medium",
     });
   });
 
@@ -39,7 +42,10 @@ describe("Let Avos choose", () => {
     [];
 
   it("lists the Builder's newest models with their own efforts, until you pick yourself", () => {
-    const crew = { members: [{ id: "builder", role: "builder" as const }] };
+    const crew = {
+      members: [{ id: "builder", role: "builder" as const }],
+      helperModel: "avos" as const,
+    };
     const text = avosPickChoices(crew, () => [
       { id: CLAUDE_OPUS_5_5_MODEL.id },
       { id: "claude:sonnet-5" },
@@ -51,8 +57,11 @@ describe("Let Avos choose", () => {
     expect(
       avosPickChoices({
         members: [{ id: "builder", role: "builder", chosen: true }],
+        helperModel: "avos",
       }),
     ).toBeUndefined();
+    // Avos picks only once you let it: the default is a model you can see.
+    expect(avosPickChoices({ members: crew.members })).toBeUndefined();
     expect(avosPickChoices({ members: [] })).toBeUndefined();
   });
 
@@ -73,5 +82,36 @@ describe("Let Avos choose", () => {
       model: "claude:opus-5-5",
       effort: "high",
     });
+  });
+});
+
+describe("what helpers run on", () => {
+  it("is Opus 5.5 at Medium until you pick, yours once you do, none when Avos picks", () => {
+    expect(helperRunsOn({})).toEqual({
+      model: CLAUDE_OPUS_5_5_MODEL.id,
+      effort: "medium",
+    });
+    expect(
+      helperRunsOn({ helperModel: { model: "claude:opus-5", effort: "high" } }),
+    ).toEqual({ model: "claude:opus-5", effort: "high" });
+    expect(helperRunsOn({ helperModel: "avos" })).toBeUndefined();
+  });
+
+  it("sets a Builder's job unless the card or you set it", () => {
+    expect(builderRunsOn({}, {}, {})).toEqual({
+      model: CLAUDE_OPUS_5_5_MODEL.id,
+      effort: "medium",
+    });
+    expect(builderRunsOn({}, { chosen: true }, {})).toBeUndefined();
+    expect(
+      builderRunsOn({}, {}, { override: { model: "claude:opus-5" } }),
+    ).toEqual({ model: "claude:opus-5" });
+    expect(builderRunsOn({ helperModel: "avos" }, {}, {})).toBeUndefined();
+  });
+
+  it("uses Avos's pick for a job only while you've let it choose", () => {
+    const pick = { model: CLAUDE_OPUS_5_5_MODEL.id, effort: "high" };
+    expect(avosPickOverride({}, pick, {})).toBeUndefined();
+    expect(avosPickOverride({}, pick, { helperModel: "avos" })).toEqual(pick);
   });
 });

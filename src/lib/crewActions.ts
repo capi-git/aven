@@ -62,6 +62,7 @@ import {
   withoutCard,
   withoutMember,
   type Crew,
+  type CrewHelperModel,
   type CrewAccess,
   type CrewAgent,
   type CrewCard,
@@ -2531,7 +2532,15 @@ export function addCrewMember(
       ...(model ? { model } : {}),
       ...(instructions ? { instructions } : {}),
     };
-    return { ...current, members: [...current.members, member] };
+    const next = { ...current, members: [...current.members, member] };
+    // Said in Avos's chat, so you see who joined.
+    return withFeed(next, {
+      at: Date.now(),
+      kind: "note",
+      who: "aven",
+      member: id,
+      text: `${crewMemberName(next, id)} has been added to the team.`,
+    });
   });
   return { id };
 }
@@ -2926,6 +2935,20 @@ export async function wakeAvos(path: string): Promise<string | null> {
  * Whether Avos's own jobs wait for your Build it (on) or start at once in
  * its copy (off, the default).
  */
+/**
+ * What new helpers run on: a model and effort, "avos" for Avos's pick per
+ * job, or null for the default (Opus 5.5 · Medium).
+ */
+export function setCrewHelperModel(
+  path: string,
+  value: CrewHelperModel | null,
+) {
+  updateCrew(path, (crew) => {
+    const { helperModel: _was, ...rest } = crew;
+    return value ? { ...rest, helperModel: value } : rest;
+  });
+}
+
 export function setCrewAskBeforeBuilding(path: string, on: boolean) {
   updateCrew(path, (crew) => {
     const { askBeforeBuilding: _was, ...rest } = crew;

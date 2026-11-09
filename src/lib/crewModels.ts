@@ -1,5 +1,6 @@
 import { crewMember, crewMemberApp, type Crew, type CrewMember } from "./crews";
 import {
+  CLAUDE_OPUS_5_5_MODEL,
   findModel,
   pickerModelsFor,
   preferredModelId,
@@ -78,23 +79,56 @@ export function crewChatModel(input: {
   };
 }
 
-/** The model Avos answers your messages on when you haven't picked one. */
-export const AVOS_TALK_MODEL = "claude:sonnet-5";
+/** The model Avos itself runs on when you haven't picked one: Opus 5.5. */
+export const AVOS_MODEL = CLAUDE_OPUS_5_5_MODEL.id;
+/** And how hard it thinks there. */
+export const AVOS_EFFORT = "medium";
 
 /**
- * Avos answering a message: on the model you picked for it, or else on a
- * quick one, so a few sentences don't wait on the biggest model. Building
- * is the helpers' work, on their own models. Codex keeps its own model.
+ * Avos itself, answering and planning: on the model you picked for it, or
+ * else Opus 5.5 at Medium. Its helpers run on their own models. Codex keeps
+ * its own model.
  */
 export function avosTalkModel(
   member: Pick<CrewMember, "role" | "model" | "harness" | "fallback">,
   known: (id: string) => boolean = (id) => !!findModel(id),
-): { model: string } | undefined {
+): { model: string; effort: string } | undefined {
   if (member.role !== "lead" || member.model || member.fallback)
     return undefined;
   if (crewMemberApp(member as CrewMember).harness !== "claude")
     return undefined;
-  return known(AVOS_TALK_MODEL) ? { model: AVOS_TALK_MODEL } : undefined;
+  return known(AVOS_MODEL)
+    ? { model: AVOS_MODEL, effort: AVOS_EFFORT }
+    : undefined;
+}
+
+/** What new helpers run on until you pick: the same as Avos. */
+export const HELPER_MODEL_DEFAULT = { model: AVOS_MODEL, effort: AVOS_EFFORT };
+
+/**
+ * What a helper Avos sets to work runs on: the model and effort you picked
+ * for new helpers, Opus 5.5 · Medium until you do, or nothing when you let
+ * Avos pick per job.
+ */
+export function helperRunsOn(
+  crew: Pick<Crew, "helperModel">,
+): { model: string; effort?: string } | undefined {
+  if (crew.helperModel === "avos") return undefined;
+  return crew.helperModel ?? HELPER_MODEL_DEFAULT;
+}
+
+/**
+ * A Builder's model and effort for a job: the card's own, else (while you
+ * haven't set this Builder yourself) what new helpers run on.
+ */
+export function builderRunsOn(
+  crew: Pick<Crew, "helperModel">,
+  builder: Pick<CrewMember, "chosen"> | undefined,
+  card: { override?: { model?: string; effort?: string } },
+): { model?: string; effort?: string } | undefined {
+  if (card.override) return card.override;
+  if (builder?.chosen) return undefined;
+  return helperRunsOn(crew);
 }
 
 /** How many of a provider's models Avos picks from: its newest. */
@@ -106,12 +140,13 @@ const PICKS_SHOWN = 4;
  * takes. None when you picked its model yourself, or there's no Builder.
  */
 export function avosPickChoices(
-  crew: Pick<Crew, "members">,
+  crew: Pick<Crew, "members" | "helperModel">,
   models: (harness: HarnessId) => readonly { id: string }[] = (harness) =>
     pickerModelsFor(harness),
 ): string | undefined {
   const builder = crewMember(crew as Crew, "builder");
-  if (!builder || builder.chosen) return undefined;
+  if (!builder || builder.chosen || crew.helperModel !== "avos")
+    return undefined;
   const { harness } = crewMemberApp(builder);
   const listed = models(harness)
     .slice(0, PICKS_SHOWN)
@@ -136,8 +171,10 @@ export function avosPickChoices(
 export function avosPickOverride(
   builder: Pick<CrewMember, "chosen"> | undefined,
   pick: { model?: string; effort?: string } | undefined,
+  crew: Pick<Crew, "helperModel"> = { helperModel: "avos" },
 ): { model?: string; effort?: string } | undefined {
-  if (!builder || builder.chosen || !pick) return undefined;
+  if (!builder || builder.chosen || !pick || crew.helperModel !== "avos")
+    return undefined;
   const out = {
     ...(pick.model ? { model: pick.model } : {}),
     ...(pick.effort ? { effort: pick.effort } : {}),

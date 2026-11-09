@@ -1,6 +1,12 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { Segmented, Toggle } from "../surfaces/SettingsControls";
+import { Segmented, Select, Toggle } from "../surfaces/SettingsControls";
+import {
+  crewEffortSetting,
+  HELPER_MODEL_DEFAULT,
+  helperRunsOn,
+} from "../lib/crewModels";
+import { findModel, pickerModelsFor } from "../lib/models";
 import {
   firstCardChatText,
   setAvosReadAccess,
@@ -10,6 +16,7 @@ import {
   setCrewQuietHours,
   setMemberMemory,
   tellCrew,
+  setCrewHelperModel,
   setCrewRoutes,
   setDefaultBuilder,
   teammateChatReady,
@@ -927,6 +934,7 @@ function HelpersBody({
         </button>
       </div>
       {builders.length > 1 ? <RoutingSection crew={crew} /> : null}
+      <HelperModelSection crew={crew} />
       <Section title="Quick helpers">
         <div className="crew-settings-card">
           <LimitRow
@@ -964,6 +972,95 @@ function HelpersBody({
         </p>
       </Section>
     </div>
+  );
+}
+
+/**
+ * What the helpers Avos sets to work run on: one model and effort for new
+ * helpers and the Builders you haven't set yourself, or Avos's pick.
+ */
+function HelperModelSection({ crew }: { crew: Crew }) {
+  const path = crew.path;
+  const runs = helperRunsOn(crew);
+  const models = pickerModelsFor("claude");
+  const value = runs ? runs.model : "avos";
+  const known = runs ? findModel(runs.model) : undefined;
+  const effort = known ? crewEffortSetting(known.harness, known.id) : undefined;
+  const pickModel = (id: string) => {
+    if (id === "avos") return setCrewHelperModel(path, "avos");
+    const setting = crewEffortSetting("claude", id);
+    // Keep the effort when the new model takes it, else its own default.
+    const keep =
+      runs?.effort &&
+      setting?.options.some((option) => option.value === runs.effort)
+        ? runs.effort
+        : undefined;
+    const next = { model: id, ...(keep ? { effort: keep } : {}) };
+    setCrewHelperModel(
+      path,
+      next.model === HELPER_MODEL_DEFAULT.model &&
+        next.effort === HELPER_MODEL_DEFAULT.effort
+        ? null
+        : next,
+    );
+  };
+  return (
+    <Section title="Model">
+      <div className="crew-settings-card" data-crew-helper-model>
+        <LimitRow
+          title="Helpers run on"
+          detail="New helpers, and Builders you haven't set yourself"
+        >
+          <Select
+            label="Helpers run on"
+            value={value}
+            options={[
+              ...models.map((model) => ({
+                value: model.id,
+                label: model.name.replace(/^Claude /, ""),
+              })),
+              {
+                value: "avos",
+                label: "Let Avos choose",
+                description: "It picks a model and effort for each job",
+              },
+            ]}
+            onChange={pickModel}
+          />
+        </LimitRow>
+        {runs && effort ? (
+          <LimitRow title="Effort" detail="How hard they think">
+            <Select
+              label="Effort"
+              value={runs.effort ?? ""}
+              options={[
+                { value: "", label: "Default" },
+                ...effort.options.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                })),
+              ]}
+              onChange={(value) => {
+                const next = {
+                  model: runs.model,
+                  ...(value ? { effort: value } : {}),
+                };
+                setCrewHelperModel(
+                  path,
+                  next.model === HELPER_MODEL_DEFAULT.model &&
+                    value === HELPER_MODEL_DEFAULT.effort
+                    ? null
+                    : next,
+                );
+              }}
+            />
+          </LimitRow>
+        ) : null}
+      </div>
+      <p className="bot-sheet-note">
+        A Builder you set yourself keeps its own model.
+      </p>
+    </Section>
   );
 }
 

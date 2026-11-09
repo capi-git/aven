@@ -7,7 +7,7 @@ import {
   type CrewRunnerDeps,
 } from "./crewRunner";
 import { crewLiveReply } from "./crewLiveReply";
-import { AVOS_TALK_MODEL } from "./crewModels";
+import { AVOS_MODEL } from "./crewModels";
 import { TALK_HOPS, parseTalk, talkMayAddJob } from "./crewTalk";
 import {
   crewLead,
@@ -1136,7 +1136,7 @@ describe("Avos answering you", () => {
     });
   });
 
-  it("answers on the quick model unless you picked one for it", async () => {
+  it("answers on Opus 5.5 at Medium unless you picked a model for it", async () => {
     team();
     const quick = harness({ lead: () => talk({ line: "Hi." }) });
     quick.runner.start();
@@ -1144,7 +1144,7 @@ describe("Avos answering you", () => {
     await quick.settle();
     quick.runner.stop();
     expect(quick.overrides.filter((o) => o.memberId === "lead")).toEqual([
-      { memberId: "lead", model: AVOS_TALK_MODEL },
+      { memberId: "lead", model: AVOS_MODEL, effort: "medium" },
     ]);
 
     resetCrewsCache();

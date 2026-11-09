@@ -1,6 +1,12 @@
 import { addAvosJob } from "./avosJobs";
 import { setCrewLiveReply } from "./crewLiveReply";
-import { avosPickChoices, avosPickOverride, avosTalkModel } from "./crewModels";
+import {
+  avosPickChoices,
+  avosPickOverride,
+  avosTalkModel,
+  builderRunsOn,
+  helperRunsOn,
+} from "./crewModels";
 import {
   TALK_HOPS,
   TALK_TEXT_MAX,
@@ -163,6 +169,7 @@ import {
 } from "./projectBotCopy";
 import type { BotSendOptions } from "./projectBotRunner";
 import { botBranch, jobIsLive } from "./projectBots";
+import { findModel } from "./models";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
 import type { BotSyncNote } from "./projectBotWake";
 import { replyHeadline } from "./projectBotWake";
@@ -824,12 +831,12 @@ export class CrewRunner {
         if (prepared === null) return;
         if (prepared) crew = prepared.crew;
       }
-      // Avos answers on a quick model unless you picked one for it.
-      const quick = avosTalkModel(member);
+      // Avos runs on Opus 5.5 at Medium unless you picked a model for it.
+      const avos = avosTalkModel(member);
       const chat = await this.deps.ensureChat(
         crew,
         member.id,
-        ...(quick ? [quick] : []),
+        ...(avos ? [avos] : []),
       );
       if (!chat) throw new Error(`Couldn't open ${toName}'s chat.`);
       if (chatAtWork(chat)) {
@@ -879,7 +886,7 @@ export class CrewRunner {
         sessionId: chat.id,
         turnId,
         live: talk.from === "you" && !talk.routine,
-        ...(quick ? { quick: true } : {}),
+        ...(avos ? { quick: true } : {}),
         mayStartHelpers,
       });
       this.updateWorking();
@@ -1216,14 +1223,21 @@ export class CrewRunner {
           });
           break;
         }
+        // On what you picked for new helpers (Opus 5.5 · Medium until you
+        // do); when Avos picks per job, on what its asker runs on.
         const app = crewMemberApp(member);
+        const runs = helperRunsOn(next) ?? {
+          model: app.model ?? avosTalkModel(member)?.model ?? "",
+        };
+        const runsHarness = findModel(runs.model)?.harness ?? app.harness;
         const helper: CrewMember = {
           id: `helper-${this.newId()}`.slice(0, 40),
           role: "helper",
           name: asked.title.slice(0, 40),
           helperOf: member.id,
-          harness: app.harness,
-          ...(app.model ? { model: app.model } : {}),
+          harness: runsHarness === "codex" ? "codex" : "claude",
+          ...(runs.model ? { model: runs.model } : {}),
+          ...("effort" in runs && runs.effort ? { effort: runs.effort } : {}),
         };
         next = withTalk(
           withFeed(withHelper(next, helper, now), {
@@ -1505,6 +1519,7 @@ export class CrewRunner {
               const override = avosPickOverride(
                 crewMember(crew, "builder"),
                 idea?.pick,
+                crew,
               );
               return override ? { override } : {};
             })(),
@@ -1844,7 +1859,9 @@ export class CrewRunner {
       const chat = await this.deps.ensureChat(
         crew,
         memberId,
-        role === "builder" ? card.override : undefined,
+        role === "builder"
+          ? builderRunsOn(crew, crewMemberById(crew, memberId), card)
+          : undefined,
       );
       if (!chat)
         throw new Error(
