@@ -3562,7 +3562,7 @@ export function goalPlanner(crew: Crew): CrewMember | undefined {
 export const NO_PLANNER = "No Builder is on. Turn one on in Helpers.";
 
 /** How NO_PLANNER read before it was said in plain words. */
-const OLD_NO_PLANNER =
+export const OLD_NO_PLANNER =
   "The goal waits: turn on a Scout or a Builder to plan its cards.";
 
 /** What a folder lacks before anything can build in a copy of it. */

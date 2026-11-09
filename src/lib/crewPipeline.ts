@@ -9,6 +9,7 @@ import {
   type Crew,
   goalNeed,
   type BuildingNeed,
+  OLD_NO_PLANNER,
 } from "./crews";
 import type { CrewBoardAction, CrewBoardInfo } from "./crewView";
 import type { RaceFile } from "./race";
@@ -286,7 +287,11 @@ export function crewPipeline(input: {
       ? {
           text: crew.goal.text,
           state: crew.goal.done.met ? "met" : "stopped",
-          why: crew.goal.done.text,
+          // A reason saved in the old wording was often wrong (the folder
+          // had no Git): Keep going finds the real one.
+          ...(crew.goal.done.text === OLD_NO_PLANNER
+            ? {}
+            : { why: crew.goal.done.text }),
           ...(!crew.goal.done.met && goalNeed(crew.goal.done.text)
             ? { needs: goalNeed(crew.goal.done.text)! }
             : {}),
