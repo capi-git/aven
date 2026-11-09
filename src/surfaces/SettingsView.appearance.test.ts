@@ -41,7 +41,8 @@ const APPEARANCE_CONTROLS = [
   "Theme",
   "Accent colour",
   "Interface scale",
-  "Glass",
+  "Opacity",
+  "Translucency",
   "Frame",
   "Reduce motion",
   "Dot pointer",
@@ -159,8 +160,16 @@ describe("workspace appearance settings", () => {
 
   const glass = () =>
     container.querySelector<HTMLInputElement>(
-      'input[type="range"][aria-label="Glass"]',
+      'input[type="range"][aria-label="Opacity"]',
     )!;
+  const frost = () =>
+    container.querySelector<HTMLInputElement>(
+      'input[type="range"][aria-label="Translucency"]',
+    )!;
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    });
   const checkedAccent = () =>
     container
       .querySelector(
@@ -205,11 +214,13 @@ describe("workspace appearance settings", () => {
       expect(text).not.toContain(removed.toLowerCase());
   });
 
-  it("opens with Glass read from the saved opacity, rewriting nothing", async () => {
+  it("opens with Opacity and Translucency read from the saved look, rewriting nothing", async () => {
     const before = Object.fromEntries(storage);
     await mount();
-    expect(glass().value).toBe("55");
-    expect(glass().getAttribute("aria-valuetext")).toBe("55%");
+    expect(glass().value).toBe("45");
+    expect(glass().getAttribute("aria-valuetext")).toBe("45%");
+    expect(frost().value).toBe("81");
+    expect(frost().disabled).toBe(false);
     expect(Object.fromEntries(storage)).toEqual(before);
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 0.45,
@@ -219,16 +230,22 @@ describe("workspace appearance settings", () => {
     expect(loadStatusBarOpacity()).toBe(0.3);
   });
 
-  it("moves opacity, blur, the desktop behind sessions and the status bar together", async () => {
+  it("sets opacity and blur separately, each keeping the other", async () => {
     await mount();
-    await input("Glass", "0");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 220));
+    await input("Translucency", "50");
+    await settle();
+    expect(loadWorkspaceTheme("work")).toMatchObject({
+      opacity: 0.45,
+      blur: 32,
     });
+
+    await input("Opacity", "100");
+    await settle();
     expect(glass().getAttribute("aria-valuetext")).toBe("Solid");
+    expect(frost().disabled).toBe(true);
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 1,
-      blur: 0,
+      blur: 32,
       bodyGlass: false,
     });
     expect(loadStatusBarOpacity()).toBe(1);
@@ -236,39 +253,42 @@ describe("workspace appearance settings", () => {
       document.documentElement.style.getPropertyValue("--status-bar-opacity"),
     ).toBe("1");
 
-    await input("Glass", "48");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 220));
-    });
+    await input("Opacity", "52");
+    await settle();
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 0.52,
-      blur: 16,
+      blur: 32,
       bodyGlass: true,
     });
     expect(loadStatusBarOpacity()).toBe(STATUS_BAR_OPACITY_DEFAULT);
 
-    await input("Glass", "95");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 220));
-    });
+    // A quick move of one slider then the other saves both.
+    await input("Opacity", "5");
+    await input("Translucency", "100");
+    await settle();
     expect(loadWorkspaceTheme("work")).toMatchObject({
       opacity: 0.05,
-      blur: 32,
+      blur: 0,
       bodyGlass: true,
     });
+    expect(frost().getAttribute("aria-valuetext")).toBe("Clear");
     expect(loadStatusBarOpacity()).toBe(0.06);
-    // The glass slider leaves colours alone.
+    // The glass sliders leave colours alone.
     expect(loadWorkspaceTheme("work").colors?.dark?.accent).toBe("#446688");
   });
 
-  it("disables Glass in light mode with a one-line note and keeps the dark value", async () => {
+  it("disables both glass sliders in light mode with a one-line note and keeps the dark values", async () => {
     saveWorkspaceTheme("work", { preference: "light" });
     await mount();
     expect(glass().disabled).toBe(true);
-    expect(container.querySelector("#setting-glass")?.textContent).toContain(
+    expect(frost().disabled).toBe(true);
+    expect(container.querySelector("#setting-opacity")?.textContent).toContain(
       "Light mode always uses a solid window. Glass applies in dark mode.",
     );
-    expect(loadWorkspaceTheme("work").opacity).toBe(0.45);
+    expect(loadWorkspaceTheme("work")).toMatchObject({
+      opacity: 0.45,
+      blur: 12,
+    });
   });
 
   it("picks an accent from preset swatches for both modes, keeping backgrounds and glass", async () => {
@@ -400,12 +420,13 @@ describe("workspace appearance settings", () => {
   it("restores the default theme, glass and device display settings", async () => {
     saveChatBackgroundScope("empty");
     await mount();
-    await input("Glass", "10");
+    await input("Opacity", "90");
     await click(buttonWithText("Restore defaults"));
     expect(loadWorkspaceTheme("work")).toEqual(defaultWorkspaceTheme());
     expect(loadStatusBarOpacity()).toBe(STATUS_BAR_OPACITY_DEFAULT);
     expect(loadChatBackgroundScope()).toBe("all");
-    expect(glass().value).toBe("48");
+    expect(glass().value).toBe("52");
+    expect(frost().value).toBe("75");
     expect(checkedAccent()).toBe("Neutral");
   });
 
