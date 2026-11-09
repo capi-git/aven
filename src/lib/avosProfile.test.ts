@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { avosFinishedToday, avosForYouLine } from "./avosProfile";
+import {
+  avosFinishedToday,
+  avosForYouLine,
+  memoryFacts,
+  withoutMemoryFact,
+} from "./avosProfile";
 import type { Crew } from "./crews";
 
 describe("Avos's line over what waits for you", () => {
@@ -43,5 +48,22 @@ describe("what Avos's helpers finished today", () => {
     ];
     expect(avosFinishedToday({ feed }, now)).toBe(4);
     expect(avosFinishedToday({ feed: [] }, now)).toBe(0);
+  });
+});
+
+describe("what Avos learned, one fact a row", () => {
+  it("takes each line that says something, past headings and bullets", () => {
+    const memory = "# Notes\n\n- Drafts only\n* The Insights page\n1. Use pnpm";
+    expect(memoryFacts(memory)).toEqual([
+      { line: 2, text: "Drafts only" },
+      { line: 3, text: "The Insights page" },
+      { line: 4, text: "Use pnpm" },
+    ]);
+    expect(memoryFacts(undefined)).toEqual([]);
+  });
+
+  it("forgets one line, and empties to nothing when no fact is left", () => {
+    expect(withoutMemoryFact("# Notes\n- A\n- B", 1)).toBe("# Notes\n- B");
+    expect(withoutMemoryFact("# Notes\n- A", 1)).toBeNull();
   });
 });

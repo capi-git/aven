@@ -62,7 +62,6 @@ import { AvosReview } from "./AvosReview";
 import { BatchCard, CrewBatchSheet } from "./TeamBatch";
 import { TeamCardButton } from "../chrome/TeamCard";
 import { TeamChat } from "./TeamChat";
-import { TeamNotes } from "./TeamPanel";
 import type { BoardTop } from "./WorkBoard";
 import "./TeamScreen.css";
 
@@ -130,7 +129,6 @@ export function TeamScreen({
   // sets the view itself): nothing on screen leads there.
   const [saved, save] = useTeamView(project);
   const [reviewing, setReviewing] = useState(false);
-  const [notes, setNotes] = useState(false);
   // What the helpers did, in a sheet.
   const [activity, setActivity] = useState(false);
   // Avos's panel: its open tab beside the chat, or (narrow) in a sheet.
@@ -313,10 +311,6 @@ export function TeamScreen({
       save("chat");
       chat.current?.select(id);
     },
-    onNotes: () => {
-      setSheet(null);
-      setNotes(true);
-    },
     onActivity: () => {
       setSheet(null);
       setActivity(true);
@@ -457,18 +451,6 @@ export function TeamScreen({
         >
           <div className="crew-activity" data-avos-activity>
             <CrewFeed crew={crew} name={name} />
-          </div>
-        </Modal>
-      ) : null}
-      {notes ? (
-        <Modal
-          onClose={() => setNotes(false)}
-          title="What Avos remembers"
-          description="Your rules, and what it learned about this project"
-          className="avos-notes-sheet"
-        >
-          <div className="avos-sheet-body">
-            <TeamNotes crew={crew} />
           </div>
         </Modal>
       ) : null}

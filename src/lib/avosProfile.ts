@@ -58,3 +58,30 @@ export function avosFinishedToday(
         entry.kind === "mockup"),
   ).length;
 }
+
+/** One of Avos's notes: its words, and which line of its notes it is. */
+export type MemoryFact = { line: number; text: string };
+
+/**
+ * What Avos has learned, one fact a row: each line of its notes that says
+ * something, past headings and blank lines, its bullet taken off.
+ */
+export function memoryFacts(memory: string | undefined): MemoryFact[] {
+  if (!memory) return [];
+  const facts: MemoryFact[] = [];
+  memory.split("\n").forEach((raw, line) => {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const text = trimmed.replace(/^([-*•]|\d+[.)])\s*/, "").trim();
+    if (text) facts.push({ line, text });
+  });
+  return facts;
+}
+
+/** Its notes without one fact's line (by `memoryFacts`' line), or null if empty. */
+export function withoutMemoryFact(memory: string, line: number): string | null {
+  const lines = memory.split("\n");
+  lines.splice(line, 1);
+  const next = lines.join("\n").trim();
+  return memoryFacts(next).length ? next : null;
+}

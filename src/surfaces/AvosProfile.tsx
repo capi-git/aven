@@ -44,8 +44,6 @@ export type AvosProfileProps = {
   onOpen: (row: AvosWeekRow) => void;
   /** A helper's posts, in the chat. */
   onHelper: (id: string) => void;
-  /** Everything it remembers, in a sheet. */
-  onNotes: () => void;
   /** What the helpers did, in a sheet. */
   onActivity: () => void;
   /** Review what's ready, beside the chat. */
@@ -340,8 +338,7 @@ export function AvosMore({
   crew,
   glance,
   dailyCap,
-  onNotes,
-}: Pick<AvosProfileProps, "crew" | "glance" | "dailyCap" | "onNotes">) {
+}: Pick<AvosProfileProps, "crew" | "glance" | "dailyCap">) {
   const workspace = useCrewWorkspace();
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const items: ExplorerMenuItem[] = [
@@ -386,7 +383,9 @@ export function AvosMore({
             setMenu(null);
             if (id === "stop") void stopCrewNow(crew.path);
             else if (id === "more") allowMoreRunsToday(crew.path);
-            else if (id === "notes") onNotes();
+            // What it remembers: its Memory page in Settings.
+            else if (id === "notes")
+              workspace?.openSettings(crew.path, "memory");
             else if (id === "pause" || id === "resume")
               setCrewPaused(crew.path, id === "pause");
             else if (id === "settings") workspace?.openSettings(crew.path);

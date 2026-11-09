@@ -8,6 +8,8 @@ import {
   setCrewAskBeforeBuilding,
   setCrewLimit,
   setCrewQuietHours,
+  setMemberMemory,
+  tellCrew,
   setCrewRoutes,
   setDefaultBuilder,
   teammateChatReady,
@@ -16,12 +18,19 @@ import {
   useCrewWorkspace,
 } from "../lib/crewActions";
 import { quietText } from "../lib/crewLimits";
+import { memoryFacts, withoutMemoryFact } from "../lib/avosProfile";
+import { plural } from "../lib/words";
 import {
   crewMemberById,
   crewMemberName,
   crewMembers,
   defaultBuilder,
   CREW_ACCESS_LEVELS,
+  CREW_INSTRUCTIONS_MAX,
+  CREW_MEMORY_MAX,
+  CREW_NOTE_MAX,
+  updateCrew,
+  withoutNote,
   CREW_HELPERS,
   avosMayRead,
   crewAccess,
@@ -81,10 +90,22 @@ type Page =
   /** A teammate's page, and the page it was opened from (its way back). */
   | { kind: "member"; id: string; from: "crew" | "add" | "helpers" }
   | { kind: "add" }
-  /** One of the four rows' own pages. */
+  /** One of Avos's rows' own pages. */
+  | { kind: "instructions" }
+  | { kind: "memory" }
   | { kind: "helpers" }
   | { kind: "access" }
   | { kind: "limits" };
+
+/** The pages `initialPage` may name besides a helper's id. */
+const NAMED_PAGES = [
+  "add",
+  "instructions",
+  "memory",
+  "helpers",
+  "access",
+  "limits",
+] as const;
 
 /** The way back's page, by where a page was opened from. */
 const BACK_LABEL = { crew: "", add: "Add a helper", helpers: "Helpers" };
@@ -126,8 +147,8 @@ export function CrewSettingsSheet({
   const project = appearance?.label || projectName(path);
   const nameId = useId();
   const [page, setPage] = useState<Page>(() =>
-    initialPage === "add"
-      ? { kind: "add" }
+    (NAMED_PAGES as readonly string[]).includes(initialPage ?? "")
+      ? { kind: initialPage as (typeof NAMED_PAGES)[number] }
       : initialPage
         ? { kind: "member", id: initialPage, from: "helpers" }
         : { kind: "crew" },
@@ -307,6 +328,25 @@ export function CrewSettingsSheet({
         {...(onAddFixer ? { onAddFixer } : {})}
         onOpenMember={(id) => toPage({ kind: "member", id, from: "add" })}
         onClose={onClose}
+      />
+    );
+  } else if (page.kind === "instructions") {
+    header = {
+      title: "Instructions",
+      description: "What Avos reads at every turn, in your words.",
+      above: back,
+    };
+    body = <InstructionsBody crew={crew} />;
+  } else if (page.kind === "memory") {
+    header = {
+      title: "Memory",
+      description: "What Avos has learned about this project.",
+      above: back,
+    };
+    body = (
+      <MemoryBody
+        crew={crew}
+        onOpenMember={(id) => toPage({ kind: "member", id, from: "crew" })}
       />
     );
   } else if (page.kind === "helpers") {
@@ -518,7 +558,9 @@ function CrewBody({
   /** Why Avos couldn't turn on. */
   problem: string | null;
   onOpenMember: (id: string) => void;
-  onPage: (kind: "helpers" | "access" | "limits") => void;
+  onPage: (
+    kind: "instructions" | "memory" | "helpers" | "access" | "limits",
+  ) => void;
 }) {
   const path = crew.path;
   const lead = crewMembers(crew).find((member) => member.role === "lead");
@@ -534,6 +576,32 @@ function CrewBody({
             title="Model"
             detail={memberAppLine(lead)}
             onOpen={() => onOpenMember(lead.id)}
+          />
+        ) : null}
+        {lead ? (
+          <SummaryRow
+            id="instructions"
+            title="Instructions"
+            detail={
+              firstLine(lead.instructions) ??
+              (crew.notes.length
+                ? plural(crew.notes.length, "rule")
+                : "Your standing words to Avos")
+            }
+            onOpen={() => onPage("instructions")}
+          />
+        ) : null}
+        {lead ? (
+          <SummaryRow
+            id="memory"
+            title="Memory"
+            detail={
+              memoryFacts(lead.memory).length
+                ? plural(memoryFacts(lead.memory).length, "thing") +
+                  " it learned"
+                : "Nothing yet. It notes what it learns as it works"
+            }
+            onOpen={() => onPage("memory")}
           />
         ) : null}
         <SummaryRow
@@ -588,6 +656,215 @@ function CrewBody({
         <p className="bot-sheet-problem" role="alert">
           {problem}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A text's first line worth showing, or undefined when it has none. */
+function firstLine(text: string | undefined): string | undefined {
+  const line = text
+    ?.split("\n")
+    .map((entry) => entry.trim())
+    .find(Boolean);
+  return line || undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Instructions and memory, as a Mono's Soul and Memory
+
+/**
+ * What Avos reads at every turn: your standing words to it, and the rules
+ * you gave for every job (each with Forget, and a field to add one).
+ */
+function InstructionsBody({ crew }: { crew: Crew }) {
+  const lead = crewMembers(crew).find((member) => member.role === "lead");
+  const [text, setText] = useState(lead?.instructions ?? "");
+  const [rule, setRule] = useState("");
+  const addRule = () => {
+    const words = rule.trim();
+    if (!words) return;
+    tellCrew(crew.path, words);
+    setRule("");
+  };
+  return (
+    <div className="bot-sheet-body" data-crew-settings-page="instructions">
+      {lead ? (
+        <textarea
+          className="aven-field crew-settings-instructions"
+          aria-label="Instructions"
+          rows={8}
+          maxLength={CREW_INSTRUCTIONS_MAX}
+          placeholder="Like “Keep changes small, and say what you changed in a line”"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={() =>
+            updateCrewMember(crew.path, lead.id, { instructions: text })
+          }
+        />
+      ) : null}
+      <Section title="For every job">
+        <div className="crew-settings-card">
+          {crew.notes.map((note) => (
+            <div
+              key={note.id}
+              className="bot-sheet-row crew-settings-fact"
+              data-avos-rule={note.id}
+            >
+              <span>{note.text}</span>
+              <button
+                type="button"
+                className="crew-settings-remove-link"
+                onClick={() =>
+                  updateCrew(crew.path, (current) =>
+                    withoutNote(current, note.id),
+                  )
+                }
+              >
+                Forget
+              </button>
+            </div>
+          ))}
+          <form
+            className="bot-sheet-row crew-settings-fact"
+            onSubmit={(event) => {
+              event.preventDefault();
+              addRule();
+            }}
+          >
+            <input
+              className="aven-field crew-settings-fact-input"
+              aria-label="Add a rule for every job"
+              placeholder="Add a rule for every job"
+              maxLength={CREW_NOTE_MAX}
+              value={rule}
+              onChange={(event) => setRule(event.target.value)}
+            />
+            <button
+              type="submit"
+              className="crew-settings-remove-link"
+              disabled={!rule.trim()}
+            >
+              Add
+            </button>
+          </form>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * What Avos has learned, one fact a row with Forget, all of it editable as
+ * text; then what each helper learned, which opens its page.
+ */
+function MemoryBody({
+  crew,
+  onOpenMember,
+}: {
+  crew: Crew;
+  onOpenMember: (id: string) => void;
+}) {
+  const lead = crewMembers(crew).find((member) => member.role === "lead");
+  const memory = lead?.memory ?? "";
+  const facts = memoryFacts(memory);
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(memory);
+  const [problem, setProblem] = useState<string | null>(null);
+  const helpers = crewMembers(crew).filter(
+    (member) =>
+      member.role !== "lead" && member.role !== "fixer" && member.memory,
+  );
+  return (
+    <div className="bot-sheet-body" data-crew-settings-page="memory">
+      {lead && editing ? (
+        <textarea
+          className="aven-field crew-settings-instructions"
+          aria-label="Memory"
+          rows={10}
+          maxLength={CREW_MEMORY_MAX}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onBlur={() => {
+            setProblem(
+              setMemberMemory(crew.path, lead.id, text.trim() || null),
+            );
+            setEditing(false);
+          }}
+          autoFocus
+        />
+      ) : facts.length && lead ? (
+        <div className="crew-settings-card" data-avos-memory>
+          {facts.map((fact) => (
+            <div
+              key={`${fact.line}:${fact.text}`}
+              className="bot-sheet-row crew-settings-fact"
+              data-avos-fact
+            >
+              <span>{fact.text}</span>
+              <button
+                type="button"
+                className="crew-settings-remove-link"
+                onClick={() =>
+                  setProblem(
+                    setMemberMemory(
+                      crew.path,
+                      lead.id,
+                      withoutMemoryFact(memory, fact.line),
+                    ),
+                  )
+                }
+              >
+                Forget
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="bot-sheet-note">
+          Nothing yet. Avos notes what it learns about this project as it works,
+          and reads it back at every turn.
+        </p>
+      )}
+      {lead && !editing ? (
+        <div className="crew-settings-memory-foot">
+          <button
+            type="button"
+            className="crew-settings-disclosure"
+            data-avos-memory-edit
+            onClick={() => {
+              setText(memory);
+              setEditing(true);
+            }}
+          >
+            Edit as text
+          </button>
+          {facts.length ? (
+            <span className="bot-sheet-note">
+              {plural(facts.length, "line")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {problem ? (
+        <p className="bot-sheet-problem" role="alert">
+          {problem}
+        </p>
+      ) : null}
+      {helpers.length ? (
+        <Section title="What its helpers learned">
+          <div className="crew-settings-card">
+            {helpers.map((member) => (
+              <SummaryRow
+                key={member.id}
+                id={`memory:${member.id}`}
+                title={crewMemberName(crew, member.id)}
+                detail={firstLine(member.memory) ?? ""}
+                onOpen={() => onOpenMember(member.id)}
+              />
+            ))}
+          </div>
+        </Section>
       ) : null}
     </div>
   );

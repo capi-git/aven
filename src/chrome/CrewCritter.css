@@ -709,3 +709,52 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 .crew-settings-card + [data-crew-access] {
   margin-top: 12px;
 }
+
+/* Avos's Instructions and Memory pages: a box for your words, then one row
+   a rule or a fact, its words on the left and Forget on the right. */
+.crew-settings-instructions {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: var(--text-ui-body);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.bot-sheet-row.crew-settings-fact {
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 0;
+  font-size: var(--text-ui-body);
+  line-height: 1.45;
+}
+
+.bot-sheet-row.crew-settings-fact > span {
+  flex: 1 1 auto;
+}
+
+.crew-settings-fact-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: var(--text-ui-body);
+}
+
+.crew-settings-memory-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.crew-settings-memory-foot .bot-sheet-note {
+  margin: 0;
+}
+
+.crew-settings-instructions + .crew-settings-section {
+  padding-top: 18px;
+}

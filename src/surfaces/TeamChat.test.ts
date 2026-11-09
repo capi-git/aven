@@ -1190,16 +1190,8 @@ describe("the team chat", () => {
     expect(container.querySelector("[data-crew-header]")).toBeNull();
   });
 
-  it("keeps what Avos remembers in ⋯, all of it in Notes, with Forget", async () => {
-    await setUp((crew) => ({
-      ...crew,
-      members: crew.members.map((member) =>
-        member.id === "checker"
-          ? { ...member, memory: "Tests live in src/__tests__." }
-          : member,
-      ),
-      notes: [{ id: "n1", at: NOW - 60_000, text: "Use pnpm, not npm" }],
-    }));
+  it("opens what Avos remembers from ⋯ on its Memory page in Settings", async () => {
+    await setUp();
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="More for Avos"]')!
@@ -1211,16 +1203,6 @@ describe("the team chat", () => {
         "What Avos remembers",
       )!.click(),
     );
-    const notes = document.querySelector<HTMLElement>("[data-avos-notes]")!;
-    expect(
-      [...notes.querySelectorAll(".team-notes-heading")].map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["Your rules", "What it learned"]);
-    expect(notes.textContent).toContain("Tests live in src/__tests__.");
-    const rule = notes.querySelector<HTMLElement>("[data-avos-rule]")!;
-    expect(rule.textContent).toContain("Use pnpm, not npm");
-    await act(async () => button(rule, "Forget")!.click());
-    expect(getCrew(PROJECT)!.notes).toEqual([]);
+    expect(workspace.openSettings).toHaveBeenLastCalledWith(PROJECT, "memory");
   });
 });

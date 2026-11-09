@@ -51,7 +51,6 @@ function props(patch: Partial<AvosPanelProps> = {}): AvosPanelProps {
     now: NOW,
     onOpen: () => {},
     onHelper: () => {},
-    onNotes: () => {},
     onActivity: () => {},
     onReview: () => {},
     name: (who) => who,

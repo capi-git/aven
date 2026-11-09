@@ -84,7 +84,7 @@ const toRow = async (id: string) =>
   );
 
 describe("the team's settings", () => {
-  it("shows four rows, Avos's model, helpers, access and limits, each with one line", async () => {
+  it("shows Avos's rows, model, instructions, memory, helpers, access and limits, each with one line", async () => {
     updateCrew(PATH, (crew) => ({
       ...crew,
       members: [
@@ -110,8 +110,19 @@ describe("the team's settings", () => {
       [...sheet().querySelectorAll<HTMLElement>("[data-crew-summary]")].map(
         (row) => row.dataset.crewSummary,
       ),
-    ).toEqual(["model", "helpers", "access", "limits"]);
+    ).toEqual([
+      "model",
+      "instructions",
+      "memory",
+      "helpers",
+      "access",
+      "limits",
+    ]);
     expect(summary("model")).toBe("Claude · Sonnet 9");
+    expect(summary("instructions")).toBe("Your standing words to Avos");
+    expect(summary("memory")).toBe(
+      "Nothing yet. It notes what it learns as it works",
+    );
     // Avos isn't one of its own helpers.
     expect(summary("helpers")).toBe("Builder, Checker, Security");
     expect(summary("access")).toBe(
@@ -161,6 +172,98 @@ describe("the team's settings", () => {
     expect(sheet().querySelector("[data-crew-never]")?.textContent).toBe(
       TEAM_ALWAYS_LINE,
     );
+  });
+
+  it("keeps your instructions to Avos and rules for every job, with Add and Forget", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: [{ id: "lead", role: "lead" }, ...crew.members],
+      notes: [{ id: "n1", at: 1, text: "Use pnpm, not npm" }],
+    }));
+    await open("instructions");
+    const box = sheet().querySelector<HTMLTextAreaElement>(
+      '[aria-label="Instructions"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )!.set!.call(box, "Keep changes small");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      box.dispatchEvent(new FocusEvent("focusout", { bubbles: true })),
+    );
+    expect(crewMemberById(getCrew(PATH)!, "lead")?.instructions).toBe(
+      "Keep changes small",
+    );
+    const add = sheet().querySelector<HTMLInputElement>(
+      '[aria-label="Add a rule for every job"]',
+    )!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(add, "Say what changed in a line");
+      add.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => add.form!.requestSubmit());
+    expect(getCrew(PATH)!.notes.map((note) => note.text)).toEqual([
+      "Use pnpm, not npm",
+      "Say what changed in a line",
+    ]);
+    await act(async () =>
+      sheet()
+        .querySelector('[data-avos-rule="n1"]')!
+        .querySelector<HTMLButtonElement>("button")!
+        .click(),
+    );
+    expect(getCrew(PATH)!.notes.map((note) => note.text)).toEqual([
+      "Say what changed in a line",
+    ]);
+  });
+
+  it("shows what Avos learned one fact a row, with Forget and Edit as text", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: [
+        {
+          id: "lead",
+          role: "lead",
+          memory:
+            "# Notes\n- Articles go in as drafts\n- The Insights page is /insights",
+        },
+        ...crew.members,
+      ],
+    }));
+    await open("memory");
+    const facts = () =>
+      [...sheet().querySelectorAll<HTMLElement>("[data-avos-fact] span")].map(
+        (fact) => fact.textContent,
+      );
+    expect(facts()).toEqual([
+      "Articles go in as drafts",
+      "The Insights page is /insights",
+    ]);
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLElement>("[data-avos-fact]")!
+        .querySelector<HTMLButtonElement>("button")!
+        .click(),
+    );
+    expect(facts()).toEqual(["The Insights page is /insights"]);
+    expect(crewMemberById(getCrew(PATH)!, "lead")?.memory).not.toContain(
+      "drafts",
+    );
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>("[data-avos-memory-edit]")!
+        .click(),
+    );
+    expect(
+      sheet().querySelector<HTMLTextAreaElement>('[aria-label="Memory"]')
+        ?.value,
+    ).toContain("The Insights page is /insights");
   });
 
   it("lets Avos start quick helpers, up to a number a day, or none", async () => {
