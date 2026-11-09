@@ -24,7 +24,11 @@ import {
   type AvosJobsInput,
   type AvosWeekRow,
 } from "../lib/avos";
-import { subscribeCrewTell, takeCrewReview } from "../lib/crewActions";
+import {
+  subscribeCrewTell,
+  takeCrewReview,
+  useCrewWorkspace,
+} from "../lib/crewActions";
 import { avosPickOverride, pickLabel } from "../lib/crewModels";
 import {
   crewMember,
@@ -134,6 +138,9 @@ export function TeamScreen({
   // Avos's panel: its open tab beside the chat, or (narrow) in a sheet.
   const [tab, setTab] = useState<AvosTab>("overview");
   const [sheet, setSheet] = useState<AvosTab | null>(null);
+  // The helper open in Helpers, if any.
+  const [helperOpen, setHelperOpen] = useState<string | null>(null);
+  const crewWorkspace = useCrewWorkspace();
   // A card waiting on your answer, open in its own sheet.
   const [answering, setAnswering] = useState<string | null>(null);
   useEffect(() => {
@@ -306,10 +313,11 @@ export function TeamScreen({
     dailyCap,
     now,
     onOpen: open,
+    // A helper opens inside the Helpers tab; Avos's chat stays put.
     onHelper: (id) => {
-      setSheet(null);
-      save("chat");
-      chat.current?.select(id);
+      setHelperOpen(id);
+      setTab("helpers");
+      if (sheet) setSheet("helpers");
     },
     onActivity: () => {
       setSheet(null);
@@ -333,6 +341,18 @@ export function TeamScreen({
     onOpenJob: (id) => {
       setSheet(null);
       openAutomation(id);
+    },
+    helper: helperOpen,
+    onCloseHelper: () => setHelperOpen(null),
+    onWatch: (id) => {
+      setSheet(null);
+      void crewWorkspace?.openChatBeside?.(project, id);
+    },
+    onStopHelper: (sessionId) => void crewWorkspace?.stop(sessionId),
+    onPosts: (id) => {
+      setSheet(null);
+      save("chat");
+      chat.current?.select(id);
     },
   };
   return (

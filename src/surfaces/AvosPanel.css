@@ -262,3 +262,34 @@
 .personal-shell .avos-panel .avos-panel-resizer.personal-panel-resizer::after {
   left: 0;
 }
+
+/* A helper inside Helpers: the way back, then its page. */
+.avos-panel-back {
+  align-self: flex-start;
+  height: 24px;
+  padding: 0 6px 0 2px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--aven-muted);
+  font: inherit;
+  font-size: var(--text-ui-label);
+  cursor: var(--aven-cursor-pointer);
+}
+.avos-panel-back:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+.avos-panel-step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 9px 0;
+  font-size: var(--text-ui-body);
+  line-height: 1.45;
+}
+.avos-panel-step + .avos-panel-step {
+  border-top: 1px solid var(--aven-line);
+}

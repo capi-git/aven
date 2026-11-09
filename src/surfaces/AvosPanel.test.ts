@@ -67,6 +67,11 @@ function props(patch: Partial<AvosPanelProps> = {}): AvosPanelProps {
     shipped: [],
     range: null,
     onOpenJob: () => {},
+    helper: null,
+    onCloseHelper: () => {},
+    onWatch: () => {},
+    onStopHelper: () => {},
+    onPosts: () => {},
     ...patch,
   };
 }

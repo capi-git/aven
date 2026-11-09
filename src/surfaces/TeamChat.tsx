@@ -252,8 +252,11 @@ export function TeamChat({
                 }
                 onClick={() => {
                   setOpenProblem(null);
+                  // Beside Avos, in a split, never instead of it.
                   void Promise.resolve(
-                    workspace?.openChat(project, filter),
+                    workspace?.openChatBeside
+                      ? workspace.openChatBeside(project, filter)
+                      : workspace?.openChat(project, filter),
                   ).then((why) =>
                     setOpenProblem(why ? { id: filter, text: why } : null),
                   );

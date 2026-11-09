@@ -80,6 +80,7 @@ let root: Root;
 let container: HTMLDivElement;
 const workspace = {
   openChat: vi.fn(async (): Promise<string | null> => null),
+  openChatBeside: vi.fn(async (): Promise<string | null> => null),
   openCrew: vi.fn(),
   openSettings: vi.fn(),
   stop: vi.fn(async () => undefined),
@@ -321,12 +322,20 @@ const panelTab = (tab: string) =>
       .click(),
   );
 
-/** Pick a helper in Avos's Helpers tab: its posts show in the chat. */
+/**
+ * Pick a helper in Avos's Helpers tab, which opens its page there, then
+ * "Its posts in the chat": its posts show in the chat.
+ */
 const pick = async (id: string) => {
   await panelTab("helpers");
   await act(async () =>
     container
       .querySelector<HTMLButtonElement>(`[data-avos-helper="${id}"]`)!
+      .click(),
+  );
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>("[data-avos-helper-posts]")!
       .click(),
   );
 };
@@ -527,10 +536,19 @@ describe("the team chat", () => {
       expect(
         sheet.querySelector('[data-avos-profile="helpers"]'),
       ).not.toBeNull();
-      // A helper there shows its posts, and the sheet goes.
+      // A helper there opens its page in the sheet; its posts show in the
+      // chat, and the sheet goes.
       await act(async () =>
         sheet
           .querySelector<HTMLButtonElement>('[data-avos-helper="checker"]')!
+          .click(),
+      );
+      expect(
+        sheet.querySelector('[data-avos-helper-page="checker"]'),
+      ).not.toBeNull();
+      await act(async () =>
+        sheet
+          .querySelector<HTMLButtonElement>("[data-avos-helper-posts]")!
           .click(),
       );
       expect(document.querySelector(".avos-profile-sheet")).toBeNull();
@@ -715,7 +733,7 @@ describe("the team chat", () => {
         .querySelector<HTMLButtonElement>("[data-team-open-chat]")!
         .click(),
     );
-    expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
+    expect(workspace.openChatBeside).toHaveBeenCalledWith(PROJECT, "checker");
     // Everyone again.
     await act(async () =>
       button(
@@ -1103,7 +1121,9 @@ describe("the team chat", () => {
       })),
     );
     expect(container.querySelector("[data-team-open-note]")).toBeNull();
-    workspace.openChat.mockResolvedValueOnce("Couldn't open Checker's chat.");
+    workspace.openChatBeside.mockResolvedValueOnce(
+      "Couldn't open Checker's chat.",
+    );
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>("[data-team-open-chat]")!
@@ -1112,6 +1132,40 @@ describe("the team chat", () => {
     expect(container.querySelector("[data-team-open-note]")?.textContent).toBe(
       "Couldn't open Checker's chat.",
     );
+  });
+
+  it("opens a helper inside the Helpers tab, keeps Avos's chat, and watches it beside Avos", async () => {
+    await setUp();
+    const posts = () => chat().querySelectorAll("[data-team-post]").length;
+    const before = posts();
+    await panelTab("helpers");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-avos-helper="checker"]')!
+        .click(),
+    );
+    const page = container.querySelector<HTMLElement>(
+      '[data-avos-helper-page="checker"]',
+    )!;
+    expect(page.querySelector("h1")?.textContent).toBe("Checker");
+    expect(page.textContent).toContain("Checking Timer screen · round 2");
+    // Avos's chat is still everyone's.
+    expect(chat().querySelector("[data-team-showing]")).toBeNull();
+    expect(posts()).toBe(before);
+    await act(async () =>
+      page
+        .querySelector<HTMLButtonElement>("[data-avos-helper-watch]")!
+        .click(),
+    );
+    expect(workspace.openChatBeside).toHaveBeenCalledWith(PROJECT, "checker");
+    expect(workspace.openChat).not.toHaveBeenCalled();
+    await act(async () =>
+      page.querySelector<HTMLButtonElement>("[data-avos-helper-back]")!.click(),
+    );
+    expect(container.querySelector("[data-avos-helper-page]")).toBeNull();
+    expect(
+      container.querySelector('[data-avos-helper="checker"]'),
+    ).not.toBeNull();
   });
 
   it("opens a helper's chat and settings from its posts, and ⋯ holds what it remembers, Pause and Settings", async () => {
@@ -1125,7 +1179,7 @@ describe("the team chat", () => {
     await pick("checker");
     const showing = chat().querySelector<HTMLElement>("[data-team-showing]")!;
     await act(async () => button(showing, "Open chat")!.click());
-    expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
+    expect(workspace.openChatBeside).toHaveBeenCalledWith(PROJECT, "checker");
     await act(async () => button(showing, "Settings")!.click());
     expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "checker");
     await act(async () =>

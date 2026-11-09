@@ -2875,6 +2875,11 @@ export type CrewWorkspace = {
    * started yet), or null once the chat is on screen.
    */
   openChat: (path: string, who: string) => Promise<string | null> | void;
+  /**
+   * A helper's chat beside Avos, in the same tab (a split), never instead
+   * of it. Resolves with why it couldn't, or null.
+   */
+  openChatBeside?: (path: string, who: string) => Promise<string | null>;
   /** Open the crew: the project's Board with the crew on it. */
   openCrew: (path: string) => void;
   /**

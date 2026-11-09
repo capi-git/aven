@@ -11595,6 +11595,40 @@ export default function App({
     },
     [ensureCrewChat, onSelectHistorySession, openBotChat, setHomeViewOpen],
   );
+  /**
+   * A helper's chat beside Avos: split the tab in front (Avos's) and put
+   * its chat on the right, or bring it forward if it is there already.
+   */
+  const openCrewChatBeside = useCallback(
+    async (path: string, who: string): Promise<string | null> => {
+      const crew = getCrew(path);
+      const member = crew
+        ? (crewMemberById(crew, who) ??
+          crew.members.find((entry) => entry.role === who))
+        : undefined;
+      if (!crew?.on || !member || member.role === "fixer")
+        return openCrewChat(path, who);
+      const name = crewMemberName(crew, member.id);
+      if (!teammateChatReady(crew, member.id)) return firstCardChatText(name);
+      const chat = await ensureCrewChat(crew, member.id);
+      if (!chat) return `Couldn't open ${name}'s chat.`;
+      const tabId = activeTabIdRef.current;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.id !== tabId) return tab;
+          if (leafIds(tab.layout).includes(chat.id))
+            return { ...tab, focusedId: chat.id };
+          return {
+            ...tab,
+            layout: splitPane(tab.layout, tab.focusedId, "right", chat.id),
+            focusedId: chat.id,
+          };
+        }),
+      );
+      return null;
+    },
+    [ensureCrewChat, openCrewChat],
+  );
   /** Stop a crew chat's turn and wait, a few seconds at most, until it has. */
   const stopCrewChat = useCallback(
     async (sessionId: string) => {
@@ -11641,6 +11675,7 @@ export default function App({
           if (!why) closeUtilityViews();
           return why;
         },
+        openChatBeside: (path, role) => openCrewChatBeside(path, role),
         openCrew: (path) => {
           closeUtilityViews();
           onOpenBoard(path);
@@ -11692,6 +11727,7 @@ export default function App({
       closeUtilityViews,
       onOpenBoard,
       openCrewChat,
+      openCrewChatBeside,
       stopCrewChat,
       ensureBotChat,
       ensureCrewChat,

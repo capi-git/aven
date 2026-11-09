@@ -10,7 +10,14 @@ import {
 import { Toggle } from "./SettingsControls";
 import { useDragResize } from "../hooks/useDragResize";
 import { useBatchActions, type BatchRange } from "../hooks/useTeamPipeline";
-import type { CrewFindings, CrewMockup } from "../lib/crews";
+import {
+  cardHolderId,
+  cardInCopy,
+  crewMemberById,
+  type CrewFindings,
+  type CrewMockup,
+} from "../lib/crews";
+import { memberAppLine } from "../chrome/crewSettingsParts";
 import type { PipelineBatch } from "../lib/crewPipeline";
 import {
   describeSchedule,
@@ -66,6 +73,15 @@ export type AvosPanelProps = AvosProfileProps & {
   /** What Apply all lands, read from the branch. */
   range: BatchRange | null;
   onOpenJob: (id: string) => void;
+  /** The helper open in Helpers, by its id, or none (the list). */
+  helper: string | null;
+  onCloseHelper: () => void;
+  /** Its chat beside Avos, in a split. */
+  onWatch: (id: string) => void;
+  /** Stop its turn, by its chat. */
+  onStopHelper: (sessionId: string) => void;
+  /** Its posts, in Avos's chat. */
+  onPosts: (id: string) => void;
 };
 
 const DAY = 24 * 60 * 60_000;
@@ -260,6 +276,7 @@ export function AvosPanelBar(
 export function AvosTabBody(props: AvosPanelProps) {
   switch (props.tab) {
     case "helpers":
+      if (props.helper) return <AvosHelperPage {...props} id={props.helper} />;
       return (
         <div className="avos-panel-stack" data-avos-panel-body="helpers">
           <AvosSections {...props} parts={["helpers", "activity"]} />
@@ -675,5 +692,157 @@ function AvosReady({
         stays in Avos's copy until you apply it.
       </p>
     </section>
+  );
+}
+
+/**
+ * One helper, inside the Helpers tab: its face, what it's on and what it
+ * runs on, Watch (its chat beside Avos, never instead) and Stop, what it
+ * has been doing (its lines in the activity), and what Avos asked it.
+ * Avos's chat stays where it is.
+ */
+function AvosHelperPage(props: AvosPanelProps & { id: string }) {
+  const {
+    project,
+    crew,
+    members,
+    id,
+    now,
+    onCloseHelper,
+    onWatch,
+    onStopHelper,
+    onPosts,
+  } = props;
+  const view = members.find((member) => member.id === id);
+  const quick = crew.helpers?.find((helper) => helper.id === id);
+  const stored = crewMemberById(crew, id);
+  if (!view && !quick)
+    return (
+      <div className="avos-panel-stack" data-avos-helper-page={id}>
+        <button
+          type="button"
+          className="avos-panel-back"
+          onClick={onCloseHelper}
+        >
+          ‹ Helpers
+        </button>
+        <p className="avos-panel-empty">This helper has finished and left.</p>
+      </div>
+    );
+  const state = quick
+    ? "working"
+    : view!.status === "needs-you"
+      ? "needs"
+      : view!.status === "ready"
+        ? "ready"
+        : view!.active || view!.status === "working"
+          ? "working"
+          : "resting";
+  const card = cardInCopy(crew);
+  const brief =
+    card && cardHolderId(crew, card) === id ? card.brief : quick?.doing?.text;
+  const role = quick ? "helper" : view!.role;
+  const lines = crew.feed
+    .filter(
+      (entry) =>
+        entry.member === id ||
+        (!entry.member && entry.who === role && role !== "helper"),
+    )
+    .slice(-6);
+  const sessionId = stored?.sessionId;
+  return (
+    <div className="avos-panel-stack" data-avos-helper-page={id}>
+      <button
+        type="button"
+        className="avos-panel-back"
+        data-avos-helper-back
+        onClick={onCloseHelper}
+      >
+        ‹ Helpers
+      </button>
+      <div className="avos-profile-top">
+        <CrewCritter
+          path={project}
+          role={role}
+          {...(view?.critter ? { critter: view.critter } : {})}
+          state={state}
+          className="avos-profile-mark"
+        />
+        <div className="avos-profile-who">
+          <h1 className="avos-profile-name">
+            {quick ? (quick.name ?? "Quick helper") : view!.name}
+          </h1>
+          <p className="avos-profile-line">
+            {[
+              view?.line ?? quick?.doing?.text,
+              stored ? memberAppLine(stored) : quick ? "Reads only" : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </div>
+      </div>
+      <div className="avos-panel-actions">
+        {quick ? null : (
+          <button
+            type="button"
+            className="team-card-button"
+            data-avos-helper-watch
+            onClick={() => onWatch(id)}
+          >
+            Watch beside Avos
+          </button>
+        )}
+        {state === "working" && sessionId ? (
+          <button
+            type="button"
+            className="team-card-button"
+            data-avos-helper-stop
+            onClick={() => onStopHelper(sessionId)}
+          >
+            Stop
+          </button>
+        ) : null}
+        <span className="avos-panel-spacer" />
+        {quick ? null : (
+          <button
+            type="button"
+            className="avos-panel-back"
+            data-avos-helper-posts
+            onClick={() => onPosts(id)}
+          >
+            Its posts in the chat
+          </button>
+        )}
+      </div>
+      <section className="avos-profile-section" data-avos-profile="doing">
+        <h2>What it's doing</h2>
+        {lines.length ? (
+          <div className="avos-profile-card">
+            {lines.map((entry) => (
+              <p key={entry.id} className="avos-panel-step">
+                <span>
+                  {entry.title ? `${entry.title}: ${entry.text}` : entry.text}
+                </span>
+                <span className="avos-panel-when">
+                  {formatRunTime(entry.at, now)}
+                </span>
+              </p>
+            ))}
+          </div>
+        ) : (
+          <p className="avos-panel-empty">Nothing yet. It's getting started.</p>
+        )}
+      </section>
+      {brief ? (
+        <section className="avos-profile-section" data-avos-profile="brief">
+          <h2>Avos asked it</h2>
+          <p className="avos-panel-doc-text">{brief}</p>
+        </section>
+      ) : null}
+      <p className="avos-panel-empty">
+        When it's done, its work is checked, then comes back to you in Changes.
+      </p>
+    </div>
   );
 }
