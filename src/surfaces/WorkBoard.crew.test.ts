@@ -27,6 +27,7 @@ import {
   withIdea,
   type Crew,
   type CrewCard,
+  GOAL_NEEDS,
 } from "../lib/crews";
 import {
   addFeatureCards,
@@ -851,9 +852,8 @@ describe("the team view: the Board with the team on it", () => {
     const goal = () =>
       container.querySelector<HTMLElement>("[data-crew-goal]")!;
     expect(goal().dataset.crewGoal).toBe("on");
-    expect(goal().textContent).toBe(
-      "Goal Build the whole Pom app · Avos keeps goingClear",
-    );
+    // One line: the goal, a word for where it stands, one action.
+    expect(goal().textContent).toBe("Goal Build the whole Pom appWorkingClear");
     // A card that waits on you with work in hand: the goal waits too.
     await act(async () =>
       updateCrew(PROJECT, (crew) =>
@@ -862,8 +862,15 @@ describe("the team view: the Board with the team on it", () => {
     );
     expect(goal().dataset.crewGoal).toBe("waits");
     expect(goal().textContent).toBe(
-      "Goal Build the whole Pom app · waits for youClear",
+      "Goal Build the whole Pom appWaits for youClear",
     );
+    // Pressed, the line opens to all of its words.
+    const line = goal().querySelector<HTMLButtonElement>(
+      ".avos-profile-goal-text",
+    )!;
+    expect(line.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => line.click());
+    expect(goal().hasAttribute("data-open")).toBe(true);
     // A goal it stopped at: Keep going picks it up again.
     await act(async () =>
       updateCrew(PROJECT, (crew) => ({
@@ -874,8 +881,45 @@ describe("the team view: the Board with the team on it", () => {
         },
       })),
     );
+    // Why it stopped is one line under it, and the chat isn't told again.
+    expect(goal().querySelector("[data-crew-goal-why]")?.textContent).toBe(
+      "Nothing left to plan.",
+    );
     await act(async () => button(goal(), "Keep going")!.click());
     expect(getCrew(PROJECT)!.goal?.done).toBeUndefined();
+    expect(getCrew(PROJECT)!.feed.at(-1)?.text).toBe(
+      "You asked Avos to keep going",
+    );
+    // A folder without Git: it waits on Git, with the one way to get it.
+    const setUpGit = vi.fn();
+    const uninstall = installCrewWorkspace({
+      openChat: vi.fn(),
+      openCrew: vi.fn(),
+      openSettings: vi.fn(),
+      stop: vi.fn(),
+      setUpGit,
+    });
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => ({
+        ...crew,
+        goal: {
+          ...crew.goal!,
+          done: { at: NOW, text: GOAL_NEEDS["no-git"], met: false },
+        },
+      })),
+    );
+    expect(goal().textContent).toBe(
+      "Goal Build the whole Pom appWaitingSet up GitNeeds Git to build.",
+    );
+    await act(async () => button(goal(), "Set up Git")!.click());
+    expect(setUpGit).toHaveBeenCalledWith(PROJECT);
+    uninstall();
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => ({
+        ...crew,
+        goal: { text: crew.goal!.text, at: crew.goal!.at },
+      })),
+    );
     // Clear, on its line in the profile.
     await act(async () =>
       goal()

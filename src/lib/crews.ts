@@ -3559,8 +3559,50 @@ export function goalPlanner(crew: Crew): CrewMember | undefined {
 }
 
 /** Said when the crew has no one on who could plan its goal. */
-export const NO_PLANNER =
+export const NO_PLANNER = "No Builder is on. Turn one on in Helpers.";
+
+/** How NO_PLANNER read before it was said in plain words. */
+const OLD_NO_PLANNER =
   "The goal waits: turn on a Scout or a Builder to plan its cards.";
+
+/** What a folder lacks before anything can build in a copy of it. */
+export type BuildingNeed = "no-git" | "no-commit";
+
+/** Why a goal waits while its folder can't build yet, in a few words. */
+export const GOAL_NEEDS: Readonly<Record<BuildingNeed, string>> = {
+  "no-git": "Needs Git to build.",
+  "no-commit": "Needs a first commit to build.",
+};
+
+/** What the folder lacked when the goal stopped with `text`, if that's why. */
+export function goalNeed(text: string | undefined): BuildingNeed | null {
+  if (text === GOAL_NEEDS["no-git"]) return "no-git";
+  if (text === GOAL_NEEDS["no-commit"]) return "no-commit";
+  return null;
+}
+
+/**
+ * A line about where the goal stands that its panel already says: Avos
+ * took it down (its own reply says so too), you pressed Keep going, or it
+ * waits on Git or a Builder. Activity keeps these; the chat leaves them
+ * out, so the goal isn't repeated at every step.
+ */
+export function goalStateLine(
+  entry: Pick<CrewFeedEntry, "kind" | "who" | "text" | "cardId">,
+): boolean {
+  if (entry.cardId) return false;
+  if (entry.kind === "note" && entry.who === "aven")
+    return / will work towards: /.test(entry.text);
+  if (entry.kind === "note" && entry.who === "you")
+    return entry.text.startsWith("You asked Avos to keep going");
+  return (
+    entry.kind === "hold" &&
+    entry.who === "aven" &&
+    (entry.text === NO_PLANNER ||
+      entry.text === OLD_NO_PLANNER ||
+      goalNeed(entry.text) !== null)
+  );
+}
 
 /** Titles of the cards built towards the goal since it was set: passed, or applied. */
 export function goalCardsDone(crew: Crew): string[] {
