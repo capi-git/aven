@@ -60,7 +60,7 @@ const motionBlock = blockAfter(
 );
 
 describe("AgentMark", () => {
-  it("is a screen: its glass, its face, its frame and glow", async () => {
+  it("is a face of lit dots with a glow behind it, and no box or frame", async () => {
     const mark = await draw({ state: "watching" });
     expect(mark.classList.contains("dot-mark")).toBe(true);
     expect(
@@ -75,56 +75,51 @@ describe("AgentMark", () => {
     expect(faces[0]!.querySelector(".agent-eye")!.getAttribute("d")).toBe(
       agentFacePaths("large", "squares").lit,
     );
-    expect(mark.querySelector(".agent-ring")).not.toBeNull();
     expect(mark.querySelector(".agent-glow")).not.toBeNull();
-    // Only working runs a light round its edge.
+    // No frame round it, and no light running round an edge it hasn't got.
+    expect(mark.querySelector(".agent-ring")).toBeNull();
     expect(mark.querySelector(".agent-comet")).toBeNull();
+    // No screen behind the face: no fill, no hairline.
+    const screen = rule(css, ".agent-screen");
+    expect(screen).not.toContain("background");
+    expect(screen).not.toContain("box-shadow");
   });
 
-  it("shows a face for each state, and a light round its edge while it works", async () => {
+  it("shows a face for each state, and glows while it works", async () => {
     const shown = async (state: Parameters<typeof AgentMark>[0]["state"]) => {
       const mark = await draw({ state });
       return {
         face: mark.dataset.face,
         cursor: !!mark.querySelector(".agent-cursor"),
-        comet: !!mark.querySelector(".agent-comet"),
       };
     };
     // At rest or as a label, it shows its prompt; only resting blinks.
-    expect(await shown("still")).toEqual({
-      face: "prompt",
-      cursor: true,
-      comet: false,
-    });
-    expect(await shown("resting")).toEqual({
-      face: "prompt",
-      cursor: true,
-      comet: false,
-    });
-    expect(await shown("working")).toEqual({
-      face: "narrow",
-      cursor: false,
-      comet: true,
-    });
+    expect(await shown("still")).toEqual({ face: "prompt", cursor: true });
+    expect(await shown("resting")).toEqual({ face: "prompt", cursor: true });
+    expect(await shown("working")).toEqual({ face: "narrow", cursor: false });
+    expect(rule(css, '.agent-mark[data-agent="working"] .agent-glow')).toMatch(
+      /opacity: 0\.[1-9]/,
+    );
     expect(await shown("needs")).toMatchObject({ face: "chevron" });
     expect(await shown("ready")).toMatchObject({ face: "squares" });
     for (const [state, face] of Object.entries(AGENT_STATE_FACES))
       expect((await draw({ state: state as never })).dataset.face).toBe(face);
   });
 
-  it("colours what needs you amber and what's ready green, framed and tinted", () => {
+  it("colours what needs you amber and what's ready green, glowing", () => {
     expect(rule(css, '.agent-mark[data-agent="needs"]')).toContain(
       "--agent-face: var(--aven-needs-you)",
     );
     expect(rule(css, '.agent-mark[data-agent="ready"]')).toContain(
       "--agent-face: var(--agent-ready)",
     );
-    const framed = rule(
+    const glowing = rule(
       css,
-      '.agent-mark:is([data-agent="needs"], [data-agent="ready"]) .agent-ring',
+      '.agent-mark:is([data-agent="needs"], [data-agent="ready"]) .agent-glow',
     );
-    expect(framed).toContain("opacity: 1");
-    expect(framed).toContain("box-shadow: inset 0 0 0");
+    expect(glowing).toMatch(/opacity: 0\.[3-9]/);
+    // At rest, nothing glows.
+    expect(rule(css, ".agent-glow")).toContain("opacity: 0;");
   });
 
   it("puts on a happy face for a done turn, and red eyes for a failed one", async () => {
@@ -147,13 +142,16 @@ describe("AgentMark", () => {
     expect(mark.dataset.tone).toBeUndefined();
   });
 
-  it("draws its screen alone, faint, for a teammate still to come", async () => {
+  it("draws a faint honeycomb alone for a teammate still to come", async () => {
     const mark = await draw({ vacant: true, state: "working" });
     expect(mark.querySelector(".agent-eyes")).toBeNull();
     expect(mark.querySelector(".agent-comet")).toBeNull();
     expect(mark.querySelector(".agent-head")).not.toBeNull();
     expect(rule(css, ".agent-mark[data-vacant] .agent-bob")).toContain(
       "opacity",
+    );
+    expect(rule(css, ".agent-mark[data-vacant] .agent-glass")).toContain(
+      "display: inline",
     );
   });
 
@@ -168,7 +166,7 @@ describe("AgentMark", () => {
     ).toBeNull();
   });
 
-  it("draws the same face at every size, its dots bolder when small, its glass from 36px", () => {
+  it("draws the same face at every size, its dots bolder when small", () => {
     const sizes = (from: string) =>
       /stroke-width: ([\d.]+)/.exec(
         from === "small"
@@ -177,11 +175,6 @@ describe("AgentMark", () => {
       )?.[1];
     expect(Number(sizes("small"))).toBeGreaterThan(Number(sizes("19.5px")));
     expect(Number(sizes("19.5px"))).toBeGreaterThan(Number(sizes("35.5px")));
-    const large = blockAfter(
-      css,
-      css.indexOf("@container (min-width: 35.5px)"),
-    );
-    expect(rule(large, ".agent-glass")).toContain("display: inline");
   });
 
   it("gives each state its own motion", () => {
@@ -189,9 +182,9 @@ describe("AgentMark", () => {
       ['.agent-mark[data-agent="resting"] .agent-cursor', "agent-blink"],
       ['.agent-mark[data-agent="watching"] .agent-eyes', "agent-look"],
       ['.agent-mark[data-agent="working"] .agent-eyes', "agent-scan"],
-      ['.agent-mark[data-agent="working"] .agent-comet', "agent-spin"],
       ['.agent-mark[data-agent="needs"] .agent-eyes', "agent-nudge"],
-      ['.agent-mark[data-agent="needs"] .agent-ring', "agent-breathe"],
+      ['.agent-mark[data-agent="needs"] .agent-glow', "agent-breathe"],
+      ['.agent-mark[data-agent="ready"] .agent-glow', "agent-breathe"],
       ['.agent-mark[data-agent="ready"] .agent-eyes', "agent-wink"],
     ] as const)
       expect(rule(motionBlock, selector), selector).toContain(
@@ -222,12 +215,7 @@ describe("AgentMark", () => {
       '[data-workspace-stage][data-resizing="true"]',
     ])
       expect(pause).toContain(flag);
-    for (const part of [
-      ".agent-eyes",
-      ".agent-cursor",
-      ".agent-comet",
-      ".agent-ring",
-    ])
+    for (const part of [".agent-eyes", ".agent-cursor", ".agent-glow"])
       expect(pause).toContain(part);
     expect(pause).toContain("animation-play-state: paused");
   });

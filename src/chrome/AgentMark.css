@@ -1,20 +1,20 @@
-/* Bot, every agent's mark (AgentMark.tsx): a little screen of dots with a
-   face lit on it that changes with what it's doing (AGENT_STATE_FACES in
-   src/lib/agentMark.ts). It is also a `.dot-mark`, so it takes the marks'
-   sizes (15px when not set), their container and their colour tokens
-   (`--dot-mark-tint`) from DotMark.css.
+/* Bot, every agent's mark (AgentMark.tsx): a face of lit dots that changes
+   with what it's doing (AGENT_STATE_FACES in src/lib/agentMark.ts), with
+   no box or outline round it. It is also a `.dot-mark`, so it takes the
+   marks' sizes (15px when not set), their container and their colour
+   tokens (`--dot-mark-tint`) from DotMark.css.
 
-   The screen is dark in light and dark themes alike, like a provider's
-   icon. Its face is in the agent's colour; what needs you is amber and
-   what's ready green, the one place colour lights a surface: its frame and
-   glow, while it says so. What moves are small layers, by transform and
-   opacity only. */
+   Its face is in the agent's colour; what needs you is amber and what's
+   ready green. A soft glow behind the face, in the same colour, says it is
+   working, watching, needs you or is ready; at rest there is none. What
+   moves are small layers, by transform and opacity only. */
 
 .agent-mark {
   --agent-body: var(--dot-mark-tint, currentColor);
   --agent-face: var(--agent-body);
-  --agent-screen: #1d1d23;
-  --agent-rest: #d8d8dc;
+  /* At rest, grey: the text colour, a little quieter, so it reads on light
+     and dark surfaces alike. */
+  --agent-rest: color-mix(in srgb, var(--color-content) 78%, transparent);
   --agent-ready: #5fd3a0;
   --agent-happy: #c4a0ff;
   --agent-failed: #ff6b6b;
@@ -22,6 +22,14 @@
      by it. */
   position: relative;
   container-type: inline-size;
+}
+
+/* With no dark screen behind it, a face on a light surface needs darker
+   colours to read: green and the reaction colours, mixed with the text. */
+html.theme-light .agent-mark {
+  --agent-ready: color-mix(in srgb, var(--color-content) 30%, #23a26a);
+  --agent-happy: color-mix(in srgb, var(--color-content) 30%, #8a5cf0);
+  --agent-failed: color-mix(in srgb, var(--color-content) 25%, #e5484d);
 }
 
 /* At rest a plain chat's prompt is grey; an agent with a colour keeps it,
@@ -62,13 +70,9 @@
   border-radius: 20cqw;
 }
 
-/* The glass: dark, lit softly from above and darker at the bottom. */
+/* No screen behind the face: it sits on whatever surface the mark is on. */
 .agent-screen {
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.04), rgb(0 0 0 / 0.28)),
-    var(--agent-screen);
-  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.08);
+  overflow: visible;
 }
 
 .agent-body,
@@ -83,12 +87,15 @@
   stroke-linecap: round;
 }
 
-/* A faint honeycomb across all of it, where there's room (36px and up). */
+/* A faint honeycomb, only as a place for a teammate still to come. */
 .agent-glass {
   display: none;
-  stroke: #fff;
+  stroke: currentColor;
   stroke-width: 2.1;
-  opacity: 0.07;
+  opacity: 0.18;
+}
+.agent-mark[data-vacant] .agent-glass {
+  display: inline;
 }
 
 .agent-eye,
@@ -110,64 +117,32 @@
   .agent-face {
     stroke-width: 4.4;
   }
-  .agent-glass {
-    display: inline;
-  }
   .agent-eye {
     filter: drop-shadow(0 0 1.5px var(--agent-face));
   }
 }
 
-/* Its frame and glow: amber while it needs you, green while its work is
-   ready, its colour at the edges while it reacts. */
-.agent-glow,
-.agent-ring {
-  opacity: 0;
-}
+/* Its glow: a soft light behind the face in its colour, while it works,
+   watches, needs you, is ready or reacts. Never at rest. */
 .agent-glow {
-  background: radial-gradient(closest-side, var(--agent-face), transparent);
+  opacity: 0;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--agent-face) 55%, transparent),
+    transparent
+  );
 }
-.agent-mark:is([data-agent="needs"], [data-agent="ready"]) .agent-screen {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.04), rgb(0 0 0 / 0.22)),
-    color-mix(in srgb, var(--agent-face) 22%, var(--agent-screen));
-}
-.agent-mark:is([data-agent="needs"], [data-agent="ready"]) .agent-ring {
-  opacity: 1;
-  box-shadow: inset 0 0 0 max(1px, 4.5cqw) var(--agent-face);
-}
-.agent-mark:is(
-    [data-agent="needs"],
-    [data-agent="ready"],
-    [data-agent="watching"],
-    [data-reaction]
-  )
-  .agent-glow {
+.agent-mark:is([data-agent="watching"], [data-reaction]) .agent-glow {
   opacity: 0.22;
 }
-
-/* Working: a light with a fading tail runs round the edge, in its colour,
-   under the glass. */
-.agent-comet {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 150%;
-  height: 150%;
-  translate: -50% -50%;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0 62%,
-    var(--agent-body) 100%
-  );
-  pointer-events: none;
+.agent-mark[data-agent="working"] .agent-glow {
+  opacity: 0.32;
 }
-.agent-mark[data-agent="working"] .agent-screen {
-  inset: max(1px, 5cqw);
-  border-radius: 15cqw;
+.agent-mark:is([data-agent="needs"], [data-agent="ready"]) .agent-glow {
+  opacity: 0.5;
 }
 
-/* A place for a teammate still to come: its screen alone, faint. */
+/* A place for a teammate still to come: its honeycomb alone, faint. */
 .agent-mark[data-vacant] .agent-bob {
   opacity: 0.26;
 }
@@ -192,19 +167,16 @@
     animation: agent-look 7.4s infinite;
     animation-delay: var(--agent-phase, 0s);
   }
-  /* Working: its eyes scan while the light runs round. */
+  /* Working: its eyes scan. */
   .agent-mark[data-agent="working"] .agent-eyes {
     animation: agent-scan 0.8s ease-in-out infinite alternate;
     animation-delay: var(--agent-phase, 0s);
   }
-  .agent-mark[data-agent="working"] .agent-comet {
-    animation: agent-spin 1.3s linear infinite;
-  }
-  /* Needs you: its prompt nudges you, and its frame breathes. */
+  /* Needs you: its prompt nudges you, and its glow breathes. */
   .agent-mark[data-agent="needs"] .agent-eyes {
     animation: agent-nudge 1.2s ease-in-out infinite;
   }
-  .agent-mark[data-agent="needs"] .agent-ring {
+  .agent-mark[data-agent="needs"] .agent-glow {
     animation: agent-breathe 1.2s ease-in-out infinite alternate;
   }
   /* Ready: it winks now and then, and its glow breathes. */
@@ -244,7 +216,7 @@
 
 @keyframes agent-rest {
   from {
-    opacity: 0.55;
+    opacity: 0.7;
   }
   to {
     opacity: 1;
@@ -300,11 +272,6 @@
   }
   to {
     transform: translateX(11%);
-  }
-}
-@keyframes agent-spin {
-  to {
-    transform: rotate(360deg);
   }
 }
 @keyframes agent-nudge {
@@ -404,24 +371,10 @@
    holds still and picks up again where it was. */
 :root:is([data-hidden], .is-resizing, .is-window-resizing)
   .agent-mark
-  :is(
-    .agent-bob,
-    .agent-eyes,
-    .agent-cursor,
-    .agent-comet,
-    .agent-ring,
-    .agent-glow
-  ),
+  :is(.agent-bob, .agent-eyes, .agent-cursor, .agent-glow),
 [data-workspace-stage][data-resizing="true"]
   .agent-mark
-  :is(
-    .agent-bob,
-    .agent-eyes,
-    .agent-cursor,
-    .agent-comet,
-    .agent-ring,
-    .agent-glow
-  ) {
+  :is(.agent-bob, .agent-eyes, .agent-cursor, .agent-glow) {
   animation-play-state: paused;
 }
 /* Left alone for a minute, Aven's resting and watching agents settle

@@ -244,7 +244,7 @@ describe("the agent at the helm", () => {
   const css = (file: string) =>
     readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("is Bot, a screen with a face, at rest and working", async () => {
+  it("is Bot, a face of dots, at rest and working", async () => {
     await render();
     expect(mark().classList.contains("agent-mark")).toBe(true);
     expect(mark().querySelector(".agent-head")).not.toBeNull();
@@ -258,7 +258,7 @@ describe("the agent at the helm", () => {
     props.busy = true;
     await render();
     expect(mark().dataset.agent).toBe("working");
-    expect(mark().querySelector(".agent-comet")).not.toBeNull();
+    expect(mark().querySelector(".agent-glow")).not.toBeNull();
   });
 
   it("is 25px, past the small marks' bigger dots", () => {
@@ -385,7 +385,7 @@ describe("the mark's states", () => {
     await render();
     expect(helm().dataset.pose).toBe("running");
     expect(mark().dataset.agent).toBe("working");
-    expect(mark().querySelector(".agent-bob > .agent-comet")).not.toBeNull();
+    expect(mark().querySelector(".agent-bob .agent-glow")).not.toBeNull();
     const bubble = host.querySelector<HTMLElement>(
       '[data-helm-say="running"]',
     )!;
