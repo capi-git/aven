@@ -802,3 +802,23 @@
   font-size: var(--text-ui-reading);
   line-height: 1.45;
 }
+
+/* Meeting Avos: may it read the project? One line under the question,
+   then Not now and Allow. */
+.avos-meet-access {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.avos-meet-note {
+  margin: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
+}
+.avos-meet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}

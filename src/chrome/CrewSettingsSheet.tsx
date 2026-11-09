@@ -3,6 +3,7 @@ import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { Segmented, Toggle } from "../surfaces/SettingsControls";
 import {
   firstCardChatText,
+  setAvosReadAccess,
   setCrewAccess,
   setCrewLimit,
   setCrewQuietHours,
@@ -21,6 +22,7 @@ import {
   defaultBuilder,
   CREW_ACCESS_LEVELS,
   CREW_HELPERS,
+  avosMayRead,
   crewAccess,
   crewAccessLevel,
   type CrewAccessLevel,
@@ -561,7 +563,11 @@ function CrewBody({
         <SummaryRow
           id="access"
           title="Access"
-          detail={`${ACCESS_WORD[level]} · nothing reaches your folder until you Apply`}
+          detail={
+            avosMayRead(crew)
+              ? `${ACCESS_WORD[level]} · nothing reaches your folder until you Apply`
+              : "Can't read this project yet"
+          }
           onOpen={() => onPage("access")}
         />
         <SummaryRow
@@ -716,8 +722,26 @@ function AccessSection({ crew }: { crew: Crew }) {
   const access = crewAccess(crew);
   const level = crewAccessLevel(access);
   const [customising, setCustomising] = useState(false);
+  const mayRead = avosMayRead(crew);
   return (
     <section className="crew-settings-section" aria-label="Access">
+      <div className="crew-settings-card" data-crew-read-access>
+        <LimitRow
+          title="Read this project"
+          detail={
+            mayRead
+              ? "Avos and its helpers read your files to answer you and plan work"
+              : "Off: Avos stays off and reads nothing"
+          }
+        >
+          <Toggle
+            label="Read this project"
+            tone="neutral"
+            on={mayRead}
+            onChange={(on) => void setAvosReadAccess(path, on)}
+          />
+        </LimitRow>
+      </div>
       <div data-crew-access role="radiogroup" aria-label="Access">
         {ACCESS_CHOICES.map((choice) => (
           <button

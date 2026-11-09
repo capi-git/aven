@@ -188,6 +188,24 @@ describe("the team's settings", () => {
     expect(getCrew(PATH)!.limits.helpersPerDay).toBe(10);
   });
 
+  it("lets you stop Avos reading the project from Access, which turns it off", async () => {
+    await open();
+    expect(
+      sheet().querySelector('[data-crew-summary="access"] small')?.textContent,
+    ).toMatch(/^Auto/);
+    await toRow("access");
+    const read = sheet().querySelector<HTMLButtonElement>(
+      '[data-crew-read-access] [aria-label="Read this project"]',
+    )!;
+    expect(read.getAttribute("aria-checked")).toBe("true");
+    await act(async () => read.click());
+    expect(getCrew(PATH)).toMatchObject({ on: false, readAccess: "declined" });
+    await act(async () => buttonNamed("aven-site's Avos")!.click());
+    expect(
+      sheet().querySelector('[data-crew-summary="access"] small')?.textContent,
+    ).toBe("Can't read this project yet");
+  });
+
   it("sets Access with one choice, in the message box's words", async () => {
     await open();
     await toRow("access");

@@ -944,6 +944,8 @@ import { crewChatPlace } from "./lib/crewChatPlace";
 import { launchRefusal } from "./lib/harness/sessionPermissions";
 import { crewChatModel } from "./lib/crewModels";
 import {
+  AVOS_MAY_NOT_READ,
+  avosMayRead,
   crewForChat,
   crewMemberApp,
   crewMemberById,
@@ -11614,6 +11616,8 @@ export default function App({
     await probeHarnessAvailability();
     if (!isHarnessAvailable("claude"))
       return "Avos uses Claude Code. Install it and sign in, then try again.";
+    // Avos reads the project, so it waits for your OK.
+    if (!avosMayRead(getCrew(path))) return AVOS_MAY_NOT_READ;
     // No Git needed: Avos talks and keeps an eye on things in any folder.
     // Building asks for Git when it's needed (see buildingProblem). Opening
     // Avos saved it (ensureAvos); waking it keeps whoever it has.

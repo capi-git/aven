@@ -705,3 +705,7 @@ button.bot-sheet-row.crew-settings-member[aria-disabled="true"]:hover {
 .crew-settings-card > .bot-sheet-row.crew-settings-hours {
   min-height: 40px;
 }
+
+.crew-settings-card + [data-crew-access] {
+  margin-top: 12px;
+}

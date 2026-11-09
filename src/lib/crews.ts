@@ -243,6 +243,24 @@ export type CrewRoutine = { text: string; every: "day" | "week"; at: number };
  */
 export const CREW_HELPERS = { perAgent: 2, team: 4, day: 10 } as const;
 
+/**
+ * Whether Avos and its helpers may read this project: you allowed it, or
+ * it is on or ran before Aven asked (you'd already let it; turning it on
+ * now waits for your answer).
+ */
+export function avosMayRead(
+  crew: Pick<Crew, "readAccess" | "on" | "onAt"> | undefined,
+): boolean {
+  if (!crew) return false;
+  return crew.readAccess
+    ? crew.readAccess === "allowed"
+    : crew.on || typeof crew.onAt === "number";
+}
+
+/** Said when Avos may not read the project yet. */
+export const AVOS_MAY_NOT_READ =
+  "Avos needs your OK to read this project. Allow it on Avos's screen or in its settings.";
+
 /** The agents a crew member may run on: the apps that enforce its rules. */
 export const CREW_AGENTS = ["claude", "codex"] as const;
 export type CrewAgent = (typeof CREW_AGENTS)[number];
@@ -731,6 +749,12 @@ export type Crew = {
   /** The Builder, Checker and Scout are at work. The Fixer has its own switch. */
   on: boolean;
   onAt?: number;
+  /**
+   * Your answer to "Can Avos read this project?". Until you allow it, Avos
+   * and its helpers read nothing. An Avos that ran before Aven asked counts
+   * as allowed (`avosMayRead`).
+   */
+  readAccess?: "allowed" | "declined";
   createdAt: number;
   members: CrewMember[];
   limits: CrewLimits;
@@ -1930,6 +1954,9 @@ export function readCrew(value: unknown): Crew | null {
     ...(helpers.length ? { helpers } : {}),
     ...(helperRuns ? { helperRuns } : {}),
     ...(about ? { about } : {}),
+    ...(raw.readAccess === "allowed" || raw.readAccess === "declined"
+      ? { readAccess: raw.readAccess }
+      : {}),
     cards,
     feed,
     notes,

@@ -2917,6 +2917,18 @@ export async function wakeAvos(path: string): Promise<string | null> {
   return wake ? wake(path).catch((error) => errorText(error)) : null;
 }
 
+/**
+ * Your answer to "Can Avos read this project?". Allowing it lets Avos wake;
+ * taking it back turns Avos off, so nothing it runs reads the project.
+ */
+export async function setAvosReadAccess(path: string, allowed: boolean) {
+  updateCrew(path, (crew) => ({
+    ...crew,
+    readAccess: allowed ? "allowed" : "declined",
+  }));
+  if (!allowed && getCrew(path)?.on) await turnOffCrew(path);
+}
+
 /** Avos's introduction, kept as its first lines, just before your answer. */
 function keepAvosIntro(path: string, now: number) {
   const intro = avosIntro(projectAppearance(path).label || projectName(path));

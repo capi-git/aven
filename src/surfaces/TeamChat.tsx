@@ -21,6 +21,7 @@ import { avosIntro, avosUnmet } from "../lib/avos";
 import {
   TOO_LONG_FOR_EVERYONE,
   firstCardChatText,
+  setAvosReadAccess,
   subscribeCrewTell,
   takeCrewTell,
   takeCrewTellTo,
@@ -33,12 +34,14 @@ import {
   CREW_MESSAGE_MAX,
   CREW_NOTE_MAX,
   CREW_ROLE_INFO,
+  avosMayRead,
   crewLead,
   crewMemberById,
   crewMemberName,
   getCrew,
   isTime,
   updateCrew,
+  useCrew,
   withoutNote,
   type Crew,
   type CrewMessageKind,
@@ -589,11 +592,17 @@ function AuthorMark({
 
 /**
  * Meeting Avos: its Bot, who it is, and its question, centred where the
- * chat will start. Your answer wakes it, and these lines stay as its first.
+ * chat will start. First it asks whether it may read the project: nothing
+ * reads it until you allow it. Then your answer to its question wakes it,
+ * and these lines stay as its first.
  */
 function AvosMeet({ project }: { project: string }) {
+  const crew = useCrew(project);
   const labels = useProjectLabels();
-  const intro = avosIntro(projectDisplayName(project, labels));
+  const name = projectDisplayName(project, labels);
+  const intro = avosIntro(name);
+  const mayRead = avosMayRead(crew);
+  const declined = crew?.readAccess === "declined";
   return (
     <div className="avos-meet" data-avos-meet>
       <CrewCritter
@@ -603,7 +612,45 @@ function AvosMeet({ project }: { project: string }) {
         className="avos-meet-mark"
       />
       <h2 className="avos-meet-hello">{intro.hello}</h2>
-      <p className="avos-meet-ask">{intro.ask}</p>
+      {mayRead ? (
+        <p className="avos-meet-ask">{intro.ask}</p>
+      ) : (
+        <div className="avos-meet-access" data-avos-read-ask>
+          <p className="avos-meet-ask">
+            {declined
+              ? `I won't read ${name} until you allow it.`
+              : `Can I read ${name}'s files?`}
+          </p>
+          <p
+            className="avos-meet-note"
+            title="Avos and its helpers can't see your keys, and don't use your connections. Pushing, publishing and deploying stay yours."
+          >
+            Only to read. Changes happen in my own copy, and reach your folder
+            when you Apply.
+          </p>
+          <div className="avos-meet-actions">
+            {declined ? null : (
+              <button
+                type="button"
+                className="team-card-button"
+                data-avos-read-later
+                onClick={() => void setAvosReadAccess(project, false)}
+              >
+                Not now
+              </button>
+            )}
+            <button
+              type="button"
+              className="team-card-button"
+              data-variant="primary"
+              data-avos-read-allow
+              onClick={() => void setAvosReadAccess(project, true)}
+            >
+              Allow
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
