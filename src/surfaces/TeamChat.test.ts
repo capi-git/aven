@@ -792,15 +792,20 @@ describe("the team chat", () => {
     );
   });
 
-  it("asks you to answer only a card that still waits, in a sheet of its own", async () => {
-    await setUp((crew, boards) => {
+  /** A Timer screen question that waits on you, and one long answered. */
+  async function setUpQuestion() {
+    return setUp((crew, boards) => {
       const stuck = (id: string, stage: "stuck" | "applied") => ({
         ...crew.cards.find((card) => card.id === boards[0]!.id)!,
         id,
         stage,
         turn: undefined,
         holder: "builder" as const,
-        stuck: { reason: "question" as const, text: "Count down?" },
+        builderId: "designer",
+        stuck: {
+          reason: "question" as const,
+          text: "Designer asked: Count down?",
+        },
       });
       let next = withCard(
         withCard(crew, stuck(boards[0]!.id, "stuck")),
@@ -814,42 +819,111 @@ describe("the team chat", () => {
           at,
           kind: "stuck",
           who: "builder",
-          member: "builder",
+          member: "designer",
           cardId,
           title: "Timer screen",
-          text: "Count down?",
+          text: "Designer asked: Count down?",
         });
       return next;
     });
+  }
+
+  it("answers the question that waits in the chat box, with no sheet", async () => {
+    const boards = await setUpQuestion();
     const asks = [
-      ...chat().querySelectorAll<HTMLElement>('[data-team-post="builder"]'),
+      ...chat().querySelectorAll<HTMLElement>('[data-team-post="designer"]'),
     ].filter((post) => post.textContent?.includes("Count down?"));
     expect(asks.map((post) => post.hasAttribute("data-needs-you"))).toEqual([
       false,
       true,
     ]);
-    expect(button(asks[0]!, "Answer on its card")).toBeUndefined();
-    // Its question opens in a sheet of its own, with the box to answer it.
-    await act(async () => button(asks[1]!, "Answer on its card")!.click());
-    const sheet = document.querySelector<HTMLElement>("[data-avos-answer]")!;
-    expect(sheet).not.toBeNull();
-    expect(
-      sheet.querySelector('textarea[aria-label="Your answer"]'),
-    ).not.toBeNull();
+    expect(button(asks[0]!, "Answer")).toBeUndefined();
+    // The box answers it already: its card on the tag, who asked in the box.
+    const tag = () =>
+      chat().querySelector<HTMLElement>("[data-team-answering]");
+    expect(tag()?.dataset.teamAnswering).toBe(boards[0]!.id);
+    expect(tag()?.textContent).toBe("Timer screen");
+    expect(box().placeholder).toBe("Your answer to Designer…");
+    // Answer in the thread, or on Avos's message, puts the cursor there.
+    await act(async () => button(asks[1]!, "Answer")!.click());
+    await settle();
+    expect(document.activeElement).toBe(box());
+    expect(document.querySelector("[data-avos-answer]")).toBeNull();
     expect(container.querySelector("[data-team-board]")).toBeNull();
-    // Avos asks for it in its message too, with its question and Answer.
     const ask = container.querySelector<HTMLElement>(
       '[data-avos-need^="stuck:"]',
     )!;
     expect(ask.querySelector(".avos-ask-text b")?.textContent).toBe(
       "Timer screen",
     );
-    expect(ask.querySelector(".avos-ask-text span")?.textContent).toBe(
-      "Count down?",
-    );
     expect(button(ask, "Answer")).toBeDefined();
+    // A plain message is the answer: the card goes on with it, and the
+    // chat keeps it as yours, on that card.
+    await type("Yes, count down from the length you set");
+    await press("Enter");
+    await settle();
+    expect(actions.tellTeam).not.toHaveBeenCalled();
+    const card = getCrew(PROJECT)!.cards.find(
+      (item) => item.id === boards[0]!.id,
+    )!;
+    expect(card.stage).toBe("building");
+    expect(card.note).toBe("Yes, count down from the length you set");
+    const mine = [
+      ...chat().querySelectorAll<HTMLElement>('[data-team-post="you"]'),
+    ].at(-1)!;
+    expect(mine.querySelector(".team-you-bubble")?.textContent).toBe(
+      "Yes, count down from the length you set",
+    );
+    expect(mine.querySelector(".team-you-meta")?.textContent).toContain(
+      "answers “Timer screen”",
+    );
+    // Nothing waits now: the box writes to Avos again.
+    expect(tag()).toBeNull();
+    expect(box().placeholder).toBe("Write to Avos, or @ a helper…");
+    expect(container.querySelector('[data-avos-need^="stuck:"]')).toBeNull();
     // Which view Avos opens on stays your choice.
     expect(teamView(PROJECT)).toBe("chat");
+  });
+
+  it("sends a message elsewhere when you @ a helper or set the question aside", async () => {
+    const boards = await setUpQuestion();
+    const tag = () =>
+      chat().querySelector<HTMLButtonElement>("[data-team-answering]");
+    // × on its tag: this message goes to Avos.
+    await act(async () => tag()!.click());
+    expect(tag()).toBeNull();
+    await type("What's next after the timer?");
+    await press("Enter");
+    expect(actions.tellTeam).toHaveBeenCalledWith(
+      PROJECT,
+      "What's next after the timer?",
+      "card",
+    );
+    // A helper you @: it goes to that helper, never to the card.
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(`[data-team-answer]`)!.click(),
+    );
+    expect(tag()?.dataset.teamAnswering).toBe(boards[0]!.id);
+    await act(async () =>
+      chat().querySelector<HTMLButtonElement>(".team-compose-at")!.click(),
+    );
+    await act(async () =>
+      [...chat().querySelectorAll<HTMLElement>(".team-mention-option")]
+        .find((option) => option.textContent?.startsWith("Scout"))!
+        .click(),
+    );
+    expect(tag()).toBeNull();
+    await type("Any ideas for the ring?");
+    await press("Enter");
+    expect(actions.tellTeammate).toHaveBeenCalledWith(
+      PROJECT,
+      "scout",
+      "Any ideas for the ring?",
+    );
+    // The question still waits for you.
+    expect(
+      getCrew(PROJECT)!.cards.find((item) => item.id === boards[0]!.id)!.stage,
+    ).toBe("stuck");
   });
 
   it("counts as new only the posts the view shows", async () => {

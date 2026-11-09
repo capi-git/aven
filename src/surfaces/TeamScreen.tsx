@@ -61,10 +61,9 @@ import {
   type AvosTab,
 } from "./AvosPanel";
 import { avosJobs } from "../lib/avosJobs";
-import { CrewAnswerBox, CrewFeed } from "./CrewBoard";
+import { CrewFeed } from "./CrewBoard";
 import { AvosReview } from "./AvosReview";
 import { BatchCard } from "./TeamBatch";
-import { TeamCardButton } from "../chrome/TeamCard";
 import { TeamChat } from "./TeamChat";
 import type { BoardTop } from "./WorkBoard";
 import "./TeamScreen.css";
@@ -141,8 +140,6 @@ export function TeamScreen({
   // The helper open in Helpers, if any.
   const [helperOpen, setHelperOpen] = useState<string | null>(null);
   const crewWorkspace = useCrewWorkspace();
-  // A card waiting on your answer, open in its own sheet.
-  const [answering, setAnswering] = useState<string | null>(null);
   useEffect(() => {
     // Review from the Inbox or a Ready card: the batch's Review opens here.
     const take = () => {
@@ -157,9 +154,11 @@ export function TeamScreen({
   useEffect(() => {
     if (reviewing && !hasBatch) setReviewing(false);
   }, [reviewing, hasBatch]);
-  // A helper in the panel shows its posts.
+  // A helper in the profile shows its posts; Answer writes the chat box's
+  // next message to that card.
   const chat = useRef<{
     select: (id: string | null) => void;
+    answer: (cardId: string) => void;
   } | null>(null);
   // Meeting Avos is the chat alone: nothing else applies yet.
   const meeting = avosUnmet(crew);
@@ -198,12 +197,18 @@ export function TeamScreen({
     if (!target) return;
     if (target.kind === "review") {
       if (view.batch) setReviewing(true);
-    } else if (target.kind === "card") setAnswering(target.cardId);
+    } else if (target.kind === "card") answer(target.cardId);
     else if (target.kind === "run") workspace?.openRun?.(target.runId);
     else openAutomation(target.jobId);
   };
+  // Answer a helper's question: in the chat box, never a sheet of its own.
+  const answer = (cardId: string) => {
+    save("chat");
+    setSheet(null);
+    chat.current?.answer(cardId);
+  };
   const act = (cardId: string, id: CrewBoardActionId | "delete") => {
-    if (id === "answer") return setAnswering(cardId);
+    if (id === "answer") return answer(cardId);
     const card = cards.find((item) => item.id === cardId);
     if (!card) return;
     if (id === "delete") onDeleteCard?.(card);
@@ -256,6 +261,8 @@ export function TeamScreen({
             ? row.actions
             : [...row.actions, { id: "throw-away", label: "Throw away" }],
         });
+    // A question is answered in the chat box (Answer puts it there); a card
+    // stuck another way has its own buttons (One more round, Throw away).
     for (const card of stuck)
       rows.push({
         id: `stuck:${card.id}`,
@@ -263,7 +270,10 @@ export function TeamScreen({
         text: card.title,
         ...(card.stuck?.text ? { line: card.stuck.text } : {}),
         cardId: card.id,
-        actions: [{ id: "answer", label: "Answer", primary: true }],
+        actions:
+          card.stuck?.reason === "question"
+            ? [{ id: "answer", label: "Answer", primary: true }]
+            : (cards.find((item) => item.id === card.id)?.crew?.actions ?? []),
       });
     for (const card of columns.idea) {
       const give = card.crew?.actions.find((action) => action.id === "give");
@@ -289,10 +299,7 @@ export function TeamScreen({
       });
     }
     return rows;
-  }, [view.batch, view.ready, stuck, columns.idea, crew, name]);
-  const answeringCard = answering
-    ? crew.cards.find((card) => card.id === answering && card.stage === "stuck")
-    : undefined;
+  }, [view.batch, view.ready, stuck, columns.idea, crew, name, cards]);
   const batch = view.batch ? (
     <BatchCard
       crew={crew}
@@ -401,10 +408,6 @@ export function TeamScreen({
               .filter((ask) => !ask.aside)
               .map((ask) => ask.id)
               .join(",")}
-            onCards={() => {
-              // Answer on its card: its question, in its own sheet.
-              if (stuck[0]) setAnswering(stuck[0].id);
-            }}
             onSelected={() => undefined}
             control={chat}
           />
@@ -481,46 +484,6 @@ export function TeamScreen({
         >
           <div className="crew-activity" data-avos-activity>
             <CrewFeed crew={crew} name={name} />
-          </div>
-        </Modal>
-      ) : null}
-      {answeringCard ? (
-        <Modal
-          onClose={() => setAnswering(null)}
-          title={answeringCard.title}
-          description={
-            answeringCard.stuck?.text ?? "It stopped, and waits for you."
-          }
-          className="avos-answer-sheet"
-        >
-          <div className="avos-sheet-body" data-avos-answer={answeringCard.id}>
-            {answeringCard.stuck?.reason === "question" ? (
-              <CrewAnswerBox
-                path={project}
-                cardId={answeringCard.id}
-                onDone={() => setAnswering(null)}
-              />
-            ) : null}
-            <div className="avos-answer-ways">
-              {(
-                cards.find((card) => card.id === answeringCard.id)?.crew
-                  ?.actions ?? []
-              )
-                .filter((action) => action.id !== "answer")
-                .map((action) => (
-                  <TeamCardButton
-                    key={action.id}
-                    size="compact"
-                    variant={action.primary ? "primary" : "default"}
-                    onClick={() => {
-                      setAnswering(null);
-                      act(answeringCard.id, action.id);
-                    }}
-                  >
-                    {action.label}
-                  </TeamCardButton>
-                ))}
-            </div>
           </div>
         </Modal>
       ) : null}
