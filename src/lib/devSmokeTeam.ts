@@ -1354,12 +1354,18 @@ export async function checkTeamAccess(
 ): Promise<string> {
   const project = await newTeamProject(config.projectPath, "team-access");
   ensureCrewSaved(project);
+  // Access is one of Avos's settings rows: open the sheet, then its row.
   const open = async (what: string) => {
     workspace().openSettings(project);
     return waitFor(
       () => {
         const found = document.querySelector<HTMLElement>("[data-crew-access]");
-        return onScreen(found) ? found : null;
+        if (onScreen(found)) return found;
+        const row = document.querySelector<HTMLButtonElement>(
+          '[data-crew-summary="access"]',
+        );
+        if (onScreen(row)) row!.click();
+        return null;
       },
       10_000,
       what,
@@ -1419,6 +1425,11 @@ export async function checkTeamAccess(
     await closeSheet(reopened, "the Team sheet");
     return "Ask first and web No one stayed so after the sheet closed and reopened";
   } catch (error) {
+    // A failure here never leaves the sheet over the steps after it.
+    const sheet = document.querySelector<HTMLElement>(
+      '[role="dialog"] [data-crew-settings], [role="dialog"] [data-crew-settings-page]',
+    );
+    if (sheet) await closeSheet(sheet, "the Team sheet").catch(() => {});
     withDiagnostics(get, project, undefined, error);
   }
   // Unreachable: withDiagnostics throws.
