@@ -1813,6 +1813,29 @@ export const REVIEW_FIRST =
 const CREW_AT_WORK =
   "Avos is at work in its copy. Try again once its turn ends.";
 
+/**
+ * Why an Apply clashed with your files, in words that say what to do. A
+ * file Avos adds that your folder already has outside Git can't be fixed by
+ * updating Avos's branch (its copy never sees such files), so that says
+ * which file instead of offering the update.
+ */
+export function applyConflictText(error: unknown): string {
+  const found = [
+    ...new Set(
+      [
+        ...errorText(error).matchAll(
+          /([^\s:]+): already exists in working directory/g,
+        ),
+      ].map((match) => match[1]!),
+    ),
+  ];
+  if (!found.length)
+    return "Your files changed where Avos worked, so nothing was applied. Update Avos's branch onto your files, then Apply again.";
+  const one = found.length === 1;
+  const names = found.slice(0, 3).join(", ") + (found.length > 3 ? "…" : "");
+  return `Nothing was applied: Avos's change adds ${names}, and your folder already has ${one ? "a file" : "files"} by that name that Git doesn't track. Commit or move ${one ? "it" : "them"} aside, then Apply again.`;
+}
+
 /** Where the batch ends: at `upTo` (a card's id), else its last card. */
 function batchEnd(
   batch: CrewBatch,
@@ -1912,8 +1935,7 @@ export async function applyCrewBatch(
     if (isFixChanged(error)) return BRANCH_MOVED;
     logError("Apply crew batch", error);
     if (!/conflict/i.test(errorText(error))) return botCopyError(error);
-    const text =
-      "Your files changed where Avos worked, so nothing was applied. Update Avos's branch onto your files, then Apply again.";
+    const text = applyConflictText(error);
     updateCrew(path, (current) =>
       current.stack
         ? { ...current, stack: { ...current.stack, conflict: text } }
