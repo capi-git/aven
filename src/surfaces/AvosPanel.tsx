@@ -10,13 +10,7 @@ import {
 import { Toggle } from "./SettingsControls";
 import { useDragResize } from "../hooks/useDragResize";
 import { useBatchActions, type BatchRange } from "../hooks/useTeamPipeline";
-import {
-  cardHolderId,
-  cardInCopy,
-  crewMemberById,
-  type CrewFindings,
-  type CrewMockup,
-} from "../lib/crews";
+import { cardHolderId, cardInCopy, crewMemberById } from "../lib/crews";
 import { memberAppLine } from "../chrome/crewSettingsParts";
 import { teammateChatReady } from "../lib/crewActions";
 import type { PipelineBatch } from "../lib/crewPipeline";
@@ -31,6 +25,7 @@ import { localDay } from "../lib/projectBots";
 import { shortTimeAgo } from "../lib/gitChangesView";
 import { plural } from "../lib/words";
 import type { BoardCard } from "../lib/workBoard";
+import { AvosDocuments } from "./AvosDocuments";
 import {
   AvosGoal,
   AvosMore,
@@ -84,6 +79,9 @@ export type AvosPanelProps = AvosProfileProps & {
   onStopHelper: (sessionId: string) => void;
   /** Its posts, in Avos's chat. */
   onPosts: (id: string) => void;
+  /** The document open in Documents, by its id, or none (the list). */
+  document: string | null;
+  onDocument: (id: string | null) => void;
 };
 
 const DAY = 24 * 60 * 60_000;
@@ -285,7 +283,15 @@ export function AvosTabBody(props: AvosPanelProps) {
         </div>
       );
     case "documents":
-      return <AvosDocuments {...props} />;
+      return (
+        <AvosDocuments
+          project={props.project}
+          crew={props.crew}
+          now={props.now}
+          open={props.document}
+          onOpen={props.onDocument}
+        />
+      );
     case "habits":
       return <AvosHabits {...props} />;
     case "changes":
@@ -472,67 +478,6 @@ function AvosActivityGrid({
         ))}
       </div>
     </section>
-  );
-}
-
-/** What it wrote up: the Researcher's findings and the Designer's mock-ups. */
-function AvosDocuments({ crew, now }: AvosPanelProps) {
-  const docs = crew.cards
-    .flatMap((card) => {
-      const rows: {
-        id: string;
-        title: string;
-        at: number;
-        findings?: CrewFindings;
-        mockup?: CrewMockup;
-      }[] = [];
-      if (card.findings)
-        rows.push({
-          id: `f:${card.id}`,
-          title: card.title,
-          at: card.findings.readAt,
-          findings: card.findings,
-        });
-      if (card.mockup)
-        rows.push({
-          id: `m:${card.id}`,
-          title: card.title,
-          at: card.mockup.madeAt,
-          mockup: card.mockup,
-        });
-      return rows;
-    })
-    .sort((a, b) => b.at - a.at);
-  if (!docs.length)
-    return (
-      <div className="avos-panel-stack" data-avos-panel-body="documents">
-        <p className="avos-panel-empty avos-panel-centre">
-          Ask Avos to look something up or sketch a screen, and what it writes
-          shows up here.
-        </p>
-      </div>
-    );
-  return (
-    <div className="avos-panel-stack" data-avos-panel-body="documents">
-      {docs.map((doc) => (
-        <article key={doc.id} className="avos-panel-doc" data-avos-doc={doc.id}>
-          <p className="avos-panel-line">
-            <span className="avos-panel-doc-title">{doc.title}</span>
-            <span className="avos-panel-when">
-              {formatRunTime(doc.at, now)}
-            </span>
-          </p>
-          <p className="avos-panel-doc-kind">
-            {doc.findings
-              ? `Findings · ${plural(doc.findings.sources, "source")}`
-              : "Mock-up"}
-          </p>
-          <p className="avos-panel-doc-text">
-            {doc.findings ? doc.findings.summary : doc.mockup!.note}
-          </p>
-        </article>
-      ))}
-    </div>
   );
 }
 

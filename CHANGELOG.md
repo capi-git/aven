@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Avos writes documents.** For a substantial report, review or plan, Avos saves the full text as a document and keeps its chat answer short. A card under the reply opens it in Avos's panel, where Documents lists them: read one there, copy it or delete it. Name a document in a message and Avos can revise it.
+
 ## [0.1.175] - 2026-11-09
 
 ### Changed

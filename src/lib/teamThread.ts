@@ -69,6 +69,8 @@ export type TeamPost =
       action?: CrewFeedAction;
       /** A line of the work behind Avos's answer (a helper started, done). */
       work?: true;
+      /** The document this reply saved: its card shows under it. */
+      doc?: { id: string; title: string; summary?: string };
     }
   | {
       kind: "you";
@@ -421,6 +423,7 @@ function postOf(
     author: by,
     ...(entry.title ? { card: entry.title } : {}),
     ...(entry.action ? { action: entry.action } : {}),
+    ...(entry.doc ? { doc: entry.doc } : {}),
   };
   const round = entry.round ?? 1;
   switch (entry.kind) {

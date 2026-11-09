@@ -3223,6 +3223,22 @@ export function bringInBuilders(
   return names.length ? next : null;
 }
 
+/** A deleted document's cards leave the chat: nothing opens one that's gone. */
+export function forgetDocumentCards(path: string, id: string): void {
+  updateCrew(path, (crew) =>
+    crew.feed.some((entry) => entry.doc?.id === id)
+      ? {
+          ...crew,
+          feed: crew.feed.map((entry) => {
+            if (entry.doc?.id !== id) return entry;
+            const { doc: _doc, ...rest } = entry;
+            return rest;
+          }),
+        }
+      : crew,
+  );
+}
+
 /** Said when building is asked for in a folder without Git. */
 export const BUILDING_NEEDS_GIT =
   "Building happens in a copy of the project, which needs Git. Set up Git for this folder, then ask again.";

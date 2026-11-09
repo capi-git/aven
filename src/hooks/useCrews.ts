@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { claudeCheckerModel } from "../lib/crewModels";
 import { crewSendHold } from "../lib/crewSmoke";
 import {
+  getAvosDocument,
+  listAvosDocuments,
+  saveAvosDocument,
+} from "../lib/avosDocuments";
+import {
   bringInBuilders,
   buildingNeed,
   buildingProblem,
@@ -172,6 +177,11 @@ export function useCrews(
       bringInBuilders: (path) => void bringInBuilders(path),
       buildingProblem: (path) => buildingProblem(path),
       buildingNeed: (path) => buildingNeed(path),
+      documents: {
+        list: listAvosDocuments,
+        get: getAvosDocument,
+        save: saveAvosDocument,
+      },
       mockups: {
         read: (path) => readTextFile(path),
         save: saveMockup,

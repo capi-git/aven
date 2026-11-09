@@ -729,7 +729,29 @@ export type CrewFeedEntry = {
   text: string;
   /** What the line offers you: Set up Git, when building needs it. */
   action?: CrewFeedAction;
+  /** The document this reply saved: its card shows under it. */
+  doc?: { id: string; title: string; summary?: string };
 };
+
+/** A feed line's document card, read from storage: an id and a title. */
+function readFeedDoc(value: unknown): CrewFeedEntry["doc"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (
+    typeof raw.id !== "string" ||
+    !/^[A-Za-z0-9_-]{1,256}$/.test(raw.id) ||
+    typeof raw.title !== "string" ||
+    !raw.title.trim()
+  )
+    return undefined;
+  return {
+    id: raw.id,
+    title: raw.title.slice(0, 200),
+    ...(typeof raw.summary === "string" && raw.summary.trim()
+      ? { summary: raw.summary.slice(0, 280) }
+      : {}),
+  };
+}
 
 /** An action a feed line offers. */
 export type CrewFeedAction = "set-up-git";
@@ -1876,6 +1898,7 @@ export function readCrew(value: unknown): Crew | null {
             ...(typeof entry.round === "number" ? { round: entry.round } : {}),
             text: body,
             ...(entry.action === "set-up-git" ? { action: entry.action } : {}),
+            ...(readFeedDoc(entry.doc) ? { doc: readFeedDoc(entry.doc)! } : {}),
           };
         })
         .filter((entry): entry is CrewFeedEntry => !!entry)

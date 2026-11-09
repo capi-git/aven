@@ -3,6 +3,7 @@ use tauri::Manager;
 mod access_panel;
 mod agent_files;
 mod agent_tools;
+mod avos_documents;
 #[cfg_attr(
     all(feature = "chromium", target_os = "macos"),
     path = "browser_chromium.rs"
@@ -699,6 +700,10 @@ pub fn run() {
             notes::notes_delete,
             notes::notes_save_image,
             notes::notes_image_path,
+            avos_documents::avos_documents_list,
+            avos_documents::avos_document_get,
+            avos_documents::avos_document_upsert,
+            avos_documents::avos_document_delete,
             project_memory::project_memory_get,
             project_memory::project_memory_set,
             project_memory::project_memory_append,

@@ -60,6 +60,7 @@ import {
   type AvosPanelProps,
   type AvosTab,
 } from "./AvosPanel";
+import { OPEN_DOCUMENT } from "../lib/avosDocuments";
 import { avosJobs } from "../lib/avosJobs";
 import { CrewFeed } from "./CrewBoard";
 import { AvosReview } from "./AvosReview";
@@ -139,6 +140,8 @@ export function TeamScreen({
   const [sheet, setSheet] = useState<AvosTab | null>(null);
   // The helper open in Helpers, if any.
   const [helperOpen, setHelperOpen] = useState<string | null>(null);
+  // The document open in Documents, if any.
+  const [documentOpen, setDocumentOpen] = useState<string | null>(null);
   const crewWorkspace = useCrewWorkspace();
   useEffect(() => {
     // Review from the Inbox or a Ready card: the batch's Review opens here.
@@ -186,6 +189,21 @@ export function TeamScreen({
   );
   const week = useMemo(() => avosWeek(crew, { jobs, now }), [crew, jobs, now]);
   const [measure, narrow] = useNarrow<HTMLElement>(PROFILE_NARROW);
+  // A document's card under a reply opens it in Documents: beside the chat,
+  // or in the panel's sheet on a narrow pane.
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ project?: string; id?: string }>)
+        .detail;
+      if (!detail?.id || detail.project !== project) return;
+      setReviewing(false);
+      setDocumentOpen(detail.id);
+      setTab("documents");
+      if (narrow) setSheet("documents");
+    };
+    window.addEventListener(OPEN_DOCUMENT, onOpen);
+    return () => window.removeEventListener(OPEN_DOCUMENT, onOpen);
+  }, [project, narrow]);
   // Wide again: the panel stands beside the chat, so its sheet goes.
   useEffect(() => {
     if (!narrow) setSheet(null);
@@ -351,6 +369,8 @@ export function TeamScreen({
     },
     helper: helperOpen,
     onCloseHelper: () => setHelperOpen(null),
+    document: documentOpen,
+    onDocument: setDocumentOpen,
     onWatch: async (id) => {
       const open = crewWorkspace?.openChatBeside;
       if (!open) return "Couldn't open its chat here.";

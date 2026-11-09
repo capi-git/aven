@@ -197,6 +197,103 @@
   -webkit-line-clamp: 6;
 }
 
+/* What Avos wrote up: one row each (a tile, its title, one line), which
+   opens the document here, over the list. */
+.avos-panel-doc-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+}
+.avos-panel-doc-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--aven-radius-row);
+  background: transparent;
+  color: var(--color-content);
+  font: inherit;
+  text-align: left;
+  cursor: var(--aven-cursor-pointer);
+}
+.avos-panel-doc-row:hover {
+  background: var(--aven-hover);
+}
+.avos-panel-doc-tile {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--aven-radius-row);
+  background: var(--aven-inset-card, var(--aven-hover));
+  color: var(--aven-muted);
+}
+.avos-panel-doc-words {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.avos-panel-doc-words > b,
+.avos-panel-doc-words > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avos-panel-doc-words > b {
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+}
+.avos-panel-doc-words > small {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+/* One document, read over the list: a way back and its actions, then its
+   Markdown at reading size. */
+.avos-doc-page {
+  gap: 14px;
+}
+.avos-doc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.avos-doc-head .avos-panel-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.avos-doc-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-inset-card, var(--aven-hover));
+  font-size: var(--text-ui-body);
+}
+.avos-doc-confirm > p {
+  margin: 0;
+}
+.avos-doc {
+  min-width: 0;
+  font-size: var(--text-ui-body);
+  line-height: 1.55;
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.avos-doc-title {
+  margin: 0 0 10px;
+  font-size: var(--text-ui-title);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
 /* Habits: one row each, its words on the left and its switch on the right. */
 .avos-panel-habit {
   display: flex;
