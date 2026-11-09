@@ -1,9 +1,15 @@
 import { useSyncExternalStore, type ReactNode } from "react";
+import {
+  avosTalkModel,
+  crewEffortSetting,
+  helperRunsOn,
+} from "../lib/crewModels";
 import { crewAgentAllowed } from "../lib/crewActions";
 import {
   CREW_AGENTS,
   crewAgentsFor,
   crewMemberApp,
+  type Crew,
   type CrewLimitName,
   type CrewMember,
   type CrewRole,
@@ -33,6 +39,7 @@ export const LIMIT_CHOICES: Readonly<Record<CrewLimitName, readonly number[]>> =
     turnMinutes: [5, 10, 15, 20, 30, 45, 60, 90, 120],
     pauseAtPercent: [50, 60, 70, 80, 90, 100],
     readyCap: [1, 2, 3, 5, 8, 10, 15, 20],
+    helpersPerDay: [0, 3, 5, 10, 15, 20, 30],
   };
 
 /** A labelled picker of numbers, yours kept when it isn't one of the choices. */
@@ -93,7 +100,10 @@ export function memberApp(member: CrewMember): {
   const app = crewMemberApp(member);
   return {
     harness: app.harness,
-    model: app.model ?? preferredModelId(app.harness),
+    model:
+      avosTalkModel(member)?.model ??
+      app.model ??
+      preferredModelId(app.harness),
   };
 }
 
@@ -120,11 +130,40 @@ export function agentWord(id: HarnessId): string {
   return id === "claude" ? "Claude" : HARNESS_TITLE[id];
 }
 
-/** "Claude · Opus 5.5": what a teammate runs on, in a few words. */
-export function memberAppLine(member: CrewMember): string {
+/**
+ * "Claude · Opus 5.5": what a teammate runs on, in a few words. Given its
+ * crew, a Builder you haven't set yourself says what new helpers run on,
+ * which is what its jobs use.
+ */
+export function memberAppLine(
+  member: CrewMember,
+  crew?: Pick<Crew, "helperModel">,
+): string {
   if (member.role === "fixer") return "This project's bot";
-  const { harness, model } = memberApp(member);
-  return `${agentWord(harness)} · ${shortModelName(model)}`;
+  const app = memberApp(member);
+  const { harness } = app;
+  if (crew && member.role === "builder" && !member.chosen) {
+    const runs = helperRunsOn(crew);
+    if (!runs) return `${agentWord(harness)} · Avos picks per job`;
+    if (findModel(runs.model)?.harness === harness)
+      return memberAppLine({
+        ...member,
+        model: runs.model,
+        ...(runs.effort ? { effort: runs.effort } : {}),
+        chosen: true,
+      });
+  }
+  const { model } = app;
+  // Avos on its own default says its effort too: "Opus 5.5 · Medium".
+  const effort = avosTalkModel(member)?.effort ?? member.effort;
+  const label = effort
+    ? crewEffortSetting(harness, model)?.options.find(
+        (option) => option.value === effort,
+      )?.label
+    : undefined;
+  return [agentWord(harness), shortModelName(model), label]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** Why an app can't be picked for this member, or null when it can. */

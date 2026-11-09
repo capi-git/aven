@@ -265,6 +265,7 @@ pub(super) fn run(app: &AppHandle) {
                     harness: Some("codex".into()),
                     title: Some("Owned native input fixture".into()),
                     tone: None,
+                    faces: None,
                 })),
             )
         });

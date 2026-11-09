@@ -238,7 +238,9 @@ it("shows each lane's status and changes and explains what it started from", asy
   const view = await render([ended("s0", "completed"), session("s1", true)]);
   const text = view.textContent ?? "";
   expect(text).toContain("started from your files as they are now");
-  expect(text).toContain("new files not yet added to Git weren't included");
+  expect(text).toContain(
+    "some large files not yet added to Git weren't included",
+  );
   expect(text).toContain("Done");
   expect(text).toContain("Working");
   expect(text).toContain("+3");

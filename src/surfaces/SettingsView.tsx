@@ -213,11 +213,16 @@ import {
   type AccentPreset,
 } from "../lib/accentColors";
 import {
-  GLASS_LEVEL_MAX,
-  GLASS_LEVEL_MIN,
-  glassLevelFromOpacity,
-  glassLevelLabel,
-  glassSettingsForLevel,
+  blurForTranslucency,
+  glassSettingsForOpacity,
+  OPACITY_PERCENT_MAX,
+  OPACITY_PERCENT_MIN,
+  opacityLabel,
+  opacityPercentFromOpacity,
+  TRANSLUCENCY_MAX,
+  TRANSLUCENCY_MIN,
+  translucencyFromBlur,
+  translucencyLabel,
 } from "../lib/glassLevel";
 import {
   cancelUpdateWait,
@@ -1027,8 +1032,14 @@ function useAppearanceSettings() {
 
   // A drag paints the window each frame and saves once it settles: saving
   // repaints every view that reads the workspace's look.
-  const [draggedGlass, setDraggedGlass] = useState<number | null>(null);
-  const glassLevel = draggedGlass ?? glassLevelFromOpacity(theme.opacity);
+  const [draggedGlass, setDraggedGlass] = useState<{
+    opacity?: number;
+    translucency?: number;
+  } | null>(null);
+  const opacityPercent =
+    draggedGlass?.opacity ?? opacityPercentFromOpacity(theme.opacity);
+  const translucency =
+    draggedGlass?.translucency ?? translucencyFromBlur(theme.blur);
   const glassSave = useRef<{
     frame: number;
     timer: ReturnType<typeof setTimeout>;
@@ -1043,21 +1054,36 @@ function useAppearanceSettings() {
     pending.save();
   }, []);
   useEffect(() => saveGlassNow, [saveGlassNow]);
-  const onGlass = useCallback(
-    (level: number) => {
-      const { opacity, blur, bodyGlass, statusBarOpacity } =
-        glassSettingsForLevel(level);
-      if (glassSave.current) {
-        cancelAnimationFrame(glassSave.current.frame);
-        clearTimeout(glassSave.current.timer);
-      }
-      setDraggedGlass(level);
+  // Each slider saves only its own half, so a drag on one never resets the
+  // other. Opacity repaints a CSS variable each frame; the blur goes to the
+  // window once the drag settles, so it is never re-blurred per frame.
+  const onOpacity = useCallback(
+    (percent: number) => {
+      saveGlassNow();
+      const { opacity, bodyGlass, statusBarOpacity } =
+        glassSettingsForOpacity(percent);
+      setDraggedGlass((draft) => ({ ...draft, opacity: percent }));
       glassSave.current = {
         frame: requestAnimationFrame(() => applySidebarOpacity(opacity)),
         timer: setTimeout(saveGlassNow, GLASS_SAVE_DELAY_MS),
         save: () => {
-          saveWorkspaceTheme(profileId, { opacity, blur, bodyGlass });
+          saveWorkspaceTheme(profileId, { opacity, bodyGlass });
           saveStatusBarOpacity(applyStatusBarOpacity(statusBarOpacity));
+          setDraggedGlass(null);
+        },
+      };
+    },
+    [profileId, saveGlassNow],
+  );
+  const onTranslucency = useCallback(
+    (value: number) => {
+      saveGlassNow();
+      setDraggedGlass((draft) => ({ ...draft, translucency: value }));
+      glassSave.current = {
+        frame: 0,
+        timer: setTimeout(saveGlassNow, GLASS_SAVE_DELAY_MS),
+        save: () => {
+          saveWorkspaceTheme(profileId, { blur: blurForTranslucency(value) });
           setDraggedGlass(null);
         },
       };
@@ -1162,7 +1188,8 @@ function useAppearanceSettings() {
     colorScheme,
     accent,
     accentPreset,
-    glassLevel,
+    opacityPercent,
+    translucency,
     frameTone: theme.frameTone ?? ("default" as const),
     chatBackgroundPath,
     chatBackgroundOpacity,
@@ -1170,7 +1197,8 @@ function useAppearanceSettings() {
     chatBackgroundError,
     uiScale,
     onThemePreference,
-    onGlass,
+    onOpacity,
+    onTranslucency,
     onFrameTone,
     onAccentPreset,
     onCustomAccent,
@@ -1241,24 +1269,49 @@ function AppearancePage({
           />
         </Row>
         {HAS_NATIVE_GLASS && (
-          <Row
-            {...SETTINGS.glass.row}
-            description={
-              glassDisabled
-                ? SETTINGS.glass.disabledDescription
-                : SETTINGS.glass.row.description
-            }
-          >
-            <Slider
-              label={SETTINGS.glass.label}
-              value={appearance.glassLevel}
-              display={glassLevelLabel(appearance.glassLevel)}
-              min={GLASS_LEVEL_MIN}
-              max={GLASS_LEVEL_MAX}
-              onChange={appearance.onGlass}
-              disabled={glassDisabled}
-            />
-          </Row>
+          <>
+            <Row
+              {...SETTINGS.glass.row}
+              description={
+                glassDisabled
+                  ? SETTINGS.glass.disabledDescription
+                  : SETTINGS.glass.row.description
+              }
+            >
+              <Slider
+                label={SETTINGS.glass.label}
+                value={appearance.opacityPercent}
+                display={opacityLabel(appearance.opacityPercent)}
+                min={OPACITY_PERCENT_MIN}
+                max={OPACITY_PERCENT_MAX}
+                onChange={appearance.onOpacity}
+                disabled={glassDisabled}
+              />
+            </Row>
+            <Row
+              {...SETTINGS.translucency.row}
+              description={
+                glassDisabled
+                  ? SETTINGS.translucency.disabledDescription
+                  : appearance.opacityPercent >= OPACITY_PERCENT_MAX
+                    ? SETTINGS.translucency.solidDescription
+                    : SETTINGS.translucency.row.description
+              }
+            >
+              <Slider
+                label={SETTINGS.translucency.label}
+                value={appearance.translucency}
+                display={translucencyLabel(appearance.translucency)}
+                min={TRANSLUCENCY_MIN}
+                max={TRANSLUCENCY_MAX}
+                onChange={appearance.onTranslucency}
+                disabled={
+                  glassDisabled ||
+                  appearance.opacityPercent >= OPACITY_PERCENT_MAX
+                }
+              />
+            </Row>
+          </>
         )}
         <Row
           {...SETTINGS.frameTone.row}

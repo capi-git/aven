@@ -340,15 +340,27 @@ export const SETTINGS = {
   }),
   glass: defineSetting({
     section: "appearance",
-    label: "Glass",
+    label: "Opacity",
     description:
-      "Keep the window solid, or let the desktop show through, softly blurred.",
+      "How solid the window is, from Solid to letting the desktop show through.",
     keywords:
-      "transparency transparent translucent opacity blur radius frosted see through desktop window background status bar footer include workspace",
+      "glass transparency transparent translucent opacity see through solid desktop window background status bar footer include workspace",
     rowDescription:
-      "Solid hides the desktop. Slide toward glass to see it through the window, softly blurred. Text stays sharp.",
+      "How solid the window is. Lower it to let the desktop show through. Text stays sharp.",
     disabledDescription:
       "Light mode always uses a solid window. Glass applies in dark mode.",
+    nativeGlass: true,
+  }),
+  translucency: defineSetting({
+    section: "appearance",
+    label: "Translucency",
+    description:
+      "How clearly the desktop shows through, from frosted to clear.",
+    keywords: "glass blur radius frosted frost clear see through desktop",
+    rowDescription:
+      "How clearly the desktop shows through. Lower it for frosted glass.",
+    disabledDescription: "Applies to glass in dark mode.",
+    solidDescription: "Lower Opacity to see the desktop through the window.",
     nativeGlass: true,
   }),
   frameTone: defineSetting({

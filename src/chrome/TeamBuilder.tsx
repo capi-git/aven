@@ -247,7 +247,7 @@ export function TeamBuilder({
                     {memberJob(member)}
                   </span>
                   <span className="team-build-mate-app">
-                    {memberAppLine(member)}
+                    {memberAppLine(member, crew)}
                     {member.paused ? " · off" : ""}
                   </span>
                 </span>

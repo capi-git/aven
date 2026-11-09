@@ -80,6 +80,7 @@ let root: Root;
 let container: HTMLDivElement;
 const workspace = {
   openChat: vi.fn(async (): Promise<string | null> => null),
+  openChatBeside: vi.fn(async (): Promise<string | null> => null),
   openCrew: vi.fn(),
   openSettings: vi.fn(),
   stop: vi.fn(async () => undefined),
@@ -313,12 +314,31 @@ function layout(element: HTMLElement) {
 }
 
 const thread = () => chat().querySelector<HTMLElement>("[data-team-thread]")!;
-const pick = (id: string) =>
+/** Open a tab of Avos's panel. */
+const panelTab = (tab: string) =>
   act(async () =>
+    container
+      .querySelector<HTMLButtonElement>(`aside [data-avos-tab="${tab}"]`)!
+      .click(),
+  );
+
+/**
+ * Pick a helper in Avos's Helpers tab, which opens its page there, then
+ * "Its posts in the chat": its posts show in the chat.
+ */
+const pick = async (id: string) => {
+  await panelTab("helpers");
+  await act(async () =>
     container
       .querySelector<HTMLButtonElement>(`[data-avos-helper="${id}"]`)!
       .click(),
   );
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>("[data-avos-helper-posts]")!
+      .click(),
+  );
+};
 
 async function press(key: string) {
   await act(async () => {
@@ -372,13 +392,23 @@ afterEach(async () => {
 });
 
 describe("the team chat", () => {
-  it("opens on the chat with Avos's profile beside it: no tabs, and no header over the chat", async () => {
+  it("opens on the chat with Avos's panel beside it: five tabs, and no header over the chat", async () => {
     localStorage.removeItem(TEAM_VIEW_KEY);
     resetTeamViewCache();
     await setUp();
     expect(chat()).not.toBeNull();
     expect(container.querySelector("[data-team-board]")).toBeNull();
-    expect(container.querySelector('[role="tab"]')).toBeNull();
+    // The only tabs are Avos's panel's, as a Mono's: Overview open first.
+    expect(
+      [...container.querySelectorAll<HTMLElement>('[role="tab"]')].map((tab) =>
+        tab.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Overview", "Helpers", "Documents", "Habits", "Changes"]);
+    expect(
+      container
+        .querySelector('[data-avos-tab="overview"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
     // A wide pane: the profile names Avos, so nothing over the chat does.
     expect(container.querySelector("[data-avos-bar]")).toBeNull();
     const profile = container.querySelector<HTMLElement>("[data-crew-header]")!;
@@ -387,12 +417,26 @@ describe("the team chat", () => {
     expect(
       profile.querySelector("[data-crew-sentence]")?.textContent,
     ).toBeTruthy();
-    // Only what it has: no jobs or notes yet, so only who's helping.
+    // Overview: what it did, today, up next and what's new.
+    expect(
+      [...profile.querySelectorAll("[data-avos-profile] h2")].map(
+        (heading) => heading.firstChild?.textContent,
+      ),
+    ).toEqual(["What it did", "Today", "Up next", "New today"]);
+    // Helpers: who's working; Changes: what's ready.
+    await panelTab("helpers");
     expect(
       [...profile.querySelectorAll("[data-avos-profile] h2")].map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["Helpers"]);
+    ).toEqual(["Working now"]);
+    await panelTab("changes");
+    expect(
+      profile.querySelector('[data-avos-profile="ready"] h2')?.textContent,
+    ).toContain("Ready to review");
+    // What it remembers is in ⋯, and the day's limits are in Settings.
+    expect(profile.querySelector('[data-avos-profile="remembers"]')).toBeNull();
+    expect(profile.textContent).not.toContain("runs today");
   });
 
   it("an old saved Changes, Notes or Sub agents view opens on the chat", async () => {
@@ -406,8 +450,9 @@ describe("the team chat", () => {
     expect(chat().closest<HTMLElement>(".avos-body")!.hidden).toBe(false);
   });
 
-  it("lists who's helping in Avos's profile: its dots while it works, nothing at rest, and a helper shows its posts", async () => {
+  it("lists who's working first in Avos's Helpers tab, with what each is doing and on what, and a helper shows its posts", async () => {
     await setUp();
+    await panelTab("helpers");
     const profile = container.querySelector<HTMLElement>("[data-crew-header]")!;
     const helpers = [
       ...profile.querySelectorAll<HTMLElement>("[data-avos-helper]"),
@@ -422,12 +467,23 @@ describe("the team chat", () => {
         helper.querySelector(".avos-profile-helper-word")?.textContent ?? null,
       ]),
     ).toEqual([
+      ["Checker", "working", "working", false, null],
       ["Builder", "resting", "resting", false, null],
       ["Designer", "resting", "resting", false, null],
-      ["Checker", "working", "working", false, null],
       ["Security", "resting", "resting", false, null],
       ["Scout", "resting", "resting", false, null],
     ]);
+    // While it works, what it runs on, under what it's doing; nothing at rest.
+    expect(
+      profile.querySelector(
+        '[data-avos-helper="checker"] .avos-profile-helper-meta',
+      )?.textContent,
+    ).toMatch(/^Claude · /);
+    expect(
+      profile.querySelector(
+        '[data-avos-helper="builder"] .avos-profile-helper-meta',
+      ),
+    ).toBeNull();
     // What it's doing, under its name, while it works.
     expect(
       profile.querySelector(
@@ -469,19 +525,30 @@ describe("the team chat", () => {
       expect(bar.querySelector(".avos-bar-name")?.textContent).toBe("Avos");
       expect(bar.querySelector(".avos-bar-line")?.textContent).toBeTruthy();
       expect(bar.querySelector('[aria-label="More for Avos"]')).not.toBeNull();
+      // The panel's tabs are icons in the header; one opens in a sheet.
+      expect(bar.querySelectorAll('[role="tab"]')).toHaveLength(5);
       await act(async () =>
         bar
-          .querySelector<HTMLButtonElement>('[aria-label="Avos\'s profile"]')!
+          .querySelector<HTMLButtonElement>('[data-avos-tab="helpers"]')!
           .click(),
       );
       const sheet = document.querySelector<HTMLElement>(".avos-profile-sheet")!;
       expect(
         sheet.querySelector('[data-avos-profile="helpers"]'),
       ).not.toBeNull();
-      // A helper there shows its posts, and the sheet goes.
+      // A helper there opens its page in the sheet; its posts show in the
+      // chat, and the sheet goes.
       await act(async () =>
         sheet
           .querySelector<HTMLButtonElement>('[data-avos-helper="checker"]')!
+          .click(),
+      );
+      expect(
+        sheet.querySelector('[data-avos-helper-page="checker"]'),
+      ).not.toBeNull();
+      await act(async () =>
+        sheet
+          .querySelector<HTMLButtonElement>("[data-avos-helper-posts]")!
           .click(),
       );
       expect(document.querySelector(".avos-profile-sheet")).toBeNull();
@@ -666,7 +733,7 @@ describe("the team chat", () => {
         .querySelector<HTMLButtonElement>("[data-team-open-chat]")!
         .click(),
     );
-    expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
+    expect(workspace.openChatBeside).toHaveBeenCalledWith(PROJECT, "checker");
     // Everyone again.
     await act(async () =>
       button(
@@ -1054,7 +1121,9 @@ describe("the team chat", () => {
       })),
     );
     expect(container.querySelector("[data-team-open-note]")).toBeNull();
-    workspace.openChat.mockResolvedValueOnce("Couldn't open Checker's chat.");
+    workspace.openChatBeside.mockResolvedValueOnce(
+      "Couldn't open Checker's chat.",
+    );
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>("[data-team-open-chat]")!
@@ -1065,8 +1134,67 @@ describe("the team chat", () => {
     );
   });
 
-  it("opens a helper's chat and settings from its posts, and ⋯ holds only Pause and Settings", async () => {
+  it("opens a helper inside the Helpers tab, keeps Avos's chat, and watches it beside Avos", async () => {
     await setUp();
+    const posts = () => chat().querySelectorAll("[data-team-post]").length;
+    const before = posts();
+    await panelTab("helpers");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[data-avos-helper="checker"]')!
+        .click(),
+    );
+    const page = container.querySelector<HTMLElement>(
+      '[data-avos-helper-page="checker"]',
+    )!;
+    expect(page.querySelector("h1")?.textContent).toBe("Checker");
+    expect(page.textContent).toContain("Checking Timer screen · round 2");
+    // Avos's chat is still everyone's.
+    expect(chat().querySelector("[data-team-showing]")).toBeNull();
+    expect(posts()).toBe(before);
+    await act(async () =>
+      page
+        .querySelector<HTMLButtonElement>("[data-avos-helper-watch]")!
+        .click(),
+    );
+    expect(workspace.openChatBeside).toHaveBeenCalledWith(PROJECT, "checker");
+    expect(workspace.openChat).not.toHaveBeenCalled();
+    // A chat that doesn't open says why, under its buttons.
+    workspace.openChatBeside.mockResolvedValueOnce(
+      "Couldn't open Checker's chat.",
+    );
+    await act(async () =>
+      page
+        .querySelector<HTMLButtonElement>("[data-avos-helper-watch]")!
+        .click(),
+    );
+    expect(page.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't open Checker's chat.",
+    );
+    // Before Avos's first job there's no chat to watch: it says so.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => {
+        const next = { ...crew };
+        delete next.copy;
+        return next;
+      }),
+    );
+    expect(page.querySelector("[data-avos-helper-watch]")).toBeNull();
+    expect(
+      page.querySelector("[data-avos-helper-unwatchable]")?.textContent,
+    ).toBe("Its chat opens when Avos gives it its first job.");
+    await act(async () =>
+      page.querySelector<HTMLButtonElement>("[data-avos-helper-back]")!.click(),
+    );
+    expect(container.querySelector("[data-avos-helper-page]")).toBeNull();
+    expect(
+      container.querySelector('[data-avos-helper="checker"]'),
+    ).not.toBeNull();
+  });
+
+  it("opens a helper's chat and settings from its posts, and ⋯ holds what it remembers, Pause and Settings", async () => {
+    await setUp();
+    await panelTab("helpers");
     const checker = container.querySelector<HTMLButtonElement>(
       '[data-crew-header] [data-avos-helper="checker"]',
     )!;
@@ -1075,7 +1203,7 @@ describe("the team chat", () => {
     await pick("checker");
     const showing = chat().querySelector<HTMLElement>("[data-team-showing]")!;
     await act(async () => button(showing, "Open chat")!.click());
-    expect(workspace.openChat).toHaveBeenCalledWith(PROJECT, "checker");
+    expect(workspace.openChatBeside).toHaveBeenCalledWith(PROJECT, "checker");
     await act(async () => button(showing, "Settings")!.click());
     expect(workspace.openSettings).toHaveBeenCalledWith(PROJECT, "checker");
     await act(async () =>
@@ -1087,46 +1215,72 @@ describe("the team chat", () => {
       [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map(
         (item) => item.textContent,
       ),
-    ).toEqual(["Pause Avos", "Settings…"]);
+    ).toEqual(["What Avos remembers", "Pause Avos", "Settings…"]);
     await act(async () =>
       button(document.querySelector('[role="menu"]')!, "Settings…")!.click(),
     );
     expect(workspace.openSettings).toHaveBeenLastCalledWith(PROJECT);
   });
 
-  it("shows what Avos remembers in its profile, and all of it in Notes, with Forget", async () => {
+  it("shows a quick helper while it works in Helpers, and what's ready in Changes with Review", async () => {
     await setUp((crew) => ({
       ...crew,
-      members: crew.members.map((member) =>
-        member.id === "checker"
-          ? { ...member, memory: "Tests live in src/__tests__." }
-          : member,
-      ),
-      notes: [{ id: "n1", at: NOW - 60_000, text: "Use pnpm, not npm" }],
+      helpers: [
+        {
+          id: "h1",
+          role: "helper",
+          name: "Quick helper",
+          helperOf: "builder",
+          doing: {
+            at: NOW - 30_000,
+            text: "Looking up where roles are stored",
+          },
+        },
+      ],
     }));
-    const remembers = container.querySelector<HTMLElement>(
-      '[data-avos-profile="remembers"]',
+    const profile = container.querySelector<HTMLElement>("[data-crew-header]")!;
+    await panelTab("helpers");
+    const quick = profile.querySelector<HTMLElement>(
+      '[data-avos-sub-agent="h1"]',
     )!;
+    expect(quick.querySelector(".avos-profile-helper-line")?.textContent).toBe(
+      "Looking up where roles are stored",
+    );
+    expect(quick.querySelector(".avos-profile-helper-meta")?.textContent).toBe(
+      "Started by Builder · reads only",
+    );
+    // Changes says how many wait, on its tab.
     expect(
-      [...remembers.querySelectorAll("p.avos-profile-row")].map(
-        (row) => row.textContent,
-      ),
-    ).toEqual(["Use pnpm, not npm", "Tests live in src/__tests__."]);
+      profile.querySelector('[data-avos-tab="changes"] .avos-tab-badge')
+        ?.textContent,
+    ).toBe("1");
+    await panelTab("changes");
+    const ready = profile.querySelector<HTMLElement>(
+      '[data-avos-profile="ready"]',
+    )!;
+    expect(ready.textContent).toContain("Settings page");
     await act(async () =>
-      remembers
-        .querySelector<HTMLButtonElement>("[data-avos-all-notes]")!
+      ready
+        .querySelector<HTMLButtonElement>("[data-avos-panel-review]")!
         .click(),
     );
-    const notes = document.querySelector<HTMLElement>("[data-avos-notes]")!;
-    expect(
-      [...notes.querySelectorAll(".team-notes-heading")].map(
-        (heading) => heading.textContent,
-      ),
-    ).toEqual(["Your rules", "What it learned"]);
-    expect(notes.textContent).toContain("Tests live in src/__tests__.");
-    const rule = notes.querySelector<HTMLElement>("[data-avos-rule]")!;
-    expect(rule.textContent).toContain("Use pnpm, not npm");
-    await act(async () => button(rule, "Forget")!.click());
-    expect(getCrew(PROJECT)!.notes).toEqual([]);
+    // Review takes the panel's place beside the chat.
+    expect(container.querySelector("[data-crew-header]")).toBeNull();
+  });
+
+  it("opens what Avos remembers from ⋯ on its Memory page in Settings", async () => {
+    await setUp();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="More for Avos"]')!
+        .click(),
+    );
+    await act(async () =>
+      button(
+        document.querySelector('[role="menu"]')!,
+        "What Avos remembers",
+      )!.click(),
+    );
+    expect(workspace.openSettings).toHaveBeenLastCalledWith(PROJECT, "memory");
   });
 });

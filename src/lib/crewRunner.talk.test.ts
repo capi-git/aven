@@ -7,7 +7,7 @@ import {
   type CrewRunnerDeps,
 } from "./crewRunner";
 import { crewLiveReply } from "./crewLiveReply";
-import { AVOS_TALK_MODEL } from "./crewModels";
+import { AVOS_MODEL } from "./crewModels";
 import { TALK_HOPS, parseTalk, talkMayAddJob } from "./crewTalk";
 import {
   crewLead,
@@ -351,12 +351,12 @@ describe("a message to everyone", () => {
     expect(getCrew(PATH)!.messages ?? []).toEqual([]);
   });
 
-  it("builds small cards from your message, and large ones wait", async () => {
+  it("builds every card from your message at once, whatever its size, as Avos's", async () => {
     team();
     const { runner, added, settle } = harness({
       lead: () =>
         talk({
-          line: "On the Board.",
+          line: "On it.",
           cards: [
             { title: "Fix the footer", size: "small" },
             { title: "Rewrite everything", size: "large" },
@@ -370,9 +370,16 @@ describe("a message to everyone", () => {
       "Fix the footer",
       "Rewrite everything",
     ]);
-    const crew = getCrew(PATH)!;
+    let crew = getCrew(PATH)!;
+    expect(crew.ideas?.["card-0"]).toMatchObject({ asked: true });
+    expect(crew.ideas?.["card-0"]?.by).toBeUndefined();
     expect(ideaWaits(crew, { id: "card-0" }, NOON)).toBeNull();
-    expect(ideaWaits(crew, { id: "card-1" }, NOON)).toBe("large");
+    expect(ideaWaits(crew, { id: "card-1" }, NOON)).toBeNull();
+    // Asked to wait, Avos's jobs wait for your Build it.
+    updateCrew(PATH, (current) => ({ ...current, askBeforeBuilding: true }));
+    crew = getCrew(PATH)!;
+    expect(ideaWaits(crew, { id: "card-0" }, NOON)).toBe("not-now");
+    expect(ideaWaits(crew, { id: "card-1" }, NOON)).toBe("not-now");
     runner.stop();
   });
 });
@@ -626,6 +633,25 @@ describe("helpers", () => {
     expect(
       getCrew(PATH)!.feed.some((entry) => /wanted a helper/.test(entry.text)),
     ).toBe(true);
+    runner.stop();
+  });
+
+  it("isn't offered helpers, and starts none, once you've turned them off", async () => {
+    team((crew) => ({
+      ...crew,
+      limits: { ...crew.limits, helpersPerDay: 0 },
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        talk({ line: "On it.", helpers: [{ title: "One", task: "1" }] }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Go", "lead", NOON);
+    await settle();
+    expect(sent.some((turn) => turn.memberId.startsWith("helper-"))).toBe(
+      false,
+    );
+    expect(sent[0]!.text).not.toContain('"helpers"');
     runner.stop();
   });
 
@@ -1110,7 +1136,7 @@ describe("Avos answering you", () => {
     });
   });
 
-  it("answers on the quick model unless you picked one for it", async () => {
+  it("answers on Opus 5.5 at Medium unless you picked a model for it", async () => {
     team();
     const quick = harness({ lead: () => talk({ line: "Hi." }) });
     quick.runner.start();
@@ -1118,7 +1144,7 @@ describe("Avos answering you", () => {
     await quick.settle();
     quick.runner.stop();
     expect(quick.overrides.filter((o) => o.memberId === "lead")).toEqual([
-      { memberId: "lead", model: AVOS_TALK_MODEL },
+      { memberId: "lead", model: AVOS_MODEL, effort: "medium" },
     ]);
 
     resetCrewsCache();
@@ -1127,7 +1153,7 @@ describe("Avos answering you", () => {
       ...crew,
       members: crew.members.map((member) =>
         member.role === "lead"
-          ? { ...member, model: "claude:opus-5-5" }
+          ? { ...member, model: "claude:opus-5-5", chosen: true as const }
           : member,
       ),
     }));
