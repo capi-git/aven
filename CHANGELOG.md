@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.175] - 2026-11-09
+
 ### Changed
 
 - **Avos's chat reads as a group chat.** It no longer tells you what you just pressed ("You gave Avos …", "Updated Avos's branch …", "Applied …"); Activity keeps those. A helper that joins says so: "Researcher joined the chat".
