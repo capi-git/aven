@@ -18,6 +18,7 @@ import {
   type CrewMessageFrom,
   type CrewMessageKind,
   type CrewRole,
+  goalStateLine,
 } from "./crews";
 import {
   describeSchedule,
@@ -552,6 +553,8 @@ export function teamPosts(
   for (const entry of crew.feed) {
     // What you wrote, said once: your message.
     if (said.has(entry.id)) continue;
+    // Where the goal stands is in Avos's panel, once.
+    if (goalStateLine(entry)) continue;
     const post = postOf(crew, entry, name, rules, waiting);
     if (post) posts.push(post);
   }

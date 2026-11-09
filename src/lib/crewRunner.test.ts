@@ -25,6 +25,8 @@ import {
   withMemberId,
   type Crew,
   type CrewCard,
+  GOAL_NEEDS,
+  goalStateLine,
 } from "./crews";
 import { queueCard } from "./crewLoop";
 import {
@@ -1378,6 +1380,42 @@ describe("the Scout: ideas start themselves, within limits", () => {
     await h.advance(0);
     expect(bring).toHaveBeenCalledWith(PATH);
     // It never stopped the goal for want of a planner.
+    expect(getCrew(PATH)!.goal?.done).toBeUndefined();
+    h.runner.stop();
+  });
+
+  it("a goal in a folder without Git waits on Git, said in its panel and not in the chat, and goes on once Git is there", async () => {
+    const bring = vi.fn();
+    const problem = vi.fn(async () => "Building needs Git.");
+    let need: "no-git" | null = "no-git";
+    const h = harness(
+      {},
+      {
+        bringInBuilders: bring,
+        buildingProblem: problem,
+        buildingNeed: async () => need,
+      },
+    );
+    onCrew({
+      members: [{ id: "lead", role: "lead" }],
+      goal: { text: "Link the pages to the new endpoints", at: NOON },
+    });
+    h.runner.start();
+    await h.advance(0);
+    expect(getCrew(PATH)!.goal?.done).toMatchObject({
+      text: GOAL_NEEDS["no-git"],
+      met: false,
+    });
+    // Nothing was brought in, and the chat got no "Set up Git" line for it.
+    expect(bring).not.toHaveBeenCalled();
+    expect(problem).not.toHaveBeenCalled();
+    // The goal's own lines stay out of the chat.
+    expect(
+      getCrew(PATH)!.feed.filter((entry) => !goalStateLine(entry)),
+    ).toEqual([]);
+    // Git arrives: the goal goes on without Keep going.
+    need = null;
+    await h.advance(MINUTE);
     expect(getCrew(PATH)!.goal?.done).toBeUndefined();
     h.runner.stop();
   });

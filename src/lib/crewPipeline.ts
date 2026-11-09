@@ -7,6 +7,8 @@ import {
   queuedCards,
   waitsForReview,
   type Crew,
+  goalNeed,
+  type BuildingNeed,
 } from "./crews";
 import type { CrewBoardAction, CrewBoardInfo } from "./crewView";
 import type { RaceFile } from "./race";
@@ -61,6 +63,8 @@ export type PipelineGoal = {
   text: string;
   state: "on" | "waits" | "met" | "stopped";
   why?: string;
+  /** It stopped because the folder can't build yet: Git, or a first commit. */
+  needs?: BuildingNeed;
 };
 
 export type Pipeline = {
@@ -283,6 +287,9 @@ export function crewPipeline(input: {
           text: crew.goal.text,
           state: crew.goal.done.met ? "met" : "stopped",
           why: crew.goal.done.text,
+          ...(!crew.goal.done.met && goalNeed(crew.goal.done.text)
+            ? { needs: goalNeed(crew.goal.done.text)! }
+            : {}),
         }
       : held
         ? { text: crew.goal.text, state: "waits", why: held }

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  GOAL_NEEDS,
+  NO_PLANNER,
   crewMemberName,
   newCrew,
   readCrew,
@@ -241,6 +243,58 @@ describe("the team thread", () => {
       text: 'Added 2 ideas: Haptics · Keep the time {"x": 1}',
     });
     expect((post as { text: string }).text).not.toContain("\n");
+  });
+
+  it("leaves where the goal stands to Avos's panel: the chat doesn't repeat it", () => {
+    const crew = crewWith([
+      {
+        at: DAY,
+        kind: "note",
+        who: "aven",
+        member: "lead",
+        text: "Avos will work towards: Link the pages to the new endpoints",
+      },
+      {
+        at: DAY + MIN,
+        kind: "hold",
+        who: "aven",
+        text: "The goal waits: turn on a Scout or a Builder to plan its cards.",
+      },
+      {
+        at: DAY + 2 * MIN,
+        kind: "note",
+        who: "you",
+        text: "You asked Avos to keep going: Link the pages to the new endpoints",
+      },
+      {
+        at: DAY + 3 * MIN,
+        kind: "hold",
+        who: "aven",
+        text: GOAL_NEEDS["no-git"],
+      },
+      { at: DAY + 4 * MIN, kind: "hold", who: "aven", text: NO_PLANNER },
+      // News about the goal is still said, once.
+      {
+        at: DAY + 5 * MIN,
+        kind: "ready",
+        who: "aven",
+        text: "Goal met: Every page reads from the new endpoints.",
+      },
+      {
+        at: DAY + 6 * MIN,
+        kind: "hold",
+        who: "aven",
+        text: "Builder's planning ran past 10 minutes, so Avos stopped. Keep going to try again.",
+      },
+    ]);
+    const texts = teamPosts(crew, nameOf(crew)).map(
+      (post) => (post as { text: string }).text,
+    );
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).toContain("Goal met");
+    expect(texts[1]).toContain("planning ran past 10 minutes");
+    // Activity keeps all of it.
+    expect(crew.feed).toHaveLength(7);
   });
 
   it("filters to one teammate: its posts, your messages to it, and Aven's about it", () => {

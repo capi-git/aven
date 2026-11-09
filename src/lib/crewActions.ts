@@ -79,6 +79,7 @@ import {
   type CrewScoutSchedule,
   crewCardByTitle,
   cardSteppedAside,
+  type BuildingNeed,
 } from "./crews";
 import { MEMBER_SIGIL_CHOICES, isSigilKey } from "./dotSigils";
 import { isMascotName } from "./projectMascots";
@@ -382,7 +383,8 @@ export function resumeCrewGoal(path: string, now = Date.now()) {
         at: now,
         kind: "note",
         who: "you",
-        text: `You asked Avos to keep going: ${crew.goal.text}`,
+        // The goal itself is in Avos's panel: it isn't said again here.
+        text: "You asked Avos to keep going",
       },
     );
   });
@@ -3225,6 +3227,15 @@ export function bringInBuilders(
 export const BUILDING_NEEDS_GIT =
   "Building happens in a copy of the project, which needs Git. Set up Git for this folder, then ask again.";
 
+/** What the project lacks before it can build in a copy, saying nothing. */
+export async function buildingNeed(path: string): Promise<BuildingNeed | null> {
+  return (
+    (await crewWorkspace()
+      ?.gitNeeded?.(path)
+      .catch(() => null)) ?? null
+  );
+}
+
 /**
  * Whether the project can build in a copy now. When it can't, Avos says so
  * once in its chat with Set up Git beside it, and this resolves with why.
@@ -3233,9 +3244,7 @@ export async function buildingProblem(
   path: string,
   now = Date.now(),
 ): Promise<string | null> {
-  const need = await crewWorkspace()
-    ?.gitNeeded?.(path)
-    .catch(() => null);
+  const need = await buildingNeed(path);
   if (!need) return null;
   const text =
     need === "no-git"

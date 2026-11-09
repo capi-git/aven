@@ -50,7 +50,19 @@ export type AvosProfileProps = {
   name: (who: string) => string;
 };
 
-/** The goal Avos keeps building towards, where it stands, and its link. */
+/** Where the goal stands, in a word. */
+const GOAL_WORD: Readonly<Record<PipelineGoal["state"], string>> = {
+  on: "Working",
+  waits: "Waiting",
+  met: "Met",
+  stopped: "Stopped",
+};
+
+/**
+ * The goal Avos keeps building towards, said once, here: one line (pressed,
+ * it opens to all of its words), a word for where it stands, and the one
+ * thing you can do about it. What it waits on goes on a line under it.
+ */
 export function AvosGoal({
   project,
   goal,
@@ -58,39 +70,70 @@ export function AvosGoal({
   project: string;
   goal: PipelineGoal | undefined;
 }) {
+  const workspace = useCrewWorkspace();
+  const [open, setOpen] = useState(false);
   if (!goal) return null;
+  // A folder that can't build yet isn't a failure: the goal waits on it.
+  // A goal that waits says on what, in its word ("Waits for your review").
+  const waitsOn = goal.state === "waits" && goal.why ? goal.why : "";
+  const word = goal.needs
+    ? GOAL_WORD.waits
+    : waitsOn && waitsOn !== "waits"
+      ? waitsOn.charAt(0).toUpperCase() + waitsOn.slice(1)
+      : GOAL_WORD[goal.state];
+  const setUpGit = goal.needs === "no-git" ? workspace?.setUpGit : undefined;
+  const why = goal.state === "stopped" ? goal.why : "";
   return (
-    <p className="avos-profile-goal" data-crew-goal={goal.state}>
-      <span className="avos-profile-goal-word">Goal</span> {goal.text}
-      <span className="avos-profile-goal-state">
-        {goal.state === "met"
-          ? " · met"
-          : goal.state === "stopped"
-            ? ` · stopped: ${goal.why ?? ""}`
-            : goal.state === "waits"
-              ? ` · ${goal.why ?? "waits"}`
-              : " · Avos keeps going"}
-      </span>
-      {goal.state === "stopped" ? (
+    <div
+      className="avos-profile-goal"
+      data-crew-goal={goal.state}
+      data-open={open || undefined}
+    >
+      <div className="avos-profile-goal-row">
         <button
           type="button"
-          className="crew-pipe-link"
-          onClick={() => resumeCrewGoal(project)}
+          className="avos-profile-goal-text"
+          aria-expanded={open}
+          title={open ? undefined : goal.text}
+          onClick={() => setOpen(!open)}
         >
-          Keep going
+          <span className="avos-profile-goal-word">Goal</span> {goal.text}
         </button>
+        <span className="avos-profile-goal-state">{word}</span>
+        {setUpGit ? (
+          <button
+            type="button"
+            className="crew-pipe-link"
+            data-avos-goal-set-up-git
+            onClick={() => setUpGit(project)}
+          >
+            Set up Git
+          </button>
+        ) : goal.state === "stopped" ? (
+          <button
+            type="button"
+            className="crew-pipe-link"
+            onClick={() => resumeCrewGoal(project)}
+          >
+            Keep going
+          </button>
+        ) : goal.state === "on" || goal.state === "waits" ? (
+          <button
+            type="button"
+            className="crew-pipe-link"
+            data-avos-clear-goal
+            onClick={() => clearCrewGoal(project)}
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+      {why ? (
+        <p className="avos-profile-goal-why" data-crew-goal-why>
+          {why}
+        </p>
       ) : null}
-      {goal.state === "on" || goal.state === "waits" ? (
-        <button
-          type="button"
-          className="crew-pipe-link"
-          data-avos-clear-goal
-          onClick={() => clearCrewGoal(project)}
-        >
-          Clear
-        </button>
-      ) : null}
-    </p>
+    </div>
   );
 }
 

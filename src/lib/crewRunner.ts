@@ -138,7 +138,10 @@ import {
   goalDropped,
   goalPlanner,
   waitsForReview,
+  GOAL_NEEDS,
   NO_PLANNER,
+  goalNeed,
+  type BuildingNeed,
   queuedCards,
   type Crew,
   type CrewMember,
@@ -306,6 +309,11 @@ export type CrewRunnerDeps = {
    * chat with Set up Git; null when it can.
    */
   buildingProblem?: (path: string) => Promise<string | null>;
+  /**
+   * What the project lacks before it can build in a copy (Git, or a first
+   * commit), saying nothing in the chat; null when it can.
+   */
+  buildingNeed?: (path: string) => Promise<BuildingNeed | null>;
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
   /**
@@ -1404,17 +1412,41 @@ export class CrewRunner {
     // Idle with a goal: is it met, and what's the next card towards it.
     // The team keeps going, card after card, until it's met or it stops
     // to ask (a Stuck card with work holds the copy, so nothing gets here).
+    // A goal that stopped for want of Git goes on by itself once the
+    // folder has it: its panel never says "Needs Git" of a folder with Git.
+    if (
+      crew.goal?.done &&
+      !crew.goal.done.met &&
+      goalNeed(crew.goal.done.text) &&
+      this.deps.buildingNeed &&
+      !(await this.deps.buildingNeed(path))
+    ) {
+      updateCrew(path, (current) =>
+        current.goal?.done && goalNeed(current.goal.done.text)
+          ? {
+              ...current,
+              goal: {
+                text: current.goal.text,
+                at: current.goal.at,
+                ...(current.goal.by ? { by: current.goal.by } : {}),
+              },
+            }
+          : current,
+      );
+      return;
+    }
     if (crew.goal && !crew.goal.done && waiting)
       return this.hold(crew, crewReviewGate(waiting));
     if (crew.goal && !crew.goal.done) {
       // No one to plan it yet: Avos brings in its Builder, which plans the
-      // goal's next card, as it would build Avos's own jobs.
+      // goal's next card, as it would build Avos's own jobs. In a folder
+      // that can't build yet, the goal waits and its panel says on what
+      // (with Set up Git): nothing more is said in the chat.
       if (!goalPlanner(crew) && this.deps.bringInBuilders) {
-        const problem = await this.deps.buildingProblem?.(path);
-        if (!problem) {
-          this.deps.bringInBuilders(path);
-          return;
-        }
+        const need = await this.deps.buildingNeed?.(path);
+        if (need) return this.stopGoal(crew, GOAL_NEEDS[need], now);
+        this.deps.bringInBuilders(path);
+        return;
       }
       if (!goalPlanner(crew)) return this.stopGoal(crew, NO_PLANNER, now);
       const gate = this.gate(crew, now);
