@@ -1,16 +1,14 @@
 import { useState } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
 import { memberAppLine } from "../chrome/crewSettingsParts";
-import { ExplorerMenu, type ExplorerMenuItem } from "../chrome/ExplorerMenu";
+import { ExplorerMenu } from "../chrome/ExplorerMenu";
 import { ChevronRight, MoreHorizontal } from "../chrome/icons";
 import { helperWord, type AvosGlance, type AvosWeekRow } from "../lib/avos";
+import { avosMenuItems, runAvosMenu } from "../lib/avosMenu";
 import { avosFinishedToday } from "../lib/avosProfile";
 import {
-  allowMoreRunsToday,
   clearCrewGoal,
   resumeCrewGoal,
-  setCrewPaused,
-  stopCrewNow,
   useCrewWorkspace,
 } from "../lib/crewActions";
 import type { PipelineBatch, PipelineGoal } from "../lib/crewPipeline";
@@ -341,22 +339,11 @@ export function AvosMore({
 }: Pick<AvosProfileProps, "crew" | "glance" | "dailyCap">) {
   const workspace = useCrewWorkspace();
   const [menu, setMenu] = useState<HTMLElement | null>(null);
-  const items: ExplorerMenuItem[] = [
-    ...(glance.note === "working"
-      ? [{ kind: "item" as const, id: "stop", label: "Stop now" }]
-      : []),
-    ...(dailyCap
-      ? [{ kind: "item" as const, id: "more", label: "Allow 10 more today" }]
-      : []),
-    ...(glance.note === "working" || dailyCap
-      ? [{ kind: "sep" as const }]
-      : []),
-    { kind: "item", id: "notes", label: "What Avos remembers" },
-    crew.paused
-      ? { kind: "item", id: "resume", label: "Resume Avos" }
-      : { kind: "item", id: "pause", label: "Pause Avos" },
-    { kind: "item", id: "settings", label: "Settings…" },
-  ];
+  const items = avosMenuItems({
+    paused: !!crew.paused,
+    working: glance.note === "working",
+    dailyCap,
+  });
   return (
     <>
       <button
@@ -381,14 +368,7 @@ export function AvosMore({
           onClose={() => setMenu(null)}
           onPick={(id) => {
             setMenu(null);
-            if (id === "stop") void stopCrewNow(crew.path);
-            else if (id === "more") allowMoreRunsToday(crew.path);
-            // What it remembers: its Memory page in Settings.
-            else if (id === "notes")
-              workspace?.openSettings(crew.path, "memory");
-            else if (id === "pause" || id === "resume")
-              setCrewPaused(crew.path, id === "pause");
-            else if (id === "settings") workspace?.openSettings(crew.path);
+            runAvosMenu(id, crew.path, workspace);
           }}
         />
       ) : null}
