@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { CrewCritter } from "../chrome/CrewCritter";
 import {
   Clock,
@@ -8,6 +8,7 @@ import {
   MessageMultiple,
 } from "../chrome/icons";
 import { Toggle } from "./SettingsControls";
+import { useDragResize } from "../hooks/useDragResize";
 import { useBatchActions, type BatchRange } from "../hooks/useTeamPipeline";
 import type { CrewFindings, CrewMockup } from "../lib/crews";
 import type { PipelineBatch } from "../lib/crewPipeline";
@@ -118,15 +119,86 @@ function AvosTabs({
 }
 
 /** Beside the chat on a wide pane: the tabs over one body. */
+/** The panel's width, as you last dragged it: one for every Avos. */
+export const AVOS_PANEL_WIDTH_KEY = "aven.avosPanelWidth";
+export const AVOS_PANEL_WIDTH = { min: 300, default: 380, max: 720 } as const;
+/** Room the chat keeps beside the panel, however wide you drag it. */
+const CHAT_KEEPS = 360;
+
+export function readAvosPanelWidth(): number {
+  try {
+    const saved = Number(localStorage.getItem(AVOS_PANEL_WIDTH_KEY));
+    return Number.isFinite(saved) && saved > 0
+      ? saved
+      : AVOS_PANEL_WIDTH.default;
+  } catch {
+    return AVOS_PANEL_WIDTH.default;
+  }
+}
+
+function saveAvosPanelWidth(width: number) {
+  try {
+    localStorage.setItem(AVOS_PANEL_WIDTH_KEY, String(width));
+  } catch {
+    // Not kept: the next screen opens at the default.
+  }
+}
+
 export function AvosPanel(props: AvosPanelProps) {
   const { crew, tab, onTab, batch } = props;
+  const pane = useRef<HTMLElement | null>(null);
+  // Its left edge drags it wider or narrower, from 300px up to what leaves
+  // the chat its room; double-click puts it back. The same width for every
+  // tab and every project's Avos.
+  const resize = useDragResize({
+    min: AVOS_PANEL_WIDTH.min,
+    max: () => {
+      const screen = pane.current?.parentElement?.clientWidth;
+      const room = (screen || window.innerWidth) - CHAT_KEEPS;
+      return Math.max(
+        AVOS_PANEL_WIDTH.min,
+        Math.min(AVOS_PANEL_WIDTH.max, room),
+      );
+    },
+    direction: "left",
+    defaultWidth: AVOS_PANEL_WIDTH.default,
+    initial: readAvosPanelWidth(),
+    onCommit: saveAvosPanelWidth,
+  });
   return (
     <aside
+      ref={(element) => {
+        pane.current = element;
+        resize.setPaneRef(element);
+      }}
       className="avos-profile avos-panel"
       aria-label="Avos"
       data-crew-header={crew.path}
       data-avos-panel={tab}
+      data-resizing={resize.dragging || undefined}
     >
+      <div
+        role="separator"
+        aria-label="Resize Avos's panel"
+        aria-orientation="vertical"
+        aria-valuemin={AVOS_PANEL_WIDTH.min}
+        aria-valuemax={AVOS_PANEL_WIDTH.max}
+        aria-valuenow={resize.width}
+        tabIndex={0}
+        className="personal-panel-resizer personal-inspector-divider avos-panel-resizer"
+        data-native-hit-margin=""
+        data-avos-panel-resizer
+        data-resizing={resize.dragging || undefined}
+        onPointerDown={resize.onPointerDown}
+        onDoubleClick={resize.onDoubleClick}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          resize.setWidth(
+            resize.width + (event.key === "ArrowLeft" ? 20 : -20),
+          );
+        }}
+      />
       <div className="avos-panel-head">
         <AvosTabs tab={tab} onTab={onTab} badge={batch?.cards.length ?? 0} />
         <AvosMore {...props} />

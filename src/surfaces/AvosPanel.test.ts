@@ -6,7 +6,13 @@ import { newCrew, type Crew } from "../lib/crews";
 import { memoryStorage } from "../lib/devSmoke";
 import type { ScheduledAgent, ScheduledRun } from "../lib/scheduledAgents";
 import type { BoardCard } from "../lib/workBoard";
-import { AvosTabBody, activityLevels, type AvosPanelProps } from "./AvosPanel";
+import {
+  AVOS_PANEL_WIDTH_KEY,
+  AvosPanel,
+  AvosTabBody,
+  activityLevels,
+  type AvosPanelProps,
+} from "./AvosPanel";
 
 const enabled = vi.hoisted(() => ({ calls: [] as [string, boolean][] }));
 vi.mock("../lib/scheduledAgents", async (original) => ({
@@ -181,5 +187,29 @@ describe("Documents", () => {
     expect(doc.textContent).toContain("What the user list needs");
     expect(doc.textContent).toContain("Findings · 2 sources");
     expect(doc.textContent).toContain("Five calls cover the list.");
+  });
+});
+
+describe("the panel's width", () => {
+  it("drags by its left edge (or arrow keys), and is remembered for every Avos", async () => {
+    await act(async () => root.render(createElement(AvosPanel, props())));
+    const panel = container.querySelector<HTMLElement>("aside.avos-panel")!;
+    const edge = panel.querySelector<HTMLElement>("[data-avos-panel-resizer]")!;
+    expect(edge.getAttribute("role")).toBe("separator");
+    expect(panel.style.width).toBe("380px");
+    // Wider by the keyboard (the left edge moves left).
+    await act(async () =>
+      edge.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+      ),
+    );
+    expect(panel.style.width).toBe("400px");
+    expect(localStorage.getItem(AVOS_PANEL_WIDTH_KEY)).toBe("400");
+    // The next Avos screen opens at that width.
+    await act(async () => root.render(createElement("div")));
+    await act(async () => root.render(createElement(AvosPanel, props())));
+    expect(
+      container.querySelector<HTMLElement>("aside.avos-panel")!.style.width,
+    ).toBe("400px");
   });
 });

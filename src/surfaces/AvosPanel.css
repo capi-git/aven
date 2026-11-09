@@ -2,6 +2,7 @@
    Mono's in MonoCode, in Aven's greys. The open tab shows its name beside
    its icon; Changes carries how many wait. */
 .avos-profile.avos-panel {
+  position: relative;
   width: 380px;
   gap: 0;
   padding: 0;
@@ -251,4 +252,13 @@
 }
 .avos-bar .avos-tab {
   padding: 0 6px;
+}
+
+/* Its left edge drags it wider or narrower (the shell's resize edge, kept
+   inside the panel, which clips what spills past it). */
+.personal-shell .avos-panel .avos-panel-resizer.personal-panel-resizer {
+  left: 0;
+}
+.personal-shell .avos-panel .avos-panel-resizer.personal-panel-resizer::after {
+  left: 0;
 }
