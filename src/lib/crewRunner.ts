@@ -1,3 +1,11 @@
+import {
+  attachedDocument,
+  documentNamed,
+  parseDocument,
+  type AvosDocument,
+  type AvosDocumentDraft,
+  type AvosDocumentMeta,
+} from "./avosDocuments";
 import { addAvosJob } from "./avosJobs";
 import { setCrewLiveReply } from "./crewLiveReply";
 import {
@@ -317,6 +325,20 @@ export type CrewRunnerDeps = {
   /** The chats crews are working in changed: they stay loaded. */
   onWorking: (ids: ReadonlySet<string>) => void;
   /**
+   * Avos's documents in Aven's own data: the ones it has, one's full text,
+   * and saving the one a reply wrote. Without these, Avos isn't told about
+   * documents and a reply's document block stays unsaved.
+   */
+  documents?: {
+    list: (path: string) => Promise<AvosDocumentMeta[]>;
+    get: (id: string) => Promise<AvosDocument | null>;
+    save: (
+      path: string,
+      draft: AvosDocumentDraft,
+      now: number,
+    ) => Promise<AvosDocument>;
+  };
+  /**
    * The Designer's mock-ups: read the file it drew in the copy, keep it in
    * Aven's own data (resolves with where), and empty the copy's folder
    * (with `stray`, those new top-level entries of the copy as well).
@@ -475,6 +497,26 @@ export function replyForTurn(
     if (block.role === "assistant" && block.text.trim()) reply = block.text;
   }
   return reply;
+}
+
+/**
+ * Whether a turn searched the web or read a page: any of its tool calls
+ * carries the web mark (Claude's WebSearch and WebFetch), or is a fetch.
+ */
+export function turnUsedWeb(
+  session: Session | undefined,
+  turnId: string,
+): boolean {
+  if (!session) return false;
+  const start = session.blocks.findIndex((block) => block.id === turnId);
+  if (start < 0) return false;
+  for (let index = start + 1; index < session.blocks.length; index += 1) {
+    const block = session.blocks[index]!;
+    if (block.role === "user") break;
+    const kind = block.tool?.kind?.toLowerCase() ?? "";
+    if (block.tool?.web || kind === "fetch" || kind === "webfetch") return true;
+  }
+  return false;
 }
 
 function changeFrom(diff: BotDiff | null, base: string): CrewChange | null {
@@ -882,11 +924,13 @@ export class CrewRunner {
       const fresh = getCrew(path) ?? crew;
       // A turn that could read the web starts nobody: a page could ask it to.
       // Nor does one whose crew turned quick helpers off.
+      // Avos has the web too, so it is judged by what its turn did: a
+      // reply that used the web starts no one (see `turnUsedWeb` below).
       const mayStartHelpers =
         member.role !== "helper" &&
         fresh.limits.helpersPerDay > 0 &&
         !talk.answer &&
-        !crewRoleUsesWeb(fresh, member.role) &&
+        (member.role === "lead" || !crewRoleUsesWeb(fresh, member.role)) &&
         !crewRoleUsesBrowser(fresh, member.role);
       this.talking.set(talkId, {
         path,
@@ -902,6 +946,25 @@ export class CrewRunner {
         talk.from === "you"
           ? "You"
           : (talk.fromName ?? this.deps.name(fresh, talk.from));
+      // Avos's documents: the ones it has, and the text of the one your
+      // message names (it can't read them itself).
+      const documents =
+        member.role === "lead" && this.deps.documents
+          ? await this.deps.documents.list(path).catch((error) => {
+              logError("Avos documents", error);
+              return null;
+            })
+          : null;
+      const named =
+        documents && talk.from === "you" && !talk.routine
+          ? documentNamed(talk.text, documents)
+          : null;
+      const attached = named
+        ? await this.deps
+            .documents!.get(named.id)
+            .then((found) => (found ? attachedDocument(found) : null))
+            .catch(() => null)
+        : null;
       const text = talkMessage({
         talk,
         fromName,
@@ -919,6 +982,13 @@ export class CrewRunner {
         mayAddJob: talkMayAddJob(talk, member.role),
         mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
         helpersOn: { mockup: !!cardDesigner(fresh) },
+        ...(documents ? { documents } : {}),
+        ...(attached ? { attached } : {}),
+        ...(member.role === "lead" &&
+        crewRoleUsesWeb(fresh, "lead") &&
+        crewMemberApp(member).harness !== "codex"
+          ? { web: true }
+          : {}),
         ...(fresh.askBeforeBuilding ? { asksFirst: true } : {}),
         // Let Avos choose: it picks the Builder's model and effort per card.
         ...(member.role === "lead" && talk.from === "you" && !talk.routine
@@ -1035,9 +1105,15 @@ export class CrewRunner {
       );
     const said = parseTalk(reply);
     const isLead = member?.role === "lead";
+    // A reply that searched the web or read a page: what it proposes could
+    // be the page's words, not yours. For this reply only, its cards wait
+    // for you, and no rule, goal, job or helper comes of it.
+    const usedWeb =
+      !failed && turnUsedWeb(this.chatNow(sessionId) ?? undefined, turnId);
     // Only your own message, to a Lead that has read no other agent's words,
     // can build by itself. A routine runs with nobody watching.
-    const yours = talk.from === "you" && !talk.routine && !member?.heardOthers;
+    const yours =
+      talk.from === "you" && !talk.routine && !member?.heardOthers && !usedWeb;
     // Its answer to you, as you watched it being written: the thread keeps
     // it, unless it's too long for a post (then its one line).
     const answer =
@@ -1078,11 +1154,24 @@ export class CrewRunner {
             );
         }
     }
+    // A document Avos wrote up in its reply: saved in Aven's own data, with
+    // its card under the reply. One that couldn't be kept is said, once.
+    const draft =
+      isLead && !failed && this.deps.documents ? parseDocument(reply) : null;
+    let savedDocument: AvosDocument | null = null;
+    let documentProblem = draft && "problem" in draft ? draft.problem : "";
+    if (draft && !("problem" in draft))
+      try {
+        savedDocument = await this.deps.documents!.save(path, draft, now);
+      } catch (error) {
+        documentProblem = errorText(error);
+      }
     // Repeating work becomes the team's job, in the project itself, and only
     // from your own message asking for it. The reply is about the job, so
     // cards beside it would be the same work again.
     const jobAsked = isLead && crew.on && !failed && !!said.job;
-    const jobAllowed = jobAsked && talkMayAddJob(talk, member?.role);
+    const jobAllowed =
+      jobAsked && !usedWeb && talkMayAddJob(talk, member?.role);
     const lead = this.chatNow(sessionId);
     const job =
       jobAllowed && said.job
@@ -1177,6 +1266,8 @@ export class CrewRunner {
         });
       });
       if (!member) return next;
+      // You stopped it (Stop, or Escape in the box): nothing to tell you.
+      if (outcome?.status === "cancelled" && !carrying?.timedOut) return next;
       if (failed)
         return withFeed(next, {
           at: now,
@@ -1184,13 +1275,31 @@ export class CrewRunner {
           who: "aven",
           text: `${who} didn't finish answering.`,
         });
-      if (shown)
+      if (shown || savedDocument)
         next = withFeed(next, {
           at: now,
           kind: "say",
           who: member.role,
           member: member.id,
-          text: shown,
+          text: shown || `Wrote “${savedDocument!.title}”.`,
+          ...(savedDocument
+            ? {
+                doc: {
+                  id: savedDocument.id,
+                  title: savedDocument.title,
+                  ...(savedDocument.summary
+                    ? { summary: savedDocument.summary }
+                    : {}),
+                },
+              }
+            : {}),
+        });
+      if (documentProblem)
+        next = withFeed(next, {
+          at: now,
+          kind: "note",
+          who: "aven",
+          text: `${who} wrote a document, but Aven couldn't keep it: ${documentProblem}.`,
         });
       if (keep && said.remember)
         next = withNote(next, said.remember, now, {
@@ -1221,7 +1330,9 @@ export class CrewRunner {
           hop,
           answer: true,
         });
-      for (const asked of carrying?.mayStartHelpers ? said.helpers : []) {
+      for (const asked of carrying?.mayStartHelpers && !usedWeb
+        ? said.helpers
+        : []) {
         if (helpersLeft(next, member.id, now) <= 0) {
           next = withFeed(next, {
             at: now,

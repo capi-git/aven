@@ -245,6 +245,55 @@ describe("the team thread", () => {
     expect((post as { text: string }).text).not.toContain("\n");
   });
 
+  it("shows what any teammate says as its own message, with its formatting kept", () => {
+    const crew = crewWith([
+      {
+        at: DAY,
+        kind: "say",
+        who: "lead",
+        member: "lead",
+        text: "Two things:\n\n- the ring\n- the label",
+      },
+      {
+        at: DAY + MIN,
+        kind: "say",
+        who: "checker",
+        member: "checker",
+        text: "The ring passes in **light mode** too.",
+      },
+      {
+        at: DAY + 2 * MIN,
+        kind: "say",
+        who: "builder",
+        member: "builder",
+        text: "Builder asked Checker: is the ring right?",
+      },
+      {
+        at: DAY + 3 * MIN,
+        kind: "say",
+        who: "builder",
+        member: "builder",
+        text: "Builder started a helper: Read the routes",
+      },
+    ]);
+    const posts = teamPosts(crew, nameOf(crew));
+    expect(
+      posts.map((post) =>
+        post.kind === "post"
+          ? [post.author.id, post.said ?? null, !!post.work]
+          : [post.kind],
+      ),
+    ).toEqual([
+      ["lead", "Two things:\n\n- the ring\n- the label", false],
+      // A helper's answer is a message of its own, not a grey line.
+      ["checker", "The ring passes in **light mode** too.", false],
+      // One teammate asking another shows too, as a message to it.
+      ["builder", "@Checker is the ring right?", false],
+      // A helper starting is still a line of work.
+      [expect.stringContaining("helper"), null, true],
+    ]);
+  });
+
   it("doesn't tell you what you pressed, and says a helper joined the chat", () => {
     const crew = crewWith([
       {

@@ -20,6 +20,7 @@ import {
   readCrew,
   resetCrewsCache,
   updateCrew,
+  withMemberId,
   CREWS_KEY,
 } from "./crews";
 import { memoryStorage } from "./devSmoke";
@@ -145,8 +146,55 @@ describe("writing to the team", () => {
 });
 
 describe("writing to one teammate", () => {
-  it("goes to its own chat as your message, and queues nothing", async () => {
+  it("an idle helper answers in the team's chat: your message waits for it there", async () => {
     on();
+    const sendToMember = vi.fn(async () => null);
+    const uninstall = installCrewWorkspace({
+      openChat: vi.fn(),
+      openCrew: vi.fn(),
+      openSettings: vi.fn(),
+      stop: vi.fn(async () => undefined),
+      sendToMember,
+    });
+    try {
+      expect(
+        await tellTeammate(PATH, "checker", "Look at the ring too", NOON),
+      ).toBeNull();
+    } finally {
+      uninstall();
+    }
+    // Not typed into its own chat: it answers where everyone talks.
+    expect(sendToMember).not.toHaveBeenCalled();
+    const crew = getCrew(PATH)!;
+    expect(crew.talks).toEqual([
+      expect.objectContaining({
+        from: "you",
+        to: "checker",
+        text: "Look at the ring too",
+        hop: 0,
+      }),
+    ]);
+    expect(crew.messages).toEqual([
+      {
+        id: expect.any(String),
+        at: NOON,
+        text: "Look at the ring too",
+        to: "checker",
+      },
+    ]);
+    // Nothing becomes a card by itself.
+    expect(crew.cards).toEqual([]);
+    expect(featureBoardState(PATH).cards).toEqual([]);
+  });
+
+  it("a helper in the middle of a job gets your words in its own chat, to steer it", async () => {
+    on();
+    updateCrew(PATH, (crew) =>
+      withMemberId(crew, "checker", (member) => ({
+        ...member,
+        doing: { at: NOON, text: "Checking Timer screen" },
+      })),
+    );
     const sendToMember = vi.fn(async () => null);
     const uninstall = installCrewWorkspace({
       openChat: vi.fn(),
@@ -168,6 +216,7 @@ describe("writing to one teammate", () => {
       "Look at the ring too",
     );
     const crew = getCrew(PATH)!;
+    expect(crew.talks ?? []).toEqual([]);
     expect(crew.messages).toEqual([
       {
         id: expect.any(String),
@@ -176,9 +225,6 @@ describe("writing to one teammate", () => {
         to: "checker",
       },
     ]);
-    // Nothing becomes a card by itself.
-    expect(crew.cards).toEqual([]);
-    expect(featureBoardState(PATH).cards).toEqual([]);
   });
 
   it("says why when its chat couldn't take it, and keeps nothing", async () => {
@@ -190,6 +236,13 @@ describe("writing to one teammate", () => {
       stop: vi.fn(async () => undefined),
       sendToMember: async () => "Its chat starts with Avos's first card.",
     });
+    // At work, so your words go to its own chat, which can't take them.
+    updateCrew(PATH, (crew) =>
+      withMemberId(crew, "builder", (member) => ({
+        ...member,
+        doing: { at: NOON, text: "Building" },
+      })),
+    );
     try {
       expect(await tellTeammate(PATH, "builder", "hi", NOON)).toBe(
         "Its chat starts with Avos's first card.",

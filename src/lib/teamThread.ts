@@ -69,6 +69,13 @@ export type TeamPost =
       action?: CrewFeedAction;
       /** A line of the work behind Avos's answer (a helper started, done). */
       work?: true;
+      /** The document this reply saved: its card shows under it. */
+      doc?: { id: string; title: string; summary?: string };
+      /**
+       * What it said, as it wrote it: a message in the chat, shown in its
+       * bubble with its formatting. Without it, `text` is a line of work.
+       */
+      said?: string;
     }
   | {
       kind: "you";
@@ -226,6 +233,8 @@ const ROLES = new Set<string>([
 
 /** "Avos started a helper: Audit the Users page". */
 const HELPER_START = /^.+? started a helper: (.+)$/;
+/** "Avos asked Builder: …" (see `talkPassedLine`): who, whom, what. */
+const PASSED = /^(.+?) asked (.+?): ([\s\S]+)$/;
 /** "Helper “Audit the Users page”: …", "… finished.", "… didn't finish." */
 const HELPER_DONE = /^Helper “(.+?)”(?:: (.+)| finished\.| didn't finish\.)$/s;
 
@@ -421,6 +430,7 @@ function postOf(
     author: by,
     ...(entry.title ? { card: entry.title } : {}),
     ...(entry.action ? { action: entry.action } : {}),
+    ...(entry.doc ? { doc: entry.doc } : {}),
   };
   const round = entry.round ?? 1;
   switch (entry.kind) {
@@ -488,10 +498,12 @@ function postOf(
         text: plain(withoutName(entry.text, by.name)),
         handoff: { from: by, to: "you", label: "Mock-up for you" },
       };
-    // The Lead answers you; teammates talking to each other stay quiet.
+    // What anyone says is a message in the chat, under its name: Avos
+    // answering you, a helper answering you, one teammate asking another.
     case "say": {
-      // A helper it started is a line of its work, under the helper's name.
-      const started = by.role === "lead" ? HELPER_START.exec(entry.text) : null;
+      // A helper someone started is a line of its work, under the helper's
+      // name.
+      const started = HELPER_START.exec(entry.text);
       if (started)
         return {
           ...base,
@@ -499,14 +511,15 @@ function postOf(
           text: "Started",
           work: true,
         };
-      return by.role === "lead"
-        ? { ...base, text: plain(entry.text) }
-        : {
-            kind: "event",
-            id: entry.id,
-            at: entry.at,
-            text: plain(entry.text),
-          };
+      // "Avos asked Builder: …" is Avos writing to the Builder: "@Builder …".
+      const passed = PASSED.exec(entry.text);
+      const words =
+        passed && passed[1] === by.name
+          ? `@${passed[2]} ${passed[3]}`
+          : by.role === "lead"
+            ? entry.text
+            : withoutName(entry.text, by.name);
+      return { ...base, text: plain(words), said: words.trim() };
     }
     default:
       return { ...base, text: plain(withoutName(entry.text, by.name)) };

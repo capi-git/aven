@@ -23,6 +23,40 @@ vi.mock("../lib/scheduledAgents", async (original) => ({
     enabled.calls.push([id, on]),
 }));
 vi.mock("../chrome/ProjectMark", () => ({ ProjectMark: () => null }));
+// Aven's database, standing in: the documents Avos saved.
+const store = vi.hoisted(() => ({
+  documents: [] as {
+    id: string;
+    project: string;
+    title: string;
+    summary: string;
+    body: string;
+    createdAt: number;
+    updatedAt: number;
+  }[],
+  deleted: [] as string[],
+}));
+vi.mock("@tauri-apps/api/core", () => ({
+  isTauri: () => false,
+  invoke: async (command: string, args: Record<string, unknown>) => {
+    if (command === "avos_documents_list")
+      return store.documents
+        .filter((entry) => entry.project === args.project)
+        .map(({ body: _body, ...meta }) => meta);
+    if (command === "avos_document_get")
+      return store.documents.find((entry) => entry.id === args.id) ?? null;
+    if (command === "avos_document_delete") {
+      store.deleted.push(args.id as string);
+      store.documents = store.documents.filter((entry) => entry.id !== args.id);
+      return null;
+    }
+    throw new Error(`Unexpected command ${command}`);
+  },
+}));
+vi.mock("./AgentMarkdown", () => ({
+  AgentMarkdown: ({ text }: { text: string }) =>
+    createElement("div", { "data-markdown": true }, text),
+}));
 
 const PATH = "/Users/me/holo";
 const NOW = new Date(2026, 10, 8, 15, 0).getTime();
@@ -69,6 +103,8 @@ function props(patch: Partial<AvosPanelProps> = {}): AvosPanelProps {
     shipped: [],
     range: null,
     onOpenJob: () => {},
+    document: null,
+    onDocument: () => {},
     helper: null,
     onCloseHelper: () => {},
     onWatch: () => {},
@@ -194,6 +230,88 @@ describe("Documents", () => {
     expect(doc.textContent).toContain("What the user list needs");
     expect(doc.textContent).toContain("Findings · 2 sources");
     expect(doc.textContent).toContain("Five calls cover the list.");
+  });
+
+  it("lists what Avos wrote up, opens one to read over the list, and deletes it once asked", async () => {
+    store.deleted = [];
+    store.documents = [
+      {
+        id: "doc-1",
+        project: PATH,
+        title: "Admin pages audit",
+        summary: "What's wrong and what to fix first",
+        body: "# Admin pages audit\n\nThree names for one role.",
+        createdAt: NOW - DAY,
+        updatedAt: NOW - 60_000,
+      },
+      {
+        id: "doc-2",
+        project: "/Users/me/other",
+        title: "Another project's plan",
+        summary: "",
+        body: "x",
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+    ];
+    let open: string | null = null;
+    const show = () =>
+      draw({
+        tab: "documents",
+        document: open,
+        onDocument: (id) => {
+          open = id;
+        },
+      });
+    await show();
+    await act(async () => {});
+    const rows = [
+      ...container.querySelectorAll<HTMLButtonElement>("[data-avos-document]"),
+    ];
+    // Only this project's documents; its summary is its second line.
+    expect(rows.map((row) => row.dataset.avosDocument)).toEqual(["doc-1"]);
+    expect(rows[0]!.textContent).toBe(
+      "Admin pages auditWhat's wrong and what to fix first",
+    );
+    await act(async () => rows[0]!.click());
+    expect(open).toBe("doc-1");
+    await show();
+    await act(async () => {});
+    const page = container.querySelector<HTMLElement>(
+      '[data-avos-document-page="doc-1"]',
+    )!;
+    expect(page.querySelector("[data-markdown]")?.textContent).toContain(
+      "Three names for one role.",
+    );
+    // Its own heading is its title: the title isn't said twice.
+    expect(page.querySelector(".avos-doc-title")).toBeNull();
+    // Delete asks once, in place; Keep it changes nothing.
+    await act(async () =>
+      page
+        .querySelector<HTMLButtonElement>("[data-avos-document-delete]")!
+        .click(),
+    );
+    expect(page.textContent).toContain("Delete “Admin pages audit”?");
+    expect(store.deleted).toEqual([]);
+    await act(async () =>
+      page
+        .querySelector<HTMLButtonElement>(
+          "[data-avos-document-delete-confirm]",
+        )!
+        .click(),
+    );
+    expect(store.deleted).toEqual(["doc-1"]);
+    // Back to the list.
+    expect(open).toBeNull();
+  });
+
+  it("says how to get one when Avos has written nothing", async () => {
+    store.documents = [];
+    await draw({ tab: "documents" });
+    await act(async () => {});
+    expect(container.textContent).toContain(
+      "Ask Avos to write something up, like a plan or a summary",
+    );
   });
 });
 

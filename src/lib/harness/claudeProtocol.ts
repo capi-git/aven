@@ -1182,6 +1182,12 @@ export function applyClaudeTaskTool(
   return false;
 }
 
+/** Claude's own web tools: a search, and reading a page. */
+export function isWebToolName(toolName: string): boolean {
+  const normalized = toolName.toLowerCase();
+  return normalized === "webfetch" || normalized === "websearch";
+}
+
 export function toolKindFromName(toolName: string): string {
   const normalized = toolName.toLowerCase();
   if (isTodoTool(toolName) || isClaudeTaskTool(toolName)) return "tasks";

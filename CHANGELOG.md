@@ -2,8 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Avos reads the web itself,** as a Mono does: it searches and opens a live page to answer you, and never tells you to go and check one. What it proposes in a reply that used the web waits for your go-ahead, and no rule, goal, job or helper comes of that reply. Access › Use the web › No one turns it off; Avos then sends its Researcher.
+- **Avos writes documents.** For a substantial report, review or plan, Avos saves the full text as a document and keeps its chat answer short. A card under the reply opens it in Avos's panel, where Documents lists them: read one there, copy it or delete it. Name a document in a message and Avos can revise it.
+
 ### Changed
 
+- **Avos's chat is a group chat.** Every message is a bubble under its sender's face and name: Avos, the Builder, the Checker and the rest, with yours on the right. Lists, bold and code are drawn as written. Write to a helper with @ and it answers there, in the same chat. While Avos writes, the box's button is Stop (Escape too).
 - **Avos's goal has more room.** A quiet row says where it stands, with its one action; the goal's own words sit under it, two lines until you press them. Why it stopped shows only once it's open.
 
 ## [0.1.175] - 2026-11-09

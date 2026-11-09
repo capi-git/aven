@@ -839,6 +839,7 @@ fn migrate_schema(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     ensure_session_column(conn, "queued_messages_json", "TEXT NOT NULL DEFAULT '[]'")?;
     crate::notes::ensure_notes_table(conn)?;
+    crate::avos_documents::ensure_avos_documents_table(conn)?;
     crate::project_memory::ensure_project_memory_table(conn)?;
     crate::feature_cards::ensure_feature_cards_table(conn)?;
     transcript::migrate(conn)?;

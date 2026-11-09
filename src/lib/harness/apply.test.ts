@@ -134,6 +134,38 @@ describe("turn duration", () => {
   });
 });
 
+describe("a call that reaches the web", () => {
+  it("keeps its mark through later updates, and a file search has none", () => {
+    let session = appendUser(newSession("claude", "/tmp"), "is it live?");
+    session = applyHarnessEvent(session, {
+      type: "tool.started",
+      callId: "web-1",
+      title: "Find clippedin insights",
+      kind: "search",
+      status: "pending",
+      web: true,
+    });
+    session = applyHarnessEvent(session, {
+      type: "tool.updated",
+      callId: "web-1",
+      status: "completed",
+      detail: "3 results",
+    });
+    session = applyHarnessEvent(session, {
+      type: "tool.started",
+      callId: "grep-1",
+      title: "Find insights",
+      kind: "search",
+      status: "pending",
+    });
+    const tool = (id: string) =>
+      session.blocks.find((block) => block.tool?.callId === id)?.tool;
+    expect(tool("web-1")?.web).toBe(true);
+    expect(tool("web-1")?.status).toBe("completed");
+    expect(tool("grep-1")?.web).toBeUndefined();
+  });
+});
+
 describe("approval lifetime", () => {
   function waitingForApproval() {
     let session = appendUser(newSession("codex", "/tmp"), "check it");

@@ -1226,10 +1226,10 @@ function AccessSection({ crew }: { crew: Crew }) {
             title="Use the web"
             detail={
               access.web === "everyone"
-                ? "Everyone searches and reads pages, and uses Aven's browser. The Scout's ideas then wait for you, as the Researcher's always do"
+                ? "Everyone searches and reads pages, and uses Aven's browser. The Scout's ideas then wait for you, as the Researcher's always do. What Avos proposes after reading a page waits for you too"
                 : access.web === "builders"
-                  ? "Builders and the Researcher search and read pages. All but the Scout use Aven's browser, to try the work"
-                  : "No helper searches, reads pages or uses Aven's browser"
+                  ? "Avos, Builders and the Researcher search and read pages. All but the Scout use Aven's browser, to try the work. What Avos proposes after reading a page waits for you"
+                  : "No one searches, reads pages or uses Aven's browser, Avos included"
             }
           >
             <Segmented
