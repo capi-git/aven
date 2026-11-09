@@ -1,9 +1,10 @@
 //! Race: one prompt, several agents, each in its own git worktree.
 //!
 //! A race starts from a base commit. When the project has uncommitted
-//! changes to tracked files, `git stash create` records them as a commit
-//! without touching the working tree, so every lane starts from exactly
-//! what the user sees. Lanes live under the app data `races/` directory on
+//! changes, including new files Git doesn't track yet (but not ignored
+//! ones), they are recorded as a commit through a scratch index without
+//! touching the working tree or the user's own index, so every lane starts
+//! from exactly what the user sees. Lanes live under the app data `races/` directory on
 //! `aven/race/*` branches; nothing is written inside the project itself.
 //! Keeping a result applies each lane's diff against that base to the
 //! project's working tree; cleanup removes the worktrees and branches.
@@ -29,9 +30,10 @@ const MAX_LANES: u8 = 4;
 pub struct RaceBase {
     pub root: String,
     pub base: String,
-    /// The base includes uncommitted changes to tracked files.
+    /// The base includes uncommitted changes or untracked files.
     pub uncommitted: bool,
-    /// Untracked files exist in the project; lanes will not see them.
+    /// Some untracked files were left out of the base (too large, too many,
+    /// or a repository of their own); lanes will not see them.
     pub untracked: bool,
 }
 
@@ -250,8 +252,11 @@ pub fn prepare(cwd: &Path) -> Result<RaceBase, String> {
 }
 
 /// The commit a copy starts from: the project's HEAD, or with uncommitted
-/// changes to tracked files, a commit of exactly what the user sees.
-/// `who` names the feature in the errors ("Race", "A bot").
+/// work, a commit of exactly what the user sees: tracked files as they are
+/// on disk, and the untracked files Git doesn't ignore (see
+/// `untracked_to_copy`). Without those, a copy that adds a file the user
+/// already has could never be applied. `who` names the feature in the
+/// errors ("Race", "A bot").
 pub(crate) fn prepare_for(cwd: &Path, who: &str) -> Result<RaceBase, String> {
     let root = text(
         run(cwd, &["rev-parse", "--show-toplevel"])
@@ -262,28 +267,121 @@ pub(crate) fn prepare_for(cwd: &Path, who: &str) -> Result<RaceBase, String> {
         run(&root_path, &["rev-parse", "--verify", "HEAD"])
             .map_err(|_| format!("{who} needs at least one commit in this repository."))?,
     );
-    // `git stash create` refreshes and writes the index it reads, taking its
-    // lock: it reads a copy, so the user's own git never finds it locked.
+    // Everything is staged into a copy of the index, so the user's own git
+    // never finds it locked or changed.
     let index = ScratchIndex::seeded_from(&root_path)?;
-    let stash = text(run_staged(&root_path, &index, &["stash", "create"])?);
-    let untracked = !run(
-        &root_path,
-        &[
-            "ls-files",
-            "--others",
-            "--exclude-standard",
-            "--directory",
-            "--no-empty-directory",
-        ],
-    )?
-    .is_empty();
-    let uncommitted = is_sha(&stash);
+    run_staged(&root_path, &index, &["add", "--update"])?;
+    let (copied, untracked) = untracked_to_copy(&root_path)?;
+    if !copied.is_empty() {
+        let mut cmd = git(&root_path);
+        cmd.env("GIT_INDEX_FILE", &index.0)
+            .env("GIT_LITERAL_PATHSPECS", "1");
+        run_git(
+            cmd,
+            &["add", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            Some(&copied),
+        )?;
+    }
+    let tree = text(run_staged(&root_path, &index, &["write-tree"])?);
+    let head_tree = text(run(&root_path, &["rev-parse", "HEAD^{tree}"])?);
+    let uncommitted = tree != head_tree;
+    let base = if uncommitted {
+        snapshot_commit(&root_path, &head, &tree)?
+    } else {
+        head
+    };
     Ok(RaceBase {
         root,
-        base: if uncommitted { stash } else { head },
+        base,
         uncommitted,
         untracked,
     })
+}
+
+/// An untracked file larger than this stays out of a copy.
+const UNTRACKED_FILE_LIMIT: u64 = 5 * 1024 * 1024;
+/// Past this many untracked files, or this much in all, none go into a copy:
+/// that is usually a folder that should have been ignored (installed
+/// dependencies, a build), and half of one is worse than none.
+const UNTRACKED_COUNT_LIMIT: usize = 2_000;
+const UNTRACKED_TOTAL_LIMIT: u64 = 50 * 1024 * 1024;
+
+/// The untracked files a copy takes, NUL-separated as `git add` reads them,
+/// and whether any were left out.
+fn untracked_to_copy(root: &Path) -> Result<(Vec<u8>, bool), String> {
+    let listed = run(root, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let mut copied: Vec<&[u8]> = Vec::new();
+    let mut left_out = false;
+    let mut total = 0u64;
+    for entry in listed
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+    {
+        // A folder listed whole is a repository of its own.
+        if entry.ends_with(b"/") {
+            left_out = true;
+            continue;
+        }
+        let size = match std::fs::symlink_metadata(root.join(path_from_git(entry))) {
+            Ok(meta) => meta.len(),
+            Err(_) => {
+                left_out = true;
+                continue;
+            }
+        };
+        if size > UNTRACKED_FILE_LIMIT {
+            left_out = true;
+            continue;
+        }
+        total += size;
+        copied.push(entry);
+    }
+    if copied.len() > UNTRACKED_COUNT_LIMIT || total > UNTRACKED_TOTAL_LIMIT {
+        return Ok((Vec::new(), true));
+    }
+    Ok((copied.join(&0u8), left_out))
+}
+
+#[cfg(unix)]
+fn path_from_git(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+}
+
+#[cfg(not(unix))]
+fn path_from_git(bytes: &[u8]) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// A commit of `tree` on top of `head`, by Aven and dated as `head`, so the
+/// same files always make the same commit.
+fn snapshot_commit(root: &Path, head: &str, tree: &str) -> Result<String, String> {
+    let when = text(run(root, &["log", "-1", "--format=%ct", head])?);
+    let date = format!("@{when} +0000");
+    let mut cmd = git(root);
+    cmd.env("GIT_AUTHOR_NAME", "Aven")
+        .env("GIT_AUTHOR_EMAIL", "aven@localhost")
+        .env("GIT_AUTHOR_DATE", &date)
+        .env("GIT_COMMITTER_NAME", "Aven")
+        .env("GIT_COMMITTER_EMAIL", "aven@localhost")
+        .env("GIT_COMMITTER_DATE", &date);
+    let sha = text(run_git(
+        cmd,
+        &[
+            "commit-tree",
+            tree,
+            "-p",
+            head,
+            "-m",
+            "Aven: the project as you had it",
+        ],
+        None,
+    )?);
+    if is_sha(&sha) {
+        Ok(sha)
+    } else {
+        Err(format!("Could not record the project's files: {sha}"))
+    }
 }
 
 pub fn create_lane(
@@ -1051,6 +1149,121 @@ mod tests {
         assert!(branches.is_empty());
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&races);
+    }
+
+    #[test]
+    fn copies_take_untracked_files_so_their_changes_apply_back() {
+        let root = repo();
+        let races = temp_dir("races");
+        // A file the user never added to Git, and an ignored build folder.
+        std::fs::write(root.join("server.test.js"), "test one\n").unwrap();
+        std::fs::write(root.join(".gitignore"), "dist/\n").unwrap();
+        std::fs::create_dir_all(root.join("dist")).unwrap();
+        std::fs::write(root.join("dist/app.js"), "built\n").unwrap();
+        let before = text(run(&root, &["status", "--porcelain"]).unwrap());
+
+        let base = prepare(&root).unwrap();
+        assert!(base.uncommitted);
+        assert!(!base.untracked);
+        let root = PathBuf::from(&base.root);
+        // The user's own index and files are as they were.
+        assert_eq!(
+            text(run(&root, &["status", "--porcelain"]).unwrap()),
+            before
+        );
+        // The same files make the same base.
+        assert_eq!(prepare(&root).unwrap().base, base.base);
+
+        let lane = create_lane(&root, &races, "race-u", 0, &base.base).unwrap();
+        let lane_path = PathBuf::from(&lane.path);
+        assert_eq!(
+            std::fs::read_to_string(lane_path.join("server.test.js")).unwrap(),
+            "test one\n"
+        );
+        assert!(lane_path.join(".gitignore").is_file());
+        assert!(!lane_path.join("dist").exists());
+
+        // The copy changes the user's file instead of adding one that clashes.
+        std::fs::write(lane_path.join("server.test.js"), "test one\ntest two\n").unwrap();
+        let changes = diff(&lane_path, &base.base).unwrap();
+        let files: Vec<_> = changes
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.status.as_str()))
+            .collect();
+        assert_eq!(files, vec![("server.test.js", "modified")]);
+        apply(
+            &root,
+            &races,
+            &base.base,
+            &[RaceChoice {
+                worktree: lane.path.clone(),
+                paths: vec!["server.test.js".into()],
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join("server.test.js")).unwrap(),
+            "test one\ntest two\n"
+        );
+        // Still the user's to add to Git.
+        assert!(text(run(&root, &["status", "--porcelain"]).unwrap()).contains("?? server.test.js"));
+
+        cleanup(&root, &races, &[lane]).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&races);
+    }
+
+    #[test]
+    fn large_untracked_files_and_other_repositories_stay_out() {
+        let root = repo();
+        std::fs::write(root.join("notes.txt"), "small\n").unwrap();
+        std::fs::write(
+            root.join("video.bin"),
+            vec![0u8; (UNTRACKED_FILE_LIMIT + 1) as usize],
+        )
+        .unwrap();
+        let inner = root.join("vendor/lib");
+        std::fs::create_dir_all(&inner).unwrap();
+        git_ok(&inner, &["init", "-q"]);
+        std::fs::write(inner.join("x.txt"), "x\n").unwrap();
+
+        let base = prepare(&root).unwrap();
+        assert!(base.uncommitted);
+        assert!(base.untracked);
+        let root = PathBuf::from(&base.root);
+        let files = text(run(&root, &["ls-tree", "-r", "--name-only", &base.base]).unwrap());
+        let files: Vec<_> = files.lines().collect();
+        assert_eq!(files, vec!["a.txt", "b.txt", "notes.txt"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn too_many_untracked_files_copy_none() {
+        let root = repo();
+        let many = root.join("generated");
+        std::fs::create_dir_all(&many).unwrap();
+        for n in 0..=UNTRACKED_COUNT_LIMIT {
+            std::fs::write(many.join(format!("{n}.txt")), "x").unwrap();
+        }
+        let base = prepare(&root).unwrap();
+        assert!(!base.uncommitted);
+        assert!(base.untracked);
+        let head = text(run(&PathBuf::from(&base.root), &["rev-parse", "HEAD"]).unwrap());
+        assert_eq!(base.base, head);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_deleted_tracked_file_is_gone_from_the_copy() {
+        let root = repo();
+        std::fs::remove_file(root.join("b.txt")).unwrap();
+        let base = prepare(&root).unwrap();
+        assert!(base.uncommitted);
+        let root = PathBuf::from(&base.root);
+        let files = text(run(&root, &["ls-tree", "-r", "--name-only", &base.base]).unwrap());
+        assert_eq!(files, "a.txt");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
