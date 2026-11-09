@@ -35,6 +35,7 @@ pub mod control_cli;
 mod copy_serve;
 mod cursor_store;
 mod desktop_control;
+mod desktop_faces;
 mod desktop_presence;
 mod dev_smoke;
 #[cfg(all(debug_assertions, target_os = "macos"))]

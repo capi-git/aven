@@ -3,6 +3,7 @@ import {
   crewBatch,
   giveCardToCrew,
   reviewCrewBatch,
+  setAvosReadAccess,
   setCrewQuietHours,
   turnOffCrew,
 } from "./crewActions";
@@ -178,6 +179,8 @@ export async function checkCrew(
   // fresh profile the crew doesn't exist yet; this creates it with them off.
   const quiet = (getCrew(project) ?? newCrew(project)).limits.quiet;
   setCrewQuietHours(project, { ...quiet, on: false });
+  // The check answers "Can Avos read this project?" for you: yes.
+  await setAvosReadAccess(project, true);
   const off = await crew.turnOn(project);
   if (off) throw new Error(`The crew didn't turn on: ${off}`);
   const idea = await addFeatureIdea(project, {

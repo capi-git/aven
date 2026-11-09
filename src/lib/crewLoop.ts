@@ -114,7 +114,8 @@ export function queueCard(
     id: string;
     title: string;
     brief: string;
-    from: "you" | "scout" | "security" | "member" | "researcher" | "setup";
+    from:
+      "you" | "lead" | "scout" | "security" | "member" | "researcher" | "setup";
     /** The member that took it down in its chat (`from: "member"`). */
     fromMember?: string;
     /** A question for the Researcher: one turn, Findings at the end. */

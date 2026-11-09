@@ -88,6 +88,11 @@ describe("the Researcher in the Team sheet", () => {
   it("says in Access that the Researcher reads the web too", async () => {
     await open();
     await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-summary="access"]')!
+        .click(),
+    );
+    await act(async () =>
       [...sheet().querySelectorAll<HTMLButtonElement>("button")]
         .find((item) => item.textContent?.includes("Customise web"))!
         .click(),

@@ -14,6 +14,17 @@
 .team-screen[data-reviewing] {
   grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr);
 }
+/* A narrow pane: the review takes the chat's place until it's closed. The
+   chat stays mounted underneath, so what you were writing is kept. */
+.team-screen[data-review-full] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.team-screen[data-review-full] > .avos-main {
+  display: none;
+}
+.team-screen[data-review-full] > .avos-review {
+  border-left: 0;
+}
 
 .avos-main {
   display: flex;
@@ -100,14 +111,6 @@
   padding: 12px 14px;
   overflow-y: auto;
 }
-.team-panel-empty {
-  margin: 24px auto;
-  max-width: 280px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-body);
-  line-height: 1.5;
-  text-align: center;
-}
 
 .team-overview h2 {
   margin: 14px 0 6px;
@@ -143,60 +146,6 @@
 .team-stat span {
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
-}
-
-.team-notes {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.team-notes button,
-.team-schedule-row {
-  display: block;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--aven-radius-row);
-  background: transparent;
-  color: var(--color-content);
-  font: inherit;
-  font-size: var(--text-ui-body);
-  text-align: left;
-  cursor: var(--aven-cursor-pointer);
-}
-.team-notes button:hover,
-.team-schedule-row:hover {
-  background: var(--aven-hover);
-}
-.team-notes b {
-  display: block;
-  font-weight: 500;
-}
-.team-notes span {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-  white-space: pre-wrap;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-}
-.team-schedule-row span {
-  display: block;
-  font-weight: 500;
-}
-.team-schedule-row small {
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-}
-.team-schedule-quiet {
-  margin-top: 7px;
-  border-top: 1px solid var(--aven-line);
-  border-radius: 0;
-  padding-top: 11px;
 }
 .team-routine-edit {
   display: grid;
@@ -400,59 +349,4 @@
   flex-direction: column;
   gap: 10px;
   padding: 0 16px 14px;
-}
-
-/* Notes: what Avos and its helpers remember, then what you asked it to
-   remember for every card, each under its own small heading. */
-.team-notes-pages {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-.team-notes-heading {
-  margin: 0 0 6px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-  font-weight: 500;
-}
-.team-notes-rule {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--aven-line);
-  border-radius: var(--aven-radius-card, 10px);
-  font-size: var(--text-ui-body);
-}
-/* A rule's words are what it is, not a note under it; and Forget stays
-   its own size beside them, not a whole row like a memory's button. */
-.team-notes-rule > span {
-  display: block;
-  min-width: 0;
-  flex: 1 1 auto;
-  color: var(--color-content);
-  font-size: var(--text-ui-body);
-}
-/* Where a rule came from, under it: "You, 5 Nov". */
-.team-notes-from {
-  display: block;
-  margin-top: 2px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-}
-.team-notes .team-notes-forget {
-  display: inline;
-  width: auto;
-  flex: none;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--aven-muted);
-  font: inherit;
-  font-size: var(--text-ui-label);
-  cursor: var(--aven-cursor-pointer);
-}
-.team-notes .team-notes-forget:hover {
-  background: transparent;
-  color: var(--color-content);
 }

@@ -3,6 +3,7 @@ import {
   AGENT_FACES,
   AGENT_GRIDS,
   agentCellCentre,
+  agentFace,
   agentFacePaths,
   agentMemberTone,
   agentOutfit,
@@ -55,6 +56,22 @@ describe("what each agent wears", () => {
     expect(agentOutfit("fixer")).toBe("plus");
     expect(agentOutfit("helper")).toBeUndefined();
     expect(agentOutfit(undefined)).toBeUndefined();
+  });
+
+  it("shows Avos's eyes at rest, not a prompt; a plain chat keeps its prompt", () => {
+    const avos = agentOutfit("lead");
+    expect(agentFace("still", avos)).toBe("squares");
+    expect(agentFace("resting", avos)).toBe("squares");
+    expect(agentFace("watching", avos)).toBe("squares");
+    expect(agentFace("working", avos)).toBe("narrow");
+    expect(agentFace("resting", undefined)).toBe("prompt");
+  });
+
+  it("keeps the Checker's tick and Security's shield while they work", () => {
+    expect(agentFace("working", agentOutfit("checker"))).toBe("check");
+    expect(agentFace("working", agentOutfit("security"))).toBe("shield");
+    expect(agentFace("working", agentOutfit("builder"))).toBe("narrow");
+    expect(agentFace("ready", agentOutfit("checker"))).toBe("squares");
   });
 
   it("starts each helper somewhere else in its loops, Avos at the start", () => {
