@@ -2,7 +2,8 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import {
   avosTalkModel,
   crewEffortSetting,
-  helperRunsOn,
+  memberFollowsHelpers,
+  memberRunsOn,
 } from "../lib/crewModels";
 import { crewAgentAllowed } from "../lib/crewActions";
 import {
@@ -93,15 +94,23 @@ export function LimitRow({
 }
 
 /** The app and model a member runs on now, its app's usual model if it has none. */
-export function memberApp(member: CrewMember): {
+export function memberApp(
+  member: CrewMember,
+  crew?: Pick<Crew, "helperModel">,
+): {
   harness: HarnessId;
   model: string;
 } {
   const app = crewMemberApp(member);
+  // A helper you haven't set runs on what new helpers run on.
+  const follows = crew ? memberRunsOn(crew, member)?.model : undefined;
   return {
     harness: app.harness,
     model:
       avosTalkModel(member)?.model ??
+      (follows && findModel(follows)?.harness === app.harness
+        ? follows
+        : undefined) ??
       app.model ??
       preferredModelId(app.harness),
   };
@@ -142,8 +151,8 @@ export function memberAppLine(
   if (member.role === "fixer") return "This project's bot";
   const app = memberApp(member);
   const { harness } = app;
-  if (crew && member.role === "builder" && !member.chosen) {
-    const runs = helperRunsOn(crew);
+  if (crew && memberFollowsHelpers(member)) {
+    const runs = memberRunsOn(crew, member);
     if (!runs) return `${agentWord(harness)} · Avos picks per job`;
     if (findModel(runs.model)?.harness === harness)
       return memberAppLine({

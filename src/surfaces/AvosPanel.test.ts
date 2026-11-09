@@ -264,4 +264,20 @@ describe("a helper's page", () => {
       "Claude · Sonnet 5",
     );
   });
+
+  it("says the same of a Researcher you haven't set; a Checker keeps its own", () => {
+    const researcher = {
+      id: "researcher",
+      role: "researcher" as const,
+      harness: "claude" as const,
+      model: "claude:sonnet-5",
+    };
+    expect(memberAppLine(researcher, {})).toBe("Claude · Opus 5.5 · Medium");
+    expect(memberAppLine({ ...researcher, chosen: true }, {})).toBe(
+      "Claude · Sonnet 5",
+    );
+    expect(
+      memberAppLine({ ...researcher, id: "checker", role: "checker" }, {}),
+    ).toBe("Claude · Sonnet 5");
+  });
 });

@@ -7,6 +7,7 @@ import {
   builderRunsOn,
   crewEffortSetting,
   helperRunsOn,
+  memberRunsOn,
 } from "./crewModels";
 import { parseTalk } from "./crewTalk";
 import { CLAUDE_OPUS_5_5_MODEL } from "./models";
@@ -120,5 +121,33 @@ describe("what helpers run on", () => {
     const pick = { model: CLAUDE_OPUS_5_5_MODEL.id, effort: "high" };
     expect(avosPickOverride({}, pick, {})).toBeUndefined();
     expect(avosPickOverride({}, pick, { helperModel: "avos" })).toEqual(pick);
+  });
+});
+
+describe("helpers you haven't set", () => {
+  it("run on what new helpers run on; Avos, the Fixer, Checker and Security keep theirs", () => {
+    const crew = {};
+    expect(memberRunsOn(crew, { role: "researcher" })).toEqual({
+      model: AVOS_MODEL,
+      effort: "medium",
+    });
+    expect(memberRunsOn(crew, { role: "scout" })?.model).toBe(AVOS_MODEL);
+    for (const role of ["lead", "fixer", "checker", "security"] as const)
+      expect(memberRunsOn(crew, { role })).toBeUndefined();
+  });
+
+  it("keep the model you picked on their page, and none while Avos picks", () => {
+    expect(
+      memberRunsOn({}, { role: "researcher", chosen: true }),
+    ).toBeUndefined();
+    expect(
+      memberRunsOn({ helperModel: "avos" }, { role: "designer" }),
+    ).toBeUndefined();
+    expect(
+      memberRunsOn(
+        { helperModel: { model: "claude:sonnet-5", effort: "high" } },
+        { role: "researcher" },
+      ),
+    ).toEqual({ model: "claude:sonnet-5", effort: "high" });
   });
 });

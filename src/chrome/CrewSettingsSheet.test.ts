@@ -614,6 +614,38 @@ describe("Add a helper", () => {
 });
 
 describe("a teammate's page", () => {
+  it("shows a Researcher you haven't set on the Helpers setting, and keeps the model you pick", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: [
+        ...crew.members,
+        { id: "researcher", role: "researcher", model: "claude:sonnet-5" },
+      ],
+    }));
+    await open("researcher");
+    const models = sheet().querySelector<HTMLElement>(
+      '[role="radiogroup"][aria-label="Model"]',
+    )!;
+    expect(
+      models
+        .querySelector('[data-model="claude:opus-5.5"]')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(sheet().textContent).toContain(
+      "Follows the Helpers setting until you pick one",
+    );
+    await act(async () =>
+      models
+        .querySelector<HTMLButtonElement>('[data-model="claude:sonnet-5"]')!
+        .click(),
+    );
+    expect(crewMemberById(getCrew(PATH)!, "researcher")).toMatchObject({
+      model: "claude:sonnet-5",
+      chosen: true,
+    });
+    expect(sheet().textContent).not.toContain("Follows the Helpers setting");
+  });
+
   it("shows its Bot, and sets its agent, model and effort in view, with no floating menu; other apps say why not", async () => {
     await open("checker");
     // The mark grid isn't open until you press the mark.
