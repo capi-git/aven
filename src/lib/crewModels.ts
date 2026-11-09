@@ -127,6 +127,38 @@ export function helperRunsOn(
 }
 
 /**
+ * The helpers that keep their own model whatever new helpers run on: Avos
+ * itself, the project's bot as Fixer, and the ones that check the work, so
+ * a different model looks over it.
+ */
+const OWN_MODEL_ROLES: ReadonlySet<string> = new Set([
+  "lead",
+  "fixer",
+  "checker",
+  "security",
+]);
+
+/**
+ * What a helper runs on when you haven't set it yourself (on its page):
+ * what new helpers run on. Undefined for a helper you set, one that keeps
+ * its own (`OWN_MODEL_ROLES`), or while you let Avos pick per job.
+ */
+export function memberRunsOn(
+  crew: Pick<Crew, "helperModel">,
+  member: Pick<CrewMember, "role" | "chosen"> | undefined,
+): { model: string; effort?: string } | undefined {
+  if (!member || !memberFollowsHelpers(member)) return undefined;
+  return helperRunsOn(crew);
+}
+
+/** A helper whose model follows the Helpers setting until you set it. */
+export function memberFollowsHelpers(
+  member: Pick<CrewMember, "role" | "chosen">,
+): boolean {
+  return !member.chosen && !OWN_MODEL_ROLES.has(member.role);
+}
+
+/**
  * A Builder's model and effort for a job: the card's own, else (while you
  * haven't set this Builder yourself) what new helpers run on.
  */

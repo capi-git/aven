@@ -942,7 +942,7 @@ import {
 import { AvosNoticeCard } from "./chrome/AvosNotices";
 import { crewChatPlace } from "./lib/crewChatPlace";
 import { launchRefusal } from "./lib/harness/sessionPermissions";
-import { crewChatModel } from "./lib/crewModels";
+import { crewChatModel, memberRunsOn } from "./lib/crewModels";
 import {
   AVOS_MAY_NOT_READ,
   avosMayRead,
@@ -11435,7 +11435,9 @@ export default function App({
         memberModel: app.model,
         // A fallback's effort is Claude's own default.
         memberEffort: member.fallback ? undefined : member.effort,
-        override,
+        // A card's own pick, else what helpers run on (for one you haven't
+        // set yourself).
+        override: override ?? memberRunsOn(crew, member),
         preferred: preferredModelId(harness),
       });
       const model = () => wanted.model;

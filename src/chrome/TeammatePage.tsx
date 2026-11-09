@@ -14,7 +14,7 @@ import {
   updateCrewMember,
   type CrewMemberChange,
 } from "../lib/crewActions";
-import { crewEffortSetting } from "../lib/crewModels";
+import { crewEffortSetting, memberRunsOn } from "../lib/crewModels";
 import {
   CREW_INSTRUCTIONS_MAX,
   CREW_MEMORY_MAX,
@@ -101,7 +101,12 @@ export function TeammateBody({
         </div>
         <section className="teammate-runs" aria-label="Runs on">
           <h3 className="teammate-runs-title">Runs on</h3>
-          <RunsOn member={member} onChange={set} onProblem={setProblem} />
+          <RunsOn
+            crew={crew}
+            member={member}
+            onChange={set}
+            onProblem={setProblem}
+          />
           <WhenItWorks crew={crew} member={member} onProblem={setProblem} />
         </section>
       </div>
@@ -398,17 +403,23 @@ function ScopeField({
 
 /** Agent, model and effort, side by side with the job: no floating menu. */
 function RunsOn({
+  crew,
   member,
   onChange,
   onProblem,
 }: {
+  crew: Crew;
   member: CrewMember;
   onChange: (change: CrewMemberChange) => void;
   onProblem: (problem: string | null) => void;
 }) {
   const agents = useInstalledAgents();
   useSyncExternalStore(subscribeModels, getModelSnapshot, getModelSnapshot);
-  const { harness, model } = memberApp(member);
+  // Until you pick here, a helper runs on what the Helpers setting says.
+  const { harness, model } = memberApp(member, crew);
+  const follows =
+    member.role !== "builder" ? memberRunsOn(crew, member) : undefined;
+  const shownEffort = follows?.effort ?? member.effort;
   const effort = crewEffortSetting(harness, model);
   const [older, setOlder] = useState(false);
   const models = pickerModelsFor(harness);
@@ -422,10 +433,12 @@ function RunsOn({
     ...rest.filter((item) => item.id === model),
   ];
   const tucked = rest.filter((item) => item.id !== model);
-  // Picking Avos's model makes it yours: until then it runs on Opus 5.5.
+  // Picking a model here makes it yours: until then Avos runs on Opus 5.5
+  // and a helper on what the Helpers setting says. (The Builder has its
+  // own switch, Let Avos choose.)
   const pickModel = (id: string) =>
     onChange(
-      member.role === "lead" ? { model: id, chosen: true } : { model: id },
+      member.role === "builder" ? { model: id } : { model: id, chosen: true },
     );
   return (
     <>
@@ -482,7 +495,11 @@ function RunsOn({
           <div className="teammate-field">
             <div className="teammate-field-label">
               <b>Model</b>
-              <span>Its usual model; a card can pick another</span>
+              <span>
+                {follows
+                  ? "Follows the Helpers setting until you pick one"
+                  : "Its usual model; a card can pick another"}
+              </span>
             </div>
             <ModelList
               label="Model"
@@ -525,10 +542,8 @@ function RunsOn({
                 // Many efforts (Opus has eight) wrap into rows of four.
                 {...(effort.options.length >= 5 ? { columns: 4 } : {})}
                 value={
-                  effort.options.some(
-                    (option) => option.value === member.effort,
-                  )
-                    ? member.effort!
+                  effort.options.some((option) => option.value === shownEffort)
+                    ? shownEffort!
                     : ""
                 }
                 options={[
@@ -540,9 +555,9 @@ function RunsOn({
                 ]}
                 onChange={(value) =>
                   onChange(
-                    member.role === "lead"
-                      ? { effort: value || null, model, chosen: true }
-                      : { effort: value || null },
+                    member.role === "builder"
+                      ? { effort: value || null }
+                      : { effort: value || null, model, chosen: true },
                   )
                 }
               />
