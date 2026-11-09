@@ -290,6 +290,24 @@
   font-size: var(--text-ui-body);
   line-height: 1.45;
 }
+.avos-panel-step {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.avos-panel-step-title {
+  font-weight: 500;
+}
+.avos-panel-step-text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
 .avos-panel-step + .avos-panel-step {
   border-top: 1px solid var(--aven-line);
 }

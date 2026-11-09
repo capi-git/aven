@@ -28,6 +28,7 @@ import {
   type ScheduledRun,
 } from "../lib/scheduledAgents";
 import { localDay } from "../lib/projectBots";
+import { shortTimeAgo } from "../lib/gitChangesView";
 import { plural } from "../lib/words";
 import type { BoardCard } from "../lib/workBoard";
 import {
@@ -697,6 +698,36 @@ function AvosReady({
 }
 
 /**
+ * A helper's lines in the activity, one step per job: the job's title once,
+ * then what it did, newest time on the right. "Builder started “X”" under
+ * X's own title reads as "Started".
+ */
+export function helperSteps(
+  entries: readonly { id: string; at: number; title?: string; text: string }[],
+): { id: string; at: number; title?: string; texts: string[] }[] {
+  const steps: { id: string; at: number; title?: string; texts: string[] }[] =
+    [];
+  for (const entry of entries) {
+    const last = steps.at(-1);
+    const text =
+      entry.title && entry.text.includes(`started “${entry.title}”`)
+        ? "Started"
+        : entry.text;
+    if (last && entry.title && last.title === entry.title) {
+      last.texts.push(text);
+      last.at = entry.at;
+    } else
+      steps.push({
+        id: entry.id,
+        at: entry.at,
+        ...(entry.title ? { title: entry.title } : {}),
+        texts: [text],
+      });
+  }
+  return steps;
+}
+
+/**
  * One helper, inside the Helpers tab: its face, what it's on and what it
  * runs on, Watch (its chat beside Avos, never instead) and Stop, what it
  * has been doing (its lines in the activity), and what Avos asked it.
@@ -783,7 +814,7 @@ function AvosHelperPage(props: AvosPanelProps & { id: string }) {
           <p className="avos-profile-line">
             {[
               view?.line ?? quick?.doing?.text,
-              stored ? memberAppLine(stored) : quick ? "Reads only" : "",
+              stored ? memberAppLine(stored, crew) : quick ? "Reads only" : "",
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -841,15 +872,28 @@ function AvosHelperPage(props: AvosPanelProps & { id: string }) {
         <h2>What it's doing</h2>
         {lines.length ? (
           <div className="avos-profile-card">
-            {lines.map((entry) => (
-              <p key={entry.id} className="avos-panel-step">
-                <span>
-                  {entry.title ? `${entry.title}: ${entry.text}` : entry.text}
-                </span>
-                <span className="avos-panel-when">
-                  {formatRunTime(entry.at, now)}
-                </span>
-              </p>
+            {helperSteps(lines).map((step) => (
+              <div
+                key={step.id}
+                className="avos-panel-step"
+                data-avos-helper-step
+              >
+                <p className="avos-panel-line">
+                  <span className="avos-panel-step-title">
+                    {step.title ?? step.texts[0]}
+                  </span>
+                  <span className="avos-panel-when">
+                    {shortTimeAgo(step.at, now)}
+                  </span>
+                </p>
+                {(step.title ? step.texts : step.texts.slice(1)).map(
+                  (text, index) => (
+                    <p key={index} className="avos-panel-step-text">
+                      {text}
+                    </p>
+                  ),
+                )}
+              </div>
             ))}
           </div>
         ) : (

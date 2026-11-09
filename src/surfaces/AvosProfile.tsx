@@ -216,7 +216,7 @@ export function AvosSections({
                     ) : null}
                     {stored ? (
                       <span className="avos-profile-helper-meta">
-                        {memberAppLine(stored)}
+                        {memberAppLine(stored, crew)}
                       </span>
                     ) : null}
                   </span>

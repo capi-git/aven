@@ -493,9 +493,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * A teammate's one detail in the team's list: what it runs on ("Claude ·
  * Opus 5.5"), and a word when it isn't as usual ("off").
  */
-function memberDetail(member: CrewMember): string {
+function memberDetail(member: CrewMember, crew: Crew): string {
   if (member.role === "fixer") return "Fixes what breaks";
-  return [memberAppLine(member), member.paused ? "off" : ""]
+  return [memberAppLine(member, crew), member.paused ? "off" : ""]
     .filter(Boolean)
     .join(" · ");
 }
@@ -918,7 +918,7 @@ function HelpersBody({
                   title={memberLabel(member)}
                 />
               </strong>
-              <small>{memberDetail(member)}</small>
+              <small>{memberDetail(member, crew)}</small>
             </span>
             <ChevronRight className="crew-settings-chevron size-3.5" />
           </button>

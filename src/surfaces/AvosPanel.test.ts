@@ -11,8 +11,10 @@ import {
   AvosPanel,
   AvosTabBody,
   activityLevels,
+  helperSteps,
   type AvosPanelProps,
 } from "./AvosPanel";
+import { memberAppLine } from "../chrome/crewSettingsParts";
 
 const enabled = vi.hoisted(() => ({ calls: [] as [string, boolean][] }));
 vi.mock("../lib/scheduledAgents", async (original) => ({
@@ -216,5 +218,50 @@ describe("the panel's width", () => {
     expect(
       container.querySelector<HTMLElement>("aside.avos-panel")!.style.width,
     ).toBe("400px");
+  });
+});
+
+describe("a helper's page", () => {
+  it("names each job once, with what it did under it", () => {
+    const steps = helperSteps([
+      {
+        id: "1",
+        at: 1,
+        title: "Add /health",
+        text: "Builder started “Add /health”",
+      },
+      {
+        id: "2",
+        at: 2,
+        title: "Add /health",
+        text: "Added a /health endpoint.",
+      },
+      { id: "3", at: 3, title: "Fix tabs", text: "Builder started “Fix tabs”" },
+    ]);
+    expect(steps).toEqual([
+      {
+        id: "1",
+        at: 2,
+        title: "Add /health",
+        texts: ["Started", "Added a /health endpoint."],
+      },
+      { id: "3", at: 3, title: "Fix tabs", texts: ["Started"] },
+    ]);
+  });
+
+  it("says a Builder you haven't set runs on what new helpers run on", () => {
+    const builder = {
+      id: "builder",
+      role: "builder" as const,
+      harness: "claude" as const,
+      model: "claude:sonnet-5",
+    };
+    expect(memberAppLine(builder, {})).toBe("Claude · Opus 5.5 · Medium");
+    expect(memberAppLine(builder, { helperModel: "avos" })).toBe(
+      "Claude · Avos picks per job",
+    );
+    expect(memberAppLine({ ...builder, chosen: true }, {})).toBe(
+      "Claude · Sonnet 5",
+    );
   });
 });
