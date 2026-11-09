@@ -11696,6 +11696,19 @@ export default function App({
           setCrewSheet(path);
         },
         stop: stopCrewChat,
+        // A removed helper: its whole process ends, so a dev server it
+        // left running in the background stops with it.
+        end: async (sessionId, harness) => {
+          await stopCrewChat(sessionId);
+          const session = sessionsRef.current.find(
+            (entry) => entry.id === sessionId,
+          );
+          await Promise.all(
+            (session ? sessionChildHarnesses(session) : [harness]).map((id) =>
+              stopHarnessSession(id, sessionId),
+            ),
+          );
+        },
         // The team chat's @teammate: your words go to its chat as if you
         // typed them there (its own message box's path, marked typed).
         sendToMember: async (path, who, text) => {
@@ -11740,6 +11753,7 @@ export default function App({
       openCrewChat,
       openCrewChatBeside,
       stopCrewChat,
+      sessionsRef,
       ensureBotChat,
       ensureCrewChat,
       onChatSubmit,

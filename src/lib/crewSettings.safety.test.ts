@@ -157,7 +157,7 @@ describe("a member's settings never weaken its rules", () => {
     ).toMatchObject({ approvalPolicy: "never", sandbox: "read-only" });
   });
 
-  it("never stores an app that can't keep the rules, by any path", () => {
+  it("never stores an app that can't keep the rules, by any path", async () => {
     for (const harness of ["cursor", "grok", "opencode", "pi", "omp", "fx"]) {
       expect(updateCrewMember(PROJECT, "builder", { harness })).toMatch(
         /Claude Code or Codex/,
@@ -169,7 +169,7 @@ describe("a member's settings never weaken its rules", () => {
         (added as { id: string }).id,
       );
       expect(member?.harness).toBeUndefined();
-      removeCrewMember(PROJECT, member!.id);
+      await removeCrewMember(PROJECT, member!.id);
     }
     for (const member of getCrew(PROJECT)!.members)
       expect([undefined, "claude", "codex"]).toContain(member.harness);
@@ -286,7 +286,7 @@ describe("a member's settings never weaken its rules", () => {
     expect(sessionPermissions("m-chat")).toEqual(sessionPermissions("b-chat"));
   });
 
-  it("never starts a removed member's chat again, nor as an ordinary chat", () => {
+  it("never starts a removed member's chat again, nor as an ordinary chat", async () => {
     updateCrew(PROJECT, (crew) => ({
       ...crew,
       members: [
@@ -294,7 +294,7 @@ describe("a member's settings never weaken its rules", () => {
         { id: "builder-2", role: "builder", sessionId: "b2-chat" },
       ],
     }));
-    expect(removeCrewMember(PROJECT, "builder-2")).toBeNull();
+    expect(await removeCrewMember(PROJECT, "builder-2")).toBeNull();
     const after = sessionPermissions("b2-chat");
     expect(after).toMatchObject({
       noMcp: true,

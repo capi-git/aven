@@ -466,6 +466,80 @@ describe("the team's settings", () => {
   });
 });
 
+describe("removing a helper", () => {
+  it("offers Remove on each helper's row in Helpers, asks once, and the helper goes", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: [
+        { id: "lead", role: "lead" },
+        ...crew.members,
+        { id: "scout", role: "scout" },
+      ],
+    }));
+    await open();
+    await toRow("helpers");
+    const removable = [
+      ...sheet().querySelectorAll<HTMLButtonElement>("[data-crew-remove-row]"),
+    ].map((button) => button.dataset.crewRemoveRow);
+    expect(removable).toEqual(["builder", "checker", "security", "scout"]);
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-remove-row="scout"]')!
+        .click(),
+    );
+    expect(sheet().querySelector(".bot-sheet-question")?.textContent).toBe(
+      "Remove Scout?",
+    );
+    expect(sheet().querySelector(".bot-sheet-note")?.textContent).toBe(
+      "Its chat stays in your history.",
+    );
+    // Keep it: nothing changes, and the list is back.
+    await act(async () => buttonNamed("Keep it")!.click());
+    expect(crewMemberById(getCrew(PATH)!, "scout")).toBeDefined();
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-remove-row="scout"]')!
+        .click(),
+    );
+    await act(async () => buttonNamed("Remove")!.click());
+    expect(crewMemberById(getCrew(PATH)!, "scout")).toBeUndefined();
+    expect(sheet().querySelector('[data-crew-member-row="scout"]')).toBeNull();
+    expect(sheet().querySelector("[data-crew-member-row]")).not.toBeNull();
+  });
+
+  it("removes from the helper's own page, back to Helpers; Avos's page has no Remove", async () => {
+    updateCrew(PATH, (crew) => ({
+      ...crew,
+      members: [
+        { id: "lead", role: "lead" },
+        ...crew.members,
+        { id: "builder-2", role: "builder" },
+      ],
+    }));
+    await open("lead");
+    expect(buttonNamed("Remove helper")).toBeUndefined();
+    // A fresh sheet, open on Helpers.
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await open("helpers");
+    await act(async () =>
+      sheet()
+        .querySelector<HTMLButtonElement>('[data-crew-member-row="builder-2"]')!
+        .click(),
+    );
+    await act(async () => buttonNamed("Remove helper")!.click());
+    expect(sheet().querySelector(".bot-sheet-question")?.textContent).toBe(
+      "Remove Builder 2?",
+    );
+    await act(async () => buttonNamed("Remove")!.click());
+    expect(crewMemberById(getCrew(PATH)!, "builder-2")).toBeUndefined();
+    expect(sheet().querySelector("[data-crew-member-page]")).toBeNull();
+    expect(
+      sheet().querySelector('[data-crew-member-row="builder"]'),
+    ).not.toBeNull();
+  });
+});
+
 describe("Add a helper", () => {
   it("shows each role with In team or +; a second Builder is fine, a second Security isn't", async () => {
     await open("add");
@@ -637,11 +711,14 @@ describe("a teammate's page", () => {
     expect(crewMemberById(getCrew(PATH)!, "checker")?.instructions).toBe(
       "Run the e2e tests.",
     );
-    // The last Checker can't be removed: a quiet word, its why a tooltip.
-    const remove = buttonNamed("Remove helper")!;
-    expect(remove.disabled).toBe(true);
-    expect(remove.className).toBe("crew-settings-remove-link");
-    expect(remove.title).toBe("Avos needs a Checker.");
+    // The last Checker stays: Remove helper says why, and what to do.
+    await act(async () => buttonNamed("Remove helper")!.click());
+    expect(sheet().querySelector("[data-crew-remove-kept]")?.textContent).toBe(
+      "Avos needs a CheckerAdd another Checker first, or switch this one off.OK",
+    );
+    await act(async () => buttonNamed("OK")!.click());
+    expect(crewMemberById(getCrew(PATH)!, "checker")).toBeDefined();
+    expect(buttonNamed("Remove helper")).toBeDefined();
   });
 
   it("keeps a Builder's paths as chips with Edit, its default under When it works, and one line of its rules", async () => {

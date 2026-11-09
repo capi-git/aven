@@ -8,7 +8,6 @@ import {
 } from "react";
 import { Segmented, Toggle } from "../surfaces/SettingsControls";
 import {
-  removeCrewMember,
   setCrewLimit,
   setDefaultBuilder,
   setMemberMemory,
@@ -45,12 +44,13 @@ import {
 } from "./crewSettingsParts";
 import { CrewCritter } from "./CrewCritter";
 import { ChevronDown } from "./icons";
+import { RemoveHelperConfirm } from "./RemoveHelper";
 import "./TeammatePage.css";
 
 /**
  * A teammate's page: its job, your instructions and where it works on the
  * left; what it runs on (agent, model, effort) and when it works on the
- * right, all in view at once; Remove helper, quietly, at the bottom.
+ * right, all in view at once; Remove helper at the bottom.
  * Every change saves as you make it. None of these change what it may do:
  * that comes from its role alone (see `crewChatPermissions`).
  */
@@ -756,8 +756,8 @@ export function MemberMark({
 }
 
 /**
- * Remove helper: a quiet word. The last Builder or Checker stays (its
- * why is the tooltip), and you're asked first.
+ * Remove helper, at the foot of its page. Avos itself has none. It asks
+ * first, saying what happens to its work, or why Avos keeps it.
  */
 function RemoveMember({
   crew,
@@ -769,54 +769,22 @@ function RemoveMember({
   name: string;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const last =
-    (member.role === "builder" || member.role === "checker") &&
-    crew.members.filter((entry) => entry.role === member.role).length <= 1;
+  if (member.role === "lead" || member.role === "fixer") return null;
   if (confirming)
     return (
-      <div className="crew-settings-remove" data-confirming>
-        <p className="bot-sheet-question">Remove {name}?</p>
-        <p className="bot-sheet-note">
-          Its cards go by Avos's rules. Its chat stays in your history and
-          doesn't run again.
-        </p>
-        {problem ? (
-          <p className="bot-sheet-problem" role="alert">
-            {problem}
-          </p>
-        ) : null}
-        <div className="bot-sheet-actions">
-          <button
-            type="button"
-            className="team-card-button"
-            onClick={() => setConfirming(false)}
-          >
-            Keep it
-          </button>
-          <button
-            type="button"
-            className="team-card-button"
-            data-variant="primary"
-            onClick={() => {
-              // Removed: the sheet goes back to the team by itself.
-              const why = removeCrewMember(crew.path, member.id);
-              if (why) setProblem(why);
-            }}
-          >
-            Remove
-          </button>
-        </div>
-      </div>
+      <RemoveHelperConfirm
+        crew={crew}
+        id={member.id}
+        name={name}
+        onCancel={() => setConfirming(false)}
+      />
     );
   return (
     <button
       type="button"
-      className="crew-settings-remove-link"
-      disabled={last}
-      title={
-        last ? `Avos needs a ${CREW_ROLE_INFO[member.role].label}.` : undefined
-      }
+      className="team-card-button"
+      data-variant="ghost"
+      data-crew-remove-member={member.id}
       onClick={() => setConfirming(true)}
     >
       Remove helper
