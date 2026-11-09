@@ -122,6 +122,7 @@ import {
   type SurfaceGroup,
 } from "../lib/surfaceGroups";
 import { BotCritter } from "./BotCritter";
+import { AvosHelperMarks } from "./AvosHelperMarks";
 import { CrewCritter } from "./CrewCritter";
 import { avosGlance } from "../lib/avos";
 import { crewMemberName, useCrew } from "../lib/crews";
@@ -553,14 +554,27 @@ function PinnedIdentity({
   );
 }
 
-/** A project's Avos on its tab: its Bot, amber while it needs you. */
+/**
+ * A project's Avos on its tab: its Bot, amber while it needs you, and its
+ * helpers' small faces overlapping beside it while they work.
+ */
 function AvosTabMark({ path, className }: { path: string; className: string }) {
   const crew = useCrew(path);
-  const state = avosGlance(path, crew, {
+  const glance = avosGlance(path, crew, {
     name: (who) => (crew ? crewMemberName(crew, who) : who),
-  }).state;
+  });
   return (
-    <CrewCritter path={path} role="lead" state={state} className={className} />
+    <>
+      <CrewCritter
+        path={path}
+        role="lead"
+        state={glance.state}
+        className={className}
+      />
+      {glance.helpers?.length ? (
+        <AvosHelperMarks path={path} helpers={glance.helpers} stacked />
+      ) : null}
+    </>
   );
 }
 

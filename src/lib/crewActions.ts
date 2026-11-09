@@ -1,4 +1,4 @@
-import { avosPickOverride } from "./crewModels";
+import { avosPickOverride, helperRunsOn } from "./crewModels";
 import { holdIdeaStarts } from "./crewLimits";
 import { useSyncExternalStore } from "react";
 import { crewInboxCard, withInboxResolved } from "./crewInbox";
@@ -62,6 +62,7 @@ import {
   withoutCard,
   withoutMember,
   type Crew,
+  type CrewHelperModel,
   type CrewAccess,
   type CrewAgent,
   type CrewCard,
@@ -1812,6 +1813,29 @@ export const REVIEW_FIRST =
 const CREW_AT_WORK =
   "Avos is at work in its copy. Try again once its turn ends.";
 
+/**
+ * Why an Apply clashed with your files, in words that say what to do. A
+ * file Avos adds that your folder already has outside Git can't be fixed by
+ * updating Avos's branch (its copy never sees such files), so that says
+ * which file instead of offering the update.
+ */
+export function applyConflictText(error: unknown): string {
+  const found = [
+    ...new Set(
+      [
+        ...errorText(error).matchAll(
+          /([^\s:]+): already exists in working directory/g,
+        ),
+      ].map((match) => match[1]!),
+    ),
+  ];
+  if (!found.length)
+    return "Your files changed where Avos worked, so nothing was applied. Update Avos's branch onto your files, then Apply again.";
+  const one = found.length === 1;
+  const names = found.slice(0, 3).join(", ") + (found.length > 3 ? "…" : "");
+  return `Nothing was applied: Avos's change adds ${names}, and your folder already has ${one ? "a file" : "files"} by that name that Git doesn't track. Commit or move ${one ? "it" : "them"} aside, then Apply again.`;
+}
+
 /** Where the batch ends: at `upTo` (a card's id), else its last card. */
 function batchEnd(
   batch: CrewBatch,
@@ -1911,8 +1935,7 @@ export async function applyCrewBatch(
     if (isFixChanged(error)) return BRANCH_MOVED;
     logError("Apply crew batch", error);
     if (!/conflict/i.test(errorText(error))) return botCopyError(error);
-    const text =
-      "Your files changed where Avos worked, so nothing was applied. Update Avos's branch onto your files, then Apply again.";
+    const text = applyConflictText(error);
     updateCrew(path, (current) =>
       current.stack
         ? { ...current, stack: { ...current.stack, conflict: text } }
@@ -2518,7 +2541,9 @@ export function addCrewMember(
     id = newMemberId(current, role);
     const critter = freeMark(current, template === "custom" ? "custom" : role);
     const name = cleanText(input.name, 40);
-    const model = harness ? cleanText(input.model, 200) : undefined;
+    const picked = harness ? cleanText(input.model, 200) : undefined;
+    const runs = picked ? undefined : newHelperRuns(current, role, harness);
+    const model = picked ?? runs?.model;
     const instructions = cleanText(input.instructions, CREW_INSTRUCTIONS_MAX);
     const member: CrewMember = {
       id,
@@ -2529,9 +2554,13 @@ export function addCrewMember(
       ...(job ? { job } : {}),
       ...(harness ? { harness } : {}),
       ...(model ? { model } : {}),
+      ...(runs?.effort ? { effort: runs.effort } : {}),
       ...(instructions ? { instructions } : {}),
     };
-    return { ...current, members: [...current.members, member] };
+    return withJoined(
+      { ...current, members: [...current.members, member] },
+      id,
+    );
   });
   return { id };
 }
@@ -2680,7 +2709,9 @@ function withPreset(
     crewAgentsFor(preset.role).includes(app.harness)
       ? app.harness
       : undefined;
-  const model = harness ? cleanText(app?.model, 200) : undefined;
+  const runs = newHelperRuns(crew, preset.role, harness);
+  const model =
+    runs?.model ?? (harness ? cleanText(app?.model, 200) : undefined);
   const member: CrewMember = {
     id: newMemberId(crew, preset.role),
     role: preset.role,
@@ -2691,8 +2722,35 @@ function withPreset(
     ...(preset.scope?.length ? { scope: [...preset.scope] } : {}),
     ...(harness ? { harness } : {}),
     ...(model ? { model } : {}),
+    ...(runs?.effort ? { effort: runs.effort } : {}),
   };
-  return { ...crew, members: [...crew.members, member] };
+  return withJoined({ ...crew, members: [...crew.members, member] }, member.id);
+}
+
+/**
+ * What a helper you add runs on: what new helpers run on (Opus 5.5 ·
+ * Medium until you pick), on Claude. A Checker or Security keeps its own
+ * pick, other eyes than the Builder's; so does one on another app.
+ */
+function newHelperRuns(
+  crew: Crew,
+  role: CrewRole,
+  harness: string | undefined,
+): { model: string; effort?: string } | undefined {
+  if (role === "checker" || role === "security") return undefined;
+  if (harness && harness !== "claude") return undefined;
+  return helperRunsOn(crew);
+}
+
+/** Said in Avos's chat when a helper joins, so you see who's there. */
+function withJoined(crew: Crew, id: string): Crew {
+  return withFeed(crew, {
+    at: Date.now(),
+    kind: "note",
+    who: "aven",
+    member: id,
+    text: `${crewMemberName(crew, id)} has been added to the team.`,
+  });
 }
 
 /**
@@ -2875,6 +2933,11 @@ export type CrewWorkspace = {
    * started yet), or null once the chat is on screen.
    */
   openChat: (path: string, who: string) => Promise<string | null> | void;
+  /**
+   * A helper's chat beside Avos, in the same tab (a split), never instead
+   * of it. Resolves with why it couldn't, or null.
+   */
+  openChatBeside?: (path: string, who: string) => Promise<string | null>;
   /** Open the crew: the project's Board with the crew on it. */
   openCrew: (path: string) => void;
   /**
@@ -2915,6 +2978,43 @@ export async function wakeAvos(path: string): Promise<string | null> {
   if (getCrew(path)?.on) return null;
   const wake = crewWorkspace()?.wake;
   return wake ? wake(path).catch((error) => errorText(error)) : null;
+}
+
+/**
+ * Whether Avos's own jobs wait for your Build it (on) or start at once in
+ * its copy (off, the default).
+ */
+/**
+ * What new helpers run on: a model and effort, "avos" for Avos's pick per
+ * job, or null for the default (Opus 5.5 · Medium).
+ */
+export function setCrewHelperModel(
+  path: string,
+  value: CrewHelperModel | null,
+) {
+  updateCrew(path, (crew) => {
+    const { helperModel: _was, ...rest } = crew;
+    return value ? { ...rest, helperModel: value } : rest;
+  });
+}
+
+export function setCrewAskBeforeBuilding(path: string, on: boolean) {
+  updateCrew(path, (crew) => {
+    const { askBeforeBuilding: _was, ...rest } = crew;
+    return on ? { ...rest, askBeforeBuilding: true } : rest;
+  });
+}
+
+/**
+ * Your answer to "Can Avos read this project?". Allowing it lets Avos wake;
+ * taking it back turns Avos off, so nothing it runs reads the project.
+ */
+export async function setAvosReadAccess(path: string, allowed: boolean) {
+  updateCrew(path, (crew) => ({
+    ...crew,
+    readAccess: allowed ? "allowed" : "declined",
+  }));
+  if (!allowed && getCrew(path)?.on) await turnOffCrew(path);
 }
 
 /** Avos's introduction, kept as its first lines, just before your answer. */

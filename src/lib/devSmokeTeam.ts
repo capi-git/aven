@@ -10,6 +10,7 @@ import {
   setCrewAccess,
   stopCrewTry,
   setCrewPaused,
+  setAvosReadAccess,
   setCrewQuietHours,
   turnOffCrew,
   tellTeam,
@@ -229,6 +230,8 @@ async function startTeam(
     if ("error" in added)
       throw new Error(`Couldn't add the ${key} preset: ${added.error}`);
   }
+  // The check answers "Can Avos read this project?" for you: yes.
+  await setAvosReadAccess(path, true);
   const off = await team.turnOn(path);
   if (off) throw new Error(`The team didn't turn on: ${off}`);
   return getCrew(path)!;
@@ -570,6 +573,21 @@ export async function checkMeetAvos(
       },
       15_000,
       "meeting Avos",
+    );
+    // First Avos asks whether it may read the project; nothing wakes it
+    // until you allow it.
+    const allow = meet.querySelector<HTMLButtonElement>(
+      "[data-avos-read-allow]",
+    );
+    if (!allow)
+      throw new Error("Avos didn't ask whether it may read the project");
+    if ((await team.turnOn(project)) === null)
+      throw new Error("Avos woke before you allowed it to read the project");
+    allow.click();
+    await waitFor(
+      () => !meet.querySelector("[data-avos-read-ask]") || null,
+      5_000,
+      "Allow to answer Avos's question",
     );
     const hello = meet.textContent ?? "";
     if (!hello.includes("Hi, I'm Avos") || !hello.includes("keep an eye on"))

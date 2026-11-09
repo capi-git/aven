@@ -1,14 +1,14 @@
-/* Avos's profile beside its chat: its Bot, name and ⋯, one line on what
-   it's up to, then small muted headings over what it keeps an eye on, what
-   it remembers and who's helping. Grey; amber only when it needs you. */
+/* Avos's profile beside its chat, about who's working: its Bot beside its
+   name and one line, then small muted headings, each over one card of rows
+   split by hairlines. Grey; amber only when it needs you. */
 .avos-profile {
   display: flex;
-  width: 264px;
+  width: 320px;
   min-height: 0;
   flex: none;
   flex-direction: column;
-  gap: 18px;
-  padding: 18px 16px 16px;
+  gap: 26px;
+  padding: 22px 20px 20px;
   overflow-y: auto;
   border-left: 1px solid var(--aven-line);
   font-size: var(--text-ui-label);
@@ -17,18 +17,26 @@
 .avos-profile-id {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
 }
 .avos-profile-top {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  margin-bottom: 6px;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
 }
 .avos-profile .dot-mark.avos-profile-mark {
   display: block;
-  width: 44px;
-  height: 44px;
+  width: 50px;
+  height: 50px;
+  flex: none;
+}
+.avos-profile-who {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
 }
 .avos-profile-name {
   margin: 0;
@@ -37,15 +45,18 @@
 }
 .avos-profile-line {
   margin: 0;
+  overflow: hidden;
   color: var(--aven-muted);
   line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .avos-profile-line[data-avos-note="needs-you"],
 .avos-bar-line[data-avos-note="needs-you"] {
   color: var(--aven-needs-you);
 }
 .avos-profile-goal {
-  margin: 4px 0 0;
+  margin: 0;
   line-height: 1.4;
 }
 .avos-profile-goal-word,
@@ -62,13 +73,21 @@
 .avos-profile-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 .avos-profile-section h2 {
-  margin: 0 0 2px;
+  margin: 0;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
   font-weight: 500;
+}
+/* One card of rows under a heading, split by hairlines. */
+.avos-profile-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px;
+  border-radius: var(--aven-radius-card);
+  background: var(--aven-inset-card, var(--aven-hover));
 }
 .avos-profile-row {
   display: -webkit-box;
@@ -79,7 +98,8 @@
   background: transparent;
   color: var(--color-content);
   font: inherit;
-  line-height: 1.4;
+  font-size: var(--text-ui-body);
+  line-height: 1.45;
   text-align: left;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -104,19 +124,28 @@ button.avos-profile-row:hover {
   color: var(--color-content);
 }
 
+/* A helper: its screen, its name, and while it works what it's doing and
+   what it runs on. */
 .avos-profile-helper {
   display: flex;
-  height: 26px;
+  min-height: 44px;
   align-items: center;
-  gap: 7px;
-  margin: 0 -6px;
-  padding: 0 6px;
+  gap: 12px;
+  margin: 0 -12px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: var(--aven-radius-row);
+  border-radius: 0;
   background: transparent;
   color: var(--color-content);
   font: inherit;
   text-align: left;
+}
+.avos-profile-helper + .avos-profile-helper {
+  border-top: 1px solid var(--aven-line);
+}
+.avos-profile-helper:is([data-state="working"], [data-state="needs"]) {
+  align-items: flex-start;
+  padding-block: 12px;
 }
 button.avos-profile-helper {
   cursor: var(--aven-cursor-pointer);
@@ -124,49 +153,56 @@ button.avos-profile-helper {
 button.avos-profile-helper:hover {
   background: var(--aven-hover);
 }
-.avos-profile-helper .dot-mark.avos-profile-helper-mark {
+.avos-profile-card > .avos-profile-helper:first-child {
+  border-top-left-radius: var(--aven-radius-card);
+  border-top-right-radius: var(--aven-radius-card);
+}
+.avos-profile-card > .avos-profile-helper:last-child {
+  border-bottom-left-radius: var(--aven-radius-card);
+  border-bottom-right-radius: var(--aven-radius-card);
+}
+.avos-profile-card .dot-mark.avos-profile-helper-mark {
   display: block;
-  width: 15px;
-  height: 15px;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  margin-block: -5px;
+}
+.avos-profile-card
+  .avos-profile-helper:is([data-state="working"], [data-state="needs"])
+  .dot-mark.avos-profile-helper-mark {
+  margin-top: -4px;
 }
 .avos-profile-helper-text {
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
   flex-direction: column;
+  gap: 2px;
 }
-.avos-profile-helper-name,
-.avos-profile-helper-line {
+.avos-profile-helper-name {
   min-width: 0;
   overflow: hidden;
+  font-size: var(--text-ui-body);
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 /* What it's doing, under its name, while it works or needs you. */
 .avos-profile-helper-line {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+/* What it runs on, or who started a quick helper. */
+.avos-profile-helper-meta {
+  min-width: 0;
+  overflow: hidden;
   color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-  line-height: 16px;
-}
-.avos-profile-helper:is([data-state="working"], [data-state="needs"]) {
-  height: auto;
-  min-height: 40px;
-  padding-block: 4px;
-}
-.avos-profile-helper .helm-work-dots.avos-profile-helper-dots {
-  flex: none;
-  color: var(--color-content);
-}
-/* What finished today, folded into one line that opens the activity. */
-.avos-profile-finished {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-}
-.avos-profile-finished-chevron {
-  width: 12px;
-  height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .avos-profile-helper-word {
   flex: none;
@@ -174,6 +210,29 @@ button.avos-profile-helper:hover {
 }
 .avos-profile-helper-word[data-needs-you] {
   color: var(--aven-needs-you);
+}
+/* What's ready: its screen, its name and Review, on one row. */
+.avos-profile-ready {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+.avos-profile-ready .avos-profile-helper-name {
+  white-space: normal;
+}
+.avos-profile-review {
+  flex: none;
+}
+/* What finished earlier today: one line that opens the activity. */
+.avos-profile-finished {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.avos-profile-finished-chevron {
+  width: 12px;
+  height: 12px;
 }
 
 .avos-profile-more-button {
@@ -249,24 +308,6 @@ button.avos-profile-helper:hover {
 
 /* The rest of the profile, in a sheet from the narrow header. */
 .avos-profile-sheet .avos-sheet-body {
-  gap: 18px;
+  gap: 22px;
   font-size: var(--text-ui-label);
-}
-/* Open: the chevron turns down, and what the helpers did opens under it. */
-.avos-profile-finished[aria-expanded="true"] .avos-profile-finished-chevron {
-  transform: rotate(90deg);
-}
-.avos-profile-activity {
-  margin: 6px -4px 0;
-}
-.avos-profile-activity-note {
-  margin: 0 4px 4px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-caption);
-}
-.avos-profile-activity .crew-feed {
-  padding: 0;
-}
-.avos-profile-activity .crew-feed-scroll {
-  max-height: min(48vh, 420px);
 }

@@ -245,14 +245,15 @@ export const AGENT_STATE_FACES: Readonly<Record<AgentState, AgentFace>> = {
 
 /**
  * Each role's own face, shown at rest, as a label and while watching, so a
- * Builder reads as a Builder: Avos its prompt, the Builder `< >`, the
+ * Builder reads as a Builder: Avos its square eyes (blinking now and then
+ * at rest), the Builder `< >`, the
  * Checker a tick, the Scout a diamond, the Researcher a question, the
  * Designer a star, Security a shield, the project's bot (the Fixer) a
  * wrench. Working,
  * needing you and ready show the state's face instead, the same for all.
  */
 export const AGENT_ROLE_FACES: Readonly<Record<AgentOutfit, AgentFace>> = {
-  headset: "prompt",
+  headset: "squares",
   hat: "code",
   tick: "check",
   diamond: "diamond",
@@ -262,12 +263,21 @@ export const AGENT_ROLE_FACES: Readonly<Record<AgentOutfit, AgentFace>> = {
   plus: "wrench",
 };
 
-/** The face an agent shows: its role's while calm, else its state's. */
+/** Roles that check others' work: at work they keep their own face. */
+const REVIEWERS: ReadonlySet<AgentOutfit> = new Set(["tick", "shield"]);
+
+/**
+ * The face an agent shows: its role's while calm, else its state's. The
+ * Checker and Security keep their tick and shield while they work, so a
+ * job being checked reads apart from one being built.
+ */
 export function agentFace(
   state: AgentState,
   outfit: AgentOutfit | undefined,
 ): AgentFace {
   const calm = state === "still" || state === "resting" || state === "watching";
+  if (state === "working" && outfit && REVIEWERS.has(outfit))
+    return AGENT_ROLE_FACES[outfit];
   return calm && outfit ? AGENT_ROLE_FACES[outfit] : AGENT_STATE_FACES[state];
 }
 

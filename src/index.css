@@ -393,6 +393,9 @@ html.has-native-glass.glass-body:not(.theme-light) .body-glass {
 textarea,
 input,
 .agent-transcript,
+/* Avos's chat and its activity read like any chat: their words copy. */
+.team-thread-scroll,
+.crew-feed-scroll,
 .markdown-preview,
 .whats-new-md,
 .inbox-pr-diff,

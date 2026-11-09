@@ -1,0 +1,55 @@
+/* Avos's helpers at work, beside Avos: small faces in a row (or
+   overlapping, on a tab). A new one pops out from Avos's side, by
+   transform and opacity only, and holds still under Reduce motion. */
+.avos-helper-marks {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.avos-helper-mark {
+  display: inline-flex;
+  transform-origin: left center;
+}
+
+.avos-helper-mark .dot-mark.avos-helper-mark-face {
+  width: 13px;
+  height: 13px;
+}
+
+.avos-helper-marks[data-stacked] {
+  gap: 0;
+}
+
+.avos-helper-marks[data-stacked] .avos-helper-mark + .avos-helper-mark {
+  margin-left: -4px;
+}
+
+.avos-helper-more {
+  margin-left: 2px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .avos-helper-mark {
+    animation: avos-helper-pop 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes avos-helper-pop {
+  from {
+    opacity: 0;
+    transform: translateX(-10px) scale(0.3);
+  }
+  70% {
+    opacity: 1;
+    transform: translateX(0) scale(1.1);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

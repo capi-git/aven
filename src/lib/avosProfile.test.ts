@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   avosFinishedToday,
   avosForYouLine,
-  avosRemembers,
+  memoryFacts,
+  withoutMemoryFact,
 } from "./avosProfile";
 import type { Crew } from "./crews";
 
@@ -27,60 +28,6 @@ describe("Avos's line over what waits for you", () => {
   });
 });
 
-describe("what Avos remembers, in its profile", () => {
-  const crew = (
-    members: Crew["members"],
-    notes: string[] = [],
-  ): Pick<Crew, "members" | "notes"> => ({
-    members,
-    notes: notes.map((text, index) => ({ id: `n${index}`, at: index, text })),
-  });
-
-  it("puts your notes first, then each memory's first line past its headings, Avos's before its helpers'", () => {
-    const remembers = avosRemembers(
-      crew(
-        [
-          { id: "builder", role: "builder", memory: "- Tests live in /spec" },
-          {
-            id: "lead",
-            role: "lead",
-            memory: "# Notes\n\n## Site\n* Articles go in as drafts",
-          },
-          { id: "fixer", role: "fixer", memory: "Never shown" },
-          { id: "checker", role: "checker" },
-        ],
-        ["Use British spelling"],
-      ),
-    );
-    expect(remembers).toEqual({
-      lines: [
-        "Use British spelling",
-        "Articles go in as drafts",
-        "Tests live in /spec",
-      ],
-      total: 3,
-    });
-  });
-
-  it("shows at most the limit and counts the rest", () => {
-    const remembers = avosRemembers(
-      crew(
-        [{ id: "lead", role: "lead", memory: "1. Keep it short" }],
-        ["One", "Two", "Three"],
-      ),
-      2,
-    );
-    expect(remembers).toEqual({ lines: ["One", "Two"], total: 4 });
-  });
-
-  it("is empty when nothing is remembered", () => {
-    expect(avosRemembers(crew([{ id: "lead", role: "lead" }]))).toEqual({
-      lines: [],
-      total: 0,
-    });
-  });
-});
-
 describe("what Avos's helpers finished today", () => {
   it("counts helpers' answers and jobs that came back, today only", () => {
     const now = new Date(2026, 10, 7, 15).getTime();
@@ -101,5 +48,22 @@ describe("what Avos's helpers finished today", () => {
     ];
     expect(avosFinishedToday({ feed }, now)).toBe(4);
     expect(avosFinishedToday({ feed: [] }, now)).toBe(0);
+  });
+});
+
+describe("what Avos learned, one fact a row", () => {
+  it("takes each line that says something, past headings and bullets", () => {
+    const memory = "# Notes\n\n- Drafts only\n* The Insights page\n1. Use pnpm";
+    expect(memoryFacts(memory)).toEqual([
+      { line: 2, text: "Drafts only" },
+      { line: 3, text: "The Insights page" },
+      { line: 4, text: "Use pnpm" },
+    ]);
+    expect(memoryFacts(undefined)).toEqual([]);
+  });
+
+  it("forgets one line, and empties to nothing when no fact is left", () => {
+    expect(withoutMemoryFact("# Notes\n- A\n- B", 1)).toBe("# Notes\n- B");
+    expect(withoutMemoryFact("# Notes\n- A", 1)).toBeNull();
   });
 });

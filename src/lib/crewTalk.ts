@@ -241,6 +241,8 @@ function howToAnswer(input: {
   helpersOn?: { mockup: boolean };
   /** The Builder's models and efforts, when Avos picks them per card. */
   picks?: string;
+  /** The user asked that Avos's cards wait for their Build it. */
+  asksFirst?: boolean;
 }): string {
   const fields = [
     `"line": "One line for the team chat, under ${TALK_LINE_MAX} characters."`,
@@ -289,7 +291,7 @@ function howToAnswer(input: {
       : []),
     ...(input.isLead
       ? [
-          "When the user asks for something built, put it under cards: your helpers build and check it, and it comes back to the user here in the chat when it's ready. Large work waits for the user. You never change files yourself. There is no Board or This week: don't mention one.",
+          `When the user asks for something built or fixed, put it under cards: your helpers build and check it in your copy, and it comes back to the user here, to review before it reaches their folder. ${input.asksFirst ? "Each card waits for the user to say Build it." : "Cards start at once, whatever their size: don't ask whether to start, and don't hold work back for later unless the user says so."} You never change files yourself. There is no Board or This week: don't mention one, or cards, or goals; say what you're doing in plain words.`,
           ...(input.picks ? [input.picks] : []),
           ...(input.mayKeep
             ? [
@@ -345,6 +347,8 @@ export function talkMessage(input: {
   helpersOn?: { mockup: boolean };
   /** The Builder's models and efforts, when Avos picks them per card. */
   picks?: string;
+  /** The user asked that Avos's cards wait for their Build it. */
+  asksFirst?: boolean;
   brief?: string;
   /** Its instructions and notes, as any turn carries them. */
   guidance?: string;

@@ -1,4 +1,4 @@
-import { crewMembers, type Crew } from "./crews";
+import type { Crew } from "./crews";
 
 /**
  * Avos's profile beside its chat, and its message when something needs
@@ -31,36 +31,6 @@ export function avosForYouLine(kinds: readonly AvosAskKind[]): string {
   return `${kinds.length} things need you.`;
 }
 
-/** A memory's first line worth showing: past its headings, no bullet. */
-function firstLine(text: string): string {
-  for (const raw of text.split("\n")) {
-    const trimmed = raw.trim();
-    if (trimmed.startsWith("#")) continue;
-    const line = trimmed.replace(/^([-*•]|\d+[.)])\s*/, "").trim();
-    if (line) return line;
-  }
-  return "";
-}
-
-/**
- * What Avos remembers, for its profile: what you asked it to remember for
- * every card first, then the first line of each memory (Avos's, then its
- * helpers'), at most `limit` of them; `total` counts every note and memory,
- * so the profile can offer the rest.
- */
-export function avosRemembers(
-  crew: Pick<Crew, "members" | "notes">,
-  limit = 3,
-): { lines: string[]; total: number } {
-  const memories = crewMembers(crew)
-    .filter((member) => member.role !== "fixer" && member.memory)
-    .sort((a, b) => Number(b.role === "lead") - Number(a.role === "lead"))
-    .map((member) => firstLine(member.memory!))
-    .filter(Boolean);
-  const all = [...crew.notes.map((note) => note.text.trim()), ...memories];
-  return { lines: all.slice(0, limit), total: all.length };
-}
-
 /** The start of `now`'s day, on this computer's clock. */
 function dayStart(now: number): number {
   const day = new Date(now);
@@ -71,7 +41,7 @@ function dayStart(now: number): number {
 /**
  * What Avos's helpers finished today: each helper's answer, and each job
  * that came back ready, with findings or a mock-up. The profile folds them
- * into one line that opens the activity.
+ * into one line that opens the activity in a sheet.
  */
 export function avosFinishedToday(
   crew: Pick<Crew, "feed">,
@@ -87,4 +57,31 @@ export function avosFinishedToday(
         entry.kind === "findings" ||
         entry.kind === "mockup"),
   ).length;
+}
+
+/** One of Avos's notes: its words, and which line of its notes it is. */
+export type MemoryFact = { line: number; text: string };
+
+/**
+ * What Avos has learned, one fact a row: each line of its notes that says
+ * something, past headings and blank lines, its bullet taken off.
+ */
+export function memoryFacts(memory: string | undefined): MemoryFact[] {
+  if (!memory) return [];
+  const facts: MemoryFact[] = [];
+  memory.split("\n").forEach((raw, line) => {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith("#")) return;
+    const text = trimmed.replace(/^([-*•]|\d+[.)])\s*/, "").trim();
+    if (text) facts.push({ line, text });
+  });
+  return facts;
+}
+
+/** Its notes without one fact's line (by `memoryFacts`' line), or null if empty. */
+export function withoutMemoryFact(memory: string, line: number): string | null {
+  const lines = memory.split("\n");
+  lines.splice(line, 1);
+  const next = lines.join("\n").trim();
+  return memoryFacts(next).length ? next : null;
 }

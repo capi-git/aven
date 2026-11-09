@@ -96,7 +96,7 @@ async function open(
   });
 }
 
-it("opens on meeting Avos: its Bot, who it is and its question, and nothing else", async () => {
+it("opens on meeting Avos: its Bot, who it is, whether it may read the project, then its question", async () => {
   ensureAvos(PROJECT, NOW);
   await open();
   const meet = container.querySelector<HTMLElement>("[data-avos-meet]")!;
@@ -104,6 +104,15 @@ it("opens on meeting Avos: its Bot, who it is and its question, and nothing else
   expect(meet.querySelector(".avos-meet-hello")?.textContent).toBe(
     "Hi, I'm Avos. I'll look after clippedin.",
   );
+  // First it asks whether it may read the project.
+  expect(meet.querySelector(".avos-meet-ask")?.textContent).toBe(
+    "Can I read clippedin's files?",
+  );
+  await act(async () =>
+    meet.querySelector<HTMLButtonElement>("[data-avos-read-allow]")!.click(),
+  );
+  expect(getCrew(PROJECT)?.readAccess).toBe("allowed");
+  expect(meet.querySelector("[data-avos-read-ask]")).toBeNull();
   expect(meet.querySelector(".avos-meet-ask")?.textContent).toBe(
     "What should I keep an eye on, and what's coming up this week?",
   );
@@ -139,6 +148,21 @@ it("opens on meeting Avos: its Bot, who it is and its question, and nothing else
     "Watch the Website Articles page in Notion",
     "lead",
   );
+});
+
+it("reads nothing after Not now, and still offers Allow", async () => {
+  ensureAvos(PROJECT, NOW);
+  await open();
+  const meet = container.querySelector<HTMLElement>("[data-avos-meet]")!;
+  await act(async () =>
+    meet.querySelector<HTMLButtonElement>("[data-avos-read-later]")!.click(),
+  );
+  expect(getCrew(PROJECT)?.readAccess).toBe("declined");
+  expect(meet.querySelector(".avos-meet-ask")?.textContent).toBe(
+    "I won't read clippedin until you allow it.",
+  );
+  expect(meet.querySelector("[data-avos-read-later]")).toBeNull();
+  expect(meet.querySelector("[data-avos-read-allow]")).not.toBeNull();
 });
 
 it("is an ordinary Avos screen once it has been awake", async () => {
