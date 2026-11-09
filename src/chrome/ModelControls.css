@@ -28,6 +28,150 @@
   animation: aven-model-provider-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Effort tiles (ported upstream work, see docs/UPSTREAM.md). Highlighted
+   reasoning levels ripple out from the centre, then settle. Standard levels
+   have distinct colours; keep the original purple Ultra and gold Max. */
+.model-effort-option {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.model-effort-option[data-effort-tone="ultra"] {
+  --model-effort-color: #a855f7;
+}
+.model-effort-option[data-effort-tone="low"] {
+  --model-effort-color: #53c69a;
+}
+.model-effort-option[data-effort-tone="medium"] {
+  --model-effort-color: #5ca8f4;
+}
+.model-effort-option[data-effort-tone="high"] {
+  --model-effort-color: #f08a58;
+}
+.model-effort-option[data-effort-tone="xhigh"] {
+  --model-effort-color: #ef6fa9;
+}
+.model-effort-option[data-effort-tone="max"] {
+  --model-effort-color: #f4b942;
+}
+.model-effort-option > .model-effort-tiles {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  grid-template-columns: repeat(32, minmax(0, 1fr));
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 160ms ease-out;
+  /* Feather all four sides so the tiles dissolve into the row instead of
+     stopping hard at its edge; intersecting the two fades rounds the corners. */
+  -webkit-mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 28px,
+      #000 calc(100% - 28px),
+      transparent
+    ),
+    linear-gradient(to bottom, transparent, #000 35%, #000 65%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(
+      to right,
+      transparent,
+      #000 28px,
+      #000 calc(100% - 28px),
+      transparent
+    ),
+    linear-gradient(to bottom, transparent, #000 35%, #000 65%, transparent);
+  mask-composite: intersect;
+}
+.model-effort-option::after {
+  box-sizing: border-box;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+  opacity: 0;
+}
+.model-effort-option > :not(.model-effort-tiles) {
+  position: relative;
+  z-index: 1;
+}
+.model-effort-tile {
+  box-sizing: border-box;
+  background-color: transparent;
+  box-shadow: inset -1px -1px 0
+    color-mix(in srgb, var(--model-effort-color) 32%, transparent);
+}
+.model-effort-option:is(:hover, :focus-visible, [data-effort-active])
+  > .model-effort-tiles {
+  animation: aven-effort-tiles-clear 5000ms linear 1 both;
+}
+.model-effort-option:is(:hover, :focus-visible, [data-effort-active])
+  .model-effort-tile-filled {
+  animation: aven-effort-tile-fill 1400ms ease-out 3 both;
+  animation-delay: calc(var(--tile-distance) * 420ms);
+  will-change: background-color;
+}
+.model-effort-option:is(:hover, :focus-visible, [data-effort-active])::after {
+  animation: aven-effort-edge-glow 5000ms ease-in-out 1 both;
+  will-change: box-shadow, opacity;
+}
+@keyframes aven-effort-tiles-clear {
+  0%,
+  92% {
+    opacity: 1;
+    visibility: visible;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+@keyframes aven-effort-tile-fill {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  26% {
+    background-color: var(--model-effort-color);
+  }
+  52% {
+    background-color: color-mix(
+      in srgb,
+      var(--model-effort-color) 18%,
+      transparent
+    );
+  }
+}
+@keyframes aven-effort-edge-glow {
+  0%,
+  12%,
+  26%,
+  40%,
+  54%,
+  68%,
+  82% {
+    opacity: 0.3;
+    box-shadow: inset 0 0 4px 0 transparent;
+  }
+  19%,
+  47%,
+  75% {
+    opacity: 0.85;
+    box-shadow: inset 0 0 12px 1px
+      color-mix(in srgb, var(--model-effort-color) 55%, transparent);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: inset 0 0 4px 0 transparent;
+  }
+}
 @keyframes aven-model-value-enter {
   from {
     transform: translateY(3px);
@@ -58,6 +202,26 @@
   }
   .model-control-value,
   .model-provider-indicator {
+    animation: none;
+  }
+  /* Show a still tile field instead of the ripple. */
+  .model-effort-option > .model-effort-tiles {
+    transition: none;
+  }
+  .model-effort-option:is(:hover, :focus-visible, [data-effort-active])
+    > .model-effort-tiles {
+    animation: none;
+    opacity: 0.72;
+    visibility: visible;
+  }
+  .model-effort-option:is(:hover, :focus-visible, [data-effort-active])::after {
+    animation: none;
+    opacity: 0.42;
+    box-shadow: none;
+    will-change: auto;
+  }
+  .model-effort-option:is(:hover, :focus-visible, [data-effort-active])
+    .model-effort-tile-filled {
     animation: none;
   }
 }

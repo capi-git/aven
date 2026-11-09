@@ -139,10 +139,10 @@ describe("model settings in the agent panel", () => {
       Ultracode: null,
       Ultrathink: null,
     });
-    // Each level is a dot named by its label; the hint is not inline text.
+    // Only the level's name shows in the row; the hint is not inline text.
     const max = choice("Effort", "Max");
-    expect(max.textContent).toBe("");
-    expect(max.getAttribute("aria-label")).toBe("Max");
+    expect(max.textContent).toBe("Max");
+    expect(max.hasAttribute("aria-label")).toBe(false);
     // The level stays the one the chat has.
     expect(checked("Effort")).toBe("Medium");
     expect(onChange).not.toHaveBeenCalled();
@@ -153,39 +153,91 @@ describe("model settings in the agent panel", () => {
     });
   });
 
-  it("lights the dots up to the chosen level, and up to a pointed-at one, fainter", async () => {
+  it("colors every standard effort level and mounts tiles only for the active row", async () => {
     await render();
-    const lit = () =>
-      choices("Effort")
-        .filter((option) => option.hasAttribute("data-lit"))
-        .map(nameOf);
-    const line = () =>
-      host.querySelector(".agent-effort-value")?.textContent ?? null;
-    const effort = () => host.querySelector<HTMLElement>(".agent-effort")!;
-    expect(lit()).toEqual(["Low", "Medium"]);
-    expect(line()).toBe("Medium");
-    expect(effort().hasAttribute("data-preview")).toBe(false);
+    const tones = Object.fromEntries(
+      choices("Effort").map((option) => [
+        nameOf(option),
+        option.getAttribute("data-effort-tone"),
+      ]),
+    );
+    expect(tones).toEqual({
+      Low: "low",
+      Medium: "medium",
+      High: "high",
+      "Extra High": "xhigh",
+      Max: "max",
+      Ultracode: "ultra",
+      Ultrathink: "ultra",
+    });
+    // Nothing ripples until a row is pointed at or focused.
+    expect(host.querySelector(".model-effort-tiles")).toBeNull();
     const max = choice("Effort", "Max");
     await act(async () =>
       max.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })),
     );
-    expect(lit()).toEqual(["Low", "Medium", "High", "Extra High", "Max"]);
-    expect(line()).toBe("Max · Most thorough. Often several times slower.");
-    expect(effort().hasAttribute("data-preview")).toBe(true);
-    // Passing over a level never chooses it.
-    expect(checked("Effort")).toBe("Medium");
+    expect(max.hasAttribute("data-effort-active")).toBe(true);
+    expect(max.querySelectorAll(".model-effort-tile")).toHaveLength(160);
+    const filled = max.querySelectorAll(".model-effort-tile-filled").length;
+    expect(filled).toBeGreaterThanOrEqual(96);
+    expect(filled).toBeLessThanOrEqual(112);
+    expect(
+      max.querySelector(".model-effort-tiles")?.getAttribute("aria-hidden"),
+    ).toBe("true");
+    await act(async () => max.focus());
+    await key("ArrowDown");
+    expect(max.hasAttribute("data-effort-active")).toBe(false);
+    expect(max.querySelector(".model-effort-tiles")).toBeNull();
+    expect(host.querySelectorAll(".model-effort-tiles")).toHaveLength(1);
+    expect(
+      choice("Effort", "Ultracode").hasAttribute("data-effort-active"),
+    ).toBe(true);
     expect(onChange).not.toHaveBeenCalled();
-    await act(async () =>
-      group("Effort").dispatchEvent(
-        new MouseEvent("mouseout", { bubbles: true }),
-      ),
-    );
-    expect(lit()).toEqual(["Low", "Medium"]);
-    expect(line()).toBe("Medium");
-    // No old tiles or per-level colours.
-    expect(host.querySelector(".model-effort-tiles")).toBeNull();
-    expect(host.querySelector("[data-effort-tone]")).toBeNull();
   });
+
+  it.each([
+    ["codex", "reasoningEffort", "xhigh"],
+    ["cursor", "effort", "extra-high"],
+  ] as const)(
+    "colors %s effort choices without changing provider values",
+    async (harness, settingId, extraHigh) => {
+      const options = [
+        { value: "low", label: "Low" },
+        { value: "medium", label: "Medium" },
+        { value: "high", label: "High" },
+        { value: extraHigh, label: "Extra High" },
+      ];
+      const id = `${harness}:effort-colors-test`;
+      setHarnessModels(harness, [
+        {
+          id,
+          harness,
+          name: "Effort colors test",
+          settings: [
+            {
+              id: settingId,
+              label: "Effort",
+              kind: "select",
+              value: "low",
+              options,
+            },
+          ],
+        },
+      ]);
+      const values = { [settingId]: "low", serviceTier: "fast" };
+      await renderModel(harness, id, values);
+      expect(
+        choices("Effort").map((option) =>
+          option.getAttribute("data-effort-tone"),
+        ),
+      ).toEqual(["low", "medium", "high", "xhigh"]);
+      await act(async () => choice("Effort", "Extra High").click());
+      expect(onChange).toHaveBeenCalledExactlyOnceWith({
+        ...values,
+        [settingId]: extraHigh,
+      });
+    },
+  );
 
   it("switches Fast in both directions while preserving the other setting", async () => {
     await render();

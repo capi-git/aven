@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The effort chooser is a list again.** Each level is a row with its name and its colour, and pointing at a level plays its tile ripple, as before 0.1.173. Levels run weakest to strongest for every provider.
+
 ## [0.1.176] - 2026-11-09
 
 ### Added
