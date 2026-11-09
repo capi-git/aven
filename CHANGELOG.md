@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.176] - 2026-11-09
+
 ### Added
 
 - **Avos reads the web itself,** as a Mono does: it searches and opens a live page to answer you, and never tells you to go and check one. What it proposes in a reply that used the web waits for your go-ahead, and no rule, goal, job or helper comes of that reply. Access › Use the web › No one turns it off; Avos then sends its Researcher.
