@@ -80,14 +80,13 @@ type Props = {
 };
 
 /**
- * An agent's mark, Bot: a little screen of dots with a face lit on it (see
- * `AgentState`), in the agent's colour. Its glass and face are still SVG;
- * what moves are a few small layers, by transform and opacity only: the
- * whole screen for a reaction (`.agent-bob`), its face (`.agent-eyes`), a
- * prompt's cursor, the light running round its edge while it works
- * (`.agent-comet`), and its frame and glow while it needs you or is ready.
- * So a page full of marks costs little and nothing runs per frame in
- * script.
+ * An agent's mark, Bot: its face of lit dots (see `AgentState`), in the
+ * agent's colour, with no box or outline round it: a soft glow behind the
+ * face says it's working, needs you or is ready. What moves are a few
+ * small layers, by transform and opacity only: the whole mark for a
+ * reaction (`.agent-bob`), its face (`.agent-eyes`), a prompt's cursor and
+ * the glow. So a page full of marks costs little and nothing runs per
+ * frame in script.
  *
  * It is a `.dot-mark` too, so the sizes callers give their marks, and the
  * mark colour tokens, apply to it as they do to the other marks.
@@ -128,7 +127,6 @@ export const AgentMark = memo(function AgentMark({
       aria-hidden
     >
       <span className="agent-bob">
-        {state === "working" && !vacant ? <i className="agent-comet" /> : null}
         <span className="agent-screen">
           <i className="agent-glow" />
           <svg
@@ -156,7 +154,6 @@ export const AgentMark = memo(function AgentMark({
               </svg>
             </span>
           )}
-          <i className="agent-ring" />
         </span>
       </span>
     </span>
