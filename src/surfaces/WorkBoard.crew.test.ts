@@ -893,14 +893,14 @@ describe("the team view: the Board with the team on it", () => {
       expect(sentence().textContent).toBe(
         "2 ideas wait for you to press Build it.",
       );
-      // ⋯ beside Avos's name holds only Pause and Settings: you ask Avos
-      // for a helper, or add one in Settings.
+      // ⋯ beside Avos's name holds what it remembers, Pause and Settings:
+      // you ask Avos for a helper, or add one in Settings.
       await teamMenu();
       expect(
         [...document.querySelectorAll("[data-menu] button")].map(
           (item) => item.textContent,
         ),
-      ).toEqual(["Pause Avos", "Settings…"]);
+      ).toEqual(["What Avos remembers", "Pause Avos", "Settings…"]);
       await pickMenu("Settings…");
       expect(openSettings).toHaveBeenCalledWith(PROJECT);
       // With a Scout too; with work, another sentence.

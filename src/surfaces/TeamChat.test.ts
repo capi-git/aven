@@ -387,12 +387,15 @@ describe("the team chat", () => {
     expect(
       profile.querySelector("[data-crew-sentence]")?.textContent,
     ).toBeTruthy();
-    // Only what it has: no jobs or notes yet, so only who's helping.
+    // Only what it has: no jobs yet, so who's working and what's ready.
     expect(
       [...profile.querySelectorAll("[data-avos-profile] h2")].map(
         (heading) => heading.textContent,
       ),
-    ).toEqual(["Helpers"]);
+    ).toEqual(["Working now", "Ready for you"]);
+    // What it remembers is in ⋯, and the day's limits are in Settings.
+    expect(profile.querySelector('[data-avos-profile="remembers"]')).toBeNull();
+    expect(profile.textContent).not.toContain("runs today");
   });
 
   it("an old saved Changes, Notes or Sub agents view opens on the chat", async () => {
@@ -406,7 +409,7 @@ describe("the team chat", () => {
     expect(chat().closest<HTMLElement>(".avos-body")!.hidden).toBe(false);
   });
 
-  it("lists who's helping in Avos's profile: its dots while it works, nothing at rest, and a helper shows its posts", async () => {
+  it("lists who's working first in Avos's profile, with what each is doing and on what, and a helper shows its posts", async () => {
     await setUp();
     const profile = container.querySelector<HTMLElement>("[data-crew-header]")!;
     const helpers = [
@@ -422,12 +425,23 @@ describe("the team chat", () => {
         helper.querySelector(".avos-profile-helper-word")?.textContent ?? null,
       ]),
     ).toEqual([
+      ["Checker", "working", "working", false, null],
       ["Builder", "resting", "resting", false, null],
       ["Designer", "resting", "resting", false, null],
-      ["Checker", "working", "working", false, null],
       ["Security", "resting", "resting", false, null],
       ["Scout", "resting", "resting", false, null],
     ]);
+    // While it works, what it runs on, under what it's doing; nothing at rest.
+    expect(
+      profile.querySelector(
+        '[data-avos-helper="checker"] .avos-profile-helper-meta',
+      )?.textContent,
+    ).toMatch(/^Claude · /);
+    expect(
+      profile.querySelector(
+        '[data-avos-helper="builder"] .avos-profile-helper-meta',
+      ),
+    ).toBeNull();
     // What it's doing, under its name, while it works.
     expect(
       profile.querySelector(
@@ -1065,7 +1079,7 @@ describe("the team chat", () => {
     );
   });
 
-  it("opens a helper's chat and settings from its posts, and ⋯ holds only Pause and Settings", async () => {
+  it("opens a helper's chat and settings from its posts, and ⋯ holds what it remembers, Pause and Settings", async () => {
     await setUp();
     const checker = container.querySelector<HTMLButtonElement>(
       '[data-crew-header] [data-avos-helper="checker"]',
@@ -1087,14 +1101,53 @@ describe("the team chat", () => {
       [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map(
         (item) => item.textContent,
       ),
-    ).toEqual(["Pause Avos", "Settings…"]);
+    ).toEqual(["What Avos remembers", "Pause Avos", "Settings…"]);
     await act(async () =>
       button(document.querySelector('[role="menu"]')!, "Settings…")!.click(),
     );
     expect(workspace.openSettings).toHaveBeenLastCalledWith(PROJECT);
   });
 
-  it("shows what Avos remembers in its profile, and all of it in Notes, with Forget", async () => {
+  it("shows a quick helper while it works, and what's ready with Review", async () => {
+    await setUp((crew) => ({
+      ...crew,
+      helpers: [
+        {
+          id: "h1",
+          role: "helper",
+          name: "Quick helper",
+          helperOf: "builder",
+          doing: {
+            at: NOW - 30_000,
+            text: "Looking up where roles are stored",
+          },
+        },
+      ],
+    }));
+    const profile = container.querySelector<HTMLElement>("[data-crew-header]")!;
+    const quick = profile.querySelector<HTMLElement>(
+      '[data-avos-sub-agent="h1"]',
+    )!;
+    expect(quick.querySelector(".avos-profile-helper-line")?.textContent).toBe(
+      "Looking up where roles are stored",
+    );
+    expect(quick.querySelector(".avos-profile-helper-meta")?.textContent).toBe(
+      "Started by Builder · reads only",
+    );
+    const ready = profile.querySelector<HTMLElement>(
+      '[data-avos-profile="ready"]',
+    )!;
+    expect(ready.textContent).toContain("Settings page");
+    await act(async () =>
+      ready
+        .querySelector<HTMLButtonElement>("[data-avos-profile-review]")!
+        .click(),
+    );
+    // Review takes the profile's place beside the chat.
+    expect(container.querySelector("[data-crew-header]")).toBeNull();
+  });
+
+  it("keeps what Avos remembers in ⋯, all of it in Notes, with Forget", async () => {
     await setUp((crew) => ({
       ...crew,
       members: crew.members.map((member) =>
@@ -1104,18 +1157,16 @@ describe("the team chat", () => {
       ),
       notes: [{ id: "n1", at: NOW - 60_000, text: "Use pnpm, not npm" }],
     }));
-    const remembers = container.querySelector<HTMLElement>(
-      '[data-avos-profile="remembers"]',
-    )!;
-    expect(
-      [...remembers.querySelectorAll("p.avos-profile-row")].map(
-        (row) => row.textContent,
-      ),
-    ).toEqual(["Use pnpm, not npm", "Tests live in src/__tests__."]);
     await act(async () =>
-      remembers
-        .querySelector<HTMLButtonElement>("[data-avos-all-notes]")!
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="More for Avos"]')!
         .click(),
+    );
+    await act(async () =>
+      button(
+        document.querySelector('[role="menu"]')!,
+        "What Avos remembers",
+      )!.click(),
     );
     const notes = document.querySelector<HTMLElement>("[data-avos-notes]")!;
     expect(

@@ -237,7 +237,10 @@ export type CrewScoutSchedule = "off" | "daily" | "weekly";
 /** Something you asked a teammate to do by itself, every day or week. */
 export type CrewRoutine = { text: string; every: "day" | "week"; at: number };
 
-/** How many helpers may run: for one teammate, the team, and a day. */
+/**
+ * How many helpers may run: for one teammate and the team at once, and a
+ * day unless the crew sets its own (`limits.helpersPerDay`).
+ */
 export const CREW_HELPERS = { perAgent: 2, team: 4, day: 10 } as const;
 
 /** The agents a crew member may run on: the apps that enforce its rules. */
@@ -321,6 +324,8 @@ export type CrewLimits = {
   turnMinutes: number;
   /** Cards waiting on the crew's branch before it starts no new one. */
   readyCap: number;
+  /** Quick helpers Avos and its helpers may start a day; 0 for none. */
+  helpersPerDay: number;
   quiet: BotQuietHours;
 };
 
@@ -346,6 +351,7 @@ export const CREW_LIMIT_RANGES = {
   turnMinutes: [5, 120],
   pauseAtPercent: [10, 100],
   readyCap: [1, 20],
+  helpersPerDay: [0, 30],
 } as const satisfies Record<string, readonly [number, number]>;
 export type CrewLimitName = keyof typeof CREW_LIMIT_RANGES;
 export const CREW_ALL_RUNS_RANGE = [1, 500] as const;
@@ -360,6 +366,7 @@ export function defaultCrewLimits(): CrewLimits {
     pauseAtPercent: CREW_DEFAULT_PAUSE_PERCENT,
     turnMinutes: CREW_DEFAULT_TURN_MINUTES,
     readyCap: CREW_DEFAULT_READY_CAP,
+    helpersPerDay: CREW_HELPERS.day,
     quiet: { ...BOT_DEFAULT_QUIET },
   };
 }
@@ -1872,6 +1879,7 @@ export function readCrew(value: unknown): Crew | null {
       pauseAtPercent: limit("pauseAtPercent"),
       turnMinutes: limit("turnMinutes"),
       readyCap: limit("readyCap"),
+      helpersPerDay: limit("helpersPerDay"),
       quiet: {
         on: typeof quiet?.on === "boolean" ? quiet.on : base.limits.quiet.on,
         start: finite(quiet?.start, 0, 1439, base.limits.quiet.start),
@@ -3166,7 +3174,7 @@ export function helpersLeft(crew: Crew, parentId: string, now: number): number {
       CREW_HELPERS.perAgent -
         running.filter((helper) => helper.helperOf === parentId).length,
       CREW_HELPERS.team - running.length,
-      CREW_HELPERS.day - today,
+      crew.limits.helpersPerDay - today,
     ),
   );
 }

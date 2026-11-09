@@ -866,8 +866,10 @@ export class CrewRunner {
       if (!claimed) return;
       const fresh = getCrew(path) ?? crew;
       // A turn that could read the web starts nobody: a page could ask it to.
+      // Nor does one whose crew turned quick helpers off.
       const mayStartHelpers =
         member.role !== "helper" &&
+        fresh.limits.helpersPerDay > 0 &&
         !talk.answer &&
         !crewRoleUsesWeb(fresh, member.role) &&
         !crewRoleUsesBrowser(fresh, member.role);

@@ -71,28 +71,69 @@ const pick = async (select: HTMLSelectElement, value: string) =>
     select.dispatchEvent(new Event("change", { bubbles: true }));
   });
 
-/** Open what sits one level deeper: Edit limits ›, More ›, Rules ›. */
+/** Open what sits one level deeper: More ›, Rules ›. */
 const disclose = async (selector: string) =>
   act(async () => sheet().querySelector<HTMLButtonElement>(selector)!.click());
 
+/** Open one of Avos's four rows: Model, Helpers, Access or Limits. */
+const toRow = async (id: string) =>
+  act(async () =>
+    sheet()
+      .querySelector<HTMLButtonElement>(`[data-crew-summary="${id}"]`)!
+      .click(),
+  );
+
 describe("the team's settings", () => {
-  it("shows little at first: members with one detail, one line each for routing and limits", async () => {
+  it("shows four rows, Avos's model, helpers, access and limits, each with one line", async () => {
     updateCrew(PATH, (crew) => ({
       ...crew,
-      members: crew.members.map((member) =>
-        member.id === "checker"
-          ? {
-              ...member,
-              harness: "codex",
-              model: "codex:gpt-9.1",
-              paused: true,
-            }
-          : member.id === "security"
-            ? { ...member, model: "claude:haiku-9" }
-            : member,
-      ),
+      members: [
+        { id: "lead", role: "lead", model: "claude:sonnet-9" },
+        ...crew.members.map((member) =>
+          member.id === "checker"
+            ? {
+                ...member,
+                harness: "codex" as const,
+                model: "codex:gpt-9.1",
+                paused: true,
+              }
+            : member.id === "security"
+              ? { ...member, model: "claude:haiku-9" }
+              : member,
+        ),
+      ],
     }));
     await open();
+    const summary = (id: string) =>
+      sheet().querySelector(`[data-crew-summary="${id}"] small`)?.textContent;
+    expect(
+      [...sheet().querySelectorAll<HTMLElement>("[data-crew-summary]")].map(
+        (row) => row.dataset.crewSummary,
+      ),
+    ).toEqual(["model", "helpers", "access", "limits"]);
+    expect(summary("model")).toBe("Claude · Sonnet 9");
+    // Avos isn't one of its own helpers.
+    expect(summary("helpers")).toBe("Builder, Checker, Security");
+    expect(summary("access")).toBe(
+      "Auto · nothing reaches your folder until you Apply",
+    );
+    expect(summary("limits")).toBe("20 runs a day · quiet 11 pm–8 am");
+    // The switch says when Avos works, and so does the line under the name.
+    expect(
+      document.querySelector(
+        '[title="Works only while Aven is open and your Mac is awake"] [role="switch"]',
+      ),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "On while Aven is open and your Mac is awake",
+    );
+    // Pause is in Avos's ⋯, and the sheet's close is its only Done.
+    expect(buttonNamed("Pause Avos")).toBeUndefined();
+    expect(buttonNamed("Done")).toBeUndefined();
+    // Nothing deeper shows until its row is opened.
+    expect(sheet().querySelector("[data-crew-member-row]")).toBeNull();
+    expect(sheet().querySelector("[data-crew-access]")).toBeNull();
+    await toRow("helpers");
     const rows = [
       ...sheet().querySelectorAll<HTMLElement>("[data-crew-member-row]"),
     ];
@@ -102,46 +143,54 @@ describe("the team's settings", () => {
       "security",
     ]);
     // One short detail: the model, and "off" only when it is.
-    const checker = rows[1]!.querySelector("small")!.textContent!;
     // A model the catalog doesn't know yet still reads as a name.
-    expect(checker).toBe("Codex · GPT-9.1 · off");
+    expect(rows[1]!.querySelector("small")!.textContent).toBe(
+      "Codex · GPT-9.1 · off",
+    );
     expect(rows[2]!.querySelector("small")!.textContent).toBe(
       "Claude · Haiku 9",
     );
-    expect(rows[0]!.querySelector("small")!.textContent).toMatch(/^Claude · /);
-    // No subtitle: "works only while Aven is open" is the switch's tooltip.
-    expect(document.querySelector(".crew-settings")!.textContent).not.toContain(
-      "Works only while Aven is open",
-    );
-    expect(
-      document.querySelector(
-        '[title="Works only while Aven is open and your Mac is awake"] [role="switch"]',
-      ),
-    ).not.toBeNull();
-    expect(
-      sheet().querySelector("[data-crew-routing-summary]")?.textContent,
-    ).toBe("Cards go to Builder");
-    expect(
-      sheet().querySelector("[data-crew-limits-summary]")?.textContent,
-    ).toBe(
-      // "8 am" never breaks over two lines.
-      "20 runs a day · 3 rounds a card · pauses at 80% of your week · quiet 11\u00a0pm–8\u00a0am",
-    );
-    // Nothing deeper is open, and no limit says its why in a line.
-    expect(sheet().querySelector('[aria-label="Rounds a card"]')).toBeNull();
-    expect(sheet().querySelector(".crew-settings-limit small")).toBeNull();
-    const switches = [
-      ...document.querySelectorAll(".crew-settings .settings-toggle"),
-    ];
-    for (const item of switches)
+    // One Builder: no rules for who builds what.
+    expect(sheet().querySelector("[data-crew-routing-summary]")).toBeNull();
+    for (const item of document.querySelectorAll(
+      ".crew-settings .settings-toggle",
+    ))
       expect(item.getAttribute("data-tone")).toBe("neutral");
+    await act(async () => buttonNamed("aven-site's Avos")!.click());
+    await toRow("access");
     expect(sheet().querySelector("[data-crew-never]")?.textContent).toBe(
       TEAM_ALWAYS_LINE,
     );
   });
 
+  it("lets Avos start quick helpers, up to a number a day, or none", async () => {
+    await open();
+    await toRow("helpers");
+    const toggle = () =>
+      sheet().querySelector<HTMLButtonElement>(
+        '[aria-label="Let Avos start quick helpers"]',
+      )!;
+    expect(getCrew(PATH)!.limits.helpersPerDay).toBe(10);
+    await pick(
+      sheet().querySelector<HTMLSelectElement>(
+        '[aria-label="Quick helpers a day"]',
+      )!,
+      "5",
+    );
+    expect(getCrew(PATH)!.limits.helpersPerDay).toBe(5);
+    await act(async () => toggle().click());
+    expect(getCrew(PATH)!.limits.helpersPerDay).toBe(0);
+    // Off: no number to pick.
+    expect(
+      sheet().querySelector('[aria-label="Quick helpers a day"]'),
+    ).toBeNull();
+    await act(async () => toggle().click());
+    expect(getCrew(PATH)!.limits.helpersPerDay).toBe(10);
+  });
+
   it("sets Access with one choice, in the message box's words", async () => {
     await open();
+    await toRow("access");
     const access = sheet().querySelector<HTMLElement>("[data-crew-access]")!;
     const level = (name: string) =>
       access.querySelector<HTMLButtonElement>(
@@ -167,6 +216,7 @@ describe("the team's settings", () => {
 
   it("keeps web and deleting one level deeper", async () => {
     await open();
+    await toRow("access");
     expect(sheet().querySelector("[data-crew-access-custom]")).toBeNull();
     await act(async () =>
       [...sheet().querySelectorAll<HTMLButtonElement>("button")]
@@ -205,9 +255,16 @@ describe("the team's settings", () => {
     ).toBe("true");
   });
 
-  it("changes a limit after Edit limits, and every crew's ceiling under More", async () => {
+  it("shows the common limits on their page, and the rest under More", async () => {
     await open();
-    await disclose("[data-crew-edit-limits]");
+    await toRow("limits");
+    await pick(
+      sheet().querySelector<HTMLSelectElement>('[aria-label="Runs a day"]')!,
+      "30",
+    );
+    expect(getCrew(PATH)!.limits.runsPerDay).toBe(30);
+    expect(sheet().querySelector('[aria-label="Rounds a card"]')).toBeNull();
+    await disclose("[data-crew-limits-more]");
     const rounds = sheet().querySelector<HTMLSelectElement>(
       '[aria-label="Rounds a card"]',
     )!;
@@ -217,13 +274,9 @@ describe("the team's settings", () => {
     ).toBe("Then it stops and asks you");
     await pick(rounds, "5");
     expect(getCrew(PATH)!.limits.roundsPerCard).toBe(5);
-    expect(
-      sheet().querySelector('[aria-label="Runs a day, all teams"]'),
-    ).toBeNull();
-    await disclose("[data-crew-limits-more]");
     await pick(
       sheet().querySelector<HTMLSelectElement>(
-        '[aria-label="Runs a day, all teams"]',
+        '[aria-label="Runs a day, every Avos"]',
       )!,
       "100",
     );
@@ -245,6 +298,7 @@ describe("the team's settings", () => {
       routes: [{ id: "r1", words: ["css"], to: "builder-2" }],
     }));
     await open();
+    await toRow("helpers");
     expect(
       sheet().querySelector("[data-crew-routing-summary]")?.textContent,
     ).toBe("Cards go to Builder · 1 rule");
@@ -255,6 +309,7 @@ describe("the team's settings", () => {
 
   it("opens a helper's page from the list, and Add opens Add a helper", async () => {
     await open();
+    await toRow("helpers");
     await act(async () =>
       sheet()
         .querySelector<HTMLButtonElement>('[data-crew-member-row="checker"]')!
@@ -266,7 +321,7 @@ describe("the team's settings", () => {
         ?.getAttribute("data-crew-member-page"),
     ).toBe("checker");
     // The way back sits above its name.
-    await act(async () => buttonNamed("aven-site's Avos")!.click());
+    await act(async () => buttonNamed("Helpers")!.click());
     await act(async () =>
       sheet()
         .querySelector<HTMLButtonElement>("[data-crew-add-member]")!
@@ -558,7 +613,7 @@ describe("a teammate's page", () => {
 describe("quiet hours", () => {
   it("can't start and end at the same hour, which would never be quiet", async () => {
     await open();
-    await disclose("[data-crew-edit-limits]");
+    await toRow("limits");
     const [from, to] = [
       ...sheet().querySelectorAll<HTMLSelectElement>(
         ".crew-settings-hours select",
@@ -654,7 +709,7 @@ describe("a teammate's chat before Avos's first card", () => {
 });
 
 describe("the way back", () => {
-  it("goes from Add a helper to Avos, and from a helper to where you opened it", async () => {
+  it("goes from Add a helper to Helpers, and from a helper to where you opened it", async () => {
     await open("add");
     // A teammate opened from Build a team goes back there.
     await act(async () =>
@@ -665,7 +720,11 @@ describe("the way back", () => {
     expect(sheet().querySelector("[data-crew-member-page]")).not.toBeNull();
     await act(async () => buttonNamed("Add a helper")!.click());
     expect(sheet().querySelector("[data-crew-add]")).not.toBeNull();
-    // Build a team goes back to the team.
+    // Add a helper goes back to Helpers, and Helpers to Avos.
+    await act(async () => buttonNamed("Helpers")!.click());
+    expect(
+      sheet().querySelector('[data-crew-settings-page="helpers"]'),
+    ).not.toBeNull();
     await act(async () => buttonNamed("aven-site's Avos")!.click());
     expect(sheet().querySelector("[data-crew-settings]")).not.toBeNull();
   });

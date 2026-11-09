@@ -33,6 +33,7 @@ export const LIMIT_CHOICES: Readonly<Record<CrewLimitName, readonly number[]>> =
     turnMinutes: [5, 10, 15, 20, 30, 45, 60, 90, 120],
     pauseAtPercent: [50, 60, 70, 80, 90, 100],
     readyCap: [1, 2, 3, 5, 8, 10, 15, 20],
+    helpersPerDay: [0, 3, 5, 10, 15, 20, 30],
   };
 
 /** A labelled picker of numbers, yours kept when it isn't one of the choices. */

@@ -54,7 +54,7 @@ import {
   AvosSections,
   type AvosProfileProps,
 } from "./AvosProfile";
-import { CrewAnswerBox } from "./CrewBoard";
+import { CrewAnswerBox, CrewFeed } from "./CrewBoard";
 import { AvosReview } from "./AvosReview";
 import { BatchCard, CrewBatchSheet } from "./TeamBatch";
 import { TeamCardButton } from "../chrome/TeamCard";
@@ -126,6 +126,8 @@ export function TeamScreen({
   const [saved, save] = useTeamView(project);
   const [reviewing, setReviewing] = useState(false);
   const [notes, setNotes] = useState(false);
+  // What the helpers did, in a sheet.
+  const [activity, setActivity] = useState(false);
   // The narrow header's profile, in a sheet.
   const [profile, setProfile] = useState(false);
   // A card waiting on your answer, open in its own sheet.
@@ -309,8 +311,16 @@ export function TeamScreen({
       setProfile(false);
       setNotes(true);
     },
+    onActivity: () => {
+      setProfile(false);
+      setActivity(true);
+    },
+    onReview: () => {
+      setProfile(false);
+      setReviewing(true);
+    },
+    batch: view.batch ?? null,
     name,
-    limits: view.limits,
   };
   return (
     <section
@@ -413,6 +423,19 @@ export function TeamScreen({
           <div className="avos-sheet-body">
             <AvosGoal project={project} goal={view.goal} />
             <AvosSections {...profileProps} />
+          </div>
+        </Modal>
+      ) : null}
+      {activity ? (
+        <Modal
+          onClose={() => setActivity(false)}
+          title="Activity"
+          {...(view.limits ? { description: view.limits } : {})}
+          size="lg"
+          className="avos-activity-sheet"
+        >
+          <div className="crew-activity" data-avos-activity>
+            <CrewFeed crew={crew} name={name} />
           </div>
         </Modal>
       ) : null}

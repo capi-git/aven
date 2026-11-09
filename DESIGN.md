@@ -53,7 +53,9 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A project's Avos** is the first row under the project: its Bot in the project's colour, "Avos" at weight 500, and on the right only "Needs you" in amber or "Working". Every project has one; the first time you open it is meeting it, in its chat.
 
-**Avos's screen** is like a messenger with someone you work with: its chat, with its profile beside it and no tabs. The profile has its Bot, its name and `…`, one line on what it's up to (amber when it needs you), then what it keeps an eye on, what it remembers and who's helping, each only when it has something. What needs you comes as Avos's own message at the end of the chat, with its buttons, said nowhere else. On a narrow pane the profile folds into one header, and Avos's name opens the rest in a sheet.
+**Avos's screen** is like a messenger with someone you work with: its chat, with its profile beside it and no tabs. The profile is about who's working: its Bot beside its name, one line on what it's up to (amber when it needs you) and `…`; then Working now (Helpers while nobody works), one card with each helper's screen, what it's doing and what it runs on, and the quick helpers Avos started; Ready for you, with Review; what it keeps an eye on; and one "Earlier today" line that opens the activity in a sheet. Each shows only when it has something. What it remembers is in `…`, its limits in Settings. Questions and ideas that need you come as Avos's own message at the end of the chat, with its buttons. On a narrow pane the profile folds into one header, and Avos's name opens the rest in a sheet.
+
+**Avos's settings** are four rows in one card, Model, Helpers, Access and Limits, each with one line and opening its own page; Avos is never listed as one of its helpers. The header's switch turns Avos on and off, and Pause is in Avos's `…`. Who builds what shows only once there are two Builders.
 
 **A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
 

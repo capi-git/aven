@@ -629,6 +629,25 @@ describe("helpers", () => {
     runner.stop();
   });
 
+  it("isn't offered helpers, and starts none, once you've turned them off", async () => {
+    team((crew) => ({
+      ...crew,
+      limits: { ...crew.limits, helpersPerDay: 0 },
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        talk({ line: "On it.", helpers: [{ title: "One", task: "1" }] }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Go", "lead", NOON);
+    await settle();
+    expect(sent.some((turn) => turn.memberId.startsWith("helper-"))).toBe(
+      false,
+    );
+    expect(sent[0]!.text).not.toContain('"helpers"');
+    runner.stop();
+  });
+
   it("starts none from a turn that could read the web", async () => {
     team((crew) => ({
       ...crew,
