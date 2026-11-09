@@ -1584,21 +1584,34 @@ export async function checkReviewLook(
     );
     if (!hit) throw new Error("Avos's version takes no notes");
     const at = spot.getBoundingClientRect();
-    hit.dispatchEvent(
-      new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        detail: 1,
-        clientX: at.left + at.width / 2,
-        clientY: at.top + at.height / 2,
-      }),
-    );
+    const click = () =>
+      hit.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          detail: 1,
+          clientX: at.left + at.width / 2,
+          clientY: at.top + at.height / 2,
+        }),
+      );
+    click();
+    // A picture that arrives again just then puts the note away once (a new
+    // picture, a new note): click again, as you would.
+    let clicks = 1;
+    let lastClick = Date.now();
     const note = await waitFor(
-      () =>
-        review.querySelector<HTMLInputElement>(
+      () => {
+        const box = review.querySelector<HTMLInputElement>(
           "input[aria-label='Note for Avos']",
-        ),
-      5_000,
+        );
+        if (!box && clicks < 4 && Date.now() - lastClick > 1_500) {
+          clicks += 1;
+          lastClick = Date.now();
+          click();
+        }
+        return box;
+      },
+      12_000,
       "the note box",
     ).catch((error: unknown) => {
       // Say what happened to the Review the click landed on.

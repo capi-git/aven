@@ -658,7 +658,11 @@ function ReviewPairView({
     element?: string;
   } | null>(null);
   const [text, setText] = useState("");
-  useEffect(() => setDraft(null), [size, after]);
+  // A different picture puts the note away: it pointed at the old one. The
+  // same picture read again (a new object, the same image) keeps it, so a
+  // note being written never vanishes under you.
+  const pictureSrc = after?.src;
+  useEffect(() => setDraft(null), [size, pictureSrc]);
   const saveNote = (event: FormEvent) => {
     event.preventDefault();
     const words = text.trim();
