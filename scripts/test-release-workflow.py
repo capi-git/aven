@@ -581,6 +581,33 @@ class RealAppCheckGateTests(unittest.TestCase):
         self.assertNotIn('secrets.', job)
         self.assertIn('persist-credentials: false', job)
 
+    def test_a_failed_check_runs_once_more_in_a_fresh_app(self):
+        workflow = WORKFLOW.read_text()
+        job = re.search(r'\n  real-app-check:\n(.*?)\n\n  windows:', workflow, re.S).group(1)
+        step = job[job.index('- name: Run the real-app check'):]
+        step = step[:step.index('- name: Upload')]
+        self.assertEqual(step.count('python3 -B scripts/dev-aven.py --smoke'), 2)
+        # The second run is the job's answer: it isn't allowed to fail quietly.
+        self.assertIn('if python3 -B scripts/dev-aven.py --smoke; then exit 0; fi', step)
+        self.assertNotIn('|| true\n', step.split('dev-aven.py --smoke')[-1])
+        self.assertIn('scripts/smoke-failed-steps.py target/smoke-first-try/result.json', step)
+        self.assertIn('target/smoke-first-try/', job[job.index('- name: Upload'):])
+
+    def test_failed_steps_are_named_from_a_result(self):
+        import importlib.util
+        import tempfile
+        spec = importlib.util.spec_from_file_location(
+            'smoke_failed_steps', ROOT / 'scripts/smoke-failed-steps.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'result.json'
+            path.write_text(json.dumps({'steps': [
+                {'name': 'a', 'passed': True}, {'name': 'b', 'passed': False},
+                {'name': 'c', 'passed': False}]}))
+            self.assertEqual(module.failed_steps(path), ['b', 'c'])
+            self.assertEqual(module.failed_steps(Path(folder) / 'missing.json'), [])
+
 
 class WindowsUpdateSigningTests(unittest.TestCase):
     def test_release_signs_windows_updates_only_when_publishing(self):

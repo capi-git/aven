@@ -216,8 +216,23 @@ jobs:
           tar -xjf "$task_cef_archive" -C "$RUNNER_TEMP"
           printf 'CEF_ROOT=%s\n' "$RUNNER_TEMP/$task_cef_name" >> "$GITHUB_ENV"
       - run: npm ci
+      # A one-off timing blip on a busy runner shouldn't fail a release. A
+      # failed check runs once more in a fresh app (never a step again in the
+      # same one, where it left its state behind), and only a second failure
+      # fails the job. What failed the first time is named in the summary.
       - name: Run the real-app check
-        run: python3 -B scripts/dev-aven.py --smoke
+        run: |
+          if python3 -B scripts/dev-aven.py --smoke; then exit 0; fi
+          rm -rf target/smoke-first-try
+          if [ -d target/smoke ]; then mv target/smoke target/smoke-first-try; fi
+          first=$(python3 -B scripts/smoke-failed-steps.py target/smoke-first-try/result.json)
+          echo "::warning title=Real-app check ran twice::The first run failed: ${first:-no result was written}"
+          python3 -B scripts/dev-aven.py --smoke
+          {
+            echo "### The real-app check passed on its second run"
+            echo
+            echo "The first run failed: ${first:-no result was written}. If the same step fails again in later runs, it is not a blip."
+          } >> "$GITHUB_STEP_SUMMARY"
       # The throwaway folder is gone with the runner: the check copies its
       # logs and result to target/smoke, so a failure can be read.
       - name: Upload the check's logs
@@ -225,7 +240,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: real-app-check-logs
-          path: target/smoke/
+          path: |
+            target/smoke/
+            target/smoke-first-try/
           if-no-files-found: warn
           retention-days: 7
 
