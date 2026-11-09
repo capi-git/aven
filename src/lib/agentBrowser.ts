@@ -13,6 +13,7 @@ import { agentGitInstructions } from "./gitPreference";
 import { agentFilesFolder, agentFilesInstructions } from "./chatDownloads";
 import { isRaceLanePath } from "./recents";
 import type { MarkTone } from "./markTones";
+import type { AgentDesktopFaces } from "./agentMark";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
 import { agentBrowserWeb } from "./projectBotPermissions";
@@ -25,6 +26,11 @@ export type AgentBrowserContext = {
    * pointer (from the project's folder; `cwd` may be a copy of it).
    */
   tone?: MarkTone;
+  /**
+   * The faces its Bot shows there (`agentDesktopFaces`): a teammate's its
+   * role's, any other chat's a plain chat's.
+   */
+  faces?: AgentDesktopFaces;
   harness?: string;
   title?: string;
 };
@@ -72,7 +78,13 @@ type Binding = { executablePath: string; socketPath: string };
 type BindArgs = {
   sessionId: string;
   simulatorProject?: string;
-  actor?: { harness: string; title?: string; tone?: MarkTone };
+  actor?: {
+    harness: string;
+    title?: string;
+    tone?: MarkTone;
+    /** Its Bot's face in each state there (`agentDesktopFaces`). */
+    faces?: AgentDesktopFaces;
+  };
   browserIds: string[];
   ownBrowserIds?: string[];
   anyTab: boolean;
@@ -332,7 +344,10 @@ function bind(
   return operation;
 }
 
-/** Who the desktop bar and pointer name, in the project's colour. */
+/**
+ * Who the desktop bar and pointer name, in the project's colour, with the
+ * faces its Bot shows there.
+ */
 function actorFor(
   context: AgentBrowserContext,
   harness: string,
@@ -341,6 +356,7 @@ function actorFor(
     harness,
     title: context.title,
     ...(context.tone ? { tone: context.tone } : {}),
+    ...(context.faces ? { faces: context.faces } : {}),
   };
 }
 
@@ -718,6 +734,7 @@ async function withBrowserGuidance(
   stored.harness = context.harness ?? stored.harness;
   stored.title = context.title ?? stored.title;
   stored.tone = context.tone ?? stored.tone;
+  stored.faces = context.faces ?? stored.faces;
   contexts.set(context.sessionId, stored);
   try {
     await hostReady;

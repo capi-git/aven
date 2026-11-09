@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { agentDesktopFaces } from "./agentMark";
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
@@ -1006,6 +1007,25 @@ it("sends the chat's project colour for its Bot", async () => {
     workDir: "/Users/me/.worktrees/site/fix",
     actor: { harness: "codex", tone: "purple" },
   });
+});
+
+it("sends the faces its Bot shows on the desktop", async () => {
+  const api = await import("./agentBrowser");
+  dispose = api.installAgentBrowserHost({
+    surfaces: () => [],
+    open: vi.fn(),
+  });
+  const faces = agentDesktopFaces("hat");
+  await api.prepareAgentBrowserPrompt("Build it", {
+    sessionId: "builder",
+    cwd: "/p",
+    faces,
+    harness: "claude",
+  });
+  const bind = mocks.invoke.mock.calls
+    .filter(([name]) => name === "browser_agent_bind")
+    .at(-1)?.[1];
+  expect(bind).toMatchObject({ actor: { harness: "claude", faces } });
 });
 
 it("ends the user's Stop and declines only on a message the user wrote", async () => {

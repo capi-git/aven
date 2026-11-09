@@ -1,13 +1,15 @@
 //! A visible agent marker. This is a Core Animation drawing, not a second
 //! input device: Aven's own soft dot, with a small dark tag beside it naming
-//! the agent (Bot in its project's colour) and what it is doing. Once the
-//! agent stops, the tag shrinks to Bot alone, so it does not sit over work.
+//! the agent (Bot's screen in its project's colour, working) and what it is
+//! doing. Once the agent stops, the tag shrinks to Bot alone, watching, so
+//! it does not sit over work.
 //!
 //! Objective-C objects stay on the main thread; workers only exchange points,
 //! deadlines and generations. Stale work can never bring a revoked cursor back.
 //! Motion is driven by a display link only while something is changing; an
 //! idle or hidden marker runs no timers and does no work.
 use super::{marks, CGDisplayBounds, CGMainDisplayID, OwnedCf, Point};
+use crate::desktop_faces::{Faces, Mood};
 use dispatch2::{DispatchQueue, DispatchTime};
 use objc2::runtime::AnyObject;
 use objc2::{define_class, msg_send, rc::Retained, sel, MainThreadOnly};
@@ -46,9 +48,10 @@ const TIP_Y: f64 = 36.0;
 const DOT: f64 = 14.0;
 const TAG_HEIGHT: f64 = 22.0;
 /// Room before Bot and after the words.
-const TAG_LEAD: f64 = 3.0;
+const TAG_LEAD: f64 = 4.0;
 const TAG_PADDING: f64 = 9.0;
-const TAG_BOT: f64 = 16.0;
+/// Bot's screen on the tag.
+const TAG_BOT: f64 = 18.0;
 const TAG_TEXT_MAX: f64 = 260.0;
 /// The tag at rest: Bot alone.
 const TAG_REST: f64 = TAG_LEAD * 2.0 + TAG_BOT;
@@ -192,6 +195,7 @@ static WINDOW_ID: AtomicU32 = AtomicU32::new(0);
 struct Actor {
     name: String,
     color: [f64; 3],
+    faces: Faces,
 }
 
 struct ActorSlot {
@@ -240,10 +244,11 @@ fn sanitize_color(color: [f64; 3]) -> [f64; 3] {
     color.map(|channel| channel.clamp(0.0, 1.0))
 }
 
-fn sanitize_actor(name: &str, color: [f64; 3]) -> Actor {
+fn sanitize_actor(name: &str, color: [f64; 3], faces: Faces) -> Actor {
     Actor {
         name: sanitize_name(name),
         color: sanitize_color(color),
+        faces,
     }
 }
 
@@ -251,14 +256,15 @@ fn neutral_actor() -> Actor {
     Actor {
         name: DEFAULT_NAME.to_owned(),
         color: DEFAULT_COLOR,
+        faces: Faces::default(),
     }
 }
 
-/// Label and colour the marker for the agent acting next. Thread-safe; the
+/// Label, colour and faces for the agent acting next. Thread-safe; the
 /// change applies from the next drawn action. Colour channels are sRGB 0–1.
 #[allow(dead_code)] // Wired by the desktop-control integration.
-pub(crate) fn set_actor(name: &str, color: [f64; 3]) {
-    store_actor(Some(sanitize_actor(name, color)));
+pub(crate) fn set_actor(name: &str, color: [f64; 3], faces: Faces) {
+    store_actor(Some(sanitize_actor(name, color, faces)));
 }
 
 /// Return to the neutral "Agent" label in Aven's accent colour.
@@ -644,8 +650,9 @@ struct Overlay {
     flash: Retained<CALayer>,
     ripple: Retained<CALayer>,
     tag: Retained<CALayer>,
-    bot: Retained<CALayer>,
+    screen: marks::Screen,
     tone: [f64; 3],
+    faces: Faces,
     name: Retained<CATextLayer>,
     step: Retained<CATextLayer>,
     /// The tag with its words, and whether it is at rest (Bot alone).
@@ -789,14 +796,22 @@ impl Overlay {
             tag.setShadowRadius(3.0);
             tag.setShadowColor(Some(&color([0.0; 3], 1.0).CGColor()));
             root.addSublayer(&tag);
-            let bot = marks::bot(TAG_BOT, DEFAULT_COLOR, false);
-            bot.setFrame(rect(
+            let mut screen = marks::Screen::new(TAG_BOT);
+            screen.show(
+                &Faces::default(),
+                Mood::Working,
+                DEFAULT_COLOR,
+                false,
+                false,
+            );
+            let screen_height = marks::screen_height(TAG_BOT);
+            screen.layer().setFrame(rect(
                 TAG_LEAD,
-                (TAG_HEIGHT - TAG_BOT) / 2.0,
+                (TAG_HEIGHT - screen_height) / 2.0,
                 TAG_BOT,
-                TAG_BOT,
+                screen_height,
             ));
-            tag.addSublayer(&bot);
+            tag.addSublayer(screen.layer());
             let name = CATextLayer::new();
             name.setTruncationMode(unsafe { kCATruncationEnd });
             tag.addSublayer(&name);
@@ -812,8 +827,9 @@ impl Overlay {
                 flash,
                 ripple,
                 tag,
-                bot,
+                screen,
                 tone: DEFAULT_COLOR,
+                faces: Faces::default(),
                 name,
                 step,
                 tag_size: NSSize::new(TAG_REST, TAG_HEIGHT),
@@ -918,10 +934,8 @@ impl Overlay {
             ));
             self.tag
                 .setShadowOpacity(if high_contrast { 0.45 } else { 0.3 });
-            if self.tone != actor.color {
-                marks::tint_bot(&self.bot, actor.color, false);
-                self.tone = actor.color;
-            }
+            self.tone = actor.color;
+            self.faces = actor.faces;
             self.name.setContentsScale(style.scale);
             unsafe { self.name.setString(Some(&name)) };
             self.name
@@ -950,6 +964,7 @@ impl Overlay {
     /// Shows the tag's words again for a new action.
     fn wake_tag(&mut self) {
         self.resting = false;
+        self.show_screen();
         self.lay_tag(false);
     }
 
@@ -959,7 +974,19 @@ impl Overlay {
             return;
         }
         self.resting = true;
+        self.show_screen();
         self.lay_tag(!self.reduce_motion);
+    }
+
+    /// Bot works while the agent acts, and watches once it has stopped.
+    fn show_screen(&mut self) {
+        let mood = if self.resting {
+            Mood::Watching
+        } else {
+            Mood::Working
+        };
+        let (faces, tone, reduce_motion) = (self.faces, self.tone, self.reduce_motion);
+        self.screen.show(&faces, mood, tone, false, reduce_motion);
     }
 
     fn lay_tag(&self, animate: bool) {
@@ -1397,8 +1424,8 @@ fn preview_actor(scope: &str) {
         return;
     }
     match (moves / 3) % 3 {
-        0 => set_actor("Claude", [0.851, 0.467, 0.341]),
-        1 => set_actor("Codex", [0.45, 0.42, 0.96]),
+        0 => set_actor("Claude", [0.851, 0.467, 0.341], Faces::default()),
+        1 => set_actor("Codex", [0.45, 0.42, 0.96], Faces::default()),
         _ => reset_actor(),
     }
 }
@@ -1488,6 +1515,7 @@ pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
     set_actor(
         "Claude",
         crate::desktop_presence::tone_color(Some("purple")),
+        Faces::default(),
     );
     let mut overlay = Overlay::create(mtm);
     overlay.reduce_motion = true;
@@ -1917,7 +1945,7 @@ mod tests {
         assert_eq!(sanitize_color([-1.0, 2.0, 0.5]), [0.0, 1.0, 0.5]);
         assert_eq!(sanitize_color([f64::NAN, 0.0, 0.0]), DEFAULT_COLOR);
         assert_eq!(sanitize_color([0.0, f64::INFINITY, 0.0]), DEFAULT_COLOR);
-        let actor = sanitize_actor("", [9.0, 9.0, 9.0]);
+        let actor = sanitize_actor("", [9.0, 9.0, 9.0], Faces::default());
         assert_eq!(actor.name, DEFAULT_NAME);
         assert_eq!(actor.color, [1.0, 1.0, 1.0]);
     }
@@ -1928,17 +1956,17 @@ mod tests {
         reset_actor();
         let (neutral, start) = current_actor();
         assert_eq!(neutral, neutral_actor());
-        set_actor("Claude", [0.85, 0.47, 0.34]);
+        set_actor("Claude", [0.85, 0.47, 0.34], Faces::default());
         let (actor, version) = current_actor();
         assert_eq!(actor.name, "Claude");
         assert_ne!(version, start);
-        set_actor("Claude", [0.85, 0.47, 0.34]);
+        set_actor("Claude", [0.85, 0.47, 0.34], Faces::default());
         assert_eq!(
             current_actor().1,
             version,
             "unchanged actor keeps its style"
         );
-        let worker = std::thread::spawn(|| set_actor("Codex", [0.4, 0.4, 0.9]));
+        let worker = std::thread::spawn(|| set_actor("Codex", [0.4, 0.4, 0.9], Faces::default()));
         worker.join().unwrap();
         assert_eq!(current_actor().0.name, "Codex");
         reset_actor();

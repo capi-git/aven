@@ -271,6 +271,28 @@ export function agentFace(
   return calm && outfit ? AGENT_ROLE_FACES[outfit] : AGENT_STATE_FACES[state];
 }
 
+/** The states the desktop bar and agent pointer show an agent in. */
+export type AgentDesktopState = "still" | "watching" | "working" | "needs";
+export type AgentDesktopFaces = Record<AgentDesktopState, readonly string[]>;
+
+/**
+ * An agent's faces for the desktop bar and pointer, drawn natively there:
+ * `AGENT_FACES` rows of `agentFace` for each state they show, so an agent
+ * looks there as it does in Aven. Sent once a turn with its name and colour.
+ */
+export function agentDesktopFaces(
+  outfit: AgentOutfit | undefined,
+): AgentDesktopFaces {
+  const rows = (state: AgentDesktopState) =>
+    AGENT_FACES.large[agentFace(state, outfit)];
+  return {
+    still: rows("still"),
+    watching: rows("watching"),
+    working: rows("working"),
+    needs: rows("needs"),
+  };
+}
+
 /** A cell's centre in the 100-unit square: [x, y]. */
 export function agentCellCentre(
   grid: AgentGrid,

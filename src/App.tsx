@@ -957,6 +957,7 @@ import {
   withMemberId,
   type Crew,
 } from "./lib/crews";
+import { agentDesktopFaces, agentOutfit } from "./lib/agentMark";
 import { isHarnessAvailable } from "./lib/harness/availability";
 import { pickerModelsFor } from "./lib/models";
 import {
@@ -1001,6 +1002,14 @@ const BUSY_PERSIST_INTERVAL_MS = 10_000;
 /** A chat's project colour, which its Bot wears on the desktop bar. */
 function chatTone(project: string) {
   return hasProjectAppearance(project) ? projectToneAt(project) : undefined;
+}
+
+/**
+ * The faces a chat's Bot shows on the desktop bar and pointer: a teammate's
+ * its role's, any other chat's a plain chat's.
+ */
+function desktopFaces(sessionId: string) {
+  return agentDesktopFaces(agentOutfit(crewForChat(sessionId)?.member.role));
 }
 
 function withPlanStatus(
@@ -7403,6 +7412,7 @@ export default function App({
                     sessionId,
                     cwd: workCwd,
                     tone: chatTone(current.cwd),
+                    faces: desktopFaces(sessionId),
                   },
                   // A bot never commits, so it gets no Git preference either.
                   {
@@ -7866,6 +7876,7 @@ export default function App({
                   sessionId,
                   cwd: workCwd,
                   tone: chatTone(current.cwd),
+                  faces: desktopFaces(sessionId),
                 },
                 // A bot never commits, so it gets no Git preference either.
                 {

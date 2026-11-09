@@ -69,7 +69,7 @@ pub(super) fn presence_shutdown() {
     presence_ui::shutdown();
 }
 pub(super) fn actor_changed(actor: &presence::Actor) {
-    agent_cursor::set_actor(&actor.name, actor.tone);
+    agent_cursor::set_actor(&actor.name, actor.tone, actor.faces);
 }
 pub(super) fn session_state() -> presence::Session {
     session::current()
