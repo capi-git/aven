@@ -277,6 +277,146 @@ describe("workspace appearance settings", () => {
     expect(loadWorkspaceTheme("work").colors?.dark?.accent).toBe("#446688");
   });
 
+  it("disables both glass sliders in light mode with a one-line note and keeps the dark values", async () => {
+    saveWorkspaceTheme("work", { preference: "light" });
+    await mount();
+    expect(glass().disabled).toBe(true);
+    expect(frost().disabled).toBe(true);
+    expect(container.querySelector("#setting-opacity")?.textContent).toContain(
+      "Light mode always uses a solid window. Glass applies in dark mode.",
+    );
+    expect(loadWorkspaceTheme("work")).toMatchObject({
+      opacity: 0.45,
+      blur: 12,
+    });
+  });
+
+  it("picks an accent from preset swatches for both modes, keeping backgrounds and glass", async () => {
+    await mount();
+    const swatches = Array.from(
+      container.querySelectorAll(
+        '[role="radiogroup"][aria-label="Accent colour"] [role="radio"]',
+      ),
+    ).map((swatch) => swatch.getAttribute("aria-label"));
+    expect(swatches.slice(0, 2)).toEqual(["Neutral", "Blue"]);
+    expect(swatches).toContain("Forest");
+    // #446688 is no preset, so the custom choice is the selected one.
+    expect(checkedAccent()).toBeUndefined();
+    expect(buttonWithText("Custom…")?.hasAttribute("data-checked")).toBe(true);
+
+    await click(container.querySelector('[role="radio"][aria-label="Forest"]'));
+    expect(checkedAccent()).toBe("Forest");
+    expect(buttonWithText("Custom…")?.hasAttribute("data-checked")).toBe(false);
+    expect(loadWorkspaceTheme("work")).toMatchObject({
+      opacity: 0.45,
+      blur: 12,
+      bodyGlass: false,
+      colors: {
+        dark: {
+          background: "#112233",
+          accent: "#a2c7aa",
+          highlight: "#63896b",
+        },
+        light: {
+          background: "#eeeeff",
+          accent: "#486e4e",
+          highlight: "#86a789",
+        },
+      },
+    });
+    expect(
+      document.documentElement.style.getPropertyValue("--theme-accent-color"),
+    ).toBe("#a2c7aa");
+
+    await click(container.querySelector('[role="radio"][aria-label="Blue"]'));
+    expect(loadWorkspaceTheme("work").colors?.dark).toEqual({
+      background: "#112233",
+      accent: "#57b5ff",
+      highlight: "#8ccbff",
+    });
+    expect(checkedAccent()).toBe("Blue");
+  });
+
+  it("opens an accent-only picker from Custom… and uses one colour in both modes", async () => {
+    await mount();
+    const custom = buttonWithText("Custom…")!;
+    expect(custom.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".settings-color-picker")).toBeNull();
+    await click(custom);
+    expect(custom.getAttribute("aria-expanded")).toBe("true");
+    const picker = container.querySelector(".settings-color-picker")!;
+    expect(picker).not.toBeNull();
+    // Accent only: no background or highlight to choose between.
+    expect(picker.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(
+      picker.querySelector<HTMLInputElement>('input[aria-label="Accent hex"]')
+        ?.value,
+    ).toBe("#446688");
+    const hex = await input("Accent hex", "#abcdef");
+    await act(async () =>
+      hex.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
+    expect(loadWorkspaceTheme("work").colors).toEqual({
+      dark: { background: "#112233", accent: "#abcdef" },
+      light: { background: "#eeeeff", accent: "#abcdef" },
+    });
+    expect(checkedAccent()).toBeUndefined();
+    expect(custom.hasAttribute("data-checked")).toBe(true);
+    await click(custom);
+    expect(container.querySelector(".settings-color-picker")).toBeNull();
+  });
+
+  it("sets interface scale from a menu instead of a live slider", async () => {
+    await mount();
+    expect(
+      container.querySelector(
+        'input[type="range"][aria-label="Interface scale"]',
+      ),
+    ).toBeNull();
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="listbox"][aria-label="Interface scale"]',
+    )!;
+    expect(trigger.textContent).toContain("90%");
+    await act(async () => trigger.click());
+    const options = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="option"]'),
+    );
+    expect(options.map((option) => option.textContent)).toEqual(
+      expect.arrayContaining(["50%", "100%", "150%", "200%"]),
+    );
+    const option = options.find((node) => node.textContent === "150%")!;
+    await act(async () => option.click());
+    expect(localStorage.getItem("monocode.uiScale")).toBe("1.5");
+    expect(trigger.textContent).toContain("150%");
+    document.documentElement.style.removeProperty("zoom");
+  });
+
+  it("keeps one visibility control for a chat background and a saved 'empty only' choice", async () => {
+    saveChatBackgroundPath("/pictures/dunes.jpg");
+    saveChatBackgroundScope("empty");
+    await mount();
+    const card = container.querySelector("#setting-chat-background")!;
+    expect(
+      card.querySelector(
+        'input[type="range"][aria-label="Background visibility"]',
+      ),
+    ).not.toBeNull();
+    expect(card.querySelectorAll('input[type="range"]')).toHaveLength(1);
+    expect(card.querySelector('[aria-label="Show background on"]')).toBeNull();
+    expect(loadChatBackgroundScope()).toBe("empty");
+  });
+
+  it("copies this workspace's look to every workspace", async () => {
+    await mount();
+    await click(buttonWithText("Copy to all"));
+    expect(loadWorkspaceTheme("personal")).toEqual(loadWorkspaceTheme("work"));
+    expect(container.textContent).toContain(
+      "Appearance applied to all workspaces.",
+    );
+  });
+
   it("restores the default theme, glass and device display settings", async () => {
     saveChatBackgroundScope("empty");
     await mount();
