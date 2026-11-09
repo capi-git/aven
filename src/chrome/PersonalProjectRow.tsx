@@ -129,14 +129,10 @@ export function PersonalProjectRow({
     ...(onOpenBoard
       ? [{ kind: "item" as const, id: "board", label: openAvosLabel() }]
       : []),
-    ...(onBotSettings
-      ? [
-          {
-            kind: "item" as const,
-            id: "bot",
-            label: botOn ? "Bot settings…" : "Add a bot",
-          },
-        ]
+    // A bot already here keeps its settings; new work goes to Avos, so the
+    // menu offers no "Add a bot".
+    ...(onBotSettings && botOn
+      ? [{ kind: "item" as const, id: "bot", label: "Bot settings…" }]
       : []),
     { kind: "sep" },
     { kind: "item", id: "reveal", label: REVEAL_LABEL },
