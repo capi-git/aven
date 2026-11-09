@@ -351,12 +351,12 @@ describe("a message to everyone", () => {
     expect(getCrew(PATH)!.messages ?? []).toEqual([]);
   });
 
-  it("builds small cards from your message, and large ones wait", async () => {
+  it("builds every card from your message at once, whatever its size, as Avos's", async () => {
     team();
     const { runner, added, settle } = harness({
       lead: () =>
         talk({
-          line: "On the Board.",
+          line: "On it.",
           cards: [
             { title: "Fix the footer", size: "small" },
             { title: "Rewrite everything", size: "large" },
@@ -370,9 +370,16 @@ describe("a message to everyone", () => {
       "Fix the footer",
       "Rewrite everything",
     ]);
-    const crew = getCrew(PATH)!;
+    let crew = getCrew(PATH)!;
+    expect(crew.ideas?.["card-0"]).toMatchObject({ asked: true });
+    expect(crew.ideas?.["card-0"]?.by).toBeUndefined();
     expect(ideaWaits(crew, { id: "card-0" }, NOON)).toBeNull();
-    expect(ideaWaits(crew, { id: "card-1" }, NOON)).toBe("large");
+    expect(ideaWaits(crew, { id: "card-1" }, NOON)).toBeNull();
+    // Asked to wait, Avos's jobs wait for your Build it.
+    updateCrew(PATH, (current) => ({ ...current, askBeforeBuilding: true }));
+    crew = getCrew(PATH)!;
+    expect(ideaWaits(crew, { id: "card-0" }, NOON)).toBe("not-now");
+    expect(ideaWaits(crew, { id: "card-1" }, NOON)).toBe("not-now");
     runner.stop();
   });
 });

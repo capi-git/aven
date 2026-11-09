@@ -206,6 +206,19 @@ describe("the team's settings", () => {
     ).toBe("Can't read this project yet");
   });
 
+  it("lets Avos build what it plans at once, or wait for your Build it", async () => {
+    await open();
+    await toRow("access");
+    const ask = sheet().querySelector<HTMLButtonElement>(
+      '[aria-label="Ask before building"]',
+    )!;
+    expect(ask.getAttribute("aria-checked")).toBe("false");
+    await act(async () => ask.click());
+    expect(getCrew(PATH)!.askBeforeBuilding).toBe(true);
+    await act(async () => ask.click());
+    expect(getCrew(PATH)!.askBeforeBuilding).toBeUndefined();
+  });
+
   it("sets Access with one choice, in the message box's words", async () => {
     await open();
     await toRow("access");

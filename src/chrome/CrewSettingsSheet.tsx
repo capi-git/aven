@@ -5,6 +5,7 @@ import {
   firstCardChatText,
   setAvosReadAccess,
   setCrewAccess,
+  setCrewAskBeforeBuilding,
   setCrewLimit,
   setCrewQuietHours,
   setCrewRoutes,
@@ -739,6 +740,21 @@ function AccessSection({ crew }: { crew: Crew }) {
             tone="neutral"
             on={mayRead}
             onChange={(on) => void setAvosReadAccess(path, on)}
+          />
+        </LimitRow>
+        <LimitRow
+          title="Ask before building"
+          detail={
+            crew.askBeforeBuilding
+              ? "What Avos plans waits for you to say Build it"
+              : "What Avos plans starts at once in its copy; you review it before it reaches your folder"
+          }
+        >
+          <Toggle
+            label="Ask before building"
+            tone="neutral"
+            on={!!crew.askBeforeBuilding}
+            onChange={(on) => setCrewAskBeforeBuilding(path, on)}
           />
         </LimitRow>
       </div>

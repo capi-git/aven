@@ -295,8 +295,12 @@ export function ideaWaits(
   if (scout?.by === "security") return "security";
   if (scout?.by === "researcher") return "researcher";
   if (scout?.by === "setup") return "setup";
+  // Avos's own ideas from a routine or another agent's words wait for you.
   if (scout?.by === "lead") return "not-now";
   if (idea.sourceUrl || scout?.sourceUrl || scout?.outside) return "outside";
+  // What Avos took down from your own message builds at once, whatever its
+  // size, unless you asked it to wait for your Build it.
+  if (scout?.asked) return crew.askBeforeBuilding ? "not-now" : null;
   if (scout?.size === "large") return "large";
   if (scout && !ideaMayAutoStart(scout)) return "not-now";
   if (scout && autoStartsLeft(crew, now) <= 0) return "cap";

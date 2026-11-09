@@ -550,8 +550,12 @@ export type CrewCard = {
   title: string;
   /** What to build: the card's title and note. */
   brief: string;
-  /** You, or an idea from the Scout, Security's sweep or the Researcher (quoted as data). */
-  from: "you" | "scout" | "security" | "member" | "researcher" | "setup";
+  /**
+   * You, Avos (a job it planned from your request), or an idea from the
+   * Scout, Security's sweep or the Researcher (quoted as data).
+   */
+  from:
+    "you" | "lead" | "scout" | "security" | "member" | "researcher" | "setup";
   /**
    * A question for the Researcher: one read-only turn that ends in
    * Findings, never in a change to apply.
@@ -649,6 +653,12 @@ export type CrewIdea = {
   declined?: boolean;
   /** It started by itself. */
   autoStarted?: boolean;
+  /**
+   * Avos took it down from your own message: Avos's job, started at once
+   * whatever its size (unless you asked it to wait). One from a routine or
+   * another agent's words is `by: "lead"` and waits for you.
+   */
+  asked?: boolean;
   /** Security's sweep or the Researcher's findings proposed it: it never starts by itself. */
   by?: "security" | "researcher" | "setup" | "lead";
   /** Avos's pick of the Builder's model and effort for it, and why. */
@@ -755,6 +765,12 @@ export type Crew = {
    * as allowed (`avosMayRead`).
    */
   readAccess?: "allowed" | "declined";
+  /**
+   * Avos's own jobs wait for your Build it, as they did before Avos built
+   * by itself. Off (unset): what Avos plans builds at once in its copy, and
+   * you review it before it reaches your folder.
+   */
+  askBeforeBuilding?: boolean;
   createdAt: number;
   members: CrewMember[];
   limits: CrewLimits;
@@ -1499,6 +1515,7 @@ export function readCrewCard(value: unknown): CrewCard | null {
     title,
     brief: text(raw.brief, CREW_BRIEF_MAX) ?? title,
     from:
+      raw.from === "lead" ||
       raw.from === "scout" ||
       raw.from === "security" ||
       raw.from === "member" ||
@@ -1786,6 +1803,7 @@ export function readCrew(value: unknown): Crew | null {
         ...(idea.outside === true ? { outside: true } : {}),
         ...(idea.declined === true ? { declined: true } : {}),
         ...(idea.autoStarted === true ? { autoStarted: true } : {}),
+        ...(idea.asked === true ? { asked: true } : {}),
         ...(idea.by === "security" ||
         idea.by === "researcher" ||
         idea.by === "setup" ||
@@ -1957,6 +1975,7 @@ export function readCrew(value: unknown): Crew | null {
     ...(raw.readAccess === "allowed" || raw.readAccess === "declined"
       ? { readAccess: raw.readAccess }
       : {}),
+    ...(raw.askBeforeBuilding === true ? { askBeforeBuilding: true } : {}),
     cards,
     feed,
     notes,

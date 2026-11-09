@@ -904,6 +904,7 @@ export class CrewRunner {
         mayAddJob: talkMayAddJob(talk, member.role),
         mayKeep: member.role === "lead" && talk.from === "you" && !talk.routine,
         helpersOn: { mockup: !!cardDesigner(fresh) },
+        ...(fresh.askBeforeBuilding ? { asksFirst: true } : {}),
         // Let Avos choose: it picks the Builder's model and effort per card.
         ...(member.role === "lead" && talk.from === "you" && !talk.routine
           ? (() => {
@@ -1148,7 +1149,7 @@ export class CrewRunner {
           at: now + index,
           size: asked.size,
           ...(asked.why ? { why: asked.why } : {}),
-          ...(yours ? {} : { by: "lead" as const }),
+          ...(yours ? { asked: true } : { by: "lead" as const }),
           // Avos's pick of the Builder's model and effort for it.
           ...(asked.model || asked.effort
             ? {
@@ -1392,6 +1393,15 @@ export class CrewRunner {
     if (crew.goal && !crew.goal.done && waiting)
       return this.hold(crew, crewReviewGate(waiting));
     if (crew.goal && !crew.goal.done) {
+      // No one to plan it yet: Avos brings in its Builder, which plans the
+      // goal's next card, as it would build Avos's own jobs.
+      if (!goalPlanner(crew) && this.deps.bringInBuilders) {
+        const problem = await this.deps.buildingProblem?.(path);
+        if (!problem) {
+          this.deps.bringInBuilders(path);
+          return;
+        }
+      }
       if (!goalPlanner(crew)) return this.stopGoal(crew, NO_PLANNER, now);
       const gate = this.gate(crew, now);
       if (!gate.ok) return this.hold(crew, gate);
@@ -1477,6 +1487,9 @@ export class CrewRunner {
       // Not now, or a card the team has, since the Board was read: it waits.
       if (ideaStartsHeld(path) || ideaWaits(crew, card, now)) return crew;
       const idea = crew.ideas?.[card.id];
+      // Avos's own job: its own, not the Scout's, and not on the Scout's
+      // count of ideas that start by themselves.
+      const avos = !!idea?.asked;
       started = true;
       let next = withCard(
         crew,
@@ -1485,7 +1498,7 @@ export class CrewRunner {
             id: card.id,
             title: card.title,
             brief: [card.title, card.note].filter(Boolean).join("\n\n"),
-            from: idea ? "scout" : "you",
+            from: avos ? "lead" : idea ? "scout" : "you",
             ...(idea ? { size: idea.size } : {}),
             maxRounds: crew.limits.roundsPerCard,
             ...(() => {
@@ -1501,7 +1514,8 @@ export class CrewRunner {
       );
       if (idea) {
         next = withIdea(next, card.id, { ...idea, autoStarted: true });
-        next = { ...next, autoStarts: bumpToday(next.autoStarts, now) };
+        if (!avos)
+          next = { ...next, autoStarts: bumpToday(next.autoStarts, now) };
       }
       return withFeed(next, {
         at: now,
@@ -1509,9 +1523,11 @@ export class CrewRunner {
         who: "aven",
         cardId: card.id,
         title: card.title,
-        text: idea
-          ? `Started ${this.deps.name(crew, "scout")}'s idea “${card.title}” by itself`
-          : `Started your idea “${card.title}” by itself`,
+        text: avos
+          ? `Avos started “${card.title}”`
+          : idea
+            ? `Started ${this.deps.name(crew, "scout")}'s idea “${card.title}” by itself`
+            : `Started your idea “${card.title}” by itself`,
       });
     });
     if (!started) return;

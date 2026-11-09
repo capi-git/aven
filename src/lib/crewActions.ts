@@ -2918,6 +2918,17 @@ export async function wakeAvos(path: string): Promise<string | null> {
 }
 
 /**
+ * Whether Avos's own jobs wait for your Build it (on) or start at once in
+ * its copy (off, the default).
+ */
+export function setCrewAskBeforeBuilding(path: string, on: boolean) {
+  updateCrew(path, (crew) => {
+    const { askBeforeBuilding: _was, ...rest } = crew;
+    return on ? { ...rest, askBeforeBuilding: true } : rest;
+  });
+}
+
+/**
  * Your answer to "Can Avos read this project?". Allowing it lets Avos wake;
  * taking it back turns Avos off, so nothing it runs reads the project.
  */
