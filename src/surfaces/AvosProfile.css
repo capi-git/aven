@@ -55,52 +55,57 @@
 .avos-bar-line[data-avos-note="needs-you"] {
   color: var(--aven-needs-you);
 }
-/* The goal: one line that opens to all of its words when pressed, a word
-   for where it stands, and one action. What it waits on sits under it. */
+/* The goal: a quiet row (where it stands, and its one action) over the
+   goal's own words, two lines at most until pressed. */
 .avos-profile-goal {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   line-height: 1.4;
 }
-.avos-profile-goal-row {
+.avos-profile-goal-head {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 8px;
+  gap: 6px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+.avos-profile-goal-word {
+  font-weight: 500;
+}
+.avos-profile-goal-state::before {
+  content: "· ";
+}
+.avos-profile-goal-head .crew-pipe-link {
+  flex: none;
+  margin-left: auto;
 }
 .avos-profile-goal-text {
-  overflow: hidden;
-  min-width: 0;
-  flex: 1 1 auto;
+  display: block;
+  width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--color-content);
   font: inherit;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: var(--aven-cursor-pointer);
 }
-.avos-profile-goal[data-open] .avos-profile-goal-text {
-  white-space: normal;
+.avos-profile-goal-text > span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
-.avos-profile-goal-word,
-.avos-profile-goal-state,
-.avos-profile-goal-why {
-  color: var(--aven-muted);
-}
-.avos-profile-goal-word {
-  font-weight: 500;
-}
-.avos-profile-goal-state,
-.avos-profile-goal .crew-pipe-link {
-  flex: none;
+.avos-profile-goal[data-open] .avos-profile-goal-text > span {
+  display: block;
+  overflow: visible;
 }
 .avos-profile-goal-why {
   margin: 0;
+  color: var(--aven-muted);
   font-size: var(--text-ui-label);
 }
 

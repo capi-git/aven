@@ -28,6 +28,7 @@ import {
   type Crew,
   type CrewCard,
   GOAL_NEEDS,
+  OLD_NO_PLANNER,
 } from "../lib/crews";
 import {
   addFeatureCards,
@@ -852,8 +853,8 @@ describe("the team view: the Board with the team on it", () => {
     const goal = () =>
       container.querySelector<HTMLElement>("[data-crew-goal]")!;
     expect(goal().dataset.crewGoal).toBe("on");
-    // One line: the goal, a word for where it stands, one action.
-    expect(goal().textContent).toBe("Goal Build the whole Pom appWorkingClear");
+    // A quiet row (where it stands, one action) over the goal's words.
+    expect(goal().textContent).toBe("GoalWorkingClearBuild the whole Pom app");
     // A card that waits on you with work in hand: the goal waits too.
     await act(async () =>
       updateCrew(PROJECT, (crew) =>
@@ -862,9 +863,22 @@ describe("the team view: the Board with the team on it", () => {
     );
     expect(goal().dataset.crewGoal).toBe("waits");
     expect(goal().textContent).toBe(
-      "Goal Build the whole Pom appWaits for youClear",
+      "GoalWaits for youClearBuild the whole Pom app",
     );
-    // Pressed, the line opens to all of its words.
+    // Why it stopped stays out of the way until the goal is opened.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => ({
+        ...crew,
+        goal: {
+          ...crew.goal!,
+          done: { at: NOW, text: "Nothing left to plan.", met: false },
+        },
+      })),
+    );
+    expect(goal().textContent).toBe(
+      "GoalStoppedKeep goingBuild the whole Pom app",
+    );
+    // Pressed, the goal opens to all of its words, and says why.
     const line = goal().querySelector<HTMLButtonElement>(
       ".avos-profile-goal-text",
     )!;
@@ -881,10 +895,20 @@ describe("the team view: the Board with the team on it", () => {
         },
       })),
     );
-    // Why it stopped is one line under it, and the chat isn't told again.
     expect(goal().querySelector("[data-crew-goal-why]")?.textContent).toBe(
       "Nothing left to plan.",
     );
+    // A reason saved in the old, often wrong, wording isn't shown.
+    await act(async () =>
+      updateCrew(PROJECT, (crew) => ({
+        ...crew,
+        goal: {
+          ...crew.goal!,
+          done: { at: NOW, text: OLD_NO_PLANNER, met: false },
+        },
+      })),
+    );
+    expect(goal().querySelector("[data-crew-goal-why]")).toBeNull();
     await act(async () => button(goal(), "Keep going")!.click());
     expect(getCrew(PROJECT)!.goal?.done).toBeUndefined();
     expect(getCrew(PROJECT)!.feed.at(-1)?.text).toBe(
@@ -909,7 +933,7 @@ describe("the team view: the Board with the team on it", () => {
       })),
     );
     expect(goal().textContent).toBe(
-      "Goal Build the whole Pom appWaitingSet up GitNeeds Git to build.",
+      "GoalNeeds Git to buildSet up GitBuild the whole Pom app",
     );
     await act(async () => button(goal(), "Set up Git")!.click());
     expect(setUpGit).toHaveBeenCalledWith(PROJECT);

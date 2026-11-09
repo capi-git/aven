@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Avos's goal has more room.** A quiet row says where it stands, with its one action; the goal's own words sit under it, two lines until you press them. Why it stopped shows only once it's open.
+
 ## [0.1.175] - 2026-11-09
 
 ### Changed
