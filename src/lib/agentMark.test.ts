@@ -67,6 +67,13 @@ describe("what each agent wears", () => {
     expect(agentFace("resting", undefined)).toBe("prompt");
   });
 
+  it("keeps the Checker's tick and Security's shield while they work", () => {
+    expect(agentFace("working", agentOutfit("checker"))).toBe("check");
+    expect(agentFace("working", agentOutfit("security"))).toBe("shield");
+    expect(agentFace("working", agentOutfit("builder"))).toBe("narrow");
+    expect(agentFace("ready", agentOutfit("checker"))).toBe("squares");
+  });
+
   it("starts each helper somewhere else in its loops, Avos at the start", () => {
     expect(agentPhase("lead")).toBe(0);
     const phases = [

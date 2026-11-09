@@ -263,12 +263,21 @@ export const AGENT_ROLE_FACES: Readonly<Record<AgentOutfit, AgentFace>> = {
   plus: "wrench",
 };
 
-/** The face an agent shows: its role's while calm, else its state's. */
+/** Roles that check others' work: at work they keep their own face. */
+const REVIEWERS: ReadonlySet<AgentOutfit> = new Set(["tick", "shield"]);
+
+/**
+ * The face an agent shows: its role's while calm, else its state's. The
+ * Checker and Security keep their tick and shield while they work, so a
+ * job being checked reads apart from one being built.
+ */
 export function agentFace(
   state: AgentState,
   outfit: AgentOutfit | undefined,
 ): AgentFace {
   const calm = state === "still" || state === "resting" || state === "watching";
+  if (state === "working" && outfit && REVIEWERS.has(outfit))
+    return AGENT_ROLE_FACES[outfit];
   return calm && outfit ? AGENT_ROLE_FACES[outfit] : AGENT_STATE_FACES[state];
 }
 
