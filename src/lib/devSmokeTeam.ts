@@ -1184,14 +1184,20 @@ export async function checkTeamTalk(
           !launch.includes("hooks=off")
         )
           throw new Error(`The ${who} ran without its rules: ${launch}`);
-        if (who !== "checker" && turn.web !== false)
-          throw new Error(`The ${who} had the web`);
+        // A quick helper never has the web. Avos reads it itself, as a
+        // Mono does, unless Access turns the web off for everyone.
+        if (who === "helper" && turn.web !== false)
+          throw new Error("The helper had the web");
+        if (who === "lead" && turn.web !== true)
+          throw new Error(
+            "The lead had no web, though Access lets Avos read it",
+          );
       }
     }
     const left = getCrew(project);
     return `the Lead asked the Checker and a helper, ${
       left?.helperRuns?.count ?? 0
-    } helper run, every turn sandboxed (Avos and its helper in your folder until the copy, the Checker in it)`;
+    } helper run, every turn sandboxed (Avos and its helper in your folder until the copy, the Checker in it), Avos with the web and its helper without`;
   } finally {
     await tidy(project);
   }
