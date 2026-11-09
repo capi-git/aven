@@ -435,7 +435,7 @@ function RaceBody({
                       ? "started from your files as they are now"
                       : "started from your last commit",
                     race.untracked
-                      ? "new files not yet added to Git weren't included"
+                      ? "some large files not yet added to Git weren't included"
                       : "",
                   ]
                     .filter(Boolean)
