@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.1.178] - 2026-11-10
+
+### Fixed
+
+- **Numbered lists that go on from an earlier number show as lists.** A reply that numbers a group on from the last one, right under a bold title, drew its items run together in one paragraph. Each item now has its own line.
+- **The release's app check really tries a second time.** After a failed first try, the check now waits for the last test app to close, so its retry runs instead of stopping at once.
+
 ## [0.1.177] - 2026-11-10
 
 ### Changed
