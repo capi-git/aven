@@ -50,6 +50,7 @@ import {
   hasIncompleteCodeFence,
   type StreamingBlocks,
 } from "../lib/streamingMarkdown";
+import { separateNumberedLists } from "../lib/markdownLists";
 import { useColorScheme } from "../hooks/useColorScheme";
 import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
 import { useFileReferences } from "../hooks/useFileReferences";
@@ -870,10 +871,13 @@ export const AgentMarkdown = memo(function AgentMarkdown({
   const [splitBlocks] = useState(createStreamingBlockSplitter);
   const reveal = useWordReveal(!!revealWords && !!streaming);
   const rendered = useMemo<RenderedBlocks>(() => {
-    const split = splitBlocks(completeStreamingMarkdown(text), {
-      streaming: !!streaming,
-      comparisons: !remoteMedia,
-    });
+    const split = splitBlocks(
+      completeStreamingMarkdown(separateNumberedLists(text)),
+      {
+        streaming: !!streaming,
+        comparisons: !remoteMedia,
+      },
+    );
     const last = split.blocks.at(-1);
     return {
       ...split,
