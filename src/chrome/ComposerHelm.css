@@ -22,7 +22,7 @@
   --helm-fill: var(--aven-popup);
   --helm-edge: var(--aven-line);
   --helm-track: color-mix(in srgb, var(--color-content) 9%, transparent);
-  --helm-row-active: var(--aven-hover);
+  --helm-row-active: var(--aven-menu-highlight);
   --helm-amber: var(--aven-needs-you);
   --helm-red: var(--aven-danger-text);
   --helm-ok: color-mix(in srgb, var(--color-content) 78%, transparent);
@@ -127,13 +127,6 @@
 .helm-room[data-tone="red"] i {
   background: var(--helm-red);
 }
-/* In the menu's Room row, the line is longer and a little heavier. */
-.helm-value .helm-room {
-  width: 64px;
-  height: 4px;
-  border-radius: 2px;
-}
-
 /* Send: a round neutral button, never the accent. */
 .helm-plane {
   display: grid;
@@ -508,11 +501,12 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
+  width: 100%;
   min-height: 0;
   overflow: hidden;
   margin-left: auto;
   border: 1px solid var(--aven-line);
-  border-radius: var(--aven-radius-xl);
+  border-radius: var(--aven-radius-overlay);
   background: var(--helm-fill);
   box-shadow: var(--aven-specular, none), var(--aven-shadow);
   box-sizing: border-box;
@@ -546,7 +540,7 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   overflow: hidden auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
-  padding: 6px;
+  padding: var(--aven-menu-inset);
 }
 .helm-dialog-body::-webkit-scrollbar {
   display: none;
@@ -555,19 +549,19 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
 .helm-row,
 .helm-back {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 10px;
+  column-gap: var(--aven-menu-gap);
   width: 100%;
-  height: 30px;
+  height: var(--aven-menu-row);
   margin: 0;
-  padding: 0 10px;
+  padding: 0 var(--aven-menu-row-x);
   border: 0;
-  border-radius: var(--aven-radius-md);
+  border-radius: var(--aven-radius-row);
   background: transparent;
   color: var(--helm-ink);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-ui-label);
   text-align: left;
   white-space: nowrap;
   cursor: var(--aven-cursor-pointer);
@@ -581,6 +575,36 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
 .helm-row:focus-visible {
   outline-offset: -2px;
 }
+/* The main page is one menu (Menu.css), inset by the body already. */
+.helm-dialog .aven-menu {
+  padding: 0;
+}
+.helm-item {
+  cursor: var(--aven-cursor-pointer);
+}
+/* A row that can't act now keeps its words readable, only quieter. */
+.helm-item[aria-disabled="true"] {
+  opacity: 1;
+  color: var(--aven-menu-muted);
+  cursor: var(--aven-cursor-default);
+}
+.helm-item[aria-disabled="true"]:hover {
+  background: transparent;
+}
+.helm-item .aven-menu-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.helm-item .aven-menu-icon .helm-colour-swatch {
+  width: 10px;
+  height: 10px;
+}
+.helm-slash {
+  font-size: var(--text-ui-body);
+  line-height: 1;
+}
+
 /* A recent skill: its name, then what it does, cut short at the edge. */
 .helm-row-skill {
   grid-template-columns: auto minmax(0, 1fr);
@@ -591,10 +615,11 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   text-align: right;
 }
 .helm-row-rich {
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: var(--aven-menu-icon-rich) minmax(0, 1fr) auto;
+  align-items: start;
   height: auto;
   min-height: 38px;
-  padding-block: 5px;
+  padding-block: 6px;
 }
 .helm-back {
   grid-template-columns: 14px auto;
@@ -642,11 +667,6 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   height: 13px;
   flex: none;
 }
-.dot-mark.helm-mini-critter {
-  --dot-mark-surface: var(--helm-fill);
-  width: 15px;
-  height: 15px;
-}
 .helm-quiet {
   color: var(--helm-quiet);
 }
@@ -669,27 +689,23 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   width: 11px;
   height: 11px;
 }
-/* Effort: four round dots. */
+/* Effort: four dots in a square, as many lit as it thinks. */
 .helm-pips {
-  display: inline-flex;
+  display: grid;
   flex: none;
-  gap: 3px;
+  grid-template-columns: repeat(2, 5px);
+  gap: 2px;
 }
 .helm-pips i {
   display: block;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--helm-ink);
   opacity: 0.18;
 }
 .helm-pips i[data-on] {
-  opacity: 1;
-}
-.helm-skill-list {
-  display: inline-flex;
-  gap: 6px;
-  overflow: hidden;
+  opacity: 0.85;
 }
 .helm-skill {
   color: var(--color-skill, var(--helm-ink));
@@ -708,9 +724,16 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   min-width: 0;
   line-height: 16px;
 }
-.helm-mode-text > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* A mode's name, a step heavier, over what it does: whole, never cut. */
+.helm-row-rich {
+  white-space: normal;
+}
+.helm-mode-text > span:first-child {
+  font-weight: 500;
+}
+.helm-mode-text > .helm-quiet {
+  font-size: var(--text-ui-caption);
+  line-height: 15px;
 }
 
 /* The colour picker: the agent in the colour under the cursor, above a row

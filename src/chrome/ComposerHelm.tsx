@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -17,7 +18,6 @@ import { useWidthChoice } from "../hooks/useNarrow";
 import { appName } from "../lib/agentNames";
 import {
   helmAccessibleName,
-  effortHint,
   effortPips,
   helmCritterSnapshot,
   helmHintDue,
@@ -80,9 +80,11 @@ import {
   ChevronLeft,
   ChevronRight,
   FilePlus,
+  Gauge,
   LockOpen,
   Lock,
   MoveUp,
+  SlidersHorizontal,
   Zap,
 } from "./icons";
 import { useModelPickerHotkey } from "./ModelPicker";
@@ -147,20 +149,23 @@ type Props = {
 type Page = "main" | "modes" | "skills" | "critter";
 type Opened = null | "hover" | "pinned" | "keyboard";
 
-/** Rows' words, in the order the dialog draws them. */
-const ROW_LABEL: Record<HelmRowId, string> = {
-  model: "Model",
-  effort: "Effort",
-  access: "Access",
-  room: "Room",
-  files: "Files",
-  modes: "Modes",
-  skills: "Skills",
-  critter: "Colour",
+/**
+ * The groups the dialog's rows fall in, split by one separator: the agent,
+ * then what goes with the message, then the agent's colour.
+ */
+const ROW_GROUP: Record<HelmRowId, number> = {
+  model: 0,
+  effort: 0,
+  access: 0,
+  room: 0,
+  files: 1,
+  modes: 1,
+  skills: 1,
+  critter: 2,
 };
 
 /** The dialog's width, and its distance above the mark (over its room line). */
-const DIALOG_WIDTH = 340;
+const DIALOG_WIDTH = 264;
 const DIALOG_GAP = 14;
 /** Changes to the popover's placement to wait through for a refused focus. */
 const FOCUS_TRIES = 10;
@@ -199,7 +204,7 @@ function RoomBar({ used }: { used: number }) {
   );
 }
 
-/** Effort as four round dots, as many lit as it thinks. */
+/** Effort as four dots in a square, as many lit as it thinks. */
 function Pips({ on }: { on: number }) {
   return (
     <span className="helm-pips" aria-hidden>
@@ -209,6 +214,17 @@ function Pips({ on }: { on: number }) {
     </span>
   );
 }
+
+/** A row's leading glyph, quiet grey like every menu's. */
+function Glyph({ children }: { children: ReactNode }) {
+  return (
+    <span className="aven-menu-icon" aria-hidden>
+      {children}
+    </span>
+  );
+}
+
+const CHEVRON = <ChevronRight aria-hidden className="aven-menu-chevron" />;
 
 /**
  * The message box's helm: the project's mark on the box's top-right corner,
@@ -659,160 +675,148 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
 
   const row = (id: HelmRowId, index: number) => {
     const active = page === "main" && index === safeCursor;
-    let value: ReactNode = null;
-    let aside: ReactNode = null;
+    // One column, as every menu: a quiet glyph, the row's words, then a
+    // quiet detail or shortcut and a chevron where a page opens.
+    let glyph: ReactNode = null;
+    let label: ReactNode = null;
+    let end: ReactNode = null;
+    let title: string | undefined;
     let disabled = false;
     switch (id) {
       case "model":
-        value = (
-          <>
-            <HarnessIcon
-              harness={agent.current.harness}
-              className="helm-mark"
-            />
-            <b>{agentModelWords(agent.current.name, harness)}</b>
-          </>
+        glyph = (
+          <HarnessIcon harness={agent.current.harness} className="helm-mark" />
         );
-        aside = agent.usageWarning ? (
-          <span className="helm-amber">Usage limit close</span>
-        ) : (
-          appName(agent.current.harness)
-        );
+        label = agentModelWords(agent.current.name, harness);
+        end = agent.usageWarning ? (
+          <span className="aven-menu-detail helm-amber">Usage limit close</span>
+        ) : null;
         break;
       case "effort":
-        value = (
-          <>
-            <Pips on={effortPips(agent.summary.effort)} />
-            {agent.summary.effort}
-            {agent.summary.fast ? (
-              <span className="helm-fast">
-                <Zap aria-hidden />
-                Fast
-              </span>
-            ) : null}
-          </>
-        );
-        aside = effortHint(agent.summary.effort);
+        glyph = <Pips on={effortPips(agent.summary.effort)} />;
+        label = `${agent.summary.effort} effort`;
+        end = agent.summary.fast ? (
+          <span className="aven-menu-detail helm-fast">
+            <Zap aria-hidden />
+            Fast
+          </span>
+        ) : null;
         break;
       case "access":
-        value = (
-          <span
-            className={runtimeMode === "full-access" ? "helm-amber" : undefined}
-          >
-            {runtimeMode === "full-access" ? (
-              <LockOpen aria-hidden className="helm-icon" />
-            ) : (
-              <Lock aria-hidden className="helm-icon" />
-            )}
-            {accessLabel}
-          </span>
-        );
+        // Full access is the one the lock warns of, in amber.
+        glyph =
+          runtimeMode === "full-access" ? (
+            <LockOpen className="helm-amber" />
+          ) : (
+            <Lock />
+          );
+        label = accessLabel;
         break;
       case "room":
-        value = (
-          <>
-            <RoomBar used={ratio ?? 0} />
-            <span
-              className={
-                room?.tone === "calm" ? undefined : `helm-${room?.tone}`
-              }
-              title={
-                contextWords
-                  ? `${contextWords.headline}. ${contextWords.detail}`
-                  : undefined
-              }
-            >
-              <RollingText
-                text={`${room?.percentLeft ?? 0}% left`}
-                value={room?.percentLeft}
-              />
-            </span>
-          </>
-        );
-        aside = onCompact ? (
-          <span className={compactDisabled ? "helm-quiet" : "helm-ink"}>
-            Free up space
+        glyph = <Gauge />;
+        label = (
+          <span
+            className={room?.tone === "calm" ? undefined : `helm-${room?.tone}`}
+          >
+            <RollingText
+              text={`${room?.percentLeft ?? 0}% left`}
+              value={room?.percentLeft}
+            />
           </span>
-        ) : (
-          contextWords?.detail
         );
+        title = contextWords
+          ? `${contextWords.headline}. ${contextWords.detail}`
+          : undefined;
+        end = onCompact ? (
+          <span className="aven-menu-detail">Free up space</span>
+        ) : null;
         disabled = !onCompact || compactDisabled;
         break;
       case "files":
-        value = (
-          <>
-            <FilePlus aria-hidden className="helm-icon" />
-            {attachmentsSupported
-              ? "Attach files"
-              : `${appName(harness)} can't take files`}
-          </>
-        );
-        aside = attachmentsSupported ? `${MOD}U` : null;
+        glyph = <FilePlus />;
+        label = attachmentsSupported
+          ? "Attach files"
+          : `${appName(harness)} can't take files`;
+        end = attachmentsSupported ? (
+          <span className="aven-menu-shortcut">{`${MOD}U`}</span>
+        ) : null;
         disabled = !attachmentsSupported;
         break;
       case "modes":
-        value = modesNote ? (
-          <span
-            className="helm-quiet"
-            title={modesNote}
-            data-composer-modes-off
-          >
-            {modesNote}
-          </span>
-        ) : activeMode ? (
-          <>
-            {activeMode.icon}
-            {activeMode.label}
-          </>
-        ) : (
-          <span className="helm-quiet">Plan, Orchestrator, Discuss, Race</span>
-        );
-        aside = modesNote ? null : (
-          <ChevronRight aria-hidden className="helm-icon" />
-        );
-        disabled = !!modesNote;
+        glyph = activeMode?.icon ?? <SlidersHorizontal />;
+        if (modesNote) {
+          // While a discussion runs, what you send goes to both chats.
+          label = <span data-composer-modes-off>{modesNote}</span>;
+          title = modesNote;
+          disabled = true;
+        } else {
+          label = "Modes";
+          end = (
+            <>
+              <span className="aven-menu-detail">
+                {activeMode?.label ?? "Off"}
+              </span>
+              {CHEVRON}
+            </>
+          );
+        }
         break;
       case "skills":
-        value = (
-          <span className="helm-skill-list">
-            {recentSkills.slice(0, 3).map((skill) => (
-              <span key={skill.invocation} className="helm-skill">
-                /{skill.invocation}
-              </span>
-            ))}
-          </span>
-        );
-        aside = <ChevronRight aria-hidden className="helm-icon" />;
-        break;
-      case "critter":
-        value = (
+        glyph = <span className="helm-slash">/</span>;
+        label = "Skills";
+        end = (
           <>
-            <AgentMark tone={tone} className="helm-mini-critter" />
-            {MARK_TONES[toneIndex].label}
+            <span className="aven-menu-detail">
+              {recentSkills.length} recent
+            </span>
+            {CHEVRON}
           </>
         );
-        aside = <ChevronRight aria-hidden className="helm-icon" />;
+        break;
+      case "critter":
+        glyph = (
+          <span
+            className="helm-colour-swatch"
+            style={{ "--helm-swatch": markToneColor(tone) } as CSSProperties}
+          />
+        );
+        label = "Colour";
+        end = (
+          <>
+            <span className="aven-menu-detail">
+              {MARK_TONES[toneIndex].label}
+            </span>
+            {CHEVRON}
+          </>
+        );
         break;
     }
+    const previous = rows[index - 1];
+    const split = previous && ROW_GROUP[previous] !== ROW_GROUP[id];
     return (
-      <button
-        key={id}
-        type="button"
-        role="menuitem"
-        className="helm-row"
-        data-helm-row={id}
-        data-helm-row-index={index}
-        data-active={active || undefined}
-        aria-disabled={disabled || undefined}
-        tabIndex={active ? 0 : -1}
-        onMouseEnter={() => setCursor(index)}
-        onFocus={() => setCursor(index)}
-        onClick={() => activate(id)}
-      >
-        <RowLabel text={ROW_LABEL[id]} />
-        <span className="helm-value">{value}</span>
-        <span className="helm-aside">{aside}</span>
-      </button>
+      <Fragment key={id}>
+        {split ? (
+          <div role="separator" className="aven-menu-separator" />
+        ) : null}
+        <button
+          type="button"
+          role="menuitem"
+          className="aven-menu-item helm-item"
+          data-helm-row={id}
+          data-helm-row-index={index}
+          data-active={active || undefined}
+          aria-disabled={disabled || undefined}
+          tabIndex={active ? 0 : -1}
+          title={title}
+          onMouseEnter={() => setCursor(index)}
+          onFocus={() => setCursor(index)}
+          onClick={() => activate(id)}
+        >
+          <Glyph>{glyph}</Glyph>
+          <span className="aven-menu-label">{label}</span>
+          {end}
+        </button>
+      </Fragment>
     );
   };
 
@@ -1079,7 +1083,11 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             <div className="helm-dialog-frame">
               <div className="helm-dialog-body">
                 {page === "main" ? (
-                  <div role="menu" aria-label="Message settings">
+                  <div
+                    role="menu"
+                    aria-label="Message settings"
+                    className="aven-menu"
+                  >
                     {rows.map((id, index) => row(id, index))}
                   </div>
                 ) : (

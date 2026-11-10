@@ -664,8 +664,10 @@ describe("the dialog", () => {
       "skills",
       "critter",
     ]);
-    expect(row("model")!.textContent).toContain("Opus 5.5");
-    expect(row("model")!.textContent).toContain("Claude");
+    // One column, as every menu: the provider's mark says whose model it
+    // is, so its name isn't said again.
+    expect(row("model")!.textContent).toBe("Opus 5.5");
+    expect(row("model")!.querySelector(".aven-menu-icon")).not.toBeNull();
     expect(row("effort")!.textContent).toContain("Max");
     expect(row("access")!.textContent).toContain("Full access");
     expect(row("room")!.textContent).toContain("23% left");
@@ -921,14 +923,17 @@ describe("choosing the colour", () => {
     const automatic = (TAB_GROUP_COLORS as readonly string[]).indexOf(
       tabGroupColor("site"),
     );
-    expect(row("critter")!.textContent).toContain(MARK_TONES[automatic].label);
-    // Its label is words in the system font, not drawn letters.
-    expect(row("critter")!.querySelector(".helm-label svg")).toBeNull();
-    expect(row("critter")!.querySelector(".helm-label")!.textContent).toBe(
+    expect(row("critter")!.querySelector(".aven-menu-label")!.textContent).toBe(
       "Colour",
     );
-    // The agent beside it is Bot, not a project symbol.
-    expect(row("critter")!.querySelector(".agent-mark")).not.toBeNull();
+    expect(
+      row("critter")!.querySelector(".aven-menu-detail")!.textContent,
+    ).toBe(MARK_TONES[automatic].label);
+    // A plain swatch of the colour leads it, not a second Bot.
+    expect(
+      row("critter")!.querySelector(".aven-menu-icon .helm-colour-swatch"),
+    ).not.toBeNull();
+    expect(row("critter")!.querySelector(".agent-mark")).toBeNull();
   });
 
   it("offers only the colours, no symbol, and moves along them with the arrow keys", async () => {
