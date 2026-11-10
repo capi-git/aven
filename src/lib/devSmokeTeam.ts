@@ -1184,14 +1184,20 @@ export async function checkTeamTalk(
           !launch.includes("hooks=off")
         )
           throw new Error(`The ${who} ran without its rules: ${launch}`);
-        if (who !== "checker" && turn.web !== false)
-          throw new Error(`The ${who} had the web`);
+        // A quick helper never has the web. Avos reads it itself, as a
+        // Mono does, unless Access turns the web off for everyone.
+        if (who === "helper" && turn.web !== false)
+          throw new Error("The helper had the web");
+        if (who === "lead" && turn.web !== true)
+          throw new Error(
+            "The lead had no web, though Access lets Avos read it",
+          );
       }
     }
     const left = getCrew(project);
     return `the Lead asked the Checker and a helper, ${
       left?.helperRuns?.count ?? 0
-    } helper run, every turn sandboxed (Avos and its helper in your folder until the copy, the Checker in it)`;
+    } helper run, every turn sandboxed (Avos and its helper in your folder until the copy, the Checker in it), Avos with the web and its helper without`;
   } finally {
     await tidy(project);
   }
@@ -1578,21 +1584,34 @@ export async function checkReviewLook(
     );
     if (!hit) throw new Error("Avos's version takes no notes");
     const at = spot.getBoundingClientRect();
-    hit.dispatchEvent(
-      new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        detail: 1,
-        clientX: at.left + at.width / 2,
-        clientY: at.top + at.height / 2,
-      }),
-    );
+    const click = () =>
+      hit.dispatchEvent(
+        new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          detail: 1,
+          clientX: at.left + at.width / 2,
+          clientY: at.top + at.height / 2,
+        }),
+      );
+    click();
+    // A picture that arrives again just then puts the note away once (a new
+    // picture, a new note): click again, as you would.
+    let clicks = 1;
+    let lastClick = Date.now();
     const note = await waitFor(
-      () =>
-        review.querySelector<HTMLInputElement>(
+      () => {
+        const box = review.querySelector<HTMLInputElement>(
           "input[aria-label='Note for Avos']",
-        ),
-      5_000,
+        );
+        if (!box && clicks < 4 && Date.now() - lastClick > 1_500) {
+          clicks += 1;
+          lastClick = Date.now();
+          click();
+        }
+        return box;
+      },
+      12_000,
       "the note box",
     ).catch((error: unknown) => {
       // Say what happened to the Review the click landed on.
