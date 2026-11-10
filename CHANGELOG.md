@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.179] - 2026-11-10
+
+### Changed
+
+- **Agents get their standing instructions once per chat.** The browser, desktop, iPhone, files and Git instructions go with a chat's first message and again after they change or the chat is compacted; later messages carry a one-line reminder. A second message now sends about 500 characters of them instead of about 18,000.
+- **Avos and its helpers pass less and lose nothing.** Avos's answer rules and notes go once per conversation; forwarded answers keep their beginning and end and say when they were shortened; asks and tasks keep their line breaks and code. A lead waiting on five finished tasks reads about 4,700 characters instead of about 100,000, and can still get any full result.
+
+### Fixed
+
+- **Streamed replies no longer drop a repeated word.** Each provider now says that its pieces add to the text, so a reply that starts "ha" "ha" stays "haha".
+- **The last piece of an OpenCode reply is no longer lost,** and its updates go only to the window that shows them.
+
 ## [0.1.178] - 2026-11-10
 
 ### Fixed
