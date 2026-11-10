@@ -45,7 +45,6 @@ const APPEARANCE_CONTROLS = [
   "Translucency",
   "Frame",
   "Reduce motion",
-  "Dot pointer",
   "Chat background",
   "Use for all workspaces",
 ];
