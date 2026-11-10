@@ -27,6 +27,10 @@ import {
   prepareSharedWorkTurn,
   resetSharedWorkDelivery,
 } from "../sharedWorkNote";
+import {
+  prepareGuidanceTurn,
+  resetGuidanceDelivery,
+} from "../agentGuidanceDelivery";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -181,13 +185,20 @@ function beginRuntimeActivity<T extends CompactContextInput>(
           scheduleIdlePark(input.harness, input.sessionId);
           return;
         }
-        if (event.type === "session.providerBound")
+        if (
+          event.type === "session.providerBound" &&
           noteProviderConversation(
             input.harness,
             input.sessionId,
             event.providerSessionId,
             input.cwd,
-          );
+          )
+        )
+          resetGuidanceDelivery(input.sessionId);
+        // The provider compacted the conversation: the summary may drop the
+        // guidance an earlier message carried.
+        if (event.type === "status" && event.compacted)
+          resetGuidanceDelivery(input.sessionId);
         // Edited files, for other chats in the project; returns at once otherwise.
         observeSharedWorkEvent(input.sessionId, event);
         if (event.type === "agent.updated")
@@ -387,7 +398,10 @@ export async function sendHarnessTurn(
   // What else runs in the project, ahead of this message when it changed
   // since this chat last heard; then project memory, which rides on the
   // launch options of a new conversation or ahead of this message.
-  const work = prepareSharedWorkTurn(input);
+  // The standing browser, files and Git guidance shrinks to a reminder
+  // once this conversation holds it.
+  const guidance = prepareGuidanceTurn(input);
+  const work = prepareSharedWorkTurn({ ...input, text: guidance.text });
   const memory = prepareProjectMemoryTurn({ ...input, text: work.text });
   const stops = turnStops.get(input.sessionId) ?? 0;
   const tracked = beginRuntimeActivity({ ...input, text: memory.text });
@@ -395,9 +409,13 @@ export async function sendHarnessTurn(
   try {
     await adapter.sendTurn(tracked.input);
     if ((turnStops.get(input.sessionId) ?? 0) === stops) memory.commit();
-    else work.rollback();
+    else {
+      work.rollback();
+      guidance.rollback();
+    }
   } catch (error) {
     work.rollback();
+    guidance.rollback();
     throw error;
   } finally {
     sharedWorkTurnEnded(input.sessionId);
@@ -433,8 +451,10 @@ export async function compactHarnessContext(
     // compacting. A summary elsewhere may drop it, so give it again.
     if (PROJECT_MEMORY_CHANNELS[input.harness] !== "system")
       resetProjectMemoryDelivery(input.sessionId);
-    // The shared-work note rode on a message the summary may have dropped.
+    // The shared-work note and the standing guidance rode on messages the
+    // summary may have dropped.
     resetSharedWorkDelivery(input.sessionId);
+    resetGuidanceDelivery(input.sessionId);
   } finally {
     endRuntimeActivity(input.harness, input.sessionId, tracked.activity);
   }
@@ -455,11 +475,14 @@ export async function steerHarnessTurn(
   }
   cancelIdlePark(input.sessionId);
   // A follow-up mid-turn carries the note too when it changed meanwhile.
-  const work = prepareSharedWorkTurn(input);
+  // Never the full guidance again when the conversation already holds it.
+  const guidance = prepareGuidanceTurn(input);
+  const work = prepareSharedWorkTurn({ ...input, text: guidance.text });
   try {
     await adapter.steerTurn({ ...input, text: work.text });
   } catch (error) {
     work.rollback();
+    guidance.rollback();
     throw error;
   }
 }
@@ -534,6 +557,7 @@ export async function forgetHarnessSession(
   if (activity) activity.stopping = true;
   forgetProviderConversation(harness, sessionId);
   resetSharedWorkDelivery(sessionId);
+  resetGuidanceDelivery(sessionId);
   reconnectWhenIdle.delete(sessionId);
   clearChatConnections(sessionId);
   turnStops.delete(sessionId);
@@ -561,8 +585,11 @@ export function bindHarnessSession(
 ): void {
   const adapter = getHarness(harness);
   adapter?.bindSession(threadId, providerSessionId, cwd);
-  if (adapter)
-    noteProviderConversation(harness, threadId, providerSessionId, cwd);
+  if (
+    adapter &&
+    noteProviderConversation(harness, threadId, providerSessionId, cwd)
+  )
+    resetGuidanceDelivery(threadId);
   if (!blocks || !adapter?.restoreTaskLists) return;
   const lists = blocks.flatMap((block) =>
     block.role === "tasks" && block.taskList ? [block.taskList] : [],

@@ -20,7 +20,7 @@ describe("a member's notes at the end of a turn", () => {
     expect(parseHandoff(withoutMemory(before))?.summary).toBe("Done.");
     // After the closing block works too: Aven reads the notes apart.
     const after = `All done.\n\n${handoff}\n\n${memory("- Tests: npm test")}`;
-    expect(parseHandoff(after)).toBeNull();
+    expect(parseHandoff(after)?.summary).toBe("Done.");
     expect(parseHandoff(withoutMemory(after))?.summary).toBe("Done.");
     expect(parseMemory(after)).toBe("- Tests: npm test");
   });

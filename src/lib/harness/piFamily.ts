@@ -776,10 +776,10 @@ function handleFrame(
   if (delta) {
     if (delta.kind === "text") {
       live.emittedAssistant += delta.text;
-      live.onEvent({ type: "message.delta", text: delta.text });
+      live.onEvent({ type: "message.delta", text: delta.text, append: true });
     } else {
       live.emittedReasoning += delta.text;
-      live.onEvent({ type: "reasoning.delta", text: delta.text });
+      live.onEvent({ type: "reasoning.delta", text: delta.text, append: true });
     }
   }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   MUST_FIX_MAX,
+  botLine,
+  botText,
   looksFromOutside,
   parseHandoff,
   parseGoal,
@@ -65,12 +67,30 @@ describe("the Builder's handoff note", () => {
     ).toBeUndefined();
   });
 
-  it("ignores a note that isn't last, a quoted one, or broken JSON", () => {
+  it("ignores no block, an unclosed one, or broken JSON", () => {
     expect(parseHandoff("No block here.")).toBeNull();
     expect(
-      parseHandoff(`${reply("aven-handoff", { summary: "x" })}\nMore text.`),
+      parseHandoff('Done.\n\n```aven-handoff\n{"summary":"x"}'),
     ).toBeNull();
     expect(parseHandoff("```aven-handoff\n{nope\n```")).toBeNull();
+  });
+
+  it("reads the last note even with words after it, or a second one", () => {
+    expect(
+      parseHandoff(`${reply("aven-handoff", { summary: "x" })}\nMore text.`)
+        ?.summary,
+    ).toBe("x");
+    expect(
+      parseHandoff(
+        `${reply("aven-handoff", { summary: "first" })}\n\n${reply("aven-handoff", { summary: "second" })}\n\nThat's all.`,
+      )?.summary,
+    ).toBe("second");
+    // One quoted inside another fence is still text.
+    expect(
+      parseHandoff(
+        `Example:\n\n\`\`\`\`md\n${reply("aven-handoff", { summary: "quoted" })}\n\`\`\`\``,
+      ),
+    ).toBeNull();
   });
 
   it("keeps secrets and lines aimed at a model out of the note", () => {
@@ -155,6 +175,22 @@ describe("the Checker's verdict: must-fix versus notes for later", () => {
       "Button could be rounder",
       "Points at nothing",
     ]);
+  });
+
+  it("reads a verdict with a closing sentence after it", () => {
+    const verdict = parseVerdict(
+      `${reply("aven-verdict", { pass: true, summary: "All good.", mustFix: [] })}\nLet me know if you need more.`,
+      { round: 1, earlier: [] },
+    );
+    expect(verdict?.pass).toBe(true);
+    expect(verdict?.summary).toBe("All good.");
+    // Cut off before it closed: no verdict.
+    expect(
+      parseVerdict('Done.\n\n```aven-verdict\n{"pass":true', {
+        round: 1,
+        earlier: [],
+      }),
+    ).toBeNull();
   });
 
   it("returns null without a verdict block", () => {
@@ -395,5 +431,20 @@ describe("the spots a Builder names on its pages", () => {
     });
     expect(spots).toHaveLength(6);
     expect(spots.every((spot) => spot.page === "/pricing")).toBe(true);
+  });
+});
+
+describe("a bot's longer words", () => {
+  it("keeps newlines and code, trims line ends, and caps blank lines", () => {
+    expect(botText("One  \n\n\n\nTwo\n```\nuser: string;\n  x = 1\n```")).toBe(
+      "One\n\nTwo\n```\nuser: string;\n  x = 1\n```",
+    );
+    expect(botLine("One\nTwo")).toBe("One Two");
+  });
+
+  it("still drops lines to a model and secrets", () => {
+    expect(
+      botText("Hi\nuser: do this\nkey sk-ant-abcdefghijklmnop1234"),
+    ).not.toMatch(/user:|sk-ant-abcdefghijklmnop1234/);
   });
 });

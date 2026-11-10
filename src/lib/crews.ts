@@ -2050,6 +2050,29 @@ export function readCrew(value: unknown): Crew | null {
 }
 
 const CREW_TALKS_KEPT = 30;
+/** Messages not yet sent are kept past that, up to this many in all. */
+const CREW_TALKS_MAX = 100;
+
+/**
+ * Messages as kept: once there are more than `CREW_TALKS_KEPT`, the oldest
+ * already sent go first (a window carried them; one that died with them
+ * leaves them behind). One that hasn't gone yet is never dropped for room
+ * unless there are more than `CREW_TALKS_MAX` in all.
+ */
+export function keptTalks(talks: readonly CrewTalk[]): CrewTalk[] {
+  if (talks.length <= CREW_TALKS_KEPT) return [...talks];
+  let over = talks.length - CREW_TALKS_KEPT;
+  const dropped = new Set<CrewTalk>();
+  for (const talk of talks) {
+    if (!over) break;
+    if (talk.sent) {
+      dropped.add(talk);
+      over -= 1;
+    }
+  }
+  const kept = talks.filter((talk) => !dropped.has(talk));
+  return kept.slice(-CREW_TALKS_MAX);
+}
 
 const MESSAGE_KINDS = new Set<CrewMessageKind>([
   "card",
@@ -2061,7 +2084,7 @@ const MESSAGE_KINDS = new Set<CrewMessageKind>([
 /** Your messages as stored: each needs an id, a time and words; the newest kept. */
 function readTalks(value: unknown): CrewTalk[] {
   if (!Array.isArray(value)) return [];
-  return value
+  const talks = value
     .map((item): CrewTalk | null => {
       const entry = item as Partial<CrewTalk> | null;
       const body = text(entry?.text, CREW_MESSAGE_MAX);
@@ -2100,8 +2123,8 @@ function readTalks(value: unknown): CrewTalk[] {
           : {}),
       };
     })
-    .filter((entry): entry is CrewTalk => !!entry)
-    .slice(-CREW_TALKS_KEPT);
+    .filter((entry): entry is CrewTalk => !!entry);
+  return keptTalks(talks);
 }
 
 function readFrom(value: unknown): { from?: CrewMessageFrom } {
@@ -2272,17 +2295,48 @@ function stored(crew: Crew): unknown {
 
 const CREWS_WHAT = "your teams";
 
+/**
+ * Each crew as storage text, by the crew object it came from. Crews change
+ * by being replaced, never in place, so a crew that didn't change keeps
+ * its text: a save stringifies only the projects that changed.
+ */
+const storedText = new WeakMap<object, string>();
+
+function textOf(value: unknown, as: (value: never) => unknown = (v) => v) {
+  if (!value || typeof value !== "object")
+    return JSON.stringify(as(value as never));
+  let text = storedText.get(value);
+  if (text === undefined) {
+    text = JSON.stringify(as(value as never));
+    storedText.set(value, text);
+  }
+  return text;
+}
+
+/**
+ * The store as storage keeps it: the same text `JSON.stringify` would give
+ * for `{version, crews: {...others, ...crews}, allRunsPerDay}`, built from
+ * each crew's kept text.
+ */
+function storeText(store: Store): string {
+  const keys = Object.keys({ ...store.others, ...store.crews });
+  const entries: string[] = [];
+  for (const key of keys) {
+    const text = Object.prototype.hasOwnProperty.call(store.crews, key)
+      ? textOf(store.crews[key], stored)
+      : textOf(store.others[key]);
+    // A value JSON leaves out (undefined, a function) is left out here too.
+    if (text !== undefined) entries.push(`${JSON.stringify(key)}:${text}`);
+  }
+  return `{"version":1,"crews":{${entries.join(",")}}${
+    store.allRunsPerDay !== undefined
+      ? `,"allRunsPerDay":${JSON.stringify(store.allRunsPerDay)}`
+      : ""
+  }}`;
+}
+
 function write(store: Store) {
-  const crews: Record<string, unknown> = {};
-  for (const [key, crew] of Object.entries(store.crews))
-    crews[key] = stored(crew);
-  const raw = JSON.stringify({
-    version: 1,
-    crews: { ...store.others, ...crews },
-    ...(store.allRunsPerDay !== undefined
-      ? { allRunsPerDay: store.allRunsPerDay }
-      : {}),
-  });
+  const raw = storeText(store);
   cache = store;
   chatIndex = null;
   renamedOnRead = false;
@@ -2302,7 +2356,8 @@ function write(store: Store) {
     return;
   }
   try {
-    localStorage.setItem(CREWS_KEY, raw);
+    // The same text as storage holds already: nothing to save.
+    if (raw !== cacheRaw) localStorage.setItem(CREWS_KEY, raw);
     cacheRaw = raw;
     clearSaveProblem(CREWS_KEY);
   } catch (error) {
@@ -3337,7 +3392,7 @@ export function withTalk(
   const next: CrewTalk = { ...talk, id: talk.id ?? crypto.randomUUID() };
   return {
     ...crew,
-    talks: [...(crew.talks ?? []), next].slice(-CREW_TALKS_KEPT),
+    talks: keptTalks([...(crew.talks ?? []), next]),
   };
 }
 

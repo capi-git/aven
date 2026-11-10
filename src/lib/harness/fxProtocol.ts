@@ -166,7 +166,11 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
       update.content ?? update.text,
       kind === "agent_message" ? "\n" : "",
     );
-    return text ? [{ type: "message.delta", text }] : [];
+    // Chunks are exact appends; a whole `agent_message` may resend text.
+    if (!text) return [];
+    return kind === "agent_message_chunk"
+      ? [{ type: "message.delta", text, append: true }]
+      : [{ type: "message.delta", text }];
   }
 
   if (kind === "agent_thought_chunk" || kind === "agent_thought") {
@@ -174,7 +178,10 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
       update.content ?? update.text,
       kind === "agent_thought" ? "\n" : "",
     );
-    return text ? [{ type: "reasoning.delta", text }] : [];
+    if (!text) return [];
+    return kind === "agent_thought_chunk"
+      ? [{ type: "reasoning.delta", text, append: true }]
+      : [{ type: "reasoning.delta", text }];
   }
 
   if (

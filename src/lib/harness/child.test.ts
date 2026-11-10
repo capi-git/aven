@@ -178,7 +178,7 @@ describe("child bridge", () => {
     // Events are broadcast to every window; this one never spawned "other".
     for (let i = 0; i < 5; i += 1) {
       emit("harness-stdout:main", { sessionId: "other", line: `line ${i}` });
-      emit("harness-sse", { sessionId: "other", data: `event ${i}` });
+      emit("harness-sse:main", { sessionId: "other", events: [`event ${i}`] });
     }
 
     const lines: string[] = [];
@@ -201,7 +201,7 @@ describe("child bridge", () => {
     await child.spawnChild("mine", "agent", [], "/tmp");
     emit("harness-stdout:main", { sessionId: "mine", line: "early" });
     await child.openHarnessSse("mine", "http://127.0.0.1:1/event");
-    emit("harness-sse", { sessionId: "mine", data: "early-event" });
+    emit("harness-sse:main", { sessionId: "mine", events: ["early-event"] });
 
     const lines: string[] = [];
     const events: string[] = [];
@@ -226,7 +226,7 @@ describe("child bridge", () => {
     await child.killChild("probe");
     await child.closeHarnessSse("probe");
     emit("harness-stdout:main", { sessionId: "probe", line: "late" });
-    emit("harness-sse", { sessionId: "probe", data: "late-event" });
+    emit("harness-sse:main", { sessionId: "probe", events: ["late-event"] });
 
     const lines: string[] = [];
     const events: string[] = [];
@@ -246,6 +246,8 @@ it("subscribes only to its owner output names and expands a batch in order befor
     "harness-stdout:main",
     "harness-stderr:main",
     "harness-exit:main",
+    "harness-sse:main",
+    "harness-sse-end:main",
   ]) {
     expect(mocks.listen).toHaveBeenCalledWith(name, expect.any(Function), {
       target: { kind: "Webview", label: "main" },
@@ -283,8 +285,11 @@ it("bounds unwatched batches by individual lines and replays them without mergin
     payload: { sessionId: "mine", lines } as never,
   });
   const received: string[] = [];
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
   child.watchChild("mine", (line) => received.push(line), vi.fn());
-  expect(received).toEqual(lines.slice(50));
+  // The handshake lines stay; the oldest lines after them are dropped.
+  expect(received).toEqual([...lines.slice(0, 50), ...lines.slice(100)]);
+  logged.mockRestore();
   release();
 });
 
@@ -312,4 +317,71 @@ it("delivers later batch records even if an earlier provider callback throws", a
   ).toThrow(failure);
   expect(received).toEqual(["first", "bad", "final result"]);
   release();
+});
+
+it("expands an SSE batch in order and replays it after a late watch", async () => {
+  installResolvedListeners();
+  const child = await loadChild();
+  const release = await child.acquireHarnessBridge();
+  mocks.invoke.mockResolvedValue(undefined);
+  await child.openHarnessSse("s", "http://127.0.0.1:1/event");
+  const emit = (events: string[]) =>
+    mocks.handlers.get("harness-sse:main")?.({
+      payload: { sessionId: "s", events } as never,
+    });
+  emit(["a", "b"]);
+  const seen: string[] = [];
+  child.watchSse("s", (data) => seen.push(data));
+  emit(["c", "d"]);
+  expect(seen).toEqual(["a", "b", "c", "d"]);
+  release();
+});
+
+it("keeps the first lines and logs once when an unwatched buffer overflows", async () => {
+  installResolvedListeners();
+  const child = await loadChild();
+  const release = await child.acquireHarnessBridge();
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  mocks.invoke.mockResolvedValue(42);
+  await child.spawnChild("busy", "agent", [], "/tmp");
+  const lines = Array.from({ length: 1200 }, (_, i) => `line ${i}`);
+  mocks.handlers.get("harness-stdout:main")?.({
+    payload: { sessionId: "busy", lines } as never,
+  });
+  const seen: string[] = [];
+  child.watchChild("busy", (line) => seen.push(line), vi.fn());
+  expect(seen).toHaveLength(1000);
+  expect(seen[0]).toBe("line 0");
+  expect(seen[49]).toBe("line 49");
+  expect(seen[50]).toBe("line 250");
+  expect(seen.at(-1)).toBe("line 1199");
+  expect(logged).toHaveBeenCalledTimes(1);
+  logged.mockRestore();
+  release();
+});
+
+it("sends writes to one child in call order, one at a time", async () => {
+  installResolvedListeners();
+  const child = await loadChild();
+  const pending: Array<Deferred<void>> = [];
+  const sent: string[] = [];
+  mocks.invoke.mockImplementation((_name: string, args: { line: string }) => {
+    sent.push(args.line);
+    const write = deferred<void>();
+    pending.push(write);
+    return write.promise;
+  });
+  const first = child.writeChild("s", "permission");
+  const second = child.writeChild("s", "message");
+  const other = child.writeChild("t", "elsewhere");
+  await flush();
+  expect(sent).toEqual(["permission", "elsewhere"]);
+  pending[0].reject(new Error("closed"));
+  await expect(first).rejects.toThrow("closed");
+  await flush();
+  expect(sent).toEqual(["permission", "elsewhere", "message"]);
+  pending[1].resolve();
+  pending[2].resolve();
+  await expect(second).resolves.toBeUndefined();
+  await expect(other).resolves.toBeUndefined();
 });

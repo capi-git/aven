@@ -76,7 +76,7 @@ import {
   permissionRulesKey,
   sessionPermissions,
 } from "./sessionPermissions";
-import { joinStreamText, snapshotRemainder } from "./streamText";
+import { snapshotRemainder } from "./streamText";
 import {
   questionPromptTitle,
   questionsFromUnknown,
@@ -834,10 +834,15 @@ function handleLine(sessionId: string, live: Live, line: string): void {
   if (type === "system") {
     const text = statusTextFromSystem(rec);
     if (text) {
-      if ((stringField(rec, "subtype") ?? "").startsWith("compact")) {
-        live.compactionConfirmed = true;
-      }
-      live.onEvent({ type: "status", text });
+      const compacted = (stringField(rec, "subtype") ?? "").startsWith(
+        "compact",
+      );
+      if (compacted) live.compactionConfirmed = true;
+      live.onEvent({
+        type: "status",
+        text,
+        ...(compacted ? { compacted: true as const } : {}),
+      });
     }
   }
 }
@@ -859,10 +864,10 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       if (id)
         live.messageText.set(id, (live.messageText.get(id) ?? "") + delta.text);
       else live.emittedAssistant += delta.text;
-      live.onEvent({ type: "message.delta", text: delta.text });
+      live.onEvent({ type: "message.delta", text: delta.text, append: true });
     } else {
-      live.emittedReasoning = joinStreamText(live.emittedReasoning, delta.text);
-      live.onEvent({ type: "reasoning.delta", text: delta.text });
+      live.emittedReasoning += delta.text;
+      live.onEvent({ type: "reasoning.delta", text: delta.text, append: true });
     }
     return;
   }
@@ -959,7 +964,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
     ? (live.messageText.get(messageId) ?? "")
     : live.emittedAssistant;
   const extra = snapshotRemainder(already, snapshot);
-  if (extra) live.onEvent({ type: "message.delta", text: extra });
+  if (extra) live.onEvent({ type: "message.delta", text: extra, append: true });
   if (messageId) {
     live.messageText.set(messageId, already + extra);
     live.completedMessages.add(messageId);

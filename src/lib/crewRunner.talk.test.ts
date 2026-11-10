@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { resetGuidanceDelivery } from "./agentGuidanceDelivery";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installCrewWorkspace, tellTeam } from "./crewActions";
 import {
@@ -68,8 +69,12 @@ function harness(
   let nextId = 1;
   const timers = new Map<number, { at: number; run: () => void }>();
   let sessions: Session[] = [];
-  const sent: { memberId: string; text: string; options: BotSendOptions }[] =
-    [];
+  const sent: {
+    memberId: string;
+    sessionId: string;
+    text: string;
+    options: BotSendOptions;
+  }[] = [];
   const added: { title: string }[] = [];
   const overrides: { memberId: string; model?: string }[] = [];
   const memberOf = new Map<string, string>();
@@ -113,7 +118,7 @@ function harness(
     },
     send: (sessionId: string, text: string, options: BotSendOptions) => {
       const memberId = memberOf.get(sessionId)!;
-      sent.push({ memberId, text, options });
+      sent.push({ memberId, sessionId, text, options });
       update(sessionId, (chat) => ({
         ...chat,
         busy: true,
@@ -267,6 +272,29 @@ describe("a message to everyone", () => {
     expect(sent[0]!.options.displayText).toBe("Do the tests pass?");
     expect(lines()).toEqual(["Yes.\n\nAll 412 pass on main."]);
     expect(getCrew(PATH)!.talks ?? []).toEqual([]);
+    runner.stop();
+  });
+
+  it("sends Avos's standing rules once, and again after its chat is compacted", async () => {
+    team();
+    const { runner, sent, settle } = harness({
+      lead: () => talk({ line: "Done." }, "Done."),
+    });
+    runner.start();
+    const ask = async (text: string) => {
+      expect(await tellTeam(PATH, text, "lead", NOON)).toBeNull();
+      await settle();
+      return sent.at(-1)!.text;
+    };
+    const first = await ask("One?");
+    const LEFT_OUT = "Aven left out the rules for answering";
+    expect(first).not.toContain(LEFT_OUT);
+    const second = await ask("Two?");
+    expect(second).toContain(LEFT_OUT);
+    expect(second.length).toBeLessThan(first.length);
+    resetGuidanceDelivery(sent.at(-1)!.sessionId);
+    expect(await ask("Three?")).not.toContain(LEFT_OUT);
+    expect(await ask("Four?")).toContain(LEFT_OUT);
     runner.stop();
   });
 
@@ -747,7 +775,8 @@ describe("teammates asking each other", () => {
     runner.start();
     await tellTeam(PATH, "Go round", "lead", NOON);
     await settle();
-    expect(sent.length).toBeLessThanOrEqual(TALK_HOPS * 2 + 1);
+    // Each ask, and its answer even at the last hop: then it stops.
+    expect(sent.length).toBeLessThanOrEqual(TALK_HOPS * 3);
     expect(
       getCrew(PATH)!.feed.some((entry) => /as far as it goes/.test(entry.text)),
     ).toBe(true);
@@ -1395,6 +1424,87 @@ describe("Avos answering you", () => {
     expect(crewLiveReply(PATH, "lead")).toBe("Looking at the mo");
     writing("Looking at the mocks now.\n\n```aven-ta");
     expect(crewLiveReply(PATH, "lead")).toBe("Looking at the mocks now.");
+    runner.stop();
+  });
+});
+
+describe("answers at the last hop, and what an answer carries", () => {
+  it("brings an answer back at the last hop, and it can't ask on", async () => {
+    team();
+    updateCrew(PATH, (crew) =>
+      withTalk(crew, {
+        at: NOON,
+        from: "checker",
+        to: "lead",
+        text: "Is the build green?",
+        hop: TALK_HOPS - 1,
+      }),
+    );
+    let leadTurns = 0;
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        leadTurns++ === 0
+          ? talk({
+              line: "Asking the Builder.",
+              ask: [{ to: "Builder", text: "Is the build green?" }],
+            })
+          : talk({ line: "Green." }),
+      builder: () =>
+        talk(
+          { line: "Green." },
+          `Start of a long answer. ${"detail ".repeat(600)}So: the build is green.`,
+        ),
+      checker: () => talk({ line: "Thanks." }),
+    });
+    runner.start();
+    await settle();
+    const answer = sent.find(
+      (turn) =>
+        turn.memberId === "lead" &&
+        /From Builder/.test(turn.options.displayText ?? ""),
+    );
+    expect(answer).toBeTruthy();
+    // Its conclusion, without its block, and a note that it was shortened.
+    expect(answer!.text).toContain("So: the build is green.");
+    expect(answer!.text).toContain("Aven shortened this answer");
+    expect(answer!.text).not.toContain('{"line":"Green."}');
+    // Past the last hop: it may not ask anyone.
+    expect(answer!.text).not.toContain('"ask"');
+    expect(
+      getCrew(PATH)!.feed.some((entry) => /as far as it goes/.test(entry.text)),
+    ).toBe(false);
+    expect(getCrew(PATH)!.talks ?? []).toEqual([]);
+    runner.stop();
+  });
+
+  it("sends Avos's standing rules and notes once per conversation", async () => {
+    team((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.role === "lead"
+          ? {
+              ...member,
+              memory: `- Tests: npm test\n${"- A note.\n".repeat(350)}`,
+            }
+          : member,
+      ),
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () => talk({ line: "Ok." }, "Ok."),
+    });
+    runner.start();
+    await tellTeam(PATH, "Hi there, what's up?", "lead", NOON);
+    await settle();
+    await tellTeam(PATH, "ok", "lead", NOON + 10 * MINUTE);
+    await settle();
+    expect(sent.map((turn) => turn.memberId)).toEqual(["lead", "lead"]);
+    const [first, second] = sent.map((turn) => turn.text);
+    expect(first).toContain("Tests: npm test");
+    expect(first).toContain("a few short sentences");
+    expect(second).not.toContain("Tests: npm test");
+    expect(second).not.toContain("a few short sentences");
+    expect(second).toContain("```aven-talk");
+    expect(second!.length).toBeLessThan(2_000);
     runner.stop();
   });
 });

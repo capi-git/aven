@@ -39,11 +39,13 @@ export function applyHarnessEvents(
       continue;
     }
     const key = event.type === "message.delta" ? event.key : undefined;
+    const append = event.append === true;
     const texts = [event.text];
     while (index + 1 < events.length) {
       const following = events[index + 1];
       if (following.type !== event.type) break;
       if (following.type === "message.delta" && following.key !== key) break;
+      if ((following.append === true) !== append) break;
       texts.push(following.text);
       index++;
     }
@@ -54,6 +56,7 @@ export function applyHarnessEvents(
         texts,
         true,
         key,
+        append,
       ),
     );
   }
@@ -96,13 +99,27 @@ export function applyHarnessEvent(
       return updateTurnWait(session, undefined, ["starting"]);
     case "message.delta":
       return outputResumed(
-        patchStreaming(session, "assistant", event.text, true, event.key),
+        patchStreaming(
+          session,
+          "assistant",
+          event.text,
+          true,
+          event.key,
+          event.append,
+        ),
       );
     case "message.completed":
       return finishRole(session, "assistant", event.key);
     case "reasoning.delta":
       return outputResumed(
-        patchStreaming(session, "reasoning", event.text, true),
+        patchStreaming(
+          session,
+          "reasoning",
+          event.text,
+          true,
+          undefined,
+          event.append,
+        ),
       );
     case "reasoning.completed":
       return finishRole(session, "reasoning");
@@ -780,13 +797,18 @@ function appendBlock(session: Session, block: Block): Session {
   return { ...session, blocks: [...sealLastStream(session.blocks), block] };
 }
 
-/** Provider item keys preserve message boundaries and route late snapshots to their own block. */
+/**
+ * Provider item keys preserve message boundaries and route late snapshots to
+ * their own block. Keyed and `append` text concatenates exactly; only
+ * unmarked text goes through the token-or-snapshot guess.
+ */
 function patchStreaming(
   session: Session,
   role: "assistant" | "reasoning",
   input: string | readonly string[],
   streaming: boolean,
   key?: string,
+  append?: boolean,
 ): Session {
   let texts = typeof input === "string" ? [input] : input;
   // Empty reasoning deltas are no-ops; dropping them keeps a batch equivalent.
@@ -796,7 +818,8 @@ function patchStreaming(
   // incoming chunks must not be concatenated before joining.
   const fold = (start: string) =>
     texts.reduce(
-      (current, text) => (key ? current + text : joinStreamText(current, text)),
+      (current, text) =>
+        key || append ? current + text : joinStreamText(current, text),
       start,
     );
   let index = session.blocks.length - 1;

@@ -53,7 +53,7 @@ import {
   isProviderCommandText,
   withProjectMemoryPrefix,
 } from "./projectMemoryDelivery";
-import { joinStreamText, snapshotRemainder } from "./streamText";
+import { snapshotRemainder } from "./streamText";
 import { CODEX_TOOLS_OPEN, shortList } from "./codexLockdown";
 import {
   launchRefusal,
@@ -1227,13 +1227,14 @@ function publishCodexText(
     role === "assistant" ? live.emittedAssistant : live.emittedReasoning;
   const emit = snapshot ? snapshotRemainder(already, text) : text;
   if (!emit) return;
+  // `emit` is always new text (a token or a snapshot's unseen remainder).
   if (role === "assistant") {
-    live.emittedAssistant = joinStreamText(already, emit);
-    live.onEvent({ type: "message.delta", text: emit });
+    live.emittedAssistant = already + emit;
+    live.onEvent({ type: "message.delta", text: emit, append: true });
     return;
   }
-  live.emittedReasoning = joinStreamText(already, emit);
-  live.onEvent({ type: "reasoning.delta", text: emit });
+  live.emittedReasoning = already + emit;
+  live.onEvent({ type: "reasoning.delta", text: emit, append: true });
 }
 
 function finishActiveTurn(

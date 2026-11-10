@@ -430,6 +430,8 @@ export function textDeltaEvent(
   text: string,
 ): HarnessEvent | null {
   if (!text) return null;
-  if (part.type === "reasoning") return { type: "reasoning.delta", text };
-  return { type: "message.delta", text };
+  // Callers diff OpenCode's part snapshots first, so `text` is always new.
+  if (part.type === "reasoning")
+    return { type: "reasoning.delta", text, append: true };
+  return { type: "message.delta", text, append: true };
 }

@@ -11,8 +11,12 @@ Usage: {exe} control ACTION [--json JSON | --input FILE|-] [--request-id ID]
 
 Actions, with the JSON object each one takes:
   list      {}
-            The run, every task with its status and latest result, and the
-            harness/model IDs you may assign.
+            The run, every task with its status, error, needsInput and
+            waitingFor, and the harness/model IDs you may assign. A result
+            still under review shows only its last ~600 characters, starting
+            "[Shortened: ...]" when cut; a result you already received,
+            reviewed or cancelled is left out, with its length in
+            "resultChars". Use get for the full text.
   delegate  {"title":"Short title","harness":"<id from list>",
              "model":"<id from list>","prompt":"Self-contained instructions",
              "files":["src/feature"],"dependsOn":["<taskId>"]}
@@ -22,10 +26,11 @@ Actions, with the JSON object each one takes:
             directory covers its descendants and ["."] reserves the whole
             checkout. "dependsOn" holds taskIds that must be reviewed first.
   get       {"taskId":"..."}
-            One task, including its latest result.
+            One task, including its prompt and its full latest result.
   wait      {"timeoutSeconds":20}
             Block until a task changes state, or until the timeout (0-25).
-            Returns at once when nothing is running or queued.
+            Returns at once when nothing is running or queued. Reports the
+            run in the same short form as list.
   respond   {"taskId":"...","requestId":7,"decision":"allow"|"deny"}
             Answer an approval an agent is blocked on. Agents never prompt the
             user; list, get and wait report the prompt as that task's

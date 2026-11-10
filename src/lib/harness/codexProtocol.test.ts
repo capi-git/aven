@@ -76,6 +76,16 @@ describe("Codex file attachments", () => {
   });
 });
 
+describe("context compaction", () => {
+  it("says once that the thread was compacted", () => {
+    const item = { id: "compact-1", type: "contextCompaction" };
+    expect(mapCodexNotification("item/started", { item }).events).toEqual([]);
+    expect(mapCodexNotification("item/completed", { item }).events).toEqual([
+      { type: "status", text: "Compacted context", compacted: true },
+    ]);
+  });
+});
+
 describe("generated image results", () => {
   it("renders the saved image without retaining its base64 payload", () => {
     const mapped = mapCodexNotification("item/completed", {

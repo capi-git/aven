@@ -3,6 +3,9 @@ import {
   dispatchableTask,
   LEAD_STALLED_AFTER_MS,
   Orchestrator,
+  RESULT_HANDOFF_CHARS,
+  RESULT_PREVIEW_CHARS,
+  resultTail,
   runStalled,
   UNANSWERED_AFTER_MS,
   scopesOverlap,
@@ -1549,6 +1552,82 @@ describe("what only you can move on", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(f.manager.run("lead")!.status).toBe("finished");
     expect(f.host.submit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("results the lead reads back", () => {
+  const long = (tag: string) =>
+    Array.from({ length: 400 }, (_, i) => `${tag} line ${i} ${"x".repeat(40)}`)
+      .join("\n")
+      .slice(0, 20_000);
+
+  it("keeps short results and marks shortened ones", () => {
+    expect(resultTail("All done.", 600)).toBe("All done.");
+    const cut = resultTail(long("a"), RESULT_PREVIEW_CHARS);
+    expect(cut).toMatch(/^\[Shortened: the last \d+ of 20000 characters\./);
+    expect(cut).toContain("Use get with this taskId for the full result.");
+    expect(cut.split("\n")[1]).toMatch(/^a line \d+ x/);
+    expect(cut.length).toBeLessThan(RESULT_PREVIEW_CHARS + 120);
+  });
+
+  it("gives list and wait only the end of each result, and get all of it", async () => {
+    const f = setup();
+    await f.start();
+    for (const file of ["a", "b", "c", "d", "e"]) await f.delegate([file]);
+    for (let done = 0; done < 5; done++) {
+      await vi.waitFor(() =>
+        expect(
+          f.tasks().find((task) => task.status === "running"),
+        ).toBeDefined(),
+      );
+      const task = f.tasks().find((entry) => entry.status === "running")!;
+      f.completions.get(task.sessionId)!({
+        status: "completed",
+        text: long(task.id),
+      });
+      await vi.waitFor(() =>
+        expect(f.tasks().find((entry) => entry.id === task.id)!.status).toBe(
+          "completed",
+        ),
+      );
+    }
+    const waited = (await f.call("wait", { timeoutSeconds: 0 })) as {
+      tasks: { id: string; result?: string; status: string }[];
+    };
+    const listed = (await f.call("list")) as { run: typeof waited };
+    expect(JSON.stringify(waited).length).toBeLessThan(6_000);
+    for (const task of [...waited.tasks, ...listed.run.tasks]) {
+      expect(task.status).toBe("completed");
+      expect(task.result).toMatch(/^\[Shortened: /);
+    }
+    const first = waited.tasks[0].id;
+    const got = (await f.call("get", { taskId: first })) as { result: string };
+    expect(got.result).toBe(long(first));
+
+    await f.call("review", { taskId: first });
+    const after = (await f.call("wait", { timeoutSeconds: 0 })) as {
+      tasks: { id: string; result?: string; resultChars?: number }[];
+    };
+    const reviewed = after.tasks.find((task) => task.id === first)!;
+    expect(reviewed.result).toBeUndefined();
+    expect(reviewed.resultChars).toBe(20_000);
+  });
+
+  it("hands the idle lead a marked end of a long result", async () => {
+    const f = setup();
+    await f.start();
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.lead.busy = false;
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "completed",
+      text: long("worker"),
+    });
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(2));
+    const sent = vi.mocked(f.host.submit).mock.calls[1][1] as string;
+    expect(sent).toContain("[Shortened: the last ");
+    expect(sent).toContain(long("worker").slice(-RESULT_HANDOFF_CHARS / 2));
+    expect(sent.length).toBeLessThan(RESULT_HANDOFF_CHARS + 1_000);
   });
 });
 
