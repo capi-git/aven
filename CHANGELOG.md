@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The message box's settings sit on plain glass,** as every other menu does: the dots and shading behind them are gone.
+
 ## [0.1.176] - 2026-11-09
 
 ### Added
