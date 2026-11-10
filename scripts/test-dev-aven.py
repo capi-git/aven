@@ -123,6 +123,37 @@ class DevRunnerGuards(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'already running'):
                     runner.ensure_not_running()
 
+    def test_check_run_waits_for_a_closing_app_but_a_build_does_not(self):
+        with mock.patch.object(runner, 'app_is_running', side_effect=[True, True, False]) as running, \
+             mock.patch.object(runner.time, 'sleep'):
+            runner.ensure_not_running(grace=30)
+        self.assertEqual(running.call_count, 3)
+        with mock.patch.object(runner, 'app_is_running', return_value=True), \
+             mock.patch.object(runner.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'already running'):
+                runner.ensure_not_running()
+        sleep.assert_not_called()
+
+    def test_check_app_leaves_no_process_behind_for_the_retry(self):
+        # A stand-in "app" leaves a helper in its group and exits, as the
+        # browser helpers did after the failed first check in a release run.
+        app = subprocess.Popen(
+            [sys.executable, '-c',
+             'import subprocess, sys; subprocess.Popen(["sleep", "60"]); sys.exit(1)'],
+            start_new_session=True)
+        app.wait(timeout=10)
+        os.killpg(app.pid, 0)  # The helper is still in the group.
+        runner.end_app_group(app, 'check')
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(app.pid, 0)
+
+    def test_ending_an_already_empty_group_does_nothing(self):
+        app = subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=True)
+        app.wait(timeout=10)
+        with mock.patch.object(runner.time, 'sleep') as sleep:
+            runner.end_app_group(app, 'check')
+        sleep.assert_not_called()
+
     def test_symlinked_bundle_never_removes_its_target(self):
         outside = Path(self.temporary.name) / 'do-not-touch.app'
         outside.mkdir()
