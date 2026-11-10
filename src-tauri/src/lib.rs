@@ -121,6 +121,8 @@ pub fn run_desktop_snapshot_cli() -> Option<i32> {
         }
     }
 }
+#[cfg(target_os = "macos")]
+mod pointer_cursor_macos;
 mod system_pointer;
 mod team_watch;
 mod turn_shot_image;
@@ -345,6 +347,9 @@ pub fn run() {
         .manage(agent_files::AgentDownloads::default())
         .manage(workspace_menu_panel::WorkspaceMenuPanelState::default())
         .setup(|app| {
+            // Before any web view shows the dot pointer.
+            #[cfg(target_os = "macos")]
+            pointer_cursor_macos::install();
             // The development app owns only the children it starts. Leave any
             // process-wide recovery of production leftovers to the release app.
             if !cfg!(debug_assertions) {
