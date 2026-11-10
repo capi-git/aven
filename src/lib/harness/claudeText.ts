@@ -322,7 +322,8 @@ function collectText(
     if (!event || typeof event !== "object") return;
     const delta = (event as { delta?: { type?: string; text?: string } }).delta;
     if (delta?.type === "text_delta" && typeof delta.text === "string") {
-      session.output = mergeStream(session.output, delta.text);
+      // text_delta is an exact append, including repeated words.
+      session.output += delta.text;
     }
   }
 }

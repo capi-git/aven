@@ -45,9 +45,9 @@ struct HarnessExit {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-struct HarnessSse {
+struct HarnessSseBatch {
     session_id: String,
-    data: String,
+    events: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -897,6 +897,7 @@ pub async fn harness_http(
 #[tauri::command]
 pub fn harness_sse_open(
     app: AppHandle,
+    caller: tauri::Webview,
     host: State<HarnessHost>,
     session_id: String,
     url: String,
@@ -913,6 +914,9 @@ pub fn harness_sse_open(
         }),
     );
 
+    // Like stdout: batched, in order, and sent only to the window that opened
+    // it. Broadcasts are evaluated in every webview that listens.
+    let owner = caller.label().to_string();
     thread::spawn(move || {
         let agent = harness_http_agent()
             .timeout_connect(Duration::from_secs(10))
@@ -927,22 +931,33 @@ pub fn harness_sse_open(
         }
         let result = request.call();
         if stop.load(Ordering::SeqCst) {
-            emit_sse_end(&app, &session_id, None);
+            emit_sse_end(&app, &owner, &session_id, None);
             return;
         }
         match result {
             Ok(response) => {
                 if let Err(error) = reject_harness_redirect(response.status()) {
-                    emit_sse_end(&app, &session_id, Some(error));
+                    emit_sse_end(&app, &owner, &session_id, Some(error));
                     return;
                 }
                 let reader = BufReader::new(response.into_reader());
-                read_sse(reader, &app, &session_id, &stop);
-                emit_sse_end(&app, &session_id, None);
+                forward_sse(reader, &stop, |events| {
+                    let _ = app.emit_to(
+                        EventTarget::webview(&owner),
+                        &format!("{SSE_EVENT}:{owner}"),
+                        HarnessSseBatch {
+                            session_id: session_id.clone(),
+                            events,
+                        },
+                    );
+                });
+                // forward_sse returns only after its last batch was emitted.
+                emit_sse_end(&app, &owner, &session_id, None);
             }
             Err(error) => {
                 emit_sse_end(
                     &app,
+                    &owner,
                     &session_id,
                     Some(format!("OpenCode event stream failed: {error}")),
                 );
@@ -968,10 +983,38 @@ fn read_http_response(response: ureq::Response) -> Result<HarnessHttpResponse, S
     Ok(HarnessHttpResponse { status, body })
 }
 
-fn read_sse<R: BufRead>(reader: R, app: &AppHandle, session_id: &str, stop: &AtomicBool) {
+/// Read SSE `data` payloads on a scoped thread and emit them in the same
+/// ordered 16 ms / 64 / 128 KB batches as stdout. Nothing is emitted once
+/// `stop` is set.
+fn forward_sse(reader: impl BufRead + Send, stop: &AtomicBool, mut emit: impl FnMut(Vec<String>)) {
+    let (sender, receiver) = mpsc::sync_channel(OUTPUT_BATCH_LINES);
+    let open = Mutex::new(true);
+    thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut receiver_open = true;
+            read_sse(reader, stop, |data| {
+                receiver_open = sender.send(OutputMessage::Line(data)).is_ok();
+                receiver_open
+            });
+            if receiver_open {
+                let _ = sender.send(OutputMessage::End);
+            }
+        });
+        forward_harness_batches(&receiver, &open, |events| {
+            if !stop.load(Ordering::SeqCst) {
+                emit(events);
+            }
+        });
+    });
+}
+
+/// Visit each event's joined `data` lines. Return `false` to stop reading.
+fn read_sse(reader: impl BufRead, stop: &AtomicBool, mut visit: impl FnMut(String) -> bool) {
     let mut data = String::new();
+    let mut reading = true;
     for_each_lossy_line(reader, |line| {
         if stop.load(Ordering::SeqCst) {
+            reading = false;
             return false;
         }
         if line.starts_with(':') {
@@ -981,15 +1024,8 @@ fn read_sse<R: BufRead>(reader: R, app: &AppHandle, session_id: &str, stop: &Ato
             if data.is_empty() {
                 return true;
             }
-            let payload = std::mem::take(&mut data);
-            let _ = app.emit(
-                SSE_EVENT,
-                HarnessSse {
-                    session_id: session_id.to_string(),
-                    data: payload,
-                },
-            );
-            return true;
+            reading = visit(std::mem::take(&mut data));
+            return reading;
         }
         if let Some(rest) = line.strip_prefix("data:") {
             let piece = rest.strip_prefix(' ').unwrap_or(rest);
@@ -1000,11 +1036,16 @@ fn read_sse<R: BufRead>(reader: R, app: &AppHandle, session_id: &str, stop: &Ato
         }
         true
     });
+    // A final event the server closed without its blank line is still whole.
+    if reading && !data.is_empty() && !stop.load(Ordering::SeqCst) {
+        visit(data);
+    }
 }
 
-fn emit_sse_end(app: &AppHandle, session_id: &str, error: Option<String>) {
-    let _ = app.emit(
-        SSE_END_EVENT,
+fn emit_sse_end(app: &AppHandle, owner: &str, session_id: &str, error: Option<String>) {
+    let _ = app.emit_to(
+        EventTarget::webview(owner),
+        &format!("{SSE_END_EVENT}:{owner}"),
         HarnessSseEnd {
             session_id: session_id.to_string(),
             error,
@@ -2867,6 +2908,57 @@ mod tests {
         reap(child);
         assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    fn sse_payloads(stream: &str) -> Vec<String> {
+        let mut seen = Vec::new();
+        read_sse(stream.as_bytes(), &AtomicBool::new(false), |data| {
+            seen.push(data);
+            true
+        });
+        seen
+    }
+
+    #[test]
+    fn sse_reader_joins_data_lines_and_keeps_a_final_event_without_blank_line() {
+        assert_eq!(
+            sse_payloads(
+                ": ping\ndata: {\"a\":1}\n\nevent: x\ndata: one\ndata:two\n\n\ndata: last"
+            ),
+            vec!["{\"a\":1}", "one\ntwo", "last"]
+        );
+        assert_eq!(sse_payloads("data: tail\n"), vec!["tail"]);
+        assert!(sse_payloads("data: only\n\n: comment\n").len() == 1);
+        let mut seen = Vec::new();
+        read_sse(
+            "data: a\n\ndata: b".as_bytes(),
+            &AtomicBool::new(true),
+            |data| {
+                seen.push(data);
+                true
+            },
+        );
+        assert!(seen.is_empty(), "a stopped stream emits nothing");
+    }
+
+    #[test]
+    fn sse_forwarding_batches_events_in_order_and_flushes_the_tail() {
+        let stream: String = (0..150)
+            .map(|i| format!("data: {i}\n\n"))
+            .collect::<String>()
+            + "data: end";
+        let mut batches = Vec::new();
+        forward_sse(stream.as_bytes(), &AtomicBool::new(false), |events| {
+            batches.push(events)
+        });
+        assert!(batches.len() >= 3, "64-event batches: {}", batches.len());
+        assert!(batches
+            .iter()
+            .all(|batch| batch.len() <= OUTPUT_BATCH_LINES));
+        let flat: Vec<String> = batches.into_iter().flatten().collect();
+        let mut expected: Vec<String> = (0..150).map(|i| i.to_string()).collect();
+        expected.push("end".into());
+        assert_eq!(flat, expected);
     }
 
     #[test]

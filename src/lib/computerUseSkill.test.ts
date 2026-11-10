@@ -3,6 +3,7 @@ import {
   COMPUTER_USE_SKILL_BODY,
   COMPUTER_USE_TASK_GUIDANCE,
 } from "./computerUseSkill";
+import { agentBrowserInstructions } from "./agentBrowser";
 import { AVEN_BROWSER_HOST_POLICY } from "./harness/browserHostPolicy";
 
 describe("desktop control permission guidance", () => {
@@ -77,14 +78,11 @@ describe("desktop control permission guidance", () => {
     expect(COMPUTER_USE_SKILL_BODY).toContain(
       '"action":"appState","windowId":123',
     );
-    expect(AVEN_BROWSER_HOST_POLICY).toContain("appState");
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "call appState again instead of guessing",
-    );
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "each element action returns the window's fresh state with new indexes",
-    );
-    expect(AVEN_BROWSER_HOST_POLICY).not.toContain(
+    // The desktop workflow rides with each conversation's guidance; the
+    // system prompt keeps only the host routing.
+    expect(AVEN_BROWSER_HOST_POLICY).toContain("--aven-desktop");
+    expect(AVEN_BROWSER_HOST_POLICY).not.toContain("appState");
+    expect(COMPUTER_USE_TASK_GUIDANCE).not.toContain(
       "call appState again before the next element action",
     );
   });
@@ -191,27 +189,26 @@ describe("desktop control permission guidance", () => {
     expect(COMPUTER_USE_SKILL_BODY).toContain(
       "explain the limitation with a screenshot of the exact spot and one precise next step",
     );
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "then desktop control inside the page on the Aven window that shows it",
+    const browser = agentBrowserInstructions("/Applications/Aven");
+    expect(browser).toContain(
+      "move to Aven's desktop control (below) inside the page on the Aven window that shows it",
     );
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
+    expect(browser).toContain(
       "Never operate file, open, save or folder dialogs, or Aven's own interface (settings, other chats, approval bars), through desktop control",
     );
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      'with a "stopped-here" screenshot of the exact spot and one precise next step',
-    );
+    expect(browser).toContain('"label":"stopped-here"');
   });
 
   it("tells agents to build on one page instead of opening more mocks", () => {
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "Open keeps one preview page for this chat and builds on it: the same address reloads it, and another route, query, mock file or local server navigates it; it never reloads or navigates a page the user opened, kept or used, or another chat's page. Work in one copy of the project with one preview server, and put options or variants in the same page rather than in another copy or server.",
+    const browser = agentBrowserInstructions("/Applications/Aven");
+    expect(browser).toContain(
+      "Open keeps one preview page for this chat and builds on it",
     );
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "Iterate on a mock-up or preview in place: edit the same file and reload its page, without mock-v2 files or new tabs unless the user asks for alternatives side by side.",
+    expect(browser).toContain(
+      "One copy of the project and one preview server: never make a second copy, branch or server for an option or a variant.",
     );
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "Use newTab:true only for a second page at another path needed at the same time; at the path of your own page it reuses that page.",
-    );
+    expect(browser).toContain("Do not create mock-v2 or mock-v3 files");
+    expect(browser).not.toContain("exact URL");
     expect(AVEN_BROWSER_HOST_POLICY).not.toContain("exact URL");
   });
 
@@ -229,8 +226,6 @@ describe("desktop control permission guidance", () => {
       );
       expect(instructions).toMatch(/do not retry in a loop/i);
     }
-    expect(AVEN_BROWSER_HOST_POLICY).toContain(
-      "While the Mac is locked, desktop actions (observation included) are refused",
-    );
+    expect(AVEN_BROWSER_HOST_POLICY).not.toContain("locked");
   });
 });

@@ -1,6 +1,6 @@
 import {
   fencedBlocksNamed,
-  finalFencedBlock,
+  lastFencedBlock,
   reviewUrl,
 } from "./automationReview";
 import {
@@ -46,7 +46,7 @@ export const MOCKUP_FENCE = "aven-mockup";
 export function parseMockup(
   text: string,
 ): { file: string; note: string } | null {
-  const block = finalFencedBlock(text, MOCKUP_FENCE);
+  const block = lastFencedBlock(text, MOCKUP_FENCE);
   const fields = block ? json(block.body) : null;
   if (!fields) return null;
   const file = botLine(fields.file, 300).replace(/^\.\//, "");
@@ -109,6 +109,21 @@ export function botLine(value: unknown, max = 300): string {
   return cleanUntrusted(value, max).replace(/\s+/g, " ").trim();
 }
 
+/**
+ * A bot's longer words, as it laid them out: secrets out, lines to an AI
+ * dropped (a role-like line inside fenced code is code and stays), clipped.
+ * Newlines and indents are kept; trailing spaces go, and at most one blank
+ * line sits between paragraphs. For one-line fields use `botLine`.
+ */
+export function botText(value: unknown, max = 2_000): string {
+  if (typeof value !== "string") return "";
+  const lines = value
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/, ""));
+  return cleanUntrusted(lines.join("\n"), max, { codeKeepsRoles: true });
+}
+
 function botLines(value: unknown, keep: number, max = 300): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -119,12 +134,12 @@ function botLines(value: unknown, keep: number, max = 300): string[] {
 
 /** The reply without its closing block, for a one-line summary. */
 export function replyBefore(text: string, fence: string): string {
-  return finalFencedBlock(text, fence)?.before ?? text.trim();
+  return lastFencedBlock(text, fence)?.before ?? text.trim();
 }
 
 /** The Builder's handoff note, or null when its reply ends without one. */
 export function parseHandoff(text: string): CrewHandoff | null {
-  const block = finalFencedBlock(text, HANDOFF_FENCE);
+  const block = lastFencedBlock(text, HANDOFF_FENCE);
   const fields = block ? json(block.body) : null;
   if (!fields) return null;
   const question = botLine(fields.question, 400);
@@ -175,7 +190,7 @@ export function parseVerdict(
   text: string,
   scope: { round: number; earlier: readonly CrewFinding[] },
 ): CrewVerdict | null {
-  const block = finalFencedBlock(text, VERDICT_FENCE);
+  const block = lastFencedBlock(text, VERDICT_FENCE);
   const fields = block ? json(block.body) : null;
   if (!fields) return null;
   const findings = (Array.isArray(fields.mustFix) ? fields.mustFix : [])
@@ -361,7 +376,7 @@ export function looksFromOutside(...texts: readonly string[]): boolean {
  * says decides whether it builds by itself (large ones wait for you).
  */
 export function parseIdeas(text: string): ScoutIdea[] {
-  const block = finalFencedBlock(text, IDEAS_FENCE);
+  const block = lastFencedBlock(text, IDEAS_FENCE);
   const fields = block ? json(block.body) : null;
   if (!fields || !Array.isArray(fields.ideas)) return [];
   const ideas: ScoutIdea[] = [];
@@ -428,7 +443,7 @@ export const GOAL_CARDS_PER_TURN = 1;
 export function parseGoal(
   text: string,
 ): { met: boolean; summary: string; next: CrewTask[] } | null {
-  const block = finalFencedBlock(text, GOAL_FENCE);
+  const block = lastFencedBlock(text, GOAL_FENCE);
   const fields = block ? json(block.body) : null;
   if (!fields) return null;
   const met = fields.met === true;
@@ -467,7 +482,7 @@ export function countSources(findings: readonly { source?: string }[]): number {
  * clipped and kept as data.
  */
 export function parseFindings(text: string): ResearchFindings | null {
-  const block = finalFencedBlock(text, FINDINGS_FENCE);
+  const block = lastFencedBlock(text, FINDINGS_FENCE);
   const fields = block ? json(block.body) : null;
   if (!fields) return null;
   const findings: ResearchFindings["findings"] = [];
@@ -525,7 +540,7 @@ export const TASKS_PER_REPLY = 5;
 export function parseTasks(
   text: string,
 ): { tasks: CrewTask[]; goal?: string } | null {
-  const block = finalFencedBlock(text, TASKS_FENCE);
+  const block = lastFencedBlock(text, TASKS_FENCE);
   const fields = block ? json(block.body) : null;
   if (!fields) return null;
   const goal = botLine(fields.goal, 300);

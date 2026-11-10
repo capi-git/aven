@@ -63,7 +63,7 @@ const {
 const { notifyMemoryPressure } = await import("../memoryPressure");
 import type { HarnessEvent, SendTurnInput } from "./types";
 import { newSession, type RuntimeMode, type TurnIntent } from "../session";
-import { applyHarnessEvent } from "./apply";
+import { applyHarnessEvent, applyHarnessEvents } from "./apply";
 
 function parse() {
   return sent.map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -600,7 +600,7 @@ describe("claude provider errors", () => {
     await turn;
     expect(events.some((event) => event.type === "session.error")).toBe(false);
     expect(events.filter((event) => event.type === "message.delta")).toEqual([
-      { type: "message.delta", text: expiredSession },
+      { type: "message.delta", text: expiredSession, append: true },
     ]);
   });
 
@@ -663,7 +663,7 @@ describe("claude provider errors", () => {
         { type: "session.error", message },
       ]);
       expect(events.filter((event) => event.type === "message.delta")).toEqual([
-        { type: "message.delta", text: commentary },
+        { type: "message.delta", text: commentary, append: true },
       ]);
     },
   );
@@ -2452,6 +2452,7 @@ describe("claude manual compaction", () => {
     expect(events).toContainEqual({
       type: "status",
       text: "Compacted context",
+      compacted: true,
     });
     expect(events.some((event) => event.type === "message.delta")).toBe(false);
   });
@@ -2493,6 +2494,56 @@ describe("Claude message-scoped stream reconciliation", () => {
         .join(""),
     ).toBe(texts.join(""));
   });
+  it.each([
+    ["ha", "ha", "haha"],
+    ["1", "10", "110"],
+    ["Hello", "Hello world", "HelloHello world"],
+  ])(
+    "keeps the append %j + %j at the start of a block (no snapshot guess)",
+    async (first, second, whole) => {
+      const { events, turn } = await startTurn("s1");
+      emit({
+        type: "stream_event",
+        event: { type: "message_start", message: { id: "m" } },
+      });
+      for (const thinking of [first, second])
+        emit({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "thinking_delta", thinking },
+          },
+        });
+      for (const text of [first, second])
+        emit({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            index: 1,
+            delta: { type: "text_delta", text },
+          },
+        });
+      emit({
+        type: "assistant",
+        message: { id: "m", content: [{ type: "text", text: whole }] },
+      });
+      emit({ type: "result", subtype: "success" });
+      await turn;
+      const start = newSession("claude", "/repo");
+      for (const session of [
+        applyHarnessEvents(start, events),
+        events.reduce(applyHarnessEvent, start),
+      ]) {
+        expect(
+          session.blocks.find((block) => block.role === "assistant")?.text,
+        ).toBe(whole);
+        expect(
+          session.blocks.find((block) => block.role === "reasoning")?.text,
+        ).toBe(whole);
+      }
+    },
+  );
   it("keeps identical text from distinct message IDs while ignoring replay of the same completed ID", async () => {
     const { events, turn } = await startTurn("s1");
     for (const id of ["a", "b", "b"])

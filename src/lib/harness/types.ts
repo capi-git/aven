@@ -32,6 +32,8 @@ export type HarnessEvent =
       type: "status";
       text: string;
       key?: string;
+      /** The provider compacted the conversation; earlier messages may be gone. */
+      compacted?: true;
       discussionEnd?: DiscussionWrapUpMeta;
       discussionReply?: DiscussionRelayMeta;
     }
@@ -44,9 +46,14 @@ export type HarnessEvent =
       set?: TurnWait;
       clear?: readonly (keyof TurnWait)[];
     }
-  | { type: "message.delta"; text: string; key?: string }
+  /**
+   * `key` routes text to its own block and appends. `append` marks a pure
+   * token append from a provider that never resends snapshots, so repeated
+   * words ("ha" + "ha") stay. Without either, `joinStreamText` decides.
+   */
+  | { type: "message.delta"; text: string; key?: string; append?: boolean }
   | { type: "message.completed"; key?: string }
-  | { type: "reasoning.delta"; text: string }
+  | { type: "reasoning.delta"; text: string; append?: boolean }
   | { type: "reasoning.completed" }
   | {
       type: "tool.started";

@@ -129,19 +129,26 @@ export function withoutDocument(text: string): string {
 
 /** How Avos is told to write a document, and which ones it has. */
 export function documentRules(documents: readonly AvosDocumentMeta[]): string {
-  const listed = documents.slice(0, DOCUMENTS_LISTED);
-  return [
-    `For a substantial report, review, research summary or plan, save the full text as a document. Write it, complete, in Markdown, just before your final block:\n${OPEN}\ntitle: A short title\nsummary: One short description\n\n# The full Markdown\n${CLOSE}\nAven keeps it in your Documents and puts a card for it under your reply; the user opens it beside the chat. Keep your chat answer to the main takeaway and a brief mention of the document: don't repeat its text. At most one document in a reply, and none for a short answer.`,
-    listed.length
-      ? `Your documents so far (id: title):\n${listed
-          .map((entry) => `${entry.id}: ${line(entry.title, 120)}`)
-          .join(
-            "\n",
-          )}\nTo revise one, write the whole document again with a line "id: <its id>" after summary. When the user names one, Aven attaches its text below.`
-      : "",
-  ]
+  return [documentFormat(), documentList(documents)]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/** How Avos is told to write a document: the same every turn. */
+export function documentFormat(): string {
+  return `For a substantial report, review, research summary or plan, save the full text as a document. Write it, complete, in Markdown, just before your final block:\n${OPEN}\ntitle: A short title\nsummary: One short description\n\n# The full Markdown\n${CLOSE}\nAven keeps it in your Documents and puts a card for it under your reply; the user opens it beside the chat. Keep your chat answer to the main takeaway and a brief mention of the document: don't repeat its text. At most one document in a reply, and none for a short answer.`;
+}
+
+/** The documents Avos has, newest listed first; empty when it has none. */
+export function documentList(documents: readonly AvosDocumentMeta[]): string {
+  const listed = documents.slice(0, DOCUMENTS_LISTED);
+  return listed.length
+    ? `Your documents so far (id: title):\n${listed
+        .map((entry) => `${entry.id}: ${line(entry.title, 120)}`)
+        .join(
+          "\n",
+        )}\nTo revise one, write the whole document again with a line "id: <its id>" after summary. When the user names one, Aven attaches its text below.`
+    : "";
 }
 
 /**

@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { logError } from "../errors";
 
 type LinePayload = { sessionId: string; line: string };
 type StdoutPayload = { sessionId: string; lines: string[] } | LinePayload;
 type ExitPayload = { sessionId: string; code: number | null; pid?: number };
-type SsePayload = { sessionId: string; data: string };
+type SsePayload = { sessionId: string; events: string[] };
 type SseEndPayload = { sessionId: string; error?: string | null };
 
 type LineHandler = (line: string) => void;
@@ -42,6 +43,15 @@ export function isCurrentChildExit(
 }
 
 const MAX_BUFFERED = 1000;
+// The first records carry the protocol handshake (init, session id). When an
+// unwatched session overflows, trim from the middle so a late watcher can
+// still bind to the session.
+const KEEP_FIRST_BUFFERED = 50;
+const trimmedSessions = new Set<string>();
+// One native write per child at a time, in call order. Each `harness_write`
+// runs on its own native thread, so back-to-back writes could otherwise land
+// out of order (e.g. a permission answer after the next message).
+const writeQueues = new Map<string, Promise<void>>();
 let bridge: Promise<UnlistenFn[]> | null = null;
 let bridgeAttempt: symbol | null = null;
 let users = 0;
@@ -55,7 +65,15 @@ function pushBounded(
   const queued = map.get(sessionId) ?? [];
   queued.push(item);
   if (queued.length > MAX_BUFFERED) {
-    queued.splice(0, queued.length - MAX_BUFFERED);
+    queued.splice(KEEP_FIRST_BUFFERED, queued.length - MAX_BUFFERED);
+    const key = `${map === sseBuffer ? "sse" : "stdout"}:${sessionId}`;
+    if (!trimmedSessions.has(key)) {
+      trimmedSessions.add(key);
+      logError(
+        "Agent output buffer",
+        `dropped older ${map === sseBuffer ? "events" : "lines"} for ${sessionId} while nothing was watching it (kept the first ${KEEP_FIRST_BUFFERED} and last ${MAX_BUFFERED - KEEP_FIRST_BUFFERED})`,
+      );
+    }
   }
   map.set(sessionId, queued);
 }
@@ -145,21 +163,38 @@ function ensureBridge() {
       ),
     ),
     register(
-      listen<SsePayload>("harness-sse", (event) => {
-        const { sessionId, data } = event.payload;
-        const handler = sseHandlers.get(sessionId);
-        if (handler) {
-          handler(data);
-          return;
-        }
-        if (ownedSse.has(sessionId)) pushBounded(sseBuffer, sessionId, data);
-      }),
+      listen<SsePayload>(
+        `harness-sse:${owner}`,
+        (event) => {
+          const { sessionId, events } = event.payload;
+          let failed = false;
+          let firstError: unknown;
+          for (const data of events) {
+            try {
+              // Look up per event: a handler may unwatch mid-batch.
+              const handler = sseHandlers.get(sessionId);
+              if (handler) handler(data);
+              else if (ownedSse.has(sessionId))
+                pushBounded(sseBuffer, sessionId, data);
+            } catch (error) {
+              if (!failed) firstError = error;
+              failed = true;
+            }
+          }
+          if (failed) throw firstError;
+        },
+        outputOptions,
+      ),
     ),
     register(
-      listen<SseEndPayload>("harness-sse-end", (event) => {
-        const { sessionId, error } = event.payload;
-        sseEndHandlers.get(sessionId)?.(error ?? undefined);
-      }),
+      listen<SseEndPayload>(
+        `harness-sse-end:${owner}`,
+        (event) => {
+          const { sessionId, error } = event.payload;
+          sseEndHandlers.get(sessionId)?.(error ?? undefined);
+        },
+        outputOptions,
+      ),
     ),
   ]).catch((error: unknown) => {
     failed = true;
@@ -189,6 +224,7 @@ function teardownBridge() {
   ownedSse.clear();
   livePid.clear();
   pendingExit.clear();
+  trimmedSessions.clear();
   void pending?.then((fns) => fns.forEach((fn) => fn())).catch(() => undefined);
 }
 
@@ -254,6 +290,7 @@ export function unwatchChild(sessionId: string) {
   ownedChildren.delete(sessionId);
   stderrHandlers.delete(sessionId);
   pendingExit.delete(sessionId);
+  trimmedSessions.delete(`stdout:${sessionId}`);
 }
 
 export function watchSse(
@@ -273,6 +310,7 @@ export function unwatchSse(sessionId: string) {
   sseEndHandlers.delete(sessionId);
   sseBuffer.delete(sessionId);
   ownedSse.delete(sessionId);
+  trimmedSessions.delete(`sse:${sessionId}`);
 }
 
 export async function spawnChild(
@@ -309,7 +347,16 @@ export function prepareCodexStorage(threadId?: string): Promise<{
 }
 
 export function writeChild(sessionId: string, line: string): Promise<void> {
-  return invoke("harness_write", { sessionId, line });
+  const previous = writeQueues.get(sessionId);
+  const send = () => invoke<void>("harness_write", { sessionId, line });
+  // A failed earlier write is reported to its own caller; later writes still go.
+  const write = previous ? previous.then(send, send) : send();
+  writeQueues.set(sessionId, write);
+  const release = () => {
+    if (writeQueues.get(sessionId) === write) writeQueues.delete(sessionId);
+  };
+  void write.then(release, release);
+  return write;
 }
 
 export function killChild(sessionId: string): Promise<void> {
@@ -331,6 +378,7 @@ export function killAllChildren(): Promise<void> {
   ownedSse.clear();
   livePid.clear();
   pendingExit.clear();
+  trimmedSessions.clear();
   return invoke("harness_kill_all");
 }
 

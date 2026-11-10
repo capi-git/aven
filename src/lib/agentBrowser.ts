@@ -17,6 +17,7 @@ import type { AgentDesktopFaces } from "./agentMark";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
 import { agentBrowserWeb } from "./projectBotPermissions";
+import { offerGuidance } from "./agentGuidanceDelivery";
 
 export type AgentBrowserContext = {
   sessionId: string;
@@ -708,14 +709,31 @@ export async function prepareAgentBrowserPrompt(
   // The Git preference applies even when browser tools are unavailable.
   // Not to a lead's workers, which share one checkout and must not commit,
   // nor to race agents, whose copies are never pushed.
-  const git =
+  // Each block rides in full only while the conversation lacks it; the
+  // harness registry swaps it for its reminder otherwise
+  // (`agentGuidanceDelivery.ts`).
+  const gitNote =
     options.worker || isRaceLanePath(context.cwd)
       ? null
       : agentGitInstructions();
+  const git = gitNote
+    ? offerGuidance({
+        kind: "git",
+        full: gitNote,
+        reminder:
+          "<aven-git>The Git preference given earlier in this conversation still applies.</aven-git>",
+      })
+    : null;
   // Where files made for the user go, so the reply can link them for
   // download instead of leaving them in Downloads (see chatDownloads.ts).
   const folder = await agentFilesFolder(context.cwd);
-  const files = folder ? agentFilesInstructions(folder) : null;
+  const files = folder
+    ? offerGuidance({
+        kind: "files",
+        full: agentFilesInstructions(folder),
+        reminder: `<aven-files>Save files made for the user in ${folder} and link them with absolute paths, as described earlier in this conversation.</aven-files>`,
+      })
+    : null;
   const notes = [git, files].filter((note): note is string => !!note);
   const prompt = notes.length ? `${notes.join("\n\n")}\n\n${text}` : text;
   if (options.noBrowser) return prompt;
@@ -751,11 +769,21 @@ async function withBrowserGuidance(
       });
       // Running dev servers reach the agent in the shared-work note
       // (`sharedWorkNote.ts`), only when they change.
+      const executable = quoteExecutable(binding.executablePath);
       const iphone = host?.simulatorProject?.(stored)
-        ? `${agentSimulatorInstructions(binding.executablePath)}\n\n`
+        ? `${offerGuidance({
+            kind: "iphone",
+            full: agentSimulatorInstructions(binding.executablePath),
+            reminder: `<aven-iphone>Aven's iPhone pane is open beside this chat; the iPhone guidance given earlier in this conversation still applies (run ${executable} --aven-simulator --help for the reference).</aven-iphone>`,
+          })}\n\n`
         : "";
       const anyTab = SETTINGS.agentsReadAnyTab.load();
-      return `${agentBrowserInstructions(binding.executablePath, { anyTab })}\n\n${agentDesktopInstructions(binding.executablePath)}\n\n${iphone}${text}`;
+      const browser = offerGuidance({
+        kind: "browser",
+        full: `${agentBrowserInstructions(binding.executablePath, { anyTab })}\n\n${agentDesktopInstructions(binding.executablePath)}`,
+        reminder: agentGuidanceReminder(binding.executablePath),
+      });
+      return `${browser}\n\n${iphone}${text}`;
     } finally {
       release();
     }
@@ -765,6 +793,25 @@ async function withBrowserGuidance(
   }
 }
 
+const BROWSER_UNAVAILABLE = `<aven-browser>In-app browser controls are unavailable for this turn. Do not claim browser actions succeeded or silently switch to Brave or another external browser. Continue other requested work and report this limitation if browser access is needed. Use an external browser only if the user explicitly requests it.</aven-browser>\n\n<aven-desktop-tools>Native desktop control uses the same scoped connection and is also unavailable for this turn. Report the limitation if needed and continue independent work. Do not try another executable, change macOS settings, or install other tools.</aven-desktop-tools>`;
+
+/**
+ * Stands in for the browser and desktop guidance once the conversation
+ * holds it (`agentGuidanceDelivery.ts`).
+ */
+export function agentGuidanceReminder(executablePath: string): string {
+  const executable = quoteExecutable(executablePath);
+  return `<aven-browser>The Aven browser and desktop guidance given earlier in this conversation still applies (executable: ${executable}; run it with --aven-browser --help or --aven-desktop --help for the reference).</aven-browser>`;
+}
+
 function browserUnavailablePrompt(text: string): string {
-  return `<aven-browser>In-app browser controls are unavailable for this turn. Do not claim browser actions succeeded or silently switch to Brave or another external browser. Continue other requested work and report this limitation if browser access is needed. Use an external browser only if the user explicitly requests it.</aven-browser>\n\n<aven-desktop-tools>Native desktop control uses the same scoped connection and is also unavailable for this turn. Report the limitation if needed and continue independent work. Do not try another executable, change macOS settings, or install other tools.</aven-desktop-tools>\n\n${text}`;
+  // Said in full each turn it applies. Remembered in place of the browser
+  // guidance, so that guidance is given in full once it is available again.
+  const unavailable = offerGuidance({
+    kind: "browser",
+    full: BROWSER_UNAVAILABLE,
+    reminder: BROWSER_UNAVAILABLE,
+    repeat: true,
+  });
+  return `${unavailable}\n\n${text}`;
 }

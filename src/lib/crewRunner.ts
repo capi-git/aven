@@ -17,14 +17,14 @@ import {
 } from "./crewModels";
 import {
   TALK_HOPS,
-  TALK_TEXT_MAX,
   jobReport,
   parseTalk,
   talkAnswerText,
   talkMayAddJob,
   talkMayHop,
-  talkMessage,
   talkPassedLine,
+  talkTurn,
+  forwardedAnswer,
   talkTarget,
 } from "./crewTalk";
 import {
@@ -182,6 +182,7 @@ import type { BotSendOptions } from "./projectBotRunner";
 import { botBranch, jobIsLive } from "./projectBots";
 import { findModel } from "./models";
 import { isCodexToolsOpen } from "./harness/codexLockdown";
+import { onGuidanceReset } from "./agentGuidanceDelivery";
 import type { BotSyncNote } from "./projectBotWake";
 import { replyHeadline } from "./projectBotWake";
 import type { Session } from "./session";
@@ -565,6 +566,22 @@ export class CrewRunner {
   private working: ReadonlySet<string> = new Set();
   /** Busy chats a turn waits for: once one is free, the crews are looked at. */
   private waitingOn = new Set<string>();
+  /**
+   * What each chat's provider conversation has already been told for
+   * messages (answer rules, its notes, Avos's documents), by chat id: the
+   * conversation it was told in, and the sections. A later message in the
+   * same conversation leaves those out. Kept in this window only: after a
+   * restart, or in a conversation started afresh, everything goes again.
+   */
+  private talkHeard = new Map<
+    string,
+    {
+      provider?: string;
+      heard: ReadonlySet<string>;
+      /** What a message on its way adds, once its turn ends well. */
+      pending?: { turnId: string; heard: ReadonlySet<string> };
+    }
+  >();
   /** Messages this window is carrying now, by id: each one's chat and timer. */
   private talking = new Map<
     string,
@@ -621,6 +638,9 @@ export class CrewRunner {
         this.watchTurns();
         this.schedule();
       }),
+      // A compacted or replaced conversation may have lost the rules its
+      // earlier messages carried: its next message tells it all again.
+      onGuidanceReset((sessionId) => this.talkHeard.delete(sessionId)),
     );
     this.tick = this.deps.setTimer(() => this.onTick(), TICK_MS);
     this.schedule();
@@ -965,7 +985,15 @@ export class CrewRunner {
             .then((found) => (found ? attachedDocument(found) : null))
             .catch(() => null)
         : null;
-      const text = talkMessage({
+      // A conversation that already has the standing rules gets only
+      // what's new; a new one (or one started afresh) hears it all.
+      const told = this.talkHeard.get(chat.id);
+      const resumed =
+        !!chat.providerSessionId &&
+        !!told &&
+        told.provider === chat.providerSessionId;
+      const turn = talkTurn({
+        ...(resumed ? { heard: told.heard } : {}),
         talk,
         fromName,
         isLead: member.role === "lead",
@@ -1015,6 +1043,13 @@ export class CrewRunner {
               }),
             }),
       });
+      const text = turn.text;
+      this.talkHeard.set(chat.id, {
+        ...(resumed
+          ? { provider: told.provider, heard: told.heard }
+          : { heard: new Set() }),
+        pending: { turnId, heard: new Set(turn.heard) },
+      });
       const label = talk.routine ? "Routine" : `From ${fromName}`;
       const yours = talk.from === "you" && !talk.routine;
       const sent = this.deps.send(chat.id, text, {
@@ -1055,6 +1090,22 @@ export class CrewRunner {
   }
 
   /**
+   * A message's turn ended: what it told the conversation now stands, and
+   * the conversation is known by its provider id. A turn that failed may
+   * have left the conversation anywhere, so the next one tells it all.
+   */
+  private settleHeard(sessionId: string, turnId: string, failed: boolean) {
+    const told = this.talkHeard.get(sessionId);
+    if (told?.pending?.turnId !== turnId) return;
+    const provider = this.chatNow(sessionId)?.providerSessionId;
+    if (failed || !provider) {
+      this.talkHeard.delete(sessionId);
+      return;
+    }
+    this.talkHeard.set(sessionId, { provider, heard: told.pending.heard });
+  }
+
+  /**
    * A teammate answered. Its line goes in the team chat, the Lead's cards to
    * Ideas (where they wait for you), and what it asks to the teammates it
    * names, up to the limit. Only the block ending this reply is read, and
@@ -1091,6 +1142,7 @@ export class CrewRunner {
             outcome?.text?.trim() ||
             "",
         );
+    this.settleHeard(sessionId, turnId, failed);
     const isHelper = member?.role === "helper";
     if (member && !failed && !isHelper)
       this.remember(
@@ -1241,7 +1293,7 @@ export class CrewRunner {
               from: talk.to,
               fromName: `Your helper “${who}”`,
               to: talk.from,
-              text: reply.slice(0, TALK_TEXT_MAX),
+              text: forwardedAnswer(reply),
               hop: talk.hop,
               answer: true,
             })
@@ -1319,15 +1371,17 @@ export class CrewRunner {
           text: `${who} wanted to keep an eye on “${said.job.name}”, but only a message of yours asking for it can set that up. Ask again, and say how often.`,
         });
       if (!crew.on) return next;
-      // Its answer goes back to whoever asked, while there are hops left.
+      // Its answer goes back to whoever asked, even at the last hop: that
+      // teammate is waiting for it. An answer is never answered, and one
+      // past the last hop can't ask anyone, so this can't go round.
       const hop = talk.hop + 1;
-      if (talk.from !== "you" && !talk.answer && reply && talkMayHop(talk))
+      if (talk.from !== "you" && !talk.answer && !talk.report && reply)
         next = withTalk(next, {
           at: now,
           from: member.id,
           to: talk.from,
-          text: reply.slice(0, TALK_TEXT_MAX),
-          hop,
+          text: forwardedAnswer(reply),
+          hop: Math.min(hop, TALK_HOPS),
           answer: true,
         });
       for (const asked of carrying?.mayStartHelpers && !usedWeb
@@ -2031,8 +2085,10 @@ export class CrewRunner {
         role === "security"
           ? !card.rounds.some((round) => round.security)
           : card.round <= 1 && (role === "builder" ? fresh : true);
-      if (freshTalk && chat.providerSessionId)
+      if (freshTalk && chat.providerSessionId) {
         this.deps.freshConversation?.(chat.id);
+        this.talkHeard.delete(chat.id);
+      }
       const brief =
         chat.providerSessionId && !(freshTalk && this.deps.freshConversation)
           ? undefined
@@ -2815,7 +2871,10 @@ export class CrewRunner {
       this.updateWorking();
       const left = ideasLeft(crew, now);
       // Each look starts a new conversation.
-      if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
+      if (chat.providerSessionId) {
+        this.deps.freshConversation?.(chat.id);
+        this.talkHeard.delete(chat.id);
+      }
       const brief =
         chat.providerSessionId && !this.deps.freshConversation
           ? undefined
@@ -3035,7 +3094,10 @@ export class CrewRunner {
       this.updateWorking();
       // Each question starts a new conversation: nothing from one card
       // reaches another.
-      if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
+      if (chat.providerSessionId) {
+        this.deps.freshConversation?.(chat.id);
+        this.talkHeard.delete(chat.id);
+      }
       const brief =
         chat.providerSessionId && !this.deps.freshConversation
           ? undefined
@@ -3545,7 +3607,10 @@ export class CrewRunner {
       }
       turn.sessionId = chat.id;
       this.updateWorking();
-      if (chat.providerSessionId) this.deps.freshConversation?.(chat.id);
+      if (chat.providerSessionId) {
+        this.deps.freshConversation?.(chat.id);
+        this.talkHeard.delete(chat.id);
+      }
       const brief =
         chat.providerSessionId && !this.deps.freshConversation
           ? undefined

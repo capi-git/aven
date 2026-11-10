@@ -696,6 +696,13 @@ function mapItemLifecycle(
   const itemType = stringField(item, "type") ?? "";
   const completed = method === "item/completed";
 
+  if (itemType === "contextCompaction" && completed) {
+    // Codex compacted the thread on its own or on request: say so once, and
+    // let Aven know earlier messages may be gone (see guidance delivery).
+    return {
+      events: [{ type: "status", text: "Compacted context", compacted: true }],
+    };
+  }
   if (SILENT_ITEM_TYPES.has(itemType)) {
     return { events: [] };
   }

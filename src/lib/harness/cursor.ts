@@ -757,7 +757,13 @@ function handleSessionUpdate(live: Live, params: unknown) {
       update.content ?? update.text,
       kind === "agent_message" ? "\n" : "",
     );
-    if (text) live.onEvent({ type: "message.delta", text });
+    // Chunks are exact appends; a whole `agent_message` may resend text.
+    if (text)
+      live.onEvent({
+        type: "message.delta",
+        text,
+        ...(kind === "agent_message_chunk" ? { append: true } : {}),
+      });
     return;
   }
   if (kind === "agent_thought_chunk" || kind === "agent_thought") {
@@ -765,7 +771,12 @@ function handleSessionUpdate(live: Live, params: unknown) {
       update.content ?? update.text,
       kind === "agent_thought" ? "\n" : "",
     );
-    if (text) live.onEvent({ type: "reasoning.delta", text });
+    if (text)
+      live.onEvent({
+        type: "reasoning.delta",
+        text,
+        ...(kind === "agent_thought_chunk" ? { append: true } : {}),
+      });
     return;
   }
   if (

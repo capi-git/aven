@@ -118,7 +118,11 @@ async function startLive(cwd: string): Promise<LiveText> {
       const session = acpRef.session;
       if (!session || method !== "session/update" || !session.collecting)
         return;
-      session.output = mergeStream(session.output, textFromUpdate(params));
+      const { text, chunk } = textFromUpdate(params);
+      // Chunks are exact appends; a whole `agent_message` may resend text.
+      session.output = chunk
+        ? session.output + text
+        : mergeStream(session.output, text);
     },
     onRequest: (id, method, params) => {
       void handleTextRequest(acp, id, method, params);
@@ -285,7 +289,7 @@ function permissionOptionIds(params: unknown): string[] {
   });
 }
 
-function textFromUpdate(params: unknown): string {
+function textFromUpdate(params: unknown): { text: string; chunk: boolean } {
   const rec =
     params && typeof params === "object" && !Array.isArray(params)
       ? (params as Record<string, unknown>)
@@ -294,12 +298,16 @@ function textFromUpdate(params: unknown): string {
     rec?.update && typeof rec.update === "object" && !Array.isArray(rec.update)
       ? (rec.update as Record<string, unknown>)
       : rec;
-  if (!update) return "";
+  if (!update) return { text: "", chunk: false };
   const kind = String(
     update.sessionUpdate ?? update.session_update ?? update.type ?? "",
   );
-  if (kind !== "agent_message_chunk" && kind !== "agent_message") return "";
-  return textFromContent(update.content ?? update.text);
+  if (kind !== "agent_message_chunk" && kind !== "agent_message")
+    return { text: "", chunk: false };
+  return {
+    text: textFromContent(update.content ?? update.text),
+    chunk: kind === "agent_message_chunk",
+  };
 }
 
 function textFromContent(content: unknown): string {

@@ -104,7 +104,7 @@ describe("fx protocol", () => {
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: "Hi" },
       }),
-    ).toEqual([{ type: "message.delta", text: "Hi" }]);
+    ).toEqual([{ type: "message.delta", text: "Hi", append: true }]);
 
     const tools = eventsFromAcpUpdate({
       sessionUpdate: "tool_call",

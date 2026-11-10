@@ -59,6 +59,9 @@ export function redactSecrets(text: string): string {
 const AI_WORDS =
   "(?:ai|a\\.i\\.|llms?|language models?|assistants?|chat ?gpt|gpt(?:-\\d[\\w.]*)?|claude|codex|copilot|gemini|chatbots?)";
 
+/** A chat role marker opening a line ("user: …"). */
+const ROLE_LINE = /^\s*(?:system|assistant|human|user)\s*:/i;
+
 /**
  * Lines that try to steer a model rather than describe a project: prompt
  * injection phrases, text addressed to an AI, chat role markers. Ordinary
@@ -88,7 +91,7 @@ const INSTRUCTION_PATTERNS: readonly RegExp[] = [
   /\[\/?\s*(?:INST|SYS)\s*\]/i,
   /<\/?\s*(?:system|instructions?|assistant|user|human|tool_call|function_call)\s*>/i,
   /^\s{0,3}#{1,6}\s*(?:system|assistant|instructions? for (?:the )?(?:ai|model|agent))\b/i,
-  /^\s*(?:system|assistant|human|user)\s*:/i,
+  ROLE_LINE,
   /<!--.*\b(?:aven|ai|llm|assistant|agents?|model|instructions?|prompt)\b.*-->/i,
   /\baven[-:](?:auto|project-memory)\b|<\/?\s*aven-/i,
 ];
@@ -101,27 +104,62 @@ export function looksLikeAgentInstruction(line: string): boolean {
  * Drop lines addressed to a model. Returns the kept text and how many lines
  * were removed, so a caller can note it.
  */
-export function stripAgentInstructions(text: string): {
+export function stripAgentInstructions(
+  text: string,
+  options: StripOptions = {},
+): {
   text: string;
   removed: number;
 } {
   let removed = 0;
+  let fence: string | null = null;
   const kept = text.split("\n").filter((line) => {
-    if (!looksLikeAgentInstruction(line)) return true;
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    const inCode = fence !== null;
+    if (marker && fence === null) fence = marker;
+    else if (
+      marker &&
+      fence &&
+      marker[0] === fence[0] &&
+      marker.length >= fence.length
+    )
+      fence = null;
+    const steers =
+      options.codeKeepsRoles && inCode
+        ? INSTRUCTION_PATTERNS.some(
+            (pattern) => pattern !== ROLE_LINE && pattern.test(line),
+          )
+        : looksLikeAgentInstruction(line);
+    if (!steers) return true;
     removed += 1;
     return false;
   });
   return { text: kept.join("\n"), removed };
 }
 
+export type StripOptions = {
+  /**
+   * Inside fenced code, a line opening with a role name ("user: string;") is
+   * code, not a chat marker: it stays. Every other rule still applies there.
+   */
+  codeKeepsRoles?: boolean;
+};
+
 /** Redact secrets, drop instructions to models, and cap the length. */
-export function cleanUntrusted(text: string, maxChars: number): string {
+export function cleanUntrusted(
+  text: string,
+  maxChars: number,
+  options: StripOptions = {},
+): string {
   const normalized = text
     .replace(/\r\n?/g, "\n")
     // Control characters other than tab and newline have no place in a digest.
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/g, "");
-  const { text: stripped } = stripAgentInstructions(redactSecrets(normalized));
+  const { text: stripped } = stripAgentInstructions(
+    redactSecrets(normalized),
+    options,
+  );
   return clip(stripped.replace(/\n{3,}/g, "\n\n").trim(), maxChars);
 }
 

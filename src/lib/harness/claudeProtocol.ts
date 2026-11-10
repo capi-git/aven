@@ -286,8 +286,9 @@ export function buildClaudeSpawnArgs(input: {
     // follow-up turn and its result are never mistaken for the user's turn.
     args.push("--replay-user-messages");
     // Add host routing without replacing Claude's default system prompt.
-    // Resumed sessions may reuse a system-prompt snapshot, so per-turn scoped
-    // browser guidance must still be supplied by the app. Project memory
+    // Resumed sessions may reuse a system-prompt snapshot, so the scoped
+    // browser guidance rides in the conversation's messages instead, in full
+    // only while the conversation lacks it (agentGuidanceDelivery). Project memory
     // follows it in the same value; a conversation already under way gets a
     // changed memory with its next message instead (see projectMemoryDelivery).
     args.push(
@@ -535,6 +536,9 @@ const LIFECYCLE_STATUSES = new Set([
   "compact",
 ]);
 
+/** The status row Claude Code's compaction shows when it sends no prose. */
+export const CLAUDE_COMPACTED_STATUS = "Compacted context";
+
 export function statusTextFromSystem(
   rec: Record<string, unknown>,
 ): string | undefined {
@@ -548,7 +552,7 @@ export function statusTextFromSystem(
     text && !LIFECYCLE_STATUSES.has(text.toLowerCase().replace(/[\s.…]+$/, ""));
   if (notable) return text;
   // Compaction is worth one row even when the CLI sends no prose with it.
-  return compact ? "Compacted context" : undefined;
+  return compact ? CLAUDE_COMPACTED_STATUS : undefined;
 }
 
 /**

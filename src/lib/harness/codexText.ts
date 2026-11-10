@@ -15,7 +15,7 @@ import {
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
 import { assertCodexStorage } from "./codexStorage";
-import { mergeStream, streamTextDelta } from "./streamText";
+import { streamTextDelta } from "./streamText";
 
 const INIT_TIMEOUT_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -355,7 +355,8 @@ function handleNotification(
 
   if (method === "item/agentMessage/delta") {
     const delta = streamTextDelta(asRecord(params)?.delta);
-    if (delta) session.output = mergeStream(session.output, delta);
+    // Item deltas are exact appends, including repeated words.
+    if (delta) session.output += delta;
     return;
   }
 

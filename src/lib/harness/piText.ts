@@ -10,7 +10,6 @@ import {
   buildPiSpawnArgs,
   isAgentSettled,
 } from "./piProtocol";
-import { mergeStream } from "./streamText";
 
 const INIT_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -250,7 +249,8 @@ function handleFrame(session: LiveText, rec: Record<string, unknown>) {
   if (!session.collecting) return;
   const delta = assistantDeltaFromEvent(rec);
   if (delta?.kind === "text") {
-    session.output = mergeStream(session.output, delta.text);
+    // Pi text deltas are exact appends, including repeated words.
+    session.output += delta.text;
   }
   if (isAgentSettled(rec) || agentEndWillRetry(rec) === false) {
     if (session.turnDone) finishTurn(session);

@@ -132,16 +132,27 @@ function recordDelivery(providerSessionId: string, revision: string) {
   saveDeliveries(map);
 }
 
-/** A provider bound or resumed a conversation for this chat. */
+/**
+ * A provider bound or resumed a conversation for this chat. True when it
+ * replaced another conversation this chat had (a fork, a fresh session), so
+ * what the earlier one heard no longer counts.
+ */
 export function noteProviderConversation(
   harness: HarnessId,
   sessionId: string,
   providerSessionId: string,
   cwd: string,
-): void {
+): boolean {
   const id = providerSessionId.trim();
-  if (!id) return;
+  if (!id) return false;
+  const previous = conversations.get(sessionId);
   conversations.set(sessionId, { harness, providerSessionId: id, cwd });
+  return (
+    previous != null &&
+    (previous.providerSessionId !== id ||
+      previous.harness !== harness ||
+      previous.cwd !== cwd)
+  );
 }
 
 /** The chat's conversation with this provider was dropped (delete, switch). */

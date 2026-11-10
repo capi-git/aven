@@ -193,6 +193,34 @@ export function finalFencedBlock(
   };
 }
 
+/**
+ * The last complete top-level `name` block in a reply, as its body and the
+ * reply around it. Unlike `finalFencedBlock`, words after the block or an
+ * earlier block of the same name don't void it: a bot that adds a closing
+ * sentence, or writes its block twice, still said what it meant. A block
+ * quoted inside another fence, a quote or a list is still text, and a reply
+ * whose last such block never closes (cut off) has none.
+ * Crews read their bots' handoff notes, verdicts and messages this way.
+ */
+export function lastFencedBlock(
+  text: string,
+  name: string,
+): { body: string; before: string } | null {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const fences = topLevelFences(lines).filter(fenceNamed(name.toLowerCase()));
+  const fence = fences[fences.length - 1];
+  if (!fence || fence.end >= lines.length) return null;
+  const before = lines.slice(0, fence.start).join("\n").trim();
+  const after = lines
+    .slice(fence.end + 1)
+    .join("\n")
+    .trim();
+  return {
+    body: fence.body,
+    before: after ? `${before}\n\n${after}`.trim() : before,
+  };
+}
+
 function kindFrom(fields: Record<string, unknown>): AutomationReviewKind {
   if (
     fields.kind === "publish" ||

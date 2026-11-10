@@ -158,14 +158,14 @@ describe("grok protocol", () => {
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: "Hi" },
       }),
-    ).toEqual([{ type: "message.delta", text: "Hi" }]);
+    ).toEqual([{ type: "message.delta", text: "Hi", append: true }]);
 
     expect(
       eventsFromAcpUpdate({
         sessionUpdate: "agent_thought_chunk",
         content: { type: "text", text: "Hmm" },
       }),
-    ).toEqual([{ type: "reasoning.delta", text: "Hmm" }]);
+    ).toEqual([{ type: "reasoning.delta", text: "Hmm", append: true }]);
 
     const early = eventsFromAcpUpdate({
       sessionUpdate: "tool_call_delta_chunk",

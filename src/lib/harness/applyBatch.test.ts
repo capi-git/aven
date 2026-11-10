@@ -102,6 +102,25 @@ describe("batched harness events", () => {
     expect(oneByOne(session, events).blocks[1].text).toBe("abcabc");
   });
 
+  it("appends marked tokens verbatim and folds them apart from unmarked text", () => {
+    const events: HarnessEvent[] = [
+      { type: "message.delta", text: "ha", append: true },
+      { type: "message.delta", text: "ha", append: true },
+      { type: "message.delta", text: "haha" },
+      { type: "message.delta", text: "1", append: true },
+      { type: "message.delta", text: "10", append: true },
+      { type: "reasoning.delta", text: "1", append: true },
+      { type: "reasoning.delta", text: "10", append: true },
+    ];
+    const session = { ...conversation(), blocks: [] };
+    const batched = applyHarnessEvents(session, events);
+    expect(content(batched)).toEqual(content(oneByOne(session, events)));
+    expect(batched.blocks.map((block) => block.text)).toEqual([
+      "haha110",
+      "110",
+    ]);
+  });
+
   it("retains identity for empty batches, empty reasoning and repeated snapshots", () => {
     const session = conversation();
     expect(applyHarnessEvents(session, [])).toBe(session);

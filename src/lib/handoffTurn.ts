@@ -33,7 +33,9 @@ export async function requestOutgoingHandoff(input: {
       text: buildOutgoingHandoffPrompt(input.userRequest),
       onEvent: (event) => {
         if (event.type === "message.delta") {
-          brief = mergeStream(brief, event.text);
+          brief = event.append
+            ? brief + event.text
+            : mergeStream(brief, event.text);
         }
         if (event.type === "approval.requested") {
           respondHarnessApproval(

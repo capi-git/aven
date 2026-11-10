@@ -360,6 +360,43 @@ export function busyProjectMessage(
   return `${folderName(run.cwd)} is busy with a run in “${leadTitle}”. Finish or stop it there.`;
 }
 
+/** The most of a worker's final reply a task keeps; `get` returns all of it. */
+export const RESULT_KEPT_CHARS = 20_000;
+/** The end of a result that list and wait show for a task still under review. */
+export const RESULT_PREVIEW_CHARS = 600;
+/** The end of a result that the lead's automatic wake-up message carries. */
+export const RESULT_HANDOFF_CHARS = 4_000;
+
+/**
+ * The last `max` characters of a worker's result, starting at a line when
+ * one is close, under a note that says it was shortened and how to read the
+ * rest. Results that fit come back unchanged.
+ */
+export function resultTail(
+  result: string,
+  max: number,
+  rest = " Use get with this taskId for the full result.",
+): string {
+  if (result.length <= max) return result;
+  let tail = result.slice(-max);
+  const line = tail.indexOf("\n");
+  if (line >= 0 && line < max / 3) tail = tail.slice(line + 1);
+  return `[Shortened: the last ${tail.length} of ${result.length} characters.${rest}]\n${tail}`;
+}
+
+/**
+ * A task's result as list and wait report it: omitted once the lead has
+ * reviewed it, received it or cancelled the task, and otherwise only its end.
+ * `get` still returns the whole result.
+ */
+export function resultPreview(task: OrchestrationTask) {
+  if (task.accepted || task.delivered || task.status === "cancelled")
+    return task.result
+      ? { result: undefined, resultChars: task.result.length }
+      : { result: undefined };
+  return { result: resultTail(task.result, RESULT_PREVIEW_CHARS) };
+}
+
 /** The most files a task's result row lists. */
 const TOUCHED_LIMIT = 50;
 
@@ -999,7 +1036,7 @@ export class Orchestrator {
     const run = this.run(id);
     if (!run || run.status !== "active") return prompt;
     const cli = `${shellPath(run.cli)} control`;
-    return `${prompt}\n\n<aven_orchestration>\nYou are the lead of a local Aven run. Coordinate the user's task using ${cli}. Run \`${cli} --help\` before your first command; it documents every action, its exact JSON fields and the retry rule. Credentials are already in your environment; never print them.\nEach call prints one JSON line and exits non-zero unless "ok" is true; read the "error" text, it says what to do next. Unknown JSON fields are rejected rather than ignored, so fix the field name instead of guessing. If a call fails before reaching Aven, retry it with the "requestId" from that response so the work is never queued twice.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the same checkout. You may read and plan; leave file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For installs, Git mutations, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish.\nAgents never prompt the user. When one needs an approval or answers a question, list, get and wait report it as needsInput on that task, and you decide with respond or answer; it stays stopped until you do. Judge the request against the task you assigned, and put it to the user in this conversation only when the call is genuinely theirs.\nSteer a running agent with steer to correct its course without losing its work; use message only once it has stopped. Read results with get or wait; completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. Cancel discarded tasks. A failed task blocks finish until you retry it with message or drop it with cancel. Call finish only when required work and combined validation are complete. You receive worker results automatically when idle; use bounded wait calls while supervising. Do not expose credentials, use worktrees, switch branches or silently escalate worker permissions.\n</aven_orchestration>`;
+    return `${prompt}\n\n<aven_orchestration>\nYou are the lead of a local Aven run. Coordinate the user's task using ${cli}. Run \`${cli} --help\` before your first command; it documents every action, its exact JSON fields and the retry rule. Credentials are already in your environment; never print them.\nEach call prints one JSON line and exits non-zero unless "ok" is true; read the "error" text, it says what to do next. Unknown JSON fields are rejected rather than ignored, so fix the field name instead of guessing. If a call fails before reaching Aven, retry it with the "requestId" from that response so the work is never queued twice.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the same checkout. You may read and plan; leave file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For installs, Git mutations, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish.\nAgents never prompt the user. When one needs an approval or answers a question, list, get and wait report it as needsInput on that task, and you decide with respond or answer; it stays stopped until you do. Judge the request against the task you assigned, and put it to the user in this conversation only when the call is genuinely theirs.\nSteer a running agent with steer to correct its course without losing its work; use message only once it has stopped. list and wait show only the end of a result still under review, marked when shortened, and omit results you already received, reviewed or cancelled; use get for one task's full result. Completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. Cancel discarded tasks. A failed task blocks finish until you retry it with message or drop it with cancel. Call finish only when required work and combined validation are complete. You receive worker results automatically when idle; use bounded wait calls while supervising. Do not expose credentials, use worktrees, switch branches or silently escalate worker permissions.\n</aven_orchestration>`;
   }
   async handle(
     leadId: string,
@@ -1063,6 +1100,7 @@ export class Orchestrator {
       requests: undefined,
       tasks: run.tasks.map((task) => ({
         ...task,
+        ...resultPreview(task),
         prompt: undefined,
         scopes: undefined,
         waitingFor: this.waitingFor(run, task),
@@ -1158,7 +1196,8 @@ export class Orchestrator {
             })),
         };
       case "get": {
-        // The fields list reports, plus this task's own prompt.
+        // The fields list reports, plus this task's own prompt and its
+        // whole stored result.
         const target = task();
         return {
           ...target,
@@ -1544,7 +1583,11 @@ export class Orchestrator {
     const worker = this.host?.session(task.sessionId);
     await this.patchTask(leadId, taskId, {
       status: outcome.status,
-      result: outcome.text.slice(-20_000),
+      result: resultTail(
+        outcome.text,
+        RESULT_KEPT_CHARS,
+        " Earlier output is in the worker's own conversation.",
+      ),
       error: outcome.error,
       delivered: false,
       accepted: false,
@@ -1875,7 +1918,7 @@ export class Orchestrator {
             const summary = results
               .map(
                 (task) =>
-                  `${task.id} — ${task.title}: ${task.status}\n${task.error ?? ""}\n${task.result.slice(-4000)}`,
+                  `${task.id} — ${task.title}: ${task.status}\n${task.error ?? ""}\n${resultTail(task.result, RESULT_HANDOFF_CHARS)}`,
               )
               .join("\n\n");
             const asks = waiting
