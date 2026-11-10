@@ -2,10 +2,14 @@
 
 ## [Unreleased]
 
+## [0.1.177] - 2026-11-10
+
 ### Changed
 
+- **Aven uses the Mac's own pointer again.** The dot pointer flickered while the mouse moved, so it is gone, with its setting in Appearance. The soft dot that shows where an agent works on your Mac stays.
 - **The effort chooser is a list again.** Each level is a row with its name and its colour, and pointing at a level plays its tile ripple, as before 0.1.173. Levels run weakest to strongest for every provider.
 - **The message box's settings sit on plain glass,** as every other menu does: the dots and shading behind them are gone.
+- **The message box's settings read as one plain menu,** like every other menu: one column, each row says its value ("High effort", "Full access", "Colour · Blue"), and colour only marks full access and a usage warning. The popup is narrower, and long mode descriptions wrap instead of being cut.
 
 ## [0.1.176] - 2026-11-09
 
