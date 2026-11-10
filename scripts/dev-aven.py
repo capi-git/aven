@@ -57,10 +57,46 @@ def doctor():
     print('Build tools ready. Aven Dev uses separate chats, settings, and browser data.', flush=True)
 
 
-def ensure_not_running():
+def app_is_running():
     processes = subprocess.check_output(['ps', '-axo', 'comm='], text=True).splitlines()
-    require(not any(line.strip().startswith(str(APP) + '/') for line in processes),
-            'Aven Dev is already running. Quit its window normally before rebuilding.')
+    return any(line.strip().startswith(str(APP) + '/') for line in processes)
+
+
+def ensure_not_running(grace=0):
+    """Fail while any process from this checkout's Aven Dev runs.
+
+    `grace` waits that many seconds for one that is already closing, such as
+    the helpers a just-finished check leaves to wind down. Nothing is stopped.
+    """
+    deadline = time.monotonic() + grace
+    while app_is_running():
+        require(time.monotonic() < deadline,
+                'Aven Dev is already running. Quit its window normally before rebuilding.')
+        time.sleep(0.5)
+
+
+def end_app_group(app, label):
+    """Stop what a finished or timed-out check app left in its process group.
+
+    The check app runs in its own session, so its group holds only that app and
+    its browser helpers. They can outlive the main process for a moment, which
+    made a second check right after a failed one find Aven Dev "already
+    running". Returns once the group is empty or after a final SIGKILL.
+    """
+    for sig, wait in ((signal.SIGTERM, 15), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(app.pid, sig)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            app.poll()  # Reap the main process, or its zombie keeps the group alive.
+            try:
+                os.killpg(app.pid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.2)
+    print(f'Some of the {label} app\'s processes did not stop.', file=sys.stderr)
 
 
 def port_is_available():
@@ -386,6 +422,8 @@ def smoke(keep=False):
                     except subprocess.TimeoutExpired:
                         os.killpg(app.pid, signal.SIGKILL)
                     print(f'The check did not finish within {SMOKE_TIMEOUT} seconds.', file=sys.stderr)
+                finally:
+                    end_app_group(app, 'check')
         stop_stand_ins(root)
         passed = report_smoke(root, app.returncode, timed_out=timed_out)
         return passed
@@ -459,6 +497,8 @@ def iphone_check(keep=False, shots=None):
                     except subprocess.TimeoutExpired:
                         os.killpg(app.pid, signal.SIGKILL)
                     print(f'The check did not finish within {IPHONE_TIMEOUT} seconds.', file=sys.stderr)
+                finally:
+                    end_app_group(app, 'iPhone check')
         stop_stand_ins(root)
         passed = report_smoke(root, app.returncode)
         if shots:
@@ -740,6 +780,8 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None, record=Non
                     except subprocess.TimeoutExpired:
                         os.killpg(app.pid, signal.SIGKILL)
                     print(f'The speed test did not finish within {PERF_TIMEOUT} seconds.', file=sys.stderr)
+                finally:
+                    end_app_group(app, 'speed test')
         stop_stand_ins(root)
         finished = report_perf(root, launched_at, compare)
         if record:
@@ -1075,7 +1117,9 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('An Aven Dev build or preview is already running in this checkout.')
-        ensure_not_running()
+        # A check run right after another (the release workflow's retry) waits
+        # for the last one's helpers to finish closing instead of failing.
+        ensure_not_running(grace=30 if args.smoke or args.iphone or args.perf else 0)
         if not args.build_only:
             require(port_is_available(), f'Port {PORT} is in use. No process was stopped.')
         prepare_bundle()
