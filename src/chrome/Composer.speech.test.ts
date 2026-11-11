@@ -117,6 +117,7 @@ describe("speaking into the message box", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -157,6 +158,95 @@ describe("speaking into the message box", () => {
     await type("Please");
     await say("make the box bigger");
     expect(field().value).toBe("Please make the box bigger");
+  });
+
+  it("keeps what was said before a pause, and adds what's said after it", async () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    await render();
+    await type("Please");
+    await click(mic());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Add a", final: false });
+    await hear({ kind: "words", text: "Add a mic button", final: false });
+    expect(field().value).toBe("Please Add a mic button");
+    // A pause: the Mac's recogniser starts its text again from nothing.
+    vi.advanceTimersByTime(2000);
+    await hear({ kind: "words", text: "And", final: false });
+    expect(field().value).toBe("Please Add a mic button And");
+    await hear({ kind: "words", text: "And make it", final: false });
+    await hear({ kind: "words", text: "And make it round", final: false });
+    expect(field().value).toBe("Please Add a mic button And make it round");
+    // Stopping: its last word on the matter can be nothing at all.
+    await click(mic());
+    await hear({ kind: "words", text: "", final: true });
+    await hear({ kind: "end" });
+    expect(field().value).toBe("Please Add a mic button And make it round");
+    expect(mic().getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("keeps the words around the caret through a pause", async () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    await render();
+    await type("Make the bigger");
+    await act(async () => {
+      field().focus();
+      field().setSelectionRange(8, 8);
+    });
+    await click(mic());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "send button", final: false });
+    await hear({
+      kind: "words",
+      text: "Send button.",
+      final: false,
+      pause: true,
+    });
+    await hear({ kind: "words", text: "And the mic", final: false });
+    expect(field().value).toBe("Make the Send button. And the mic bigger");
+    expect(field().selectionStart).toBe(
+      "Make the Send button. And the mic".length,
+    );
+  });
+
+  it("sends everything said, pauses and all, when Enter comes mid-listen", async () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    await render();
+    await click(mic());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Fix the build", final: false });
+    vi.advanceTimersByTime(2000);
+    await hear({ kind: "words", text: "Then ship it", final: false });
+    await act(async () => {
+      field().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      "Fix the build Then ship it",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(native.cancel).toHaveBeenCalledWith(1);
+    // The recogniser's late words don't come back into the empty box.
+    await hear({ kind: "words", text: "Then ship it.", final: true });
+    expect(field().value).toBe("");
+  });
+
+  it("keeps every word when the recogniser fails after a pause", async () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    await render();
+    await click(mic());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Fix the build", final: false });
+    vi.advanceTimersByTime(2000);
+    await hear({ kind: "words", text: "Then", final: false });
+    await hear({ kind: "error", code: "failed", message: "It stopped." });
+    await hear({ kind: "end" });
+    expect(field().value).toBe("Fix the build Then");
+    expect(mic().getAttribute("aria-pressed")).toBe("false");
+    expect(
+      container.querySelector("[data-dictation-problem]")?.textContent,
+    ).toContain("Couldn't listen: It stopped.");
   });
 
   it("tidies what was said into a brief to edit, with the words one press away", async () => {
