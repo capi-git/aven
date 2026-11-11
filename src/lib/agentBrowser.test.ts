@@ -870,11 +870,16 @@ describe("agent browser session connection", () => {
       surfaces: () => [],
       open: vi.fn(),
     });
-    // The first browser call fails; the made-files folder is asked for first.
+    // The first browser call fails; the made-files folder and the desktop
+    // control status are asked for first.
     const answer = mocks.invoke.getMockImplementation();
     let failed = false;
     mocks.invoke.mockImplementation(async (name: string, args?: unknown) => {
-      if (name !== "agent_files_folder" && !failed) {
+      if (
+        name !== "agent_files_folder" &&
+        name !== "desktop_control_status" &&
+        !failed
+      ) {
         failed = true;
         throw new Error("Not supported");
       }

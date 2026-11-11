@@ -697,6 +697,17 @@ function handleEvent(live: Live, event: Record<string, unknown>): void {
       }
       break;
     }
+    case "session.compacted": {
+      // OpenCode compacted the conversation, on its own or on request: what
+      // earlier messages carried may be gone, so Aven gives it again.
+      if (!payloadSessionId) break;
+      live.onEvent({
+        type: "status",
+        text: "Compacted context",
+        compacted: true,
+      });
+      break;
+    }
     case "session.error": {
       const message = sessionErrorMessage(properties.error);
       if (live.activeTurn && !live.turnBusySeen) {

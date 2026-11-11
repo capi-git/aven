@@ -156,6 +156,27 @@ const runtimeActivity = new Map<string, RuntimeActivity>();
  * not count its project memory as given; giving it twice is harmless.
  */
 const turnStops = new Map<string, number>();
+/**
+ * Compactions per chat. Memory a turn carried does not count as held when
+ * the conversation was compacted while that turn ran.
+ */
+const compactions = new Map<string, number>();
+
+/**
+ * The conversation was compacted: the summary may drop the shared-work note,
+ * the standing guidance and, outside Claude Code's system prompt, the project
+ * memory that earlier messages carried. Each is given again with the next
+ * message.
+ */
+function forgetDeliveredContext(harness: HarnessId, sessionId: string): void {
+  compactions.set(sessionId, (compactions.get(sessionId) ?? 0) + 1);
+  // Claude Code re-renders its system prompt, memory included, after
+  // compacting. A summary elsewhere may drop it, so give it again.
+  if (PROJECT_MEMORY_CHANNELS[harness] !== "system")
+    resetProjectMemoryDelivery(sessionId);
+  resetSharedWorkDelivery(sessionId);
+  resetGuidanceDelivery(sessionId);
+}
 
 function beginRuntimeActivity<T extends CompactContextInput>(
   input: T & { harness: HarnessId },
@@ -195,10 +216,10 @@ function beginRuntimeActivity<T extends CompactContextInput>(
           )
         )
           resetGuidanceDelivery(input.sessionId);
-        // The provider compacted the conversation: the summary may drop the
-        // guidance an earlier message carried.
+        // The provider compacted the conversation on its own: the summary
+        // may drop what earlier messages carried, as after Aven's compaction.
         if (event.type === "status" && event.compacted)
-          resetGuidanceDelivery(input.sessionId);
+          forgetDeliveredContext(input.harness, input.sessionId);
         // Edited files, for other chats in the project; returns at once otherwise.
         observeSharedWorkEvent(input.sessionId, event);
         if (event.type === "agent.updated")
@@ -354,6 +375,7 @@ export function resetHarnessIdlePark(): void {
   pressureUntil = 0;
   runtimeActivity.clear();
   turnStops.clear();
+  compactions.clear();
 }
 
 export function registerHarness(adapter: HarnessAdapter): void {
@@ -404,12 +426,15 @@ export async function sendHarnessTurn(
   const work = prepareSharedWorkTurn({ ...input, text: guidance.text });
   const memory = prepareProjectMemoryTurn({ ...input, text: work.text });
   const stops = turnStops.get(input.sessionId) ?? 0;
+  const compacted = compactions.get(input.sessionId) ?? 0;
   const tracked = beginRuntimeActivity({ ...input, text: memory.text });
   sharedWorkTurnStarted(input);
   try {
     await adapter.sendTurn(tracked.input);
-    if ((turnStops.get(input.sessionId) ?? 0) === stops) memory.commit();
-    else {
+    if ((turnStops.get(input.sessionId) ?? 0) === stops) {
+      if ((compactions.get(input.sessionId) ?? 0) === compacted)
+        memory.commit();
+    } else {
       work.rollback();
       guidance.rollback();
     }
@@ -447,14 +472,7 @@ export async function compactHarnessContext(
   const tracked = beginRuntimeActivity(input);
   try {
     await adapter.compactContext(tracked.input);
-    // Claude Code re-renders its system prompt, memory included, after
-    // compacting. A summary elsewhere may drop it, so give it again.
-    if (PROJECT_MEMORY_CHANNELS[input.harness] !== "system")
-      resetProjectMemoryDelivery(input.sessionId);
-    // The shared-work note and the standing guidance rode on messages the
-    // summary may have dropped.
-    resetSharedWorkDelivery(input.sessionId);
-    resetGuidanceDelivery(input.sessionId);
+    forgetDeliveredContext(input.harness, input.sessionId);
   } finally {
     endRuntimeActivity(input.harness, input.sessionId, tracked.activity);
   }
@@ -475,8 +493,9 @@ export async function steerHarnessTurn(
   }
   cancelIdlePark(input.sessionId);
   // A follow-up mid-turn carries the note too when it changed meanwhile.
-  // Never the full guidance again when the conversation already holds it.
-  const guidance = prepareGuidanceTurn(input);
+  // Never the full guidance again when the conversation already holds it,
+  // nor its reminder: the running turn's message carried one.
+  const guidance = prepareGuidanceTurn({ ...input, steer: true });
   const work = prepareSharedWorkTurn({ ...input, text: guidance.text });
   try {
     await adapter.steerTurn({ ...input, text: work.text });
@@ -561,6 +580,7 @@ export async function forgetHarnessSession(
   reconnectWhenIdle.delete(sessionId);
   clearChatConnections(sessionId);
   turnStops.delete(sessionId);
+  compactions.delete(sessionId);
   // Revoke before awaiting the old child; a replacement turn queues its bind after it.
   try {
     await Promise.all([

@@ -127,6 +127,31 @@ describe("Pi live session", () => {
     await stopPiSession("pi-ansi");
   });
 
+  it("says when Pi compacted the conversation, so Aven gives its context again", async () => {
+    const events: HarnessEvent[] = [];
+    await compactPiContext({
+      sessionId: "pi-auto-compact",
+      cwd: "/repo",
+      model: "pi:default",
+      runtimeMode: "supervised",
+      onEvent: (event) => events.push(event),
+    });
+    const frame = mocks.frames[0]!;
+    frame({ type: "compaction_start" });
+    frame({ type: "compaction_end", aborted: true });
+    expect(
+      events.some((event) => event.type === "status" && event.compacted),
+    ).toBe(false);
+    frame({ type: "compaction_start" });
+    frame({ type: "compaction_end" });
+    expect(events.filter((event) => event.type === "status")).toEqual([
+      { type: "status", text: "Compacting context…" },
+      { type: "status", text: "Compacting context…" },
+      { type: "status", text: "Compacted context", compacted: true },
+    ]);
+    await stopPiSession("pi-auto-compact");
+  });
+
   it("publishes animated extension status as one keyed slot", async () => {
     const events: HarnessEvent[] = [];
     await compactPiContext({

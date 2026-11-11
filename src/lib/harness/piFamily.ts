@@ -765,6 +765,14 @@ function handleFrame(
 
   const status = statusFromPiEvent(rec);
   if (status) live.onEvent({ type: "status", text: status });
+  // Pi compacted the conversation, on its own or on request: what earlier
+  // messages carried may be gone, so Aven gives it again (harness registry).
+  if (type === "compaction_end" && rec.aborted !== true)
+    live.onEvent({
+      type: "status",
+      text: "Compacted context",
+      compacted: true,
+    });
 
   const turnError = turnErrorFromEvent(rec);
   if (turnError !== null) live.turnError = turnError;

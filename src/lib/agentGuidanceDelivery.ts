@@ -8,7 +8,8 @@ import type { HarnessId } from "./session";
  * now rides in full only when this chat's conversation does not hold that
  * exact text: the first message of a conversation, after the text changes,
  * and after the conversation is compacted, replaced or forgotten. Otherwise
- * a one-line reminder takes its place.
+ * a one-line reminder takes its place, and a steer into the running turn,
+ * whose message already carried one, leaves the block out.
  *
  * `agentBrowser.ts` builds the blocks and offers them here with their
  * reminders; the harness registry passes every turn and steer through
@@ -77,6 +78,12 @@ export function prepareGuidanceTurn(input: {
   sessionId: string;
   cwd: string;
   text: string;
+  /**
+   * A follow-up to the turn that is running: that turn's message already
+   * carried the guidance or its reminder, so a block the conversation holds
+   * is left out rather than reminded of.
+   */
+  steer?: boolean;
 }): { text: string; rollback: () => void } {
   const unchanged = { text: input.text, rollback: () => {} };
   // Provider commands (`/compact`) must reach the CLI untouched.
@@ -94,7 +101,9 @@ export function prepareGuidanceTurn(input: {
   let text = input.text;
   for (const block of present) {
     if (!block.repeat && known.get(block.kind) === block.full)
-      text = text.split(block.full).join(block.reminder);
+      text = input.steer
+        ? text.split(`${block.full}\n\n`).join("").split(block.full).join("")
+        : text.split(block.full).join(block.reminder);
     blocks.set(block.kind, block.full);
   }
   const entry: Delivered = { harness: input.harness, cwd: input.cwd, blocks };

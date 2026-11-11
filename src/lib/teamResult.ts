@@ -19,6 +19,7 @@ import { logError } from "./errors";
 import {
   cleanUntrusted,
   clip,
+  clipEnds,
   looksLikeAgentInstruction,
   redactSecrets,
   wrapData,
@@ -139,7 +140,10 @@ export function raceDigest(
     parts.push(
       `--- ${marker} ${unmarked(cleanUntrusted(lane.name, 80), marker)} (${lane.state}; ${stats})${where} ---\n${
         lane.reply.trim()
-          ? unmarked(cleanUntrusted(lane.reply, LANE_REPLY_CHARS), marker)
+          ? unmarked(
+              clipEnds(cleanUntrusted(lane.reply, Infinity), LANE_REPLY_CHARS),
+              marker,
+            )
           : "(no final reply)"
       }`,
     );
@@ -578,7 +582,7 @@ export function raceRecapNote(
 ): string {
   const task = clip(race.prompt.trim(), 600);
   const last = reply.trim()
-    ? `\n\nYour final reply then was:\n\n${clip(reply.trim(), 2_000)}`
+    ? `\n\nYour final reply then was:\n\n${clipEnds(reply.trim(), 2_000)}`
     : "";
   const outcome = race.outcome;
   let kept: string;
@@ -757,14 +761,20 @@ export function runDigest(
   if (run.title)
     parts.push(`Plan: ${unmarked(cleanUntrusted(run.title, 200), marker)}`);
   run.tasks.forEach((task, index) => {
-    const body = [task.error ?? "", task.result.slice(-RESULT_CHARS)]
-      .filter(Boolean)
-      .join("\n");
+    // The error and the result's end, where its outcome is, both survive.
+    const body = clipEnds(
+      cleanUntrusted(
+        [task.error ?? "", task.result.slice(-RESULT_CHARS)]
+          .filter(Boolean)
+          .join("\n"),
+        Infinity,
+      ),
+      RESULT_CHARS,
+      0.3,
+    );
     parts.push(
       `--- ${marker} Worker ${index + 1}: ${unmarked(cleanUntrusted(task.title, 120), marker)} (${task.status}${task.accepted ? ", accepted" : ""}) ---\n${
-        body.trim()
-          ? unmarked(cleanUntrusted(body, RESULT_CHARS), marker)
-          : "(no result)"
+        body.trim() ? unmarked(body, marker) : "(no result)"
       }`,
     );
   });

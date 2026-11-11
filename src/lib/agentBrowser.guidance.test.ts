@@ -34,6 +34,7 @@ function stubLocalStorage() {
 
 let bindFails = false;
 let simulator: string | null = null;
+let desktopState: string | undefined;
 let dispose: (() => void) | undefined;
 
 beforeEach(() => {
@@ -41,6 +42,7 @@ beforeEach(() => {
   stubLocalStorage();
   bindFails = false;
   simulator = null;
+  desktopState = undefined;
   native.listen.mockReset().mockResolvedValue(() => {});
   native.invoke.mockReset().mockImplementation(async (command: string) => {
     if (command === "browser_agent_bind") {
@@ -48,6 +50,8 @@ beforeEach(() => {
       return { executablePath: EXECUTABLE, socketPath: "/private/test.sock" };
     }
     if (command === "agent_files_folder") return "/project/.aven-files";
+    if (command === "desktop_control_status")
+      return desktopState ? { state: desktopState } : undefined;
     return undefined;
   });
 });
@@ -122,7 +126,7 @@ async function setup(
 }
 
 describe("standing guidance per conversation", () => {
-  it("gives the guidance in full once, then a short reminder to turns and steers", async () => {
+  it("gives the guidance in full once, then a short reminder to turns, and nothing to steers", async () => {
     const { send, steer } = await setup();
     const first = await send("Fix the header");
     expect(first).toContain(FULL_BROWSER);
@@ -135,7 +139,8 @@ describe("standing guidance per conversation", () => {
     expect(second).toContain(`executable: '${EXECUTABLE}'`);
     expect(second).toContain("<aven-files>Save files made for the user in");
     expect(second.length).toBeLessThan(first.length / 10);
-    expect(await steer("Also the logo")).toContain(REMINDER);
+    // The running turn's message carried the reminder already.
+    expect(await steer("Also the logo")).toBe("Also the logo");
   });
 
   it("gives the iPhone guidance in full when the pane appears, and a Git change", async () => {
@@ -200,6 +205,41 @@ describe("standing guidance per conversation", () => {
     stop = false;
     expect(await send("Two")).toContain(FULL_BROWSER);
     expect(await send("Three")).toContain(REMINDER);
+  });
+
+  it("says the desktop guidance once, beside the browser guidance that covers Aven's pages", async () => {
+    const { send } = await setup();
+    const first = await send("One");
+    expect(first).toContain("appState");
+    expect(first).toContain(
+      "Other apps' windows still need the user's request or consent.",
+    );
+    // Said once, in the browser guidance, not again in the desktop part.
+    for (const rule of [
+      "Aven's window titles name the tab in front",
+      "stopped-here",
+      "Settings → Skills → Desktop control",
+    ])
+      expect(first.split(rule).length - 1, rule).toBeLessThanOrEqual(2);
+    expect(first).not.toContain("Desktop control is the next route");
+  });
+
+  it("leaves out how to use desktop control while it is turned off, and gives it once it is on", async () => {
+    desktopState = "off";
+    const { send } = await setup();
+    const first = await send("One");
+    expect(first).toContain(FULL_BROWSER);
+    expect(first).toContain("Aven's desktop control is turned off");
+    expect(first).not.toContain("appState");
+    expect(await send("Two")).toContain(REMINDER);
+    desktopState = "ready";
+    const third = await send("Three");
+    expect(third).toContain("appState");
+    expect(third).not.toContain("is turned off");
+    desktopState = "unsupported";
+    expect(await send("Four")).toContain(
+      "Desktop control is not available on this computer.",
+    );
   });
 
   it("says unavailability each turn and gives the full guidance once it is back", async () => {

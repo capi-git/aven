@@ -29,6 +29,7 @@ import { pickKeeperModel, type KeeperModel } from "./memoryKeeperModel";
 import {
   cleanUntrusted,
   clip,
+  clipEnds,
   looksLikeAgentInstruction,
   redactSecrets,
   wrapData,
@@ -59,14 +60,6 @@ const DIGEST_CHARS = 12_000;
 const TOPIC_CHARS = 1_500;
 const MIN_REPLY_CHARS = 500;
 const MAX_REPLY_CHARS = 2_000;
-
-/** A long reply keeps its start and its end, where conclusions usually are. */
-function clipMiddle(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  const head = clip(text, Math.round(maxChars * 0.65));
-  const tail = text.slice(-Math.round(maxChars * 0.3)).replace(/^\S*\s/, "");
-  return `${head}\n[…]\n${tail}`;
-}
 
 /**
  * The discussion as compact, cleaned text for the model: the topic, each
@@ -109,7 +102,8 @@ export function wrapUpDigest(
         parts.push(
           `${name(item.side)}:\n${
             item.text
-              ? cleanUntrusted(clipMiddle(item.text, perReply * 2), perReply)
+              ? // Cleaned whole, then cut: a head-first cut lost the end.
+                clipEnds(cleanUntrusted(item.text, Infinity), perReply)
               : "(not available)"
           }`,
         );

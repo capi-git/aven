@@ -172,6 +172,32 @@ export function clip(text: string, maxChars: number): string {
   return `${(at > maxChars * 0.4 ? cut.slice(0, at) : cut).trimEnd()}…`;
 }
 
+/** Where `clipEnds` left text out. */
+export const CLIP_GAP = "\n[…]\n";
+
+/**
+ * At most `maxChars`, keeping the start and the end, where a reply's
+ * conclusion usually is: the middle gives way, marked by `CLIP_GAP`. Each
+ * cut falls on a word boundary when one is near.
+ */
+export function clipEnds(
+  text: string,
+  maxChars: number,
+  headShare = 0.65,
+): string {
+  if (text.length <= maxChars) return text;
+  const room = Math.max(0, maxChars - CLIP_GAP.length);
+  const headRoom = Math.round(room * headShare);
+  const tailRoom = room - headRoom;
+  let head = text.slice(0, headRoom);
+  const space = head.search(/\s\S*$/);
+  if (space > headRoom * 0.85) head = head.slice(0, space);
+  let tail = tailRoom > 0 ? text.slice(-tailRoom) : "";
+  const start = tail.search(/\s/);
+  if (start >= 0 && start < tailRoom * 0.15) tail = tail.slice(start);
+  return `${head.trimEnd()}${CLIP_GAP}${tail.trimStart()}`;
+}
+
 /**
  * Wrap untrusted material in a tag the instructions refer to. A copy of the
  * tag inside the material is defused, so it cannot close the block early.

@@ -185,17 +185,20 @@ describe("relay rules", () => {
   });
 
   it("caps long replies, notes the truncation and marks the block", () => {
-    const long = `${"word ".repeat(2_000)}tail`;
+    const long = `opening ${"word ".repeat(2_000)}So: ship the cache.`;
     const capped = capRelay(long, 100);
     expect(capped.truncated).toBe(true);
-    expect(capped.text.length).toBeLessThanOrEqual(101);
-    expect(capped.text.endsWith("…")).toBe(true);
+    expect(capped.text.length).toBeLessThanOrEqual(100);
+    // The start and the conclusion both reach the other chat.
+    expect(capped.text.startsWith("opening word")).toBe(true);
+    expect(capped.text.endsWith("So: ship the cache.")).toBe(true);
+    expect(capped.text).toContain("[…]");
 
     const discussion = reply(fresh(), "x".repeat(9_000));
     expect(discussion.truncated).toBe(true);
     expect(discussion.relay.length).toBeLessThanOrEqual(8_001);
     expect(relayPrompt(discussion)).toContain(
-      "[Aven shortened this message to 8,000 characters.]",
+      "[Aven shortened this message to 8,000 characters by leaving out part of its middle.]",
     );
     expect(relayBlockMeta(discussion).truncated).toBe(true);
     expect(reply(discussion, "short").truncated).toBeUndefined();

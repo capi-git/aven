@@ -1,7 +1,10 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { normalizeBrowserUrl } from "./browser";
-import { COMPUTER_USE_TASK_GUIDANCE } from "./computerUseSkill";
+import {
+  COMPUTER_USE_GUIDANCE_BESIDE_BROWSER,
+  COMPUTER_USE_TASK_GUIDANCE,
+} from "./computerUseSkill";
 import { failureText } from "./errors";
 import { listenerGroup } from "./listenerGroup";
 import type { EditorNavigation } from "./search";
@@ -658,9 +661,66 @@ function quoteExecutable(executablePath: string): string {
   return `'${executablePath.replace(/'/g, "'\\''")}'`;
 }
 
-export function agentDesktopInstructions(executablePath: string): string {
+export function agentDesktopInstructions(
+  executablePath: string,
+  {
+    besideBrowser = false,
+  }: {
+    /**
+     * The browser guidance rides in the same message and already says how
+     * desktop control serves Aven's pages and when to stop, so those parts
+     * are left out here.
+     */
+    besideBrowser?: boolean;
+  } = {},
+): string {
   const executable = quoteExecutable(executablePath);
-  return `<aven-desktop-tools>${COMPUTER_USE_TASK_GUIDANCE}\nRun ${executable} --aven-desktop '{"action":"status"}' to check availability. Use ${executable} --aven-desktop --help for the current command reference.</aven-desktop-tools>`;
+  const guidance = besideBrowser
+    ? COMPUTER_USE_GUIDANCE_BESIDE_BROWSER
+    : COMPUTER_USE_TASK_GUIDANCE;
+  return `<aven-desktop-tools>${guidance}\nRun ${executable} --aven-desktop '{"action":"status"}' to check availability. Use ${executable} --aven-desktop --help for the current command reference.</aven-desktop-tools>`;
+}
+
+/**
+ * Stands in for the desktop guidance while the user has desktop control
+ * turned off, or where the computer has none: an agent cannot use it then.
+ * Turning it on changes the message's guidance, so the full text follows.
+ */
+export const AGENT_DESKTOP_OFF = `<aven-desktop-tools>Aven's desktop control is turned off, so how to use it is left out. If a step needs it (a canvas app in the in-app browser, or another app on this Mac), ask the user once to turn it on in Settings → Skills → Desktop control, naming the step, and keep going with what you can do. Do not try another executable, change macOS settings or install other tools.</aven-desktop-tools>`;
+export const AGENT_DESKTOP_UNSUPPORTED = `<aven-desktop-tools>Desktop control is not available on this computer. If a step needs it, report the limitation; do not try another executable or install other tools.</aven-desktop-tools>`;
+
+/** How long a message waits to learn whether desktop control is on. */
+const DESKTOP_STATUS_WAIT_MS = 300;
+
+/**
+ * Whether desktop control is off or unsupported, so its guidance can be left
+ * out. Unknown (slow, failed) counts as on: the full guidance is the safe side.
+ */
+async function desktopControlState(): Promise<"off" | "unsupported" | "on"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const status = await Promise.race([
+      invoke<{ state?: unknown } | undefined>("desktop_control_status"),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), DESKTOP_STATUS_WAIT_MS);
+      }),
+    ]);
+    const state = status?.state;
+    return state === "off" || state === "unsupported" ? state : "on";
+  } catch {
+    return "on";
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function agentDesktopGuidance(
+  executablePath: string,
+  state: "off" | "unsupported" | "on",
+): string {
+  if (state === "off") return AGENT_DESKTOP_OFF;
+  if (state === "unsupported") return AGENT_DESKTOP_UNSUPPORTED;
+  return agentDesktopInstructions(executablePath, { besideBrowser: true });
 }
 
 /**
@@ -756,6 +816,8 @@ async function withBrowserGuidance(
   contexts.set(context.sessionId, stored);
   try {
     await hostReady;
+    // Asked beside the binding, so the message waits for neither twice.
+    const desktopState = desktopControlState();
     const release = protectSessionBrowserPages(stored);
     try {
       // Sleeping pages stay asleep: the agent's first look at its pages
@@ -778,9 +840,13 @@ async function withBrowserGuidance(
           })}\n\n`
         : "";
       const anyTab = SETTINGS.agentsReadAnyTab.load();
+      const desktop = agentDesktopGuidance(
+        binding.executablePath,
+        await desktopState,
+      );
       const browser = offerGuidance({
         kind: "browser",
-        full: `${agentBrowserInstructions(binding.executablePath, { anyTab })}\n\n${agentDesktopInstructions(binding.executablePath)}`,
+        full: `${agentBrowserInstructions(binding.executablePath, { anyTab })}\n\n${desktop}`,
         reminder: agentGuidanceReminder(binding.executablePath),
       });
       return `${browser}\n\n${iphone}${text}`;

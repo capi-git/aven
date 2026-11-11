@@ -260,7 +260,19 @@ export type BotBriefInput = {
 export type BotMemoryInput = {
   /** Its notes about the project, read as data. */
   memory?: string;
+  /** Its conversation already holds its current notes: they are not repeated. */
+  notesKept?: true;
 };
+
+/** The notes, or a line saying the ones shown earlier still stand. */
+function notesLines(input: BotMemoryInput): string[] {
+  if (input.notesKept)
+    return [
+      "Your notes about this project are unchanged since they were last shown in this conversation.",
+      "",
+    ];
+  return memoryLines(input.memory);
+}
 
 /**
  * The bot's role, given on the first message of a conversation: who it is,
@@ -294,7 +306,7 @@ export function buildWakeMessage(
 ): string {
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
-  lines.push(...memoryLines(input.memory));
+  lines.push(...notesLines(input));
   lines.push("Something changed in the project:");
   for (const event of input.events) lines.push(...eventLines(event));
   lines.push("");
@@ -328,7 +340,7 @@ export function buildDirectMessage(
         : "";
   return [
     ...(input.brief ? [input.brief, ""] : []),
-    ...memoryLines(input.memory),
+    ...notesLines(input),
     input.text,
     ...(aside ? ["", aside] : []),
   ]

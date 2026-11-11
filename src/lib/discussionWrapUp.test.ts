@@ -147,7 +147,16 @@ describe("wrapUpDigest", () => {
     const { discussion, transcripts } = finished([long, long]);
     const digest = wrapUpDigest(discussion, transcripts)!;
     expect(digest).toContain("Start.");
+    // The conclusion survives, even for a reply only a little over its share.
+    expect(digest.match(/Conclusion: cache it\./g)).toHaveLength(2);
     expect(digest.length).toBeLessThan(14_000);
+    const medium = `Start. ${"middle ".repeat(450)}Conclusion: cache it.`;
+    const short = finished([medium, medium]);
+    expect(
+      wrapUpDigest(short.discussion, short.transcripts)!.match(
+        /Conclusion: cache it\./g,
+      ),
+    ).toHaveLength(2);
   });
 
   it("is null when no reply can be read here", () => {

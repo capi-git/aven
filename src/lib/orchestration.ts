@@ -14,6 +14,7 @@ import {
 } from "./session";
 import type { ApprovalDecision, HarnessEvent } from "./harness/types";
 import { pendingApprovalForSession } from "./approvalToast";
+import { onGuidanceReset } from "./agentGuidanceDelivery";
 import { logError } from "./errors";
 import { pendingRequestKey } from "./teamAttention";
 import { displayPath } from "./paths";
@@ -533,6 +534,16 @@ const listed = (values: string[], max = 12) =>
     ? `${values.slice(0, max).join(", ")} (+${values.length - max} more)`
     : values.join(", ");
 
+/** A lead's standing rules for its run, in full. */
+export function leadBrief(cli: string): string {
+  return `<aven_orchestration>\nYou are the lead of a local Aven run. Coordinate the user's task using ${cli}. Run \`${cli} --help\` before your first command; it documents every action, its exact JSON fields and the retry rule. Credentials are already in your environment; never print them.\nEach call prints one JSON line and exits non-zero unless "ok" is true; read the "error" text, it says what to do next. Unknown JSON fields are rejected rather than ignored, so fix the field name instead of guessing. If a call fails before reaching Aven, retry it with the "requestId" from that response so the work is never queued twice.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the same checkout. You may read and plan; leave file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For installs, Git mutations, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish.\nAgents never prompt the user. When one needs an approval or answers a question, list, get and wait report it as needsInput on that task, and you decide with respond or answer; it stays stopped until you do. Judge the request against the task you assigned, and put it to the user in this conversation only when the call is genuinely theirs.\nSteer a running agent with steer to correct its course without losing its work; use message only once it has stopped. list and wait show only the end of a result still under review, marked when shortened, and omit results you already received, reviewed or cancelled; use get for one task's full result. Completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. Cancel discarded tasks. A failed task blocks finish until you retry it with message or drop it with cancel. Call finish only when required work and combined validation are complete. You receive worker results automatically when idle; use bounded wait calls while supervising. Do not expose credentials, use worktrees, switch branches or silently escalate worker permissions.\n</aven_orchestration>`;
+}
+
+/** What stands in for `leadBrief` once the lead's conversation holds it. */
+export function leadReminder(cli: string): string {
+  return `<aven_orchestration>\nYou are still the lead of this Aven run; the rules given with its first message still apply. Coordinate it with ${cli}. Run \`${cli} --help\` again if you need an action or its JSON fields. You receive worker results automatically when idle. Never print credentials.\n</aven_orchestration>`;
+}
+
 export class Orchestrator {
   private runs: OrchestrationRun[] = [];
   private listeners = new Set<() => void>();
@@ -552,6 +563,11 @@ export class Orchestrator {
     { signature: string; promise: Promise<unknown> }
   >();
   private host: OrchestrationHost | null = null;
+  /**
+   * Each lead's run rules, by lead id: for which run they were sent and
+   * whether a turn carrying them ended well. Kept in this window only.
+   */
+  private briefed = new Map<string, { key: string; confirmed: boolean }>();
   private outcomeListeners = new Set<(outcome: RunOutcome) => void>();
   private revokeAfterReply = new Map<string, ReturnType<typeof setTimeout>>();
   /** Waits before a stalled run or an unanswered request is raised to you. */
@@ -559,7 +575,10 @@ export class Orchestrator {
     string,
     { timer: ReturnType<typeof setTimeout>; token: string }
   >();
-  constructor(private readonly store: Storage = storage) {}
+  constructor(private readonly store: Storage = storage) {
+    // A compacted, replaced or forgotten conversation may have lost them.
+    onGuidanceReset((sessionId) => this.briefed.delete(sessionId));
+  }
   bind(host: OrchestrationHost) {
     this.host = host;
   }
@@ -886,7 +905,8 @@ export class Orchestrator {
       leadId,
       `The user confirmed the orchestration card, including any edits. The app has already queued the exact assignments below; do not delegate duplicates. Supervise them through the control CLI, review their changes, request corrections when needed, and finish the original request.\n\nOriginal request:\n${proposal.request}\n\nApproved assignments:\n${JSON.stringify(tasks.map(({ id, title, prompt, harness, model, files, dependsOn, role }) => ({ taskId: id, title, prompt, harness, model, files, dependsOn, ...(role ? { role: agentRole(role).name } : {}) })))}`,
       (outcome) => {
-        if (outcome.status !== "completed")
+        if (outcome.status === "completed") this.briefingHeard(leadId);
+        else
           void this.pause(
             leadId,
             outcome.error
@@ -956,6 +976,7 @@ export class Orchestrator {
     clearTimeout(this.revokeAfterReply.get(leadId));
     this.revokeAfterReply.delete(leadId);
     const cli = await this.store.enable(leadId, lead.cwd);
+    this.briefed.delete(leadId);
     try {
       await this.host!.stop(leadId); // Refresh the child environment before its next turn.
       await this.commit({
@@ -1032,11 +1053,28 @@ export class Orchestrator {
     const lead = this.host?.session(run.leadId);
     return lead ? sessionDisplayTitle(lead.title, lead.harness) : undefined;
   }
+  /**
+   * What a lead's message carries for its run: the full rules while its
+   * conversation may not hold them (a run's first message, after a pause or
+   * a failed turn, after compaction or a new provider conversation), and a
+   * short reminder once a turn that carried them ended well. The reminder
+   * keeps the tag and the `--help` line the real-app check reads.
+   */
   prompt(id: string, prompt: string): string {
     const run = this.run(id);
     if (!run || run.status !== "active") return prompt;
     const cli = `${shellPath(run.cli)} control`;
-    return `${prompt}\n\n<aven_orchestration>\nYou are the lead of a local Aven run. Coordinate the user's task using ${cli}. Run \`${cli} --help\` before your first command; it documents every action, its exact JSON fields and the retry rule. Credentials are already in your environment; never print them.\nEach call prints one JSON line and exits non-zero unless "ok" is true; read the "error" text, it says what to do next. Unknown JSON fields are rejected rather than ignored, so fix the field name instead of guessing. If a call fails before reaching Aven, retry it with the "requestId" from that response so the work is never queued twice.\nUse list to discover allowed harness/model IDs. Delegate bounded tasks with project-relative files (directories reserve their descendants), self-contained prompts and dependsOn task IDs. Use the same checkout. You may read and plan; leave file edits to workers. Never start workers outside this CLI. Workers with overlapping files are queued. For installs, Git mutations, generators or broad formatting, assign a separate task with files ["."] and wait for other workers to finish.\nAgents never prompt the user. When one needs an approval or answers a question, list, get and wait report it as needsInput on that task, and you decide with respond or answer; it stays stopped until you do. Judge the request against the task you assigned, and put it to the user in this conversation only when the call is genuinely theirs.\nSteer a running agent with steer to correct its course without losing its work; use message only once it has stopped. list and wait show only the end of a result still under review, marked when shortened, and omit results you already received, reviewed or cancelled; use get for one task's full result. Completed means a turn finished, not that the work passed review. Review the actual changes, message a worker for fixes, and use review to accept each completed task. Cancel discarded tasks. A failed task blocks finish until you retry it with message or drop it with cancel. Call finish only when required work and combined validation are complete. You receive worker results automatically when idle; use bounded wait calls while supervising. Do not expose credentials, use worktrees, switch branches or silently escalate worker permissions.\n</aven_orchestration>`;
+    const key = `${run.startedAt ?? ""}|${run.cli}`;
+    const told = this.briefed.get(id);
+    if (told?.key === key && told.confirmed)
+      return `${prompt}\n\n${leadReminder(cli)}`;
+    this.briefed.set(id, { key, confirmed: false });
+    return `${prompt}\n\n${leadBrief(cli)}`;
+  }
+  /** A lead turn ended well: the rules it carried now stand in its conversation. */
+  private briefingHeard(leadId: string) {
+    const told = this.briefed.get(leadId);
+    if (told) this.briefed.set(leadId, { ...told, confirmed: true });
   }
   async handle(
     leadId: string,
@@ -1625,6 +1663,8 @@ export class Orchestrator {
   ) {
     const run = this.run(leadId);
     if (!run || run.status !== "active") return;
+    // Its next lead turn may follow a failed one: give the rules again.
+    this.briefed.delete(leadId);
     await this.commit({
       ...(patch ? patch(run) : run),
       status: "paused",
@@ -1959,7 +1999,10 @@ export class Orchestrator {
                     ),
                   }),
                 ).catch(console.error);
-              } else this.sync();
+              } else {
+                this.briefingHeard(run.leadId);
+                this.sync();
+              }
             });
           } catch (error) {
             console.error("Orchestration continuation failed", error);

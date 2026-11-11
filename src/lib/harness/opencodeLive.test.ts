@@ -191,6 +191,23 @@ describe("OpenCode turn boundaries", () => {
   });
 });
 
+describe("OpenCode compaction", () => {
+  it("says when this session was compacted, so Aven gives its context again", async () => {
+    const events: HarnessEvent[] = [];
+    const turn = send("supervised", events);
+    await waitForPrompt(1);
+    status("busy");
+    onEvent!({ type: "session.compacted", properties: { sessionID: "other" } });
+    onEvent!({ type: "session.compacted", properties: {} });
+    onEvent!({ type: "session.compacted", properties: { sessionID: "oc_1" } });
+    status("idle");
+    await turn;
+    expect(events.filter((event) => event.type === "status")).toEqual([
+      { type: "status", text: "Compacted context", compacted: true },
+    ]);
+  });
+});
+
 describe("OpenCode access propagation", () => {
   it("creates Full access sessions and allows residual permission requests without hiding questions", async () => {
     const events: HarnessEvent[] = [];

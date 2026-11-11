@@ -29,6 +29,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readAgentRole, roleBrief, type AgentRoleId } from "./agentRoles";
 import { logError } from "./errors";
+import { clipEnds } from "./memoryKeeperSafety";
 import { isPreparingHandoff } from "./handoff";
 import { pathKey, projectName } from "./paths";
 import { isProjectlessCwd } from "./projectlessWorkspace";
@@ -250,17 +251,17 @@ export function completedRounds(discussion: Discussion): number {
   return Math.min(discussion.rounds, Math.floor(discussion.settled / 2));
 }
 
-/** Shorten a reply to the relay limit, preferring a word boundary. */
+/**
+ * Shorten a reply to the relay limit, keeping its start and its end (where
+ * a reply's conclusion or question usually is) and leaving out the middle.
+ */
 export function capRelay(
   text: string,
   limit = RELAY_CHAR_LIMIT,
 ): { text: string; truncated: boolean } {
   const trimmed = text.trim();
   if (trimmed.length <= limit) return { text: trimmed, truncated: false };
-  let cut = trimmed.slice(0, limit);
-  const space = cut.search(/\s\S*$/);
-  if (space > limit * 0.9) cut = cut.slice(0, space);
-  return { text: `${cut.trimEnd()}…`, truncated: true };
+  return { text: clipEnds(trimmed, limit, 0.7), truncated: true };
 }
 
 // --- Prompts -----------------------------------------------------------------
@@ -350,7 +351,7 @@ export function relayPrompt(
     parts.push(`${partyLabel(sender)} says:`, discussion.relay);
     if (discussion.truncated)
       parts.push(
-        `[Aven shortened this message to ${limit.toLocaleString("en-US")} characters.]`,
+        `[Aven shortened this message to ${limit.toLocaleString("en-US")} characters by leaving out part of its middle.]`,
       );
   }
   parts.push(...fresh.map(userAdds));

@@ -79,6 +79,7 @@ import {
 } from "./crewLoop";
 import {
   builderMessage,
+  cardHeard,
   checkerMessage,
   crewBrief,
   crewGuidanceText,
@@ -2145,6 +2146,16 @@ export class CrewRunner {
         ...(member.memory ? { memory: member.memory } : {}),
         ...(member.scope?.length ? { scope: member.scope } : {}),
       };
+      // A later round in the conversation that already has the project's
+      // description, the notes and the member's instructions leaves them out.
+      const told = this.talkHeard.get(chat.id);
+      const heard =
+        !brief &&
+        !freshTalk &&
+        !!chat.providerSessionId &&
+        told?.provider === chat.providerSessionId
+          ? told.heard
+          : undefined;
       const text =
         role === "builder"
           ? builderMessage({
@@ -2155,6 +2166,7 @@ export class CrewRunner {
               brief,
               sync: prepared.sync,
               guidance,
+              ...(heard ? { heard } : {}),
             })
           : role === "security"
             ? securityMessage({
@@ -2164,6 +2176,7 @@ export class CrewRunner {
                 names,
                 brief,
                 guidance,
+                ...(heard ? { heard } : {}),
               })
             : checkerMessage({
                 card,
@@ -2173,7 +2186,16 @@ export class CrewRunner {
                 brief,
                 guidance,
                 ...(builderScope ? { builderScope } : {}),
+                ...(heard ? { heard } : {}),
               });
+      const standing = {
+        about: crew.about,
+        notes: crew.notes,
+        guidance:
+          role === "builder"
+            ? guidance
+            : { instructions: guidance.instructions, memory: guidance.memory },
+      };
       const label = crewTurnLabel({
         role,
         card,
@@ -2191,6 +2213,15 @@ export class CrewRunner {
       // off meanwhile: nothing goes.
       if (!this.mayStillSend(path, onAt, cardId, from))
         return this.endTurn(path, turn);
+      this.talkHeard.set(chat.id, {
+        ...(heard && told
+          ? { provider: told.provider, heard }
+          : { heard: new Set<string>() }),
+        pending: {
+          turnId: turn.turnId,
+          heard: new Set(cardHeard(standing, heard)),
+        },
+      });
       const sent = this.deps.send(chat.id, text, {
         displayText: label,
         botWake: { label },
@@ -2393,6 +2424,17 @@ export class CrewRunner {
   /** A turn ended: read it once, whichever of its end, the heartbeat or a recovery comes first. */
   async afterTurn(path: string, turn: LiveTurn, outcome?: ControlOutcome) {
     if (!this.markHandled(turn.turnId)) return;
+    // A card's turn told its conversation the standing sections; one with
+    // no clear end may have left it anywhere, so the next tells it all.
+    if (turn.sessionId)
+      this.settleHeard(
+        turn.sessionId,
+        turn.turnId,
+        !outcome ||
+          !!turn.timedOut ||
+          outcome.status === "failed" ||
+          outcome.status === "cancelled",
+      );
     try {
       this.remember(path, turn, outcome);
       if (turn.goal) await this.afterGoal(path, turn, outcome);

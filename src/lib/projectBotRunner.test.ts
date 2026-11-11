@@ -17,6 +17,13 @@ import {
 } from "./projectBots";
 import type { BotDiff } from "./projectBotCopy";
 import type { Session } from "./session";
+import { resetGuidanceDelivery } from "./agentGuidanceDelivery";
+import { getCrew } from "./crews";
+
+vi.mock("./crews", async (original) => {
+  const actual = await original<typeof import("./crews")>();
+  return { ...actual, getCrew: vi.fn(actual.getCrew) };
+});
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -631,6 +638,48 @@ describe("a project bot waking up", () => {
     // A chat that is not a bot's is not the runner's to send.
     expect(h.runner.message("other", "hi", [])).toBe(false);
     h.runner.stop();
+  });
+
+  it("shows the Fixer's notes once per conversation, and again once it may have lost them", async () => {
+    const notes = "AVEN_NOTE: the tests run with npm test";
+    vi.mocked(getCrew).mockReturnValue({
+      members: [{ id: "f", role: "fixer", memory: notes }],
+    } as unknown as ReturnType<typeof getCrew>);
+    const h = harness();
+    h.runner.start();
+    const wake = async () => {
+      await h.finish("chat-a");
+      await h.advance(BOT_SETTLE_MS);
+      const text = h.sent.at(-1)!.text;
+      // The conversation now has a provider id, as after its first turn.
+      h.sessions = h.sessions.map((session) =>
+        session.id === "bot-chat"
+          ? { ...session, providerSessionId: "sess" }
+          : session,
+      );
+      await h.reply("Nothing to report.");
+      return text;
+    };
+    const first = await wake();
+    expect(first).toContain("You are Jelly");
+    expect(first).toContain(notes);
+    const second = await wake();
+    expect(second).not.toContain(notes);
+    expect(second).not.toContain("You are Jelly");
+    expect(second).toContain("Your notes about this project are unchanged");
+    // Compacted: its role and its notes go again, once.
+    resetGuidanceDelivery("bot-chat");
+    const third = await wake();
+    expect(third).toContain("You are Jelly");
+    expect(third).toContain(notes);
+    expect(await wake()).not.toContain(notes);
+    // Notes that changed are shown.
+    vi.mocked(getCrew).mockReturnValue({
+      members: [{ id: "f", role: "fixer", memory: `${notes}\nmore` }],
+    } as unknown as ReturnType<typeof getCrew>);
+    expect(await wake()).toContain("more");
+    h.runner.stop();
+    vi.mocked(getCrew).mockReset();
   });
 
   it("forgets jobs an earlier page left and costs nothing once stopped", async () => {
