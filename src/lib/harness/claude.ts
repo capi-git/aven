@@ -854,6 +854,13 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
     live.streamingMessageId = stringField(asRecord(event.message), "id");
     live.emittedAssistant = "";
   }
+  if (!subagent && event?.type === "message_stop") {
+    // Only now is the message whole: its assistant records came one per block.
+    if (live.streamingMessageId)
+      live.completedMessages.add(live.streamingMessageId);
+    live.streamingMessageId = undefined;
+    return;
+  }
   const delta = streamDeltaFromEvent(rec);
   if (delta) {
     if (subagent) return;
@@ -924,6 +931,19 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
   }
 }
 
+/**
+ * The part of an assistant record's text that its message has not shown yet.
+ *
+ * `already` is all the text shown for the message. A record that only repeats
+ * the end of it is a block that streamed in full (or a replayed record) and
+ * adds nothing. Otherwise the record is the whole message so far and adds its
+ * unseen end, or it is a later block that did not stream and is all new.
+ */
+function recordRemainder(already: string, snapshot: string): string {
+  if (snapshot && already.endsWith(snapshot)) return "";
+  return snapshotRemainder(already, snapshot);
+}
+
 function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   if (isSubagentMessage(rec)) {
     for (const use of assistantToolUses(rec)) {
@@ -956,21 +976,20 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   if (used !== undefined) live.onEvent({ type: "context", used });
 
   const snapshot = assistantTextBlocks(rec).join("");
-  // Completed assistant records cover ONE message, not the whole turn. A
-  // turn-wide prefix comparison duplicates later commentary and final replies.
+  // An assistant record covers ONE message, not the whole turn, and often only
+  // one block of it: Claude Code sends a record per content block (thinking,
+  // text, tool call) with the same message id, each as its block ends. So the
+  // message stays open here, and the text already shown for it is compared by
+  // its id. Text streamed without an id belongs to this record's message too.
   const messageId =
     stringField(asRecord(rec.message), "id") ?? live.streamingMessageId;
-  const already = messageId
-    ? (live.messageText.get(messageId) ?? "")
-    : live.emittedAssistant;
-  const extra = snapshotRemainder(already, snapshot);
+  const already =
+    (messageId ? (live.messageText.get(messageId) ?? "") : "") +
+    live.emittedAssistant;
+  const extra = recordRemainder(already, snapshot);
   if (extra) live.onEvent({ type: "message.delta", text: extra, append: true });
-  if (messageId) {
-    live.messageText.set(messageId, already + extra);
-    live.completedMessages.add(messageId);
-  }
+  if (messageId) live.messageText.set(messageId, already + extra);
   live.emittedAssistant = "";
-  live.streamingMessageId = undefined;
 
   for (const use of assistantToolUses(rec)) {
     if (live.toolsById.has(use.id)) continue;

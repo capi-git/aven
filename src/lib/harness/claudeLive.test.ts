@@ -2544,6 +2544,142 @@ describe("Claude message-scoped stream reconciliation", () => {
       }
     },
   );
+  // Claude Code sends one assistant record per content block, all with the
+  // message's id, each just before that block's content_block_stop.
+  const streamBlocks = (
+    id: string,
+    blocks: Array<{ type: "thinking" | "text"; chunks: string[] }>,
+    options: { streamText?: boolean } = {},
+  ) => {
+    emit({
+      type: "stream_event",
+      event: { type: "message_start", message: { id } },
+    });
+    for (const [index, block] of blocks.entries()) {
+      const thinking = block.type === "thinking";
+      emit({
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index,
+          content_block: thinking
+            ? { type: "thinking", thinking: "" }
+            : { type: "text", text: "" },
+        },
+      });
+      if (thinking || options.streamText !== false)
+        for (const chunk of block.chunks)
+          emit({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              index,
+              delta: thinking
+                ? { type: "thinking_delta", thinking: chunk }
+                : { type: "text_delta", text: chunk },
+            },
+          });
+      const whole = block.chunks.join("");
+      emit({
+        type: "assistant",
+        message: {
+          id,
+          content: [
+            thinking
+              ? { type: "thinking", thinking: whole, signature: "sig" }
+              : { type: "text", text: whole },
+          ],
+        },
+      });
+      emit({
+        type: "stream_event",
+        event: { type: "content_block_stop", index },
+      });
+    }
+    emit({ type: "stream_event", event: { type: "message_stop" } });
+  };
+  const shownReply = (events: HarnessEvent[]) => {
+    const start = newSession("claude", "/repo");
+    const shown = [
+      applyHarnessEvents(start, events),
+      events.reduce(applyHarnessEvent, start),
+    ].map((session) =>
+      session.blocks
+        .filter((block) => block.role === "assistant")
+        .map((block) => block.text)
+        .join("|"),
+    );
+    expect(shown[0]).toBe(shown[1]);
+    return shown[0];
+  };
+  it("shows a reply once when thinking came first in the same message", async () => {
+    const { events, turn } = await startTurn("s1");
+    const chunks = ["Yes, that is correct.\n\n", "Tell me when Jeff is done."];
+    streamBlocks("msg-1", [
+      { type: "thinking", chunks: ["Check the notes."] },
+      { type: "text", chunks },
+    ]);
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    expect(shownReply(events)).toBe(chunks.join(""));
+  });
+  it("shows each text block of one message once", async () => {
+    const { events, turn } = await startTurn("s1");
+    streamBlocks("msg-1", [
+      { type: "thinking", chunks: ["Plan."] },
+      { type: "text", chunks: ["First ", "part. "] },
+      { type: "thinking", chunks: ["More."] },
+      { type: "text", chunks: ["Second ", "part."] },
+    ]);
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    // The thinking between them makes two rows.
+    expect(shownReply(events)).toBe("First part. |Second part.");
+  });
+  it("shows text blocks that were not streamed, each once", async () => {
+    const { events, turn } = await startTurn("s1");
+    streamBlocks(
+      "msg-1",
+      [
+        { type: "thinking", chunks: ["Plan."] },
+        { type: "text", chunks: ["First part. "] },
+        { type: "text", chunks: ["Second part."] },
+      ],
+      { streamText: false },
+    );
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    expect(shownReply(events)).toBe("First part. Second part.");
+  });
+  it("adds only the end that a whole-message record brings", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "stream_event",
+      event: { type: "message_start", message: { id: "msg-1" } },
+    });
+    for (const text of ["First part. ", "Second"])
+      emit({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text },
+        },
+      });
+    emit({
+      type: "assistant",
+      message: {
+        id: "msg-1",
+        content: [
+          { type: "text", text: "First part. " },
+          { type: "text", text: "Second part." },
+        ],
+      },
+    });
+    emit({ type: "result", subtype: "success" });
+    await turn;
+    expect(shownReply(events)).toBe("First part. Second part.");
+  });
   it("keeps identical text from distinct message IDs while ignoring replay of the same completed ID", async () => {
     const { events, turn } = await startTurn("s1");
     for (const id of ["a", "b", "b"])
