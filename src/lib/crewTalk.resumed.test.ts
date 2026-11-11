@@ -120,6 +120,18 @@ describe("an answer passed back to whoever asked", () => {
     expect(forwarded).not.toContain(TALK_FENCE);
   });
 
+  it("adds its line when the words don't say it", () => {
+    expect(
+      forwardedAnswer(`Done.\n\n${block({ line: "Checker says fine." })}`),
+    ).toBe("Done.\n\nChecker says fine.");
+    const words = `Start. ${"middle ".repeat(800)}End.`;
+    const forwarded = forwardedAnswer(
+      `${words}\n\n${block({ line: "It's 42." })}`,
+    );
+    expect(forwarded.length).toBeLessThanOrEqual(TALK_TEXT_MAX);
+    expect(forwarded.endsWith("End.\n\nIt's 42.")).toBe(true);
+  });
+
   it("is its line when it wrote nothing else", () => {
     expect(forwardedAnswer(block({ line: "All good." }))).toBe("All good.");
   });

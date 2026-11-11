@@ -764,6 +764,34 @@ describe("teammates asking each other", () => {
     runner.stop();
   });
 
+  it("passes back an answer that is only in its line, from a teammate and a helper", async () => {
+    team();
+    const { runner, sent, settle } = harness({
+      lead: (text) =>
+        text.includes("answered what you asked")
+          ? talk({ line: "Lead got it." })
+          : talk({
+              line: "Asking around.",
+              ask: [{ to: "Checker", text: "Fine?" }],
+              helpers: [{ title: "Read it", task: "Read the project." }],
+            }),
+      checker: () => talk({ line: "Checker says fine." }),
+      helper: () => talk({ line: "Read it: all fine." }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Is it fine?", "lead", NOON);
+    await settle();
+    const answers = sent
+      .filter((turn) => turn.memberId === "lead")
+      .slice(1)
+      .map((turn) => turn.text);
+    expect(answers).toHaveLength(2);
+    expect(answers.join("\n")).toContain("Checker says fine.");
+    expect(answers.join("\n")).toContain("Read it: all fine.");
+    expect(lines().filter((line) => line === "Lead got it.")).toHaveLength(2);
+    runner.stop();
+  });
+
   it("stops passing a message on at the limit", async () => {
     team();
     const pass = (to: string) => () =>
