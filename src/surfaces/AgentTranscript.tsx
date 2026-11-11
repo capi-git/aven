@@ -308,10 +308,6 @@ function AgentTranscriptComponent({
   const toggleWork = useCallback((turnId: string) => {
     setOpenWork((open) => ({ ...open, [turnId]: !open[turnId] }));
   }, []);
-  // Stretch the last turn after a send while this tab stays open. Closing
-  // the tab is a new visit: the remount uses the true transcript height so
-  // the latest reply sits on the composer instead of a hole of empty space.
-  const [anchorTurn, setAnchorTurn] = useState(!!busy);
   const { selection, dismissSelection } = useTranscriptSelection(
     scrollerEl,
     onAddToChat !== undefined,
@@ -319,11 +315,6 @@ function AgentTranscriptComponent({
   const transcriptLayout = useTranscriptLayout();
   const promptAnchor = useTranscriptAnchor();
   const lastUserId = lastUserBlockId(blocks, managed);
-  const seenUserId = useRef(lastUserId);
-  if (lastUserId !== seenUserId.current) {
-    seenUserId.current = lastUserId;
-    if (lastUserId && !anchorTurn) setAnchorTurn(true);
-  }
   const modelName = harness ? resolveModel(harness, model).name : undefined;
   // Finished turns name the model they ran on; when a provider's live list
   // arrives, a name that was only an id can become a real one.
@@ -848,9 +839,11 @@ function AgentTranscriptComponent({
                     modelName={modelName}
                     modelCatalog={modelCatalog}
                     transcriptLayout={transcriptLayout}
+                    // The last turn fills the pane in every state: just
+                    // sent, writing, finished, and when the chat is opened
+                    // again. One rule, so the room under it never changes.
                     anchored={
                       promptAnchor &&
-                      anchorTurn &&
                       (spanStart && !spanShown ? spanLive : isLastTurn)
                     }
                     workOpen={!!openWork[turn[0].id]}
@@ -951,7 +944,7 @@ type TranscriptTurnProps = Pick<
   /** The model catalog's version: a turn names its model from it. */
   modelCatalog: number;
   transcriptLayout: TranscriptLayout;
-  /** The live turn is stretched to the viewport after a send. */
+  /** The last turn is stretched to the viewport, its prompt at the top. */
   anchored: boolean;
   workOpen: boolean;
   toggleWork: (turnId: string) => void;
@@ -3242,7 +3235,7 @@ function pinToBottom(el: HTMLElement | null) {
   el.scrollTop = el.scrollHeight;
 }
 
-/** Keep the live turn's min-height in lockstep with the visible transcript. */
+/** Keep the last turn's min-height in lockstep with the visible transcript. */
 function syncTranscriptViewport(el: HTMLElement | null) {
   if (!el || el.clientHeight <= 0) return;
   const inner = el.firstElementChild as HTMLElement | null;
