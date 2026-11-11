@@ -149,6 +149,8 @@ type RuntimeActivity = {
   >;
   /** Background shells the provider's process runs, such as a dev server. */
   shells: number;
+  /** The provider works with no message from Aven (`turn.selfStarted`). */
+  selfTurn: boolean;
 };
 const runtimeActivity = new Map<string, RuntimeActivity>();
 /**
@@ -189,6 +191,7 @@ function beginRuntimeActivity<T extends CompactContextInput>(
       stopping: false,
       agents: new Map(),
       shells: 0,
+      selfTurn: false,
     };
     runtimeActivity.set(input.sessionId, activity);
   }
@@ -225,9 +228,13 @@ function beginRuntimeActivity<T extends CompactContextInput>(
         if (event.type === "agent.updated")
           current.agents.set(event.agentId, event.status);
         if (event.type === "agents.cleared") current.agents.clear();
+        // Work the provider started by itself: never parked in the middle.
+        if (event.type === "turn.selfStarted") current.selfTurn = true;
+        if (event.type === "turn.selfEnded") current.selfTurn = false;
         if (event.type === "session.ended") {
           // Nothing of the ended process is left to keep warm.
           current.shells = 0;
+          current.selfTurn = false;
           for (const [id, status] of current.agents) {
             if (status === "running" || status === "waiting")
               current.agents.set(id, "unknown");
@@ -236,7 +243,9 @@ function beginRuntimeActivity<T extends CompactContextInput>(
         if (
           event.type === "agent.updated" ||
           event.type === "agents.cleared" ||
-          event.type === "session.ended"
+          event.type === "session.ended" ||
+          event.type === "turn.selfStarted" ||
+          event.type === "turn.selfEnded"
         ) {
           scheduleIdlePark(input.harness, input.sessionId);
         }
@@ -298,11 +307,12 @@ export function parkIdleHarnessesForMemory(level: MemoryPressureLevel): void {
   }
 }
 
-/** A turn, a stop, or helper agents still at work. */
+/** A turn, work the provider started by itself, a stop, or helper agents still at work. */
 function childWorking(activity: RuntimeActivity | undefined): boolean {
   return (
     !!activity &&
     (activity.turns > 0 ||
+      activity.selfTurn ||
       activity.stopping ||
       [...activity.agents.values()].some(
         (status) =>

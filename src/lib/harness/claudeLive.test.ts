@@ -46,6 +46,7 @@ const {
   compactClaudeContext,
   cancelClaudeTurn,
   sendClaudeTurn,
+  steerClaudeTurn,
   stopClaudeSession,
   restoreClaudeTaskLists,
   inPlaceChange,
@@ -63,7 +64,14 @@ const {
 const { notifyMemoryPressure } = await import("../memoryPressure");
 import type { HarnessEvent, SendTurnInput } from "./types";
 import { newSession, type RuntimeMode, type TurnIntent } from "../session";
-import { applyHarnessEvent, applyHarnessEvents } from "./apply";
+import {
+  appendUser,
+  applyHarnessEvent,
+  applyHarnessEvents,
+  stopStreaming,
+} from "./apply";
+const { canDispatchQueuedHead, shouldEnqueueSubmission } =
+  await import("../messageQueue");
 
 function parse() {
   return sent.map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -241,6 +249,256 @@ describe("turn boundaries", () => {
 
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     expect(await isDone()).toBe(true);
+  });
+});
+
+describe("work Claude starts by itself", () => {
+  const settled = (turn: Promise<void>) => {
+    let done = false;
+    void turn.then(() => (done = true));
+    return async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return done;
+    };
+  };
+  const messageStart = (id: string, options: Record<string, unknown> = {}) =>
+    emit({
+      type: "stream_event",
+      event: { type: "message_start", message: { id } },
+      session_id: "sess_1",
+      ...options,
+    });
+  const says = (text: string) =>
+    emit({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text },
+      },
+      session_id: "sess_1",
+    });
+  const result = () =>
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+  /** A finished turn that left a command running in the background. */
+  async function idleChat(
+    send?: (input: SendTurnInput) => Promise<void>,
+  ): Promise<HarnessEvent[]> {
+    const { events, turn } = await startTurn("s1", { send });
+    result();
+    await turn;
+    return events;
+  }
+  /** The command ended: Claude reports on it, with no message from Aven. */
+  function commandReportsBack() {
+    emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "t1",
+      status: "completed",
+      output_file: "",
+      summary: "npm test",
+    });
+    messageStart("msg_report");
+    says("Round 2 passed.");
+  }
+  const nextTurn = (events: HarnessEvent[] = []) =>
+    sendClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      modelSettings: {},
+      runtimeMode: "supervised",
+      text: "continue",
+      attachments: [],
+      onEvent: (event) => events.push(event),
+    });
+
+  it("holds a new message in the queue while Claude reports on a background command", async () => {
+    const events = await idleChat();
+    let chat = stopStreaming(
+      appendUser(newSession("claude", "/repo"), "run the tests"),
+    );
+    expect(shouldEnqueueSubmission(chat, "queue")).toBe(false);
+
+    let seen = events.length;
+    commandReportsBack();
+    chat = applyHarnessEvents(chat, events.slice(seen));
+    // The chat is working, so the message waits its turn.
+    expect(chat.busy).toBe(true);
+    expect(shouldEnqueueSubmission(chat, "queue")).toBe(true);
+    chat = {
+      ...chat,
+      queuedMessages: [{ id: "q1", text: "one more thing", attachments: [] }],
+      queueStatus: "active",
+    };
+    expect(canDispatchQueuedHead(chat)).toBe(false);
+
+    seen = events.length;
+    result();
+    chat = applyHarnessEvents(chat, events.slice(seen));
+    expect(chat.busy).toBe(false);
+    expect(canDispatchQueuedHead(chat)).toBe(true);
+    expect(chat.blocks.at(-1)).toMatchObject({
+      role: "assistant",
+      text: "Round 2 passed.",
+      streaming: false,
+    });
+  });
+
+  it("says when that work starts and ends, around what it writes", async () => {
+    const events = await idleChat();
+    const seen = events.length;
+    commandReportsBack();
+    messageStart("msg_report_2");
+    result();
+    expect(
+      events
+        .slice(seen)
+        .map((event) => event.type)
+        .filter((type) => type.startsWith("turn.") || type.startsWith("mess")),
+    ).toEqual([
+      "turn.selfStarted",
+      "message.delta",
+      // Said again with each message, in case the first was missed.
+      "turn.selfStarted",
+      "message.completed",
+      "turn.selfEnded",
+    ]);
+  });
+
+  it("takes no helper's message or late record of a finished turn for new work", async () => {
+    const events = await idleChat();
+    const seen = events.length;
+    messageStart("msg_helper", { parent_tool_use_id: "toolu_agent" });
+    emit({
+      type: "assistant",
+      message: { id: "msg_old", content: [{ type: "text", text: "Late." }] },
+      session_id: "sess_1",
+    });
+    expect(
+      events.slice(seen).some((event) => event.type === "turn.selfStarted"),
+    ).toBe(false);
+  });
+
+  it("takes a message sent right away into that work", async () => {
+    await idleChat();
+    commandReportsBack();
+    await steerClaudeTurn({
+      sessionId: "s1",
+      cwd: "/repo",
+      model: "claude:claude-sonnet-5",
+      text: "also check the build",
+    });
+    expect(parse().filter((m) => m.type === "user")).toHaveLength(2);
+  });
+
+  it("stops that work without ending the next turn early", async () => {
+    const events = await idleChat();
+    commandReportsBack();
+    await cancelClaudeTurn("s1");
+    expect(
+      parse().some(
+        (m) =>
+          (m.request as Record<string, unknown> | undefined)?.subtype ===
+          "interrupt",
+      ),
+    ).toBe(true);
+    // The app settles a stopped chat itself.
+    expect(events.some((event) => event.type === "turn.selfEnded")).toBe(false);
+
+    const next = nextTurn();
+    const isDone = settled(next);
+    await waitFor(
+      () => parse().filter((m) => m.type === "user").length === 2,
+      "next prompt",
+    );
+    expect(await isDone()).toBe(false);
+    result();
+    await next;
+  });
+
+  it("leaves a turn the user starts meanwhile to end as usual", async () => {
+    const events = await idleChat();
+    commandReportsBack();
+    const nextEvents: HarnessEvent[] = [];
+    const next = nextTurn(nextEvents);
+    await waitFor(
+      () => parse().filter((m) => m.type === "user").length === 2,
+      "next prompt",
+    );
+    result();
+    await next;
+    expect(
+      [...events, ...nextEvents].some(
+        (event) => event.type === "turn.selfEnded",
+      ),
+    ).toBe(false);
+  });
+
+  it("tells a turn that replaces Claude's process nothing of that work's end", async () => {
+    const events = await idleChat();
+    commandReportsBack();
+    sent.length = 0;
+    // Another model needs a new process: the old one stops mid-work.
+    const { events: nextEvents, turn } = await startTurn("s1", {
+      model: "claude:opus-5.5",
+    });
+    expect(spawned).toHaveLength(2);
+    result();
+    await turn;
+    // The end goes to the listener the work started under, which the app
+    // no longer hears; the new turn's own end settles the chat.
+    expect(events.some((event) => event.type === "turn.selfEnded")).toBe(true);
+    expect(nextEvents.some((event) => event.type === "turn.selfEnded")).toBe(
+      false,
+    );
+  });
+
+  it("ends that work when Claude's process exits", async () => {
+    const events = await idleChat();
+    commandReportsBack();
+    onExit!(1);
+    const types = events.map((event) => event.type);
+    expect(types.indexOf("turn.selfEnded")).toBeGreaterThan(-1);
+    expect(types.indexOf("turn.selfEnded")).toBeLessThan(
+      types.indexOf("session.ended"),
+    );
+  });
+
+  it("ends that work when Claude's process is restarted", async () => {
+    const events = await idleChat();
+    commandReportsBack();
+    await stopClaudeSession("s1");
+    expect(events.some((event) => event.type === "turn.selfEnded")).toBe(true);
+  });
+
+  it("keeps Claude's process while it works by itself, then parks it", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    });
+    registerHarness(claudeAdapter);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await idleChat((input) =>
+        sendHarnessTurn({ ...input, harness: "claude" }),
+      );
+      commandReportsBack();
+      notifyMemoryPressure("critical");
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS * 2);
+      expect(killed).toEqual([]);
+
+      result();
+      await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+      await vi.waitFor(() => expect(killed).toEqual(["s1"]));
+    } finally {
+      vi.useRealTimers();
+      resetHarnessIdlePark();
+      vi.unstubAllGlobals();
+    }
   });
 });
 

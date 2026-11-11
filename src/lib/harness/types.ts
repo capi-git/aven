@@ -144,7 +144,15 @@ export type HarnessEvent =
    * such as a dev server an agent started. They end with that process, so the
    * registry never parks a chat while one runs. The chat shows nothing for it.
    */
-  | { type: "shells.updated"; running: number };
+  | { type: "shells.updated"; running: number }
+  /**
+   * The provider started work with no message from Aven, such as Claude
+   * reporting on a background command that ended. The chat is working, with
+   * its Stop and its message queue, until `turn.selfEnded`. Said again with
+   * each of that work's messages, so one that was missed does no harm.
+   */
+  | { type: "turn.selfStarted" }
+  | { type: "turn.selfEnded" };
 
 export type ApprovalDecision = "allow" | "deny";
 

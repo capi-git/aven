@@ -95,6 +95,10 @@ export function applyHarnessEvent(
       return { ...session, liveAgents: undefined };
     case "turn.waiting":
       return updateTurnWait(session, event.set, event.clear);
+    case "turn.selfStarted":
+      return session.busy ? session : resumeTurn(session);
+    case "turn.selfEnded":
+      return session.busy ? stopStreaming(session) : session;
     case "session.started":
       return updateTurnWait(session, undefined, ["starting"]);
     case "message.delta":
@@ -552,6 +556,27 @@ export function appendUser(
       ...userTurnFields(extra),
     },
   );
+}
+
+/**
+ * The agent works again with no new message, such as Claude reporting on a
+ * background command that ended. That work belongs to the last turn, so the
+ * chat is working and the turn's clock runs on from its start;
+ * `stopStreaming` stamps the whole of it when the work ends.
+ */
+function resumeTurn(session: Session): Session {
+  const blocks = session.blocks;
+  let lastUser = blocks.length - 1;
+  while (lastUser >= 0 && blocks[lastUser].role !== "user") lastUser--;
+  const user = blocks[lastUser];
+  const working = { ...session, busy: true, waitingOn: undefined };
+  // The same block `stampTurnDuration` stamps; any other keeps its time.
+  if (!user || user.durationMs == null || user.startedAt == null)
+    return working;
+  const { durationMs: _settled, ...open } = user;
+  const next = blocks.slice();
+  next[lastUser] = open;
+  return { ...working, blocks: next };
 }
 
 /** Append a follow-up user message during an active turn without sealing streams. */

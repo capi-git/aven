@@ -111,6 +111,32 @@ describe("turn duration", () => {
     expect(session.blocks[0]?.durationMs).toBe(25_000);
   });
 
+  it("runs a finished turn's clock again while the agent works by itself", () => {
+    now = 1_000;
+    let session = appendUser(newSession("claude", "/tmp"), "run the tests");
+    now = 5_000;
+    session = stopStreaming(session);
+    expect(session.blocks[0]?.durationMs).toBe(4_000);
+
+    // A background command ended and the agent reports on it, unasked.
+    now = 60_000;
+    session = applyHarnessEvent(session, { type: "turn.selfStarted" });
+    expect(session.busy).toBe(true);
+    expect(session.blocks[0]?.startedAt).toBe(1_000);
+    expect(session.blocks[0]?.durationMs).toBeUndefined();
+    const working = session;
+    expect(applyHarnessEvent(working, { type: "turn.selfStarted" })).toBe(
+      working,
+    );
+
+    now = 70_000;
+    session = applyHarnessEvent(session, { type: "turn.selfEnded" });
+    expect(session.busy).toBe(false);
+    expect(session.blocks[0]?.durationMs).toBe(69_000);
+    const idle = session;
+    expect(applyHarnessEvent(idle, { type: "turn.selfEnded" })).toBe(idle);
+  });
+
   it("does not overwrite a duration already recorded", () => {
     now = 1_000;
     let session = appendUser(newSession("cursor", "/tmp"), "hi");
