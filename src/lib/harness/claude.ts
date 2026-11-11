@@ -172,6 +172,14 @@ type Live = {
   turnFailed: ((error: Error) => void) | null;
   turnEndPending: boolean;
   activeTurn: boolean;
+  /**
+   * Set while Claude works with no message from Aven: a background command
+   * or agent reported back and it answers that (see `noteSelfStartedTurn`).
+   * It is where that work's end is told: the listener it started under, so
+   * an end that comes after one of Aven's turns took the chat over reaches
+   * no one and cannot settle that turn.
+   */
+  selfTurn: ((event: HarnessEvent) => void) | null;
   initDone: (() => void) | null;
   initialized: boolean;
   /** Control requests waiting on their answer, by request id. */
@@ -296,7 +304,9 @@ export async function compactClaudeContext(
 
 export async function steerClaudeTurn(input: SteerTurnInput): Promise<void> {
   const live = liveByThread.get(input.sessionId);
-  if (!live?.activeTurn) throw new Error("No active turn to steer");
+  // Work Claude started by itself takes a message the same way.
+  if (!live?.activeTurn && !live?.selfTurn)
+    throw new Error("No active turn to steer");
 
   const uuid = crypto.randomUUID();
   const message = buildClaudeUserMessage({
@@ -346,6 +356,8 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
   }
   live.cancelled = true;
   live.muteUpdates = true;
+  const selfTurn = live.selfTurn !== null;
+  live.selfTurn = null;
   for (const [, pending] of live.approvals) pending.resolve("deny");
   live.approvals.clear();
   for (const [, pending] of live.questions)
@@ -355,6 +367,9 @@ export async function cancelClaudeTurn(sessionId: string): Promise<void> {
     sessionId,
     buildControlRequest(nextControlId(live), { subtype: "interrupt" }),
   ).catch(() => undefined);
+  // Work Claude started by itself is no turn of Aven's: there is none to
+  // finish, and a pending end would close the next turn as it starts.
+  if (selfTurn && !live.activeTurn && !live.turnDone) return;
   finishActiveTurn(live, [
     { type: "message.completed" },
     { type: "reasoning.completed" },
@@ -368,6 +383,7 @@ export async function stopClaudeSession(sessionId: string): Promise<void> {
   const live = liveByThread.get(sessionId);
   liveByThread.delete(sessionId);
   if (live) {
+    endSelfTurn(live);
     live.retired = true;
     live.muteUpdates = true;
     retirePendingRequests(live);
@@ -565,6 +581,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     turnFailed: null,
     turnEndPending: false,
     activeTurn: false,
+    selfTurn: null,
     initDone: null,
     initialized: false,
     controlWaits: new Map(),
@@ -602,6 +619,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
           "Claude Code exited before reporting the agent's final status",
         );
         clearShells(current);
+        endSelfTurn(current);
         current.onEvent({ type: "session.ended", code });
       }
       current?.turnFailed?.(new Error("Claude Code exited"));
@@ -694,6 +712,8 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
     live.turnFailed = reject;
   });
   live.activeTurn = true;
+  // From here the chat works on this message; its end settles the chat.
+  live.selfTurn = null;
   settlePendingTurn(live);
 
   try {
@@ -816,6 +836,7 @@ function handleLine(sessionId: string, live: Live, line: string): void {
     return;
   }
   if (type === "stream_event") {
+    noteSelfStartedTurn(live, rec);
     handleStreamEvent(live, rec);
     return;
   }
@@ -1132,9 +1153,40 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
     armEchoFallback(live, live.awaitingEcho, result.status);
     return;
   }
+  if (!live.activeTurn && endSelfTurn(live)) return;
   reportTurnInterruption(live, result.status);
   live.turnResultSeen = true;
   maybeFinishTurn(live);
+}
+
+/**
+ * When a background command or agent reports back, Claude starts a turn by
+ * itself: no message of Aven's began it and none of Aven's turns is open.
+ * Without a word from here the chat would read as idle while it works, with
+ * no Stop, and a message sent meanwhile would go at once instead of waiting
+ * in the queue.
+ *
+ * Only the start of a model message counts, so a late record of a turn that
+ * already ended starts nothing. It is said with each message of that work:
+ * the app may still be settling the turn before when the first one arrives.
+ */
+function noteSelfStartedTurn(live: Live, rec: Record<string, unknown>): void {
+  if (live.activeTurn || live.turnDone) return;
+  if (isSubagentMessage(rec)) return;
+  if (asRecord(rec.event)?.type !== "message_start") return;
+  live.selfTurn ??= live.onEvent;
+  live.onEvent({ type: "turn.selfStarted" });
+}
+
+/** True when work Claude started by itself was open and is now closed. */
+function endSelfTurn(live: Live): boolean {
+  const tell = live.selfTurn;
+  if (!tell) return false;
+  live.selfTurn = null;
+  tell({ type: "message.completed" });
+  tell({ type: "reasoning.completed" });
+  tell({ type: "turn.selfEnded" });
+  return true;
 }
 
 /** Without an echo (an older CLI), fall back to ending on the last result. */
