@@ -33,6 +33,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openAgentFileInTabs } from "./lib/agentFiles";
 import { orchestrator, type ControlOutcome } from "./lib/orchestration";
 import { armChatAutomation, settleChatAutomation } from "./lib/chatAutomation";
+import { agentFilesFolder } from "./lib/chatDownloads";
 import {
   memberTurns,
   quietTurns,
@@ -8101,7 +8102,11 @@ export default function App({
               notifyReviewChanged(sessionId);
               if (changeOwner && changeOwner.sessionId !== sessionId)
                 notifyReviewChanged(changeOwner.sessionId);
-              notifyGitChanged(workCwd);
+              // A file the agent made in Aven's own folder with a command
+              // is out of Git before Changes reads the folder again.
+              void agentFilesFolder(workCwd).then(() =>
+                notifyGitChanged(workCwd),
+              );
               nudgeWorkspace(workCwd);
               nudgeWatchedFiles();
               window.setTimeout(() => nudgeWatchedFiles(), 150);

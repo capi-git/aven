@@ -159,17 +159,41 @@ fn files_folder(cwd: &Path) -> Result<PathBuf, String> {
     if !cwd.is_absolute() || !cwd.is_dir() {
         return Err("The project folder isn't there.".into());
     }
-    let aven = cwd.join(AVEN_DIR);
-    let files = aven.join(FILES_DIR);
-    if files.is_dir() {
-        let ignore = aven.join(".gitignore");
-        // An ignore file the user changed is theirs to keep.
-        if std::fs::symlink_metadata(&ignore).is_err() {
-            std::fs::write(&ignore, IGNORE_EVERYTHING)
-                .map_err(|error| format!("{}: {error}", ignore.display()))?;
-        }
+    keep_out_of_git(cwd)?;
+    Ok(cwd.join(AVEN_DIR).join(FILES_DIR))
+}
+
+/// Once `project` has an agent files folder, make the ignore file beside it
+/// if it is missing, so Git (and Ship it with it) leaves the folder alone.
+/// Makes no folder, and an ignore file the user changed is theirs to keep.
+pub(crate) fn keep_out_of_git(project: &Path) -> Result<(), String> {
+    let aven = project.join(AVEN_DIR);
+    if !aven.join(FILES_DIR).is_dir() {
+        return Ok(());
     }
-    Ok(files)
+    let ignore = aven.join(".gitignore");
+    if std::fs::symlink_metadata(&ignore).is_err() {
+        std::fs::write(&ignore, IGNORE_EVERYTHING)
+            .map_err(|error| format!("{}: {error}", ignore.display()))?;
+    }
+    Ok(())
+}
+
+/// Where Aven's own folder starts in a path relative to a project (its
+/// parts joined by `/`): the folders above it, `""` at the project's top.
+/// `None` for a path outside one. Files there are Aven's (an agent's files
+/// for you, an automation's records), never a change to the project.
+pub(crate) fn aven_dir_parent(relative: &str) -> Option<&str> {
+    let mut start = 0;
+    for part in relative.split('/') {
+        let end = start + part.len();
+        // The last part is a file: one named `.aven` is the project's own.
+        if part == AVEN_DIR && end < relative.len() {
+            return Some(relative[..start].trim_end_matches('/'));
+        }
+        start = end + 1;
+    }
+    None
 }
 
 /// True for a file somewhere under a `.aven/files` folder, named plainly.
@@ -382,6 +406,20 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&ignore).unwrap(), "keep-mine\n");
         assert!(files_folder(&project.0.join("missing")).is_err());
         assert!(files_folder(Path::new("relative")).is_err());
+    }
+
+    #[test]
+    fn finds_avens_own_folder_in_a_project_path() {
+        assert_eq!(aven_dir_parent(".aven/files/Notes.md"), Some(""));
+        assert_eq!(aven_dir_parent(".aven/.gitignore"), Some(""));
+        assert_eq!(
+            aven_dir_parent("apps/web/.aven/files/a.png"),
+            Some("apps/web")
+        );
+        assert_eq!(aven_dir_parent("README.md"), None);
+        assert_eq!(aven_dir_parent("docs/.aven"), None);
+        assert_eq!(aven_dir_parent(".avenue/files/Notes.md"), None);
+        assert_eq!(aven_dir_parent("src/aven/files/Notes.md"), None);
     }
 
     /// `<root>/p/<parts…>`, absolute on this platform (`/` or `C:\`).
