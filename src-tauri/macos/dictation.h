@@ -7,8 +7,10 @@
 
 // Events are JSON objects with a "kind" ("listening", "words", "error" or
 // "end") and the "generation" of the listen they belong to. "words" carries
-// "text" (everything heard so far) and "final"; "error" carries "code" and
-// "message". Every listen ends with exactly one "end".
+// "text" (the stretch of speech the recogniser is on: it starts over after a
+// pause, so the listener keeps the stretches before), "pause" (this stretch
+// is closed) and "final"; "error" carries "code" and "message". Every listen
+// ends with exactly one "end".
 typedef void (*AvenDictationCallback)(const char *json, void *context);
 
 void aven_dictation_set_callback(AvenDictationCallback callback, void *context);

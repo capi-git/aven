@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelNativeDictation,
   dictationProblem,
+  heardText,
+  hearWords,
+  NOTHING_HEARD,
   startNativeDictation,
   stopNativeDictation,
   type DictationEvent,
@@ -58,6 +61,8 @@ export function useDictation({
   const generationRef = useRef<number | null>(null);
   const stopWantedRef = useRef(false);
   const idleTimerRef = useRef<number | null>(null);
+  // Everything said in this listen, across the recogniser's pauses.
+  const heardRef = useRef(NOTHING_HEARD);
 
   const clearIdle = useCallback(() => {
     if (idleTimerRef.current !== null)
@@ -107,6 +112,7 @@ export function useDictation({
     setProblem(null);
     stateRef.current = "starting";
     setState("starting");
+    heardRef.current = NOTHING_HEARD;
     callbacks.current.onStart();
     const onEvent = (event: DictationEvent) => {
       if (tokenRef.current !== token) return;
@@ -119,7 +125,15 @@ export function useDictation({
           armIdle();
           return;
         case "words":
-          callbacks.current.onWords(event.text);
+          // The recogniser starts its text over after a pause; the message
+          // keeps what came before.
+          heardRef.current = hearWords(
+            heardRef.current,
+            event.text,
+            performance.now(),
+            event.pause === true,
+          );
+          callbacks.current.onWords(heardText(heardRef.current));
           if (stateRef.current === "listening") armIdle();
           return;
         case "error":

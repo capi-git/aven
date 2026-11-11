@@ -95,7 +95,12 @@ static AvenDictationListen *gListen;
     if (self.ended) return;
     if (result) {
         NSString *text = result.bestTranscription.formattedString ?: @"";
-        Emit(self.generation, @{@"kind" : @"words", @"text" : text, @"final" : @(result.isFinal)});
+        // The recogniser reports one stretch of speech at a time: after a pause
+        // it closes the stretch (metadata arrives with it) and starts its text
+        // again from nothing. The message box keeps the stretches before.
+        BOOL pause = !result.isFinal && result.speechRecognitionMetadata != nil;
+        Emit(self.generation,
+             @{@"kind" : @"words", @"text" : text, @"final" : @(result.isFinal), @"pause" : @(pause)});
         if (result.isFinal) {
             [self endWithError:nil message:nil];
             return;

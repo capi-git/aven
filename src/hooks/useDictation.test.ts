@@ -87,6 +87,71 @@ describe("listening for the message box", () => {
     expect(onWords).toHaveBeenLastCalledWith("Add a mic button.");
   });
 
+  it("keeps what was heard before a pause, and adds what's heard after it", async () => {
+    await render();
+    await act(async () => hook.toggle());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Add a mic", final: false });
+    await hear({ kind: "words", text: "Add a mic button", final: false });
+    // After a pause the recogniser's text starts over.
+    await act(async () => vi.advanceTimersByTime(2000));
+    await hear({ kind: "words", text: "And", final: false });
+    expect(onWords).toHaveBeenLastCalledWith("Add a mic button And");
+    await hear({ kind: "words", text: "And make it round", final: false });
+    expect(onWords).toHaveBeenLastCalledWith(
+      "Add a mic button And make it round",
+    );
+    // A stretch it closes itself, then the next one right behind it.
+    await hear({
+      kind: "words",
+      text: "And make it round.",
+      final: false,
+      pause: true,
+    });
+    await hear({ kind: "words", text: "Thanks", final: false });
+    expect(onWords).toHaveBeenLastCalledWith(
+      "Add a mic button And make it round. Thanks",
+    );
+  });
+
+  it("keeps every word when a stop ends on no text", async () => {
+    await render();
+    await act(async () => hook.toggle());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Add a mic button", final: false });
+    await act(async () => hook.toggle());
+    await hear({ kind: "words", text: "", final: true });
+    await hear({ kind: "end" });
+    expect(hook.state).toBe("idle");
+    expect(onWords).toHaveBeenLastCalledWith("Add a mic button");
+  });
+
+  it("keeps every word when the long quiet stops it", async () => {
+    await render();
+    await act(async () => hook.toggle());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Add a mic button", final: false });
+    await act(async () => vi.advanceTimersByTime(DICTATION_IDLE_MS));
+    expect(deps.stop).toHaveBeenCalledWith(1);
+    // By now the recogniser has only its newest stretch, or nothing.
+    await hear({ kind: "words", text: "", final: true });
+    await hear({ kind: "end" });
+    expect(hook.state).toBe("idle");
+    expect(onWords).toHaveBeenLastCalledWith("Add a mic button");
+  });
+
+  it("starts each listen with nothing heard", async () => {
+    await render();
+    await act(async () => hook.toggle());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Add a mic button", final: false });
+    await hear({ kind: "end" });
+    await act(async () => hook.toggle());
+    await hear({ kind: "listening" });
+    await hear({ kind: "words", text: "Thanks", final: false });
+    expect(onWords).toHaveBeenLastCalledWith("Thanks");
+  });
+
   it("stops as soon as the host answers when pressed again while starting", async () => {
     let answer: (generation: number) => void = () => {};
     deps.start.mockImplementationOnce(
