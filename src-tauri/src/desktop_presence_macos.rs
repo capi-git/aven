@@ -1,10 +1,12 @@
 //! Non-activating native controls. Policy stays in desktop_presence; this
 //! adapter only renders models and reports genuine user input.
 //!
-//! The bar is a pill of dark glass at the top of the screen: one row per
-//! agent, with Bot in its project's colour, its work dots and what it is
-//! doing. The dots are that agent's Stop: pointed at, their middle nine light
-//! as a square. Pause shows while the pill is pointed at. A question (may
+//! The bar is a pill of dark glass at the top of the screen with one row:
+//! the agent that acted last, with Bot in its project's colour, its work dots
+//! and what it is doing. While more agents are at work the row ends with a
+//! count, and the pill opens to a row for each while it is pointed at. The
+//! dots are that agent's Stop: pointed at, their middle nine light as a
+//! square. Pause shows while the pill is pointed at. A question (may
 //! this agent use the Mac?), a pause and a stop notice are one agent's
 //! sentence with its buttons. A thin white frame sits right behind each
 //! window an agent is using, so windows in front still cover it.
@@ -240,6 +242,9 @@ struct Bar {
     button_base: isize,
     rows: Vec<RowViews>,
     buttons: Vec<BarButtonView>,
+    /// How many more agents are at work, at the end of the one row shown
+    /// while the pill is not pointed at.
+    more: Option<Retained<NSTextField>>,
     /// The pill's width; it grows while its rows stay, and never shrinks
     /// under the pointer.
     width: f64,
@@ -564,6 +569,7 @@ impl Bar {
             button_base: 0,
             rows: vec![],
             buttons: vec![],
+            more: None,
             width: 0.0,
             hovering: false,
             reduce_motion: false,
@@ -600,6 +606,7 @@ impl Bar {
         self.shape = None;
         self.rows.clear();
         self.buttons.clear();
+        self.more = None;
         self.hovering = false;
         self.monitor = None;
     }
@@ -671,17 +678,30 @@ impl Bar {
             height: visible.size.height,
         };
         let avoid = self.anchor.into_iter().collect::<Vec<_>>();
-        let Some((frame, _)) = presence::place_bar(area, size.width, size.height, false, &avoid)
+        // A pill is placed as its one row at rest. Open, it hangs from that
+        // row (or stands on it, at the bottom of the screen), so pointing
+        // at it never moves it from under the pointer.
+        let rest = if self.rows.is_empty() {
+            size.height
+        } else {
+            ROW + PAD * 2.0
+        };
+        let Some((frame, bottom)) = presence::place_bar(area, size.width, rest, false, &avoid)
         else {
             self.panel.orderOut(None);
             return false;
         };
+        let y = if bottom {
+            frame.y + frame.height - size.height
+        } else {
+            frame.y
+        };
         self.panel.setFrame_display(
             rect(
                 frame.x,
-                main_top - frame.y - frame.height,
+                main_top - y - size.height,
                 frame.width,
-                frame.height,
+                size.height,
             ),
             true,
         );
@@ -714,8 +734,9 @@ impl Bar {
         self.button_base
     }
 
-    /// A pill with a row per agent: the views are made here; `update_pill`
-    /// fills and lays them out.
+    /// A pill with a row per agent, of which only the first shows until the
+    /// pill is pointed at: the views are made here; `update_pill` fills and
+    /// lays them out.
     fn build_pill(&mut self, mtm: MainThreadMarker, model: &BarModel) {
         let base = self.next_base();
         self.actions = model
@@ -728,6 +749,11 @@ impl Bar {
         self.buttons.clear();
         self.width = 0.0;
         let content = self.content(mtm, 1.0, 1.0, 1.0, true);
+        self.more = presence::others_label(model.rows.len()).map(|count| {
+            let count = label(mtm, &count, 12.5, 0.0, MUTED);
+            content.addSubview(&count);
+            count
+        });
         for (index, button) in model.buttons.iter().enumerate() {
             let (view, width) = bar_button(
                 mtm,
@@ -800,7 +826,8 @@ impl Bar {
     }
 
     /// Fills the rows with their agents' words, screens and colours, and
-    /// lays out the pill. Returns its size.
+    /// lays out the pill: its first row and the count of the others, or
+    /// every row while it is pointed at. Returns its size.
     fn update_pill(&mut self, rows: &[BarRow]) -> NSSize {
         let mut words: f64 = TEXT_MIN;
         let mut names: f64 = 0.0;
@@ -825,15 +852,24 @@ impl Bar {
             .iter()
             .map(|button| button.width + BUTTON_GAP)
             .sum();
-        let needed = NAME_X + names + 5.0 + words + 12.0 + buttons + 6.0;
+        // The count takes Pause's place while the pill is not pointed at;
+        // a button that always shows (Resume) keeps its own.
+        let count = self.more.as_ref().map_or(0.0, |more| text_width(more));
+        let fades = self.buttons.iter().all(|button| button.on_hover);
+        let tail = if fades {
+            buttons.max(count + 6.0)
+        } else {
+            buttons + count + 8.0
+        };
+        let needed = NAME_X + names + 5.0 + words + 12.0 + tail + 6.0;
         self.width = self.width.max(needed).min(PILL_MAX);
         let width = self.width;
-        let height = ROW * self.rows.len() as f64 + PAD * 2.0;
-        let radius = if self.rows.len() == 1 {
-            height / 2.0
-        } else {
-            16.0
-        };
+        let open = self.hovering || self.rows.len() < 2;
+        let shown = if open { self.rows.len() } else { 1 };
+        // The other rows lie below the pill's edge until it opens: out of
+        // sight, and still there for VoiceOver.
+        let height = ROW * shown as f64 + PAD * 2.0;
+        let radius = if shown == 1 { height / 2.0 } else { 16.0 };
         if let Some(content) = self.panel.contentView() {
             content.setFrame(rect(0.0, 0.0, width, height));
             if let Some(layer) = content.layer() {
@@ -853,6 +889,21 @@ impl Bar {
             x -= BUTTON_GAP;
         }
         let buttons_left = x;
+        let mut first_right = buttons_left - 6.0;
+        if let Some(more) = &self.more {
+            more.setHidden(open);
+            if !open {
+                let right = if fades { width - 12.0 } else { first_right };
+                let count_height = more.frame().size.height;
+                more.setFrame(rect(
+                    right - count,
+                    height - PAD - ROW / 2.0 - count_height / 2.0,
+                    count,
+                    count_height,
+                ));
+                first_right = first_right.min(right - count - 8.0);
+            }
+        }
         for (index, view) in self.rows.iter().enumerate() {
             let middle = height - PAD - ROW * (index as f64 + 0.5);
             let stop = rect(8.0, middle - STOP_HEIGHT / 2.0, STOP_WIDTH, STOP_HEIGHT);
@@ -868,7 +919,7 @@ impl Bar {
             ));
             let text_x = NAME_X + name_width + 5.0;
             let right = if index == 0 {
-                buttons_left - 6.0
+                first_right
             } else {
                 width - 12.0
             };
@@ -894,6 +945,7 @@ impl Bar {
             .collect();
         self.rows.clear();
         self.buttons.clear();
+        self.more = None;
         self.width = 0.0;
         let title = label(mtm, &model.title, 13.0, 0.23, INK);
         let detail = label(mtm, &model.detail, 11.5, 0.0, MUTED);
@@ -997,6 +1049,15 @@ fn pill_hover(inside: bool) {
                 let animator: Retained<AnyObject> = msg_send![&*button.button, animator];
                 let _: () =
                     msg_send![&*animator, setAlphaValue: if inside { 1.0_f64 } else { 0.0_f64 }];
+            }
+        }
+        // More agents than the one row: the pill opens to a row for each,
+        // and closes again once the pointer leaves.
+        if bar.rows.len() > 1 {
+            let rows = bar.model.as_ref().map(|model| model.rows.clone());
+            if let (Some(rows), Some(mtm)) = (rows, MainThreadMarker::new()) {
+                let size = bar.update_pill(&rows);
+                bar.place(mtm, size);
             }
         }
     });
@@ -1360,6 +1421,7 @@ pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
     let b = state.begin("b", Step::Typing, Some("Simulator".into()), now);
     state.set_element(&b, Some("Search".into()));
     cases.push(("bar-two", state.model(now).ok_or("no bar")?, false));
+    cases.push(("bar-two-pointed", state.model(now).ok_or("no bar")?, true));
     state.end(&a, now);
     state.end(&b, now);
     cases.push(("bar-thinking", state.model(now).ok_or("no bar")?, false));
@@ -1378,7 +1440,8 @@ pub(super) fn snapshot(folder: &std::path::Path) -> Result<(), String> {
         } else {
             bar.build_card(mtm, &model)
         };
-        if pointed {
+        // One agent's bar is pointed at on its Stop; several agents' is open.
+        if pointed && bar.rows.len() == 1 {
             if let Some(row) = bar.rows.first_mut() {
                 row.hover = true;
                 row.screen
