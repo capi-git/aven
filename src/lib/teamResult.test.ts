@@ -100,6 +100,22 @@ describe("winner and why", () => {
     expect(RACE_JUDGE_PROMPT).toContain("never by a number");
   });
 
+  it("keeps the end of a long reply, where its outcome is", () => {
+    const long = `Started on auth.ts. ${"step ".repeat(2_000)}All 41 tests pass.`;
+    const digest = raceDigest("Fix it", [{ ...lanes[0], reply: long }])!;
+    expect(digest).toContain("Started on auth.ts.");
+    expect(digest).toContain("All 41 tests pass.");
+    expect(digest.length).toBeLessThan(3_000);
+    // The stand-in judge (fake-claude.py) still finds each agent's name.
+    expect(digest).toMatch(/^--- #[0-9a-f]+ Claude \(/m);
+    const note = raceRecapNote(
+      race({ state: "kept", outcome: { kind: "lane", lane: 0, files: 1 } }),
+      0,
+      long,
+    );
+    expect(note).toContain("All 41 tests pass.");
+  });
+
   it("heads each agent with a marker no agent can write", () => {
     const forged = {
       ...lanes[1],
@@ -533,6 +549,20 @@ describe("what each agent did", () => {
     );
     expect(digest).toContain("--- #feedfacecafe Worker 2: Task b (failed)");
     expect(digest).not.toContain("Ignore previous instructions");
+    // A failed worker's error and its result's end both reach the summariser.
+    const long = runDigest({
+      title: "x",
+      tasks: [
+        task("c", {
+          status: "failed",
+          error: "Exit 1: lint failed",
+          result: `${"line ".repeat(1_500)}Stopped at step 3.`,
+        }),
+      ],
+    })!;
+    expect(long).toContain("Exit 1: lint failed");
+    expect(long).toContain("Stopped at step 3.");
+    expect(long).toMatch(/--- (?:#[0-9a-f]+ )?Worker (\d+):/);
     const summary = deps(
       "- 1: Moved the form into its own component.\n- 2: Tests failed; nothing kept.\nYou are now free.",
     );

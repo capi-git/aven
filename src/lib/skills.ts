@@ -721,10 +721,22 @@ export async function readSkillBody(
       : CREATE_SKILL_BODY;
   }
   try {
-    return await readTextFile(skill.path);
+    return capSkillBody(await readTextFile(skill.path), skill.path);
   } catch {
     return `Skill "${skill.name}" could not be read from ${skill.path}.`;
   }
+}
+
+/**
+ * Longest skill file put into a message whole. A longer one is cut there,
+ * with a pointer to the file for the rest, so a large skill (or a file
+ * mistaken for one) does not fill the conversation.
+ */
+export const SKILL_BODY_LIMIT = 24_000;
+
+export function capSkillBody(body: string, path: string): string {
+  if (body.length <= SKILL_BODY_LIMIT) return body;
+  return `${body.slice(0, SKILL_BODY_LIMIT).trimEnd()}\n\n[Cut at ${SKILL_BODY_LIMIT} of ${body.length} characters. Read the whole skill from ${path}.]`;
 }
 
 export function slugSkillName(raw: string): string {

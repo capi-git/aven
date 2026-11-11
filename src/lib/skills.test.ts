@@ -17,11 +17,13 @@ import {
   BUILTIN_COMPUTER_USE_SKILL,
   applySkillsToTurn,
   blankSkillMarkdown,
+  capSkillBody,
   injectSkillPrompt,
   isValidSkillName,
   isNativeCommandPrompt,
   mergeCatalog,
   readSkillBody,
+  SKILL_BODY_LIMIT,
   rankSkillMatches,
   rankSkills,
   sameSkillList,
@@ -260,6 +262,16 @@ describe("mergeCatalog", () => {
     expect(body).toContain("Settings → Skills → Desktop control");
     expect(body).toContain("Agent actions never trigger permission prompts");
     expect(body).not.toContain("orca skills get");
+  });
+  it("puts a long skill file into the message only up to its limit, pointing at the file", () => {
+    const short = "# Review\nCheck the diff.";
+    expect(capSkillBody(short, "/p/SKILL.md")).toBe(short);
+    const long = "x".repeat(SKILL_BODY_LIMIT + 500);
+    const capped = capSkillBody(long, "/p/.agents/skills/big/SKILL.md");
+    expect(capped.length).toBeLessThan(SKILL_BODY_LIMIT + 200);
+    expect(capped).toContain(
+      `Cut at ${SKILL_BODY_LIMIT} of ${long.length} characters. Read the whole skill from /p/.agents/skills/big/SKILL.md.`,
+    );
   });
   it("lets .agents win, then Aven create-skill, then provider skills", () => {
     const catalog = mergeCatalog([

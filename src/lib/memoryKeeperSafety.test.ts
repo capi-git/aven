@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   cleanUntrusted,
+  CLIP_GAP,
+  clipEnds,
   isSecretFileName,
   looksLikeAgentInstruction,
   redactSecrets,
@@ -134,5 +136,18 @@ describe("untrusted material", () => {
     expect(wrapped.endsWith("\n</project-digest>")).toBe(true);
     expect(wrapped.match(/<\/project-digest>/g)).toHaveLength(1);
     expect(wrapped).not.toContain("<recent-work>");
+  });
+});
+
+describe("clipEnds", () => {
+  it("keeps the start and the end within the limit, on word boundaries", () => {
+    const text = `First words. ${"filler ".repeat(500)}Last words.`;
+    const cut = clipEnds(text, 200);
+    expect(cut.length).toBeLessThanOrEqual(200);
+    expect(cut.startsWith("First words.")).toBe(true);
+    expect(cut.endsWith("Last words.")).toBe(true);
+    expect(cut).toContain(CLIP_GAP);
+    expect(cut).not.toMatch(/\bfil\b|\bfille\b/);
+    expect(clipEnds("short", 200)).toBe("short");
   });
 });

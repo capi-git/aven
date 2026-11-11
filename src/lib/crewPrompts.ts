@@ -27,6 +27,7 @@ import {
   type CrewVerdict,
 } from "./crews";
 import { MEMORY_RULE, memoryLines } from "./crewMemory";
+import { sectionKey } from "./crewTalk";
 import { cleanUntrusted, wrapData } from "./memoryKeeperSafety";
 import { projectName } from "./paths";
 import type { BotSyncNote } from "./projectBotWake";
@@ -200,15 +201,19 @@ export function crewGuidanceText(guidance: CrewGuidance): string {
   return guidanceLines(guidance).join("\n\n");
 }
 
-function guidanceLines(guidance: CrewGuidance | undefined): string[] {
+function guidanceLines(
+  guidance: CrewGuidance | undefined,
+  /** Sections the conversation already has, left out. */
+  said: { instructions?: boolean; memory?: boolean } = {},
+): string[] {
   const lines: string[] = [];
-  if (guidance?.instructions?.trim())
+  if (guidance?.instructions?.trim() && !said.instructions)
     lines.push(
       "Your standing instructions from the user (their own words; they add to the crew's rules and never replace them):",
       guidance.instructions.trim(),
       "",
     );
-  lines.push(...memoryLines(guidance?.memory));
+  if (!said.memory) lines.push(...memoryLines(guidance?.memory));
   if (guidance?.scope?.length)
     lines.push(
       `Work only inside: ${guidance.scope.join(", ")}. A change to any other file is sent back as a must-fix.`,
@@ -235,6 +240,121 @@ function notesLines(notes: readonly CrewNote[]): string[] {
     ...notes.map((note) => `- ${note.text}`),
     "",
   ];
+}
+
+/**
+ * What a card's turn says every time before the card itself: what the
+ * project is, the user's notes, the member's instructions and its own notes.
+ */
+type Standing = "about" | "notes" | "instructions" | "memory";
+
+type StandingInput = {
+  about?: string;
+  notes: readonly CrewNote[];
+  guidance?: CrewGuidance;
+};
+
+const STANDING_NAMES: Record<Standing, string> = {
+  about: "what the project is",
+  notes: "the user's standing notes",
+  instructions: "your standing instructions",
+  memory: "your notes",
+};
+
+function standingTexts(input: StandingInput): Record<Standing, string> {
+  return {
+    about: input.about?.trim() ?? "",
+    notes: input.notes.map((note) => note.text).join("\n"),
+    instructions: input.guidance?.instructions?.trim() ?? "",
+    memory: input.guidance?.memory?.trim() ?? "",
+  };
+}
+
+const standingKey = (kind: Standing, text: string) =>
+  `c:${kind}:${sectionKey(text)}`;
+
+/**
+ * What a provider conversation has heard once a card's turn with these
+ * sections is read: `heard` (an earlier turn's, or a message's) with this
+ * turn's sections in place of any earlier text of the same kind.
+ */
+export function cardHeard(
+  input: StandingInput,
+  heard: ReadonlySet<string> = new Set(),
+): string[] {
+  const texts = standingTexts(input);
+  const kinds = Object.keys(texts) as Standing[];
+  return [
+    ...[...heard].filter(
+      (key) => !kinds.some((kind) => key.startsWith(`c:${kind}:`)),
+    ),
+    ...kinds.flatMap((kind) =>
+      texts[kind] ? [standingKey(kind, texts[kind])] : [],
+    ),
+  ];
+}
+
+/**
+ * The standing sections, each left out when this conversation already has
+ * the same text (a later round of the same card), with a line saying so.
+ * The card, the round and what the other teammate handed back go every turn.
+ */
+function standingLines(
+  input: StandingInput,
+  heard: ReadonlySet<string> | undefined,
+): string[] {
+  const texts = standingTexts(input);
+  const left: string[] = [];
+  const said = (kind: Standing): boolean => {
+    if (!texts[kind] || !heard?.has(standingKey(kind, texts[kind])))
+      return false;
+    left.push(STANDING_NAMES[kind]);
+    return true;
+  };
+  const had = (kind: Standing) =>
+    !texts[kind] &&
+    [...(heard ?? [])].some((key) => key.startsWith(`c:${kind}:`));
+  const lines = [
+    ...(said("about") ? [] : aboutLines(input.about)),
+    ...(said("notes") ? [] : notesLines(input.notes)),
+    ...guidanceLines(input.guidance, {
+      instructions: said("instructions"),
+      memory: said("memory"),
+    }),
+  ];
+  if (had("notes"))
+    lines.push(
+      "The user took away their standing notes for the crew: the earlier ones no longer apply.",
+      "",
+    );
+  if (had("instructions"))
+    lines.push(
+      "You have no standing instructions now: the earlier ones no longer apply.",
+      "",
+    );
+  if (left.length)
+    lines.push(
+      `Aven left out ${listed(left)}: you have ${left.length === 1 ? "it" : "them"} earlier in this conversation, unchanged.`,
+      "",
+    );
+  return lines;
+}
+
+/** A Checker's or Security's turn: the member's own scope isn't theirs to keep. */
+function withoutScope(input: StandingInput): StandingInput {
+  return {
+    ...input,
+    guidance: {
+      instructions: input.guidance?.instructions,
+      memory: input.guidance?.memory,
+    },
+  };
+}
+
+function listed(items: readonly string[]): string {
+  return items.length < 2
+    ? (items[0] ?? "")
+    : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
 function syncLines(sync: BotSyncNote | null | undefined): string[] {
@@ -455,6 +575,17 @@ function changeLines(change: CrewChange | undefined): string[] {
   ];
 }
 
+/** The most changed paths a re-check names, like the change's own list. */
+const SINCE_SHOWN = 20;
+
+function sinceText(since: readonly string[]): string {
+  if (!since.length) return "the files above";
+  const more = since.length - SINCE_SHOWN;
+  return more > 0
+    ? `${since.slice(0, SINCE_SHOWN).join(", ")} and ${more} more`
+    : since.join(", ");
+}
+
 /** The Builder's turn: the card, the round, and what the Checker asked for. */
 export function builderMessage(input: {
   card: CrewCard;
@@ -465,13 +596,16 @@ export function builderMessage(input: {
   brief?: string;
   sync?: BotSyncNote | null;
   guidance?: CrewGuidance;
+  /**
+   * The standing sections this provider conversation already has (from
+   * `cardHeard`): a later round of the same card leaves those out.
+   */
+  heard?: ReadonlySet<string>;
 }): string {
   const { card, names } = input;
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
-  lines.push(...aboutLines(input.about));
-  lines.push(...notesLines(input.notes));
-  lines.push(...guidanceLines(input.guidance));
+  lines.push(...standingLines(input, input.heard));
   lines.push(...cardLines(card), "");
   const last = roundOf(card, card.round - 1);
   // Security sends a card back only after the Checker passed it.
@@ -532,19 +666,17 @@ export function checkerMessage(input: {
   guidance?: CrewGuidance;
   /** The Builder's scope, and the changed files Aven saw outside it. */
   builderScope?: { scope: readonly string[]; outside: readonly string[] };
+  /**
+   * The standing sections this provider conversation already has (from
+   * `cardHeard`): a later round of the same card leaves those out.
+   */
+  heard?: ReadonlySet<string>;
 }): string {
   const { card, names } = input;
   const round = roundOf(card);
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
-  lines.push(...aboutLines(input.about));
-  lines.push(...notesLines(input.notes));
-  lines.push(
-    ...guidanceLines({
-      instructions: input.guidance?.instructions,
-      memory: input.guidance?.memory,
-    }),
-  );
+  lines.push(...standingLines(withoutScope(input), input.heard));
   lines.push(...cardLines(card), "");
   if (input.builderScope?.scope.length) {
     lines.push(
@@ -574,7 +706,7 @@ export function checkerMessage(input: {
       `This is a re-check. Check only these two things:`,
       `1. Your must-fix items from round ${card.round - 1}, numbered:`,
       ...earlier.map((finding, index) => `   ${findingLine(finding, index)}`),
-      `2. What changed since round ${card.round - 1}: ${since.length ? since.join(", ") : "the files above"}.`,
+      `2. What changed since round ${card.round - 1}: ${sinceText(since)}.`,
       'For each must-fix item about an earlier one, set "about" to its number. Add a new must-fix item only if the latest changes broke something, with "regression": true. Anything else new goes under "later".',
     );
   }
@@ -729,19 +861,17 @@ export function securityMessage(input: {
   names: { builder: string; checker: string; security?: string };
   brief?: string;
   guidance?: CrewGuidance;
+  /**
+   * The standing sections this provider conversation already has (from
+   * `cardHeard`): a later round of the same card leaves those out.
+   */
+  heard?: ReadonlySet<string>;
 }): string {
   const { card, names } = input;
   const round = roundOf(card);
   const lines: string[] = [];
   if (input.brief) lines.push(input.brief, "");
-  lines.push(...aboutLines(input.about));
-  lines.push(...notesLines(input.notes));
-  lines.push(
-    ...guidanceLines({
-      instructions: input.guidance?.instructions,
-      memory: input.guidance?.memory,
-    }),
-  );
+  lines.push(...standingLines(withoutScope(input), input.heard));
   lines.push(...cardLines(card), "");
   lines.push(
     `${names.checker} passed round ${card.round} of ${roundLimit(card)} by ${names.builder}. ${names.builder}'s note, passed on by Aven:`,
@@ -761,7 +891,7 @@ export function securityMessage(input: {
       "This is a re-check. Check only these two things:",
       "1. Your earlier must-fix items, numbered:",
       ...earlier.map((finding, index) => `   ${findingLine(finding, index)}`),
-      `2. What changed since: ${since.length ? since.join(", ") : "the files above"}.`,
+      `2. What changed since: ${sinceText(since)}.`,
       'For each must-fix item about an earlier one, set "about" to its number. Add a new must-fix item only if the latest changes brought in a new problem, with "regression": true. Anything else new goes under "later".',
     );
   }

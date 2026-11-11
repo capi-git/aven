@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { TALK_HOPS } from "./crewTalk";
+import { resetGuidanceDelivery } from "./agentGuidanceDelivery";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CrewRunner,
@@ -745,6 +746,113 @@ describe("fresh eyes", () => {
     expect(h.fresh).toEqual(["builder-chat", "checker-chat"]);
     expect(h.sent[4].text).toContain("You are Beetle, a Builder");
     expect(h.sent[5].text).toContain("You are Owl, a Checker");
+    h.runner.stop();
+  });
+});
+
+describe("a later round in the same conversation", () => {
+  // The stand-in (scripts/smoke/fake-claude.py) answers a card's turn only
+  // when it carries the card's marker, by role from the round's words.
+  const MARKER = "AVEN_SMOKE_CREW";
+  const ABOUT = "A to-do app for busy parents.";
+
+  it("leaves out the project's description, the notes and the instructions it already has, never the card", async () => {
+    const h = harness({
+      builder: (_text, nth) => ({
+        text:
+          (nth === 1 ? "```aven-memory\nTests run with vitest.\n```\n\n" : "") +
+          handoff(`Round ${nth}`),
+        copy: { hash: `h${nth}`, files: ["src/a.ts"] },
+      }),
+      checker: (_text, nth) => ({
+        text: nth === 1 ? verdict([{ text: "Broken" }]) : verdict([]),
+      }),
+    });
+    onCrew({
+      about: ABOUT,
+      members: [
+        {
+          id: "builder",
+          role: "builder",
+          instructions: "Prefer small components.",
+          memory: "Tests run with jest.",
+        },
+        {
+          id: "checker",
+          role: "checker",
+          instructions: "Run the type check.",
+          memory: "Lint is slow.",
+        },
+      ],
+    });
+    give("card-1", `Dark mode ${MARKER}`);
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(MINUTE + 5_000);
+    const [build, check] = h.sent;
+    for (const text of [
+      ABOUT,
+      "Prefer small components.",
+      "Tests run with jest.",
+    ])
+      expect(build.text).toContain(text);
+    for (const text of [ABOUT, "Run the type check.", "Lint is slow."])
+      expect(check.text).toContain(text);
+
+    await h.advance(MINUTE + 5_000);
+    const rebuild = h.sent[2];
+    expect(rebuild.role).toBe("builder");
+    expect(rebuild.text).toContain(MARKER);
+    expect(rebuild.text).toContain("Round 2 of 3");
+    expect(rebuild.text).toContain("`aven-handoff` block");
+    expect(rebuild.text).not.toContain(ABOUT);
+    expect(rebuild.text).not.toContain("Prefer small components.");
+    // Its notes changed in round 1: the new ones go.
+    expect(rebuild.text).toContain("Tests run with vitest.");
+    expect(rebuild.text).toContain(
+      "Aven left out what the project is and your standing instructions",
+    );
+
+    await h.advance(MINUTE + 5_000);
+    const recheck = h.sent[3];
+    expect(recheck.role).toBe("checker");
+    expect(recheck.text).toContain(MARKER);
+    expect(recheck.text).toContain("finished round 2 of 3");
+    expect(recheck.text).toContain("This is a re-check");
+    expect(recheck.text).not.toContain(ABOUT);
+    expect(recheck.text).not.toContain("Lint is slow.");
+    expect(recheck.text.length).toBeLessThan(check.text.length);
+    h.runner.stop();
+  });
+
+  it("tells a compacted or replaced conversation everything again", async () => {
+    const h = harness({
+      builder: (_text, nth) => ({
+        text: handoff(`Round ${nth}`),
+        copy: { hash: `h${nth}`, files: ["src/a.ts"] },
+      }),
+      checker: (_text, nth) => ({
+        text: nth === 1 ? verdict([{ text: "Broken" }]) : verdict([]),
+      }),
+    });
+    onCrew({
+      about: ABOUT,
+      members: [
+        { id: "builder", role: "builder", instructions: "Prefer small." },
+        { id: "checker", role: "checker" },
+      ],
+    });
+    give("card-1", `Dark mode ${MARKER}`);
+    h.runner.start();
+    await h.advance(0);
+    await h.advance(MINUTE + 5_000);
+    resetGuidanceDelivery("builder-chat");
+    await h.advance(MINUTE + 5_000);
+    const rebuild = h.sent[2];
+    expect(rebuild.role).toBe("builder");
+    expect(rebuild.text).toContain(ABOUT);
+    expect(rebuild.text).toContain("Prefer small.");
+    expect(rebuild.text).not.toContain("Aven left out");
     h.runner.stop();
   });
 });

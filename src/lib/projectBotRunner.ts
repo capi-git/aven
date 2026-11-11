@@ -6,6 +6,7 @@ import {
 import { parseMemory, withoutMemory } from "./crewHandoff";
 import { getCrew, updateCrew, withMemberMemory } from "./crews";
 import { subscribeDevServerStops, type DevServerStop } from "./devServerStops";
+import { onGuidanceReset } from "./agentGuidanceDelivery";
 import { errorText, logError } from "./errors";
 import type { SessionActivityEvent } from "./notifications";
 import type { ControlOutcome } from "./orchestration";
@@ -145,6 +146,17 @@ type Turn = {
   turnId?: string;
   /** When it went to the bot; unset while Aven prepares it. */
   sentAt?: number;
+  /** What its message told the bot's conversation (`BotRunner.told`). */
+  told?: TurnTold;
+};
+
+/** What a message to a bot carried, and when its conversation stood. */
+type TurnTold = {
+  /** The chat's reset count when it was sent (`BotRunner.resets`). */
+  resets: number;
+  briefed: boolean;
+  /** The notes it showed, or the ones it left standing; "" for none. */
+  notes: string;
 };
 
 function lastUserBlockId(session: Session | undefined): string | undefined {
@@ -219,6 +231,20 @@ export class BotRunner {
   /** Your messages held while a wake-up readies the copy, by project key. */
   private held = new Map<string, (() => void)[]>();
   private working: ReadonlySet<string> = new Set();
+  /**
+   * What each bot chat's provider conversation holds, by chat id: the
+   * Fixer's notes as last shown in it, which later messages leave out while
+   * they are unchanged. Kept in this window only: after a restart, or in a
+   * conversation started afresh, they go again.
+   */
+  private told = new Map<string, { provider: string; notes: string }>();
+  /**
+   * Bot chats whose conversation may have lost what earlier messages told
+   * it (compacted, or replaced), and how often: their role and notes go
+   * again on the next message.
+   */
+  private resets = new Map<string, number>();
+  private lost = new Set<string>();
 
   constructor(deps: BotRunnerDeps) {
     this.deps = deps;
@@ -239,6 +265,12 @@ export class BotRunner {
     for (const entry of activity()) this.known.add(entry.id);
     const onActivity = () => this.onActivity();
     this.unsubscribe.push(
+      onGuidanceReset((sessionId) => {
+        if (!botForChat(sessionId)) return;
+        this.told.delete(sessionId);
+        this.lost.add(sessionId);
+        this.resets.set(sessionId, (this.resets.get(sessionId) ?? 0) + 1);
+      }),
       (this.deps.subscribeActivity ?? subscribeActivity)(onActivity),
       (this.deps.subscribeStops ?? subscribeDevServerStops)((stop) =>
         this.onDevServerStop(stop),
@@ -468,8 +500,7 @@ export class BotRunner {
         events,
         sync: ready.sync,
         canFix: ready.bot.can.fix,
-        brief: this.briefFor(ready.bot, chat.id),
-        ...fixerMemory(bot.path),
+        ...this.standing(ready.bot, chat.id, turn),
       });
       turn.turnId = this.newId();
       const sent = this.deps.send(chat.id, text, {
@@ -602,9 +633,55 @@ export class BotRunner {
     }
   }
 
+  /**
+   * What a message to the bot carries besides its own words: its role, on
+   * the first message of a conversation (and again once that conversation
+   * may have lost it), and the Fixer's notes, unless the conversation
+   * already holds these exact notes. Recorded on `turn` for `afterTurn`.
+   */
+  private standing(
+    bot: ProjectBot,
+    chatId: string,
+    turn: Turn,
+  ): { brief?: string; memory?: string; notesKept?: true } {
+    const provider = this.chatNow(chatId)?.providerSessionId;
+    const brief = this.briefFor(bot, chatId);
+    const notes = fixerMemory(bot.path).memory ?? "";
+    const told = this.told.get(chatId);
+    const kept =
+      !!notes &&
+      !!provider &&
+      told?.provider === provider &&
+      told.notes === notes;
+    turn.told = {
+      resets: this.resets.get(chatId) ?? 0,
+      briefed: !!brief,
+      notes,
+    };
+    return {
+      ...(brief ? { brief } : {}),
+      ...(kept ? { notesKept: true as const } : notes ? { memory: notes } : {}),
+    };
+  }
+
+  /**
+   * A turn ended well: what its message told the conversation now stands,
+   * unless the conversation was compacted or replaced meanwhile.
+   */
+  private settleTold(chatId: string, told: TurnTold | undefined) {
+    if (!told || (this.resets.get(chatId) ?? 0) !== told.resets) return;
+    const provider = this.chatNow(chatId)?.providerSessionId;
+    if (!provider) return;
+    if (told.briefed || !this.lost.has(chatId)) {
+      this.lost.delete(chatId);
+      this.told.set(chatId, { provider, notes: told.notes });
+    }
+  }
+
   /** Its role, on the first message of a conversation with the provider. */
   private briefFor(bot: ProjectBot, chatId: string): string | undefined {
-    if (this.chatNow(chatId)?.providerSessionId) return undefined;
+    if (this.chatNow(chatId)?.providerSessionId && !this.lost.has(chatId))
+      return undefined;
     return botBrief({
       name: this.deps.name(bot),
       project: bot.path,
@@ -651,8 +728,7 @@ export class BotRunner {
         return buildDirectMessage({
           text,
           sync: ready?.sync ?? null,
-          brief: this.briefFor(ready?.bot ?? bot, sessionId),
-          ...fixerMemory(bot.path),
+          ...this.standing(ready?.bot ?? bot, sessionId, turn),
         });
       },
       onSettled: (outcome) => void this.afterTurn(bot.path, turn, outcome),
@@ -752,8 +828,10 @@ export class BotRunner {
       const now = this.deps.now();
       // Its notes, rewritten at the end of a turn that finished, are the
       // Fixer's own (on its crew member); the rest reads as before.
-      if (outcome?.status !== "failed" && outcome?.status !== "cancelled")
+      if (outcome?.status !== "failed" && outcome?.status !== "cancelled") {
+        if (chat) this.settleTold(chat.id, turn.told);
         rememberFixer(path, said, now);
+      }
       const reply = withoutMemory(said);
       let diff: BotDiff | null = null;
       if (bot.copy && bot.base)

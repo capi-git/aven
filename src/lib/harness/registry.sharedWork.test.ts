@@ -254,4 +254,47 @@ describe("shared-work note in the send path", () => {
     await send("chat", "Four");
     expect(provider.sendTurn.mock.calls[3][0].text).toContain(NOTE_START);
   });
+
+  it("gives the note and the project memory again after the provider compacts on its own", async () => {
+    let compactNow = false;
+    const provider = adapter("opencode", {
+      sendTurn: vi.fn(async (input: SendTurnInput) => {
+        input.onEvent({
+          type: "session.providerBound",
+          providerSessionId: "conversation-1",
+        });
+        if (compactNow)
+          input.onEvent({
+            type: "status",
+            text: "Compacted context",
+            compacted: true,
+          });
+      }),
+    });
+    chat("chat", "opencode");
+    server();
+    const projectMemory = {
+      text: "<aven-project-memory>\nUse pnpm.\n</aven-project-memory>",
+      revision: "r1",
+    };
+    const texts = () =>
+      provider.sendTurn.mock.calls.map((call) => call[0].text as string);
+    await send("chat", "One", { projectMemory });
+    expect(texts()[0]).toContain("Use pnpm.");
+    expect(texts()[0]).toContain(NOTE_START);
+    await send("chat", "Two", { projectMemory });
+    expect(texts()[1]).toBe("Two");
+    compactNow = true;
+    await send("chat", "Three", { projectMemory });
+    // A turn whose own memory was compacted away does not count it as held.
+    await send("chat", "Four", { projectMemory });
+    expect(texts()[3]).toContain("Use pnpm.");
+    expect(texts()[3]).toContain(NOTE_START);
+    compactNow = false;
+    await send("chat", "Five", { projectMemory });
+    expect(texts()[4]).toContain("Use pnpm.");
+    expect(texts()[4]).toContain(NOTE_START);
+    await send("chat", "Six", { projectMemory });
+    expect(texts()[5]).toBe("Six");
+  });
 });

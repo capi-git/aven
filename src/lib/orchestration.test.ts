@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   dispatchableTask,
   LEAD_STALLED_AFTER_MS,
+  leadBrief,
   Orchestrator,
   RESULT_HANDOFF_CHARS,
   RESULT_PREVIEW_CHARS,
@@ -16,6 +17,7 @@ import {
   type OrchestrationRun,
   shellPath,
 } from "./orchestration";
+import { resetGuidanceDelivery } from "./agentGuidanceDelivery";
 import { newSession } from "./session";
 import { leadDecidedIds, sessionNeedsUser } from "./teamAttention";
 import { orchestrationTeam } from "./teamRuns";
@@ -856,6 +858,62 @@ describe("local orchestration", () => {
       "constructor",
     );
     expect(first).toHaveProperty("taskId");
+  });
+  it("gives the lead its run rules once, then a reminder the real-app check still reads", async () => {
+    const f = setup();
+    await f.start();
+    // fake-claude.py routes a lead turn on the tag and finds the CLI here.
+    const check = (text: string) => {
+      expect(text).toContain("<aven_orchestration>");
+      expect(text).toMatch(/Run `(.+?) control --help`/);
+    };
+    const first = f.manager.prompt("lead", "Do the task");
+    check(first);
+    expect(first).toContain("leave file edits to workers");
+    // Not yet known to have reached the lead: still in full.
+    expect(f.manager.prompt("lead", "Again")).toBe(
+      `Again\n\n${leadBrief(`${shellPath(f.manager.run("lead")!.cli)} control`)}`,
+    );
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.lead.busy = false;
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "completed",
+      text: "Done",
+    });
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(2));
+    f.completions.get("lead")!({ status: "completed", text: "Reviewed" });
+    const later = f.manager.prompt("lead", "Next");
+    check(later);
+    expect(later).not.toContain("leave file edits to workers");
+    expect(later.length).toBeLessThan(first.length / 4);
+    // Compaction may drop them: in full again.
+    resetGuidanceDelivery("lead");
+    expect(f.manager.prompt("lead", "Next")).toContain(
+      "leave file edits to workers",
+    );
+  });
+  it("gives the run rules again after a lead turn failed", async () => {
+    const f = setup();
+    await f.start();
+    f.manager.prompt("lead", "Do the task");
+    await f.delegate(["a"]);
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(1));
+    f.lead.busy = false;
+    f.completions.get(f.tasks()[0].sessionId)!({
+      status: "completed",
+      text: "Done",
+    });
+    await vi.waitFor(() => expect(f.host.submit).toHaveBeenCalledTimes(2));
+    f.completions.get("lead")!({ status: "failed", text: "", error: "x" });
+    await vi.waitFor(() =>
+      expect(f.manager.run("lead")!.status).toBe("paused"),
+    );
+    f.lead.busy = false;
+    await f.manager.start("lead", ["codex"], 2);
+    expect(f.manager.prompt("lead", "Go on")).toContain(
+      "leave file edits to workers",
+    );
   });
   it("quotes the control path only when the shell needs it", () => {
     expect(shellPath("/Applications/Aven.app/Contents/MacOS/aven")).toBe(
