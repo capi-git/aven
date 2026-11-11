@@ -75,6 +75,22 @@ def ensure_not_running(grace=0):
         time.sleep(0.5)
 
 
+def signal_group(pgid, sig):
+    """Send `sig` to a process group; False once the group is gone.
+
+    macOS briefly answers EPERM, not success, for a group whose leader has just
+    exited while a member is still starting. That crashed a release run's
+    retry. Count it as still there and let the caller try again.
+    """
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
 def end_app_group(app, label):
     """Stop what a finished or timed-out check app left in its process group.
 
@@ -84,16 +100,12 @@ def end_app_group(app, label):
     running". Returns once the group is empty or after a final SIGKILL.
     """
     for sig, wait in ((signal.SIGTERM, 15), (signal.SIGKILL, 5)):
-        try:
-            os.killpg(app.pid, sig)
-        except ProcessLookupError:
+        if not signal_group(app.pid, sig):
             return
         deadline = time.monotonic() + wait
         while time.monotonic() < deadline:
             app.poll()  # Reap the main process, or its zombie keeps the group alive.
-            try:
-                os.killpg(app.pid, 0)
-            except ProcessLookupError:
+            if not signal_group(app.pid, 0):
                 return
             time.sleep(0.2)
     print(f'Some of the {label} app\'s processes did not stop.', file=sys.stderr)

@@ -142,10 +142,20 @@ class DevRunnerGuards(unittest.TestCase):
              'import subprocess, sys; subprocess.Popen(["sleep", "60"]); sys.exit(1)'],
             start_new_session=True)
         app.wait(timeout=10)
-        os.killpg(app.pid, 0)  # The helper is still in the group.
+        self.assertTrue(runner.signal_group(app.pid, 0))  # The helper is still in the group.
         runner.end_app_group(app, 'check')
         with self.assertRaises(ProcessLookupError):
             os.killpg(app.pid, 0)
+
+    def test_a_group_macos_will_not_signal_yet_is_tried_again(self):
+        # macOS can answer EPERM for a group whose leader just exited. The
+        # cleanup keeps trying instead of ending the check with a traceback.
+        app = mock.Mock(pid=4242)
+        eperm = PermissionError(1, 'Operation not permitted')
+        with mock.patch.object(runner.os, 'killpg', side_effect=[eperm, eperm, ProcessLookupError()]) as killpg, \
+             mock.patch.object(runner.time, 'sleep'):
+            runner.end_app_group(app, 'check')
+        self.assertEqual(killpg.call_count, 3)
 
     def test_ending_an_already_empty_group_does_nothing(self):
         app = subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=True)
