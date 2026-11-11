@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
+use crate::agent_files::{aven_dir_parent, keep_out_of_git};
 use crate::fs::{expand_home, path_to_js, MAX_TEXT_FILE_BYTES};
 #[cfg(test)]
 use crate::git::GitDiffStats;
@@ -271,6 +272,9 @@ impl CheckpointStore {
             let Ok(relative) = relative_to_root(&root, path) else {
                 continue;
             };
+            if aven_dir_parent(&relative).is_some() {
+                continue;
+            }
             // Keep the original pre-edit snapshot across later edits by this
             // session. The first tool-start event owns the safe undo boundary.
             if manifest.touched.contains(&relative) && manifest.prepared.contains(&relative) {
@@ -333,6 +337,14 @@ impl CheckpointStore {
             let Ok(relative) = relative_to_root(&root, path) else {
                 continue;
             };
+            if let Some(parent) = aven_dir_parent(&relative) {
+                // A file in Aven's own folder (one an agent made for you, or
+                // wrote on its way to another app) is no change to the
+                // project: nothing to review, undo or ship. Git is told to
+                // leave the folder alone now, not at the next message.
+                let _ = keep_out_of_git(&root.join(parent));
+                continue;
+            }
             manifest.touched.insert(relative.clone());
             let tracked_in_head = in_head(&root, &relative);
             if tracked_in_head {
@@ -834,6 +846,10 @@ fn diff_from_manifest_with(
         // Without a tool-start snapshot there is no trustworthy session
         // boundary. Never guess from the shared working tree.
         if !manifest.prepared.contains(relative) {
+            continue;
+        }
+        // One recorded before Aven's own folder stopped counting.
+        if aven_dir_parent(relative).is_some() {
             continue;
         }
         if session_snapshot_differs(dir, manifest, relative) == Some(false) {
@@ -1739,6 +1755,174 @@ mod tests {
         // A path outside the project stays outside, by either name.
         let outside = base.0.join("elsewhere.txt").to_string_lossy().into_owned();
         assert!(relative_to_root(&linked, &outside).is_err());
+    }
+
+    /// An agent's edit as the app reports it: the path before the write,
+    /// then the same path once the file is there.
+    fn agent_writes(store: &CheckpointStore, id: &str, repo: &Path, relative: &str, text: &str) {
+        let cwd = repo.to_string_lossy().into_owned();
+        let path = repo.join(relative);
+        let reported = path.to_string_lossy().into_owned();
+        store
+            .prepare(id, &cwd, std::slice::from_ref(&reported))
+            .unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+        store.capture(id, &cwd, &[reported]).unwrap();
+    }
+
+    /// What `git add -A` (Ship it's "All") would take, as Git lists it.
+    fn git_would_commit(repo: &Path) -> Vec<String> {
+        let output = Command::new("git")
+            .args(["status", "--porcelain", "--untracked-files=all"])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|line| line[3..].to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_document_in_avens_own_folder_is_not_a_change() {
+        // A summary written on its way to a notes app: nothing to ship.
+        let repo = tmp("aven-document");
+        if !init_git_commit(&repo.0, &[("app.ts", "one\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+
+        let document = ".aven/files/HOLO rule consistency – findings 2026-11-11.md";
+        agent_writes(&store, "s1", &repo.0, document, "# Findings\n\n| a | b |\n");
+
+        assert!(store.status("s1", &cwd).unwrap().files.is_empty());
+        assert!(store.file_diff("s1", &cwd, document).is_err());
+        // Git leaves the folder alone at once, with no message in between.
+        assert!(git_would_commit(&repo.0).is_empty());
+        // The document itself stays, for its link in the chat to download.
+        assert!(repo.0.join(document).is_file());
+        store.undo("s1", &cwd, None).unwrap();
+        assert!(repo.0.join(document).is_file());
+    }
+
+    #[test]
+    fn only_the_code_beside_an_aven_document_counts_and_ships() {
+        let repo = tmp("aven-document-and-code");
+        if !init_git_commit(&repo.0, &[("src/app.ts", "one\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+
+        agent_writes(&store, "s1", &repo.0, ".aven/files/Notes.md", "# Notes\n");
+        agent_writes(&store, "s1", &repo.0, "src/app.ts", "one\ntwo\n");
+        agent_writes(&store, "s1", &repo.0, "web/.aven/files/chart.csv", "a,b\n");
+
+        let status = store.status("s1", &cwd).unwrap();
+        assert_eq!(relatives(&status), vec!["src/app.ts"]);
+        assert_eq!(status.files[0].additions, 1);
+        assert_eq!(git_would_commit(&repo.0), vec!["src/app.ts"]);
+
+        assert!(git(&repo.0, &["add", "-A", "--", "."]));
+        assert!(git(&repo.0, &["commit", "-m", "ship"]));
+        let shipped = Command::new("git")
+            .args(["ls-files"])
+            .current_dir(&repo.0)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&shipped.stdout).trim(),
+            "src/app.ts"
+        );
+        assert!(store.status("s1", &cwd).unwrap().files.is_empty());
+    }
+
+    #[test]
+    fn undo_all_leaves_avens_own_folder_alone() {
+        let repo = tmp("aven-document-undo");
+        if !init_git_commit(&repo.0, &[("app.ts", "one\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+        agent_writes(&store, "s1", &repo.0, ".aven/files/Notes.md", "# Notes\n");
+        agent_writes(&store, "s1", &repo.0, "app.ts", "two\n");
+
+        store.undo("s1", &cwd, None).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(repo.0.join("app.ts")).unwrap(),
+            "one\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.0.join(".aven/files/Notes.md")).unwrap(),
+            "# Notes\n"
+        );
+    }
+
+    #[test]
+    fn a_project_document_is_still_a_change() {
+        // Only Aven's own folder is left out: a README is real work.
+        let repo = tmp("project-document");
+        if !init_git_commit(&repo.0, &[("README.md", "# App\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+
+        agent_writes(
+            &store,
+            "s1",
+            &repo.0,
+            "README.md",
+            "# App\n\nHow to run it.\n",
+        );
+        agent_writes(&store, "s1", &repo.0, "docs/files/Guide.md", "# Guide\n");
+
+        let status = store.status("s1", &cwd).unwrap();
+        assert_eq!(relatives(&status), vec!["README.md", "docs/files/Guide.md"]);
+        assert!(status.files.iter().all(|file| file.undoable));
+        assert_eq!(
+            git_would_commit(&repo.0),
+            vec!["README.md", "docs/files/Guide.md"]
+        );
+    }
+
+    #[test]
+    fn an_aven_document_recorded_by_an_older_version_leaves_review() {
+        let repo = tmp("aven-document-legacy");
+        if !init_git_commit(&repo.0, &[("app.ts", "one\n")]) {
+            return;
+        }
+        let cwd = repo.0.to_string_lossy().into_owned();
+        let (_root, store) = store();
+        store.ensure("s1", &cwd).unwrap();
+        agent_writes(&store, "s1", &repo.0, "app.ts", "two\n");
+        // What 0.1.181 saved for a document the agent wrote.
+        let relative = ".aven/files/Notes.md".to_string();
+        std::fs::create_dir_all(repo.0.join(".aven/files")).unwrap();
+        std::fs::write(repo.0.join(&relative), "# Notes\n").unwrap();
+        let dir = store.session_dir("s1");
+        let mut manifest = read_manifest(&dir).unwrap().unwrap();
+        manifest
+            .files
+            .insert(relative.clone(), SnapshotKind::Missing);
+        manifest.prepared.insert(relative.clone());
+        manifest.touched.insert(relative.clone());
+        let after = snapshot_after_file(&dir, &repo.0, &relative).unwrap();
+        manifest.after.insert(relative.clone(), after);
+        write_manifest(&dir, &manifest).unwrap();
+
+        assert_eq!(
+            relatives(&store.status("s1", &cwd).unwrap()),
+            vec!["app.ts"]
+        );
     }
 
     #[test]

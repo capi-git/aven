@@ -5,22 +5,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { subscribeShipRequests, takeShipRequest } from "../lib/shipRequest";
 import { SessionReview } from "./SessionReview";
 
+const CODE_FILE = {
+  path: "/repo/a.ts",
+  relative: "a.ts",
+  status: "modified",
+  additions: 3,
+  deletions: 1,
+  exact: true,
+  undoable: true,
+};
+const native = vi.hoisted(() => ({ files: [] as unknown[] }));
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: async (command: string) => {
-    if (command === "session_checkpoint_status")
-      return {
-        files: [
-          {
-            path: "/repo/a.ts",
-            relative: "a.ts",
-            status: "modified",
-            additions: 3,
-            deletions: 1,
-            exact: true,
-            undoable: true,
-          },
-        ],
-      };
+    if (command === "session_checkpoint_status") return { files: native.files };
     throw new Error(`Unexpected native command: ${command}`);
   },
 }));
@@ -30,6 +27,7 @@ let root: Root;
 let container: HTMLDivElement;
 
 beforeEach(() => {
+  native.files = [CODE_FILE];
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -74,6 +72,18 @@ describe("SessionReview Ship it", () => {
       expect.objectContaining({ cwd: "/repo", sessionId: "s1" }),
     );
     expect(takeShipRequest("/repo")).toMatchObject({ sessionId: "s1" });
+  });
+});
+
+describe("a chat that changed nothing in the project", () => {
+  it("shows no bar and no Ship it", async () => {
+    // What the native side answers when the agent only wrote a document in
+    // Aven's own folder (`.aven/files`), for example on its way to a notes
+    // app: see checkpoint.rs.
+    native.files = [];
+    await render();
+    expect(container.querySelector("[data-session-review-shell]")).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
   });
 });
 
