@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.1.181] - 2026-11-11
+
+### Changed
+
+- **The bar that shows an agent using your Mac has one row.** An agent has one row however many things it does at once; before, each tab it used added a row. While more agents work, the row ends with a count ("+2 more"), and the bar opens to a row for each while you point at it.
+
+### Fixed
+
+- **A Claude reply that thinks first shows once.** Since 0.1.179, a reply that thought and then wrote was printed twice in one message, the second copy joined straight to the first. Aven now counts the text it has shown per message, so the reply's closing piece adds nothing twice. Replies already saved doubled stay as they are.
+
 ## [0.1.180] - 2026-11-11
 
 ### Changed
