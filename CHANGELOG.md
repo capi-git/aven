@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.182] - 2026-11-11
+
+### Changed
+
+- **The room under a chat's last message is the same in every state.** The last question and its reply always fill the pane, and a chat ends the same distance above the pane's lower edge: just sent, while the reply streams, when it is done, after the app reopens and at the end of a long chat.
+
+### Fixed
+
+- **A chat counts as working while Claude works by itself.** When a background command reports back, Claude starts work on its own. The chat now shows "Working" with Stop during that work, and a new message waits in the queue instead of going at once.
+- **Speaking keeps what you said before a pause.** After a second or two of silence the Mac's speech recogniser starts its text again, and the new words replaced the earlier ones. Aven now keeps each part and adds the new words after it; dictation goes on through a pause.
+- **An agent's file in Aven's own folder is not a change to ship.** A note or document an agent keeps in the project's hidden Aven folder no longer shows in the changes bar or in Changes, and "Ship it" never commits it.
+
 ## [0.1.181] - 2026-11-11
 
 ### Changed
