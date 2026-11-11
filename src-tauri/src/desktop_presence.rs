@@ -691,6 +691,18 @@ struct TabActivity {
     stopped: bool,
 }
 
+impl TabActivity {
+    /// The row's words after the agent's name: the step, the tab and where
+    /// the tab is.
+    fn row_text(&self) -> String {
+        let text = format!("{} in {}", self.step.label(), self.tab);
+        match &self.place {
+            Some(place) => format!("{text} \u{b7} {place}"),
+            None => text,
+        }
+    }
+}
+
 /// Held by one use of a tab; checked again while it runs.
 #[derive(Clone, Debug)]
 pub(crate) struct TabTicket {
@@ -853,11 +865,19 @@ pub(crate) struct BarRow {
     pub stop: ButtonAction,
 }
 
+/// What the bar's one row ends with while more agents are at work; their
+/// rows show when the bar is pointed at.
+pub(crate) fn others_label(rows: usize) -> Option<String> {
+    (rows > 1).then(|| format!("+{} more", rows - 1))
+}
+
 /// Everything the native bar draws. Built from state; never from input text.
 ///
-/// An `Acting` bar is its `rows`, one per agent, with Pause (or Resume) in
-/// `buttons`. The other kinds are one agent's sentence: `title`, `detail`,
-/// any `lines` and their `buttons`.
+/// An `Acting` bar is its `rows`, one per agent and the latest first, with
+/// Pause (or Resume) in `buttons`. At rest the bar shows only the first row
+/// and counts the others ([`others_label`]); pointed at, it shows them all.
+/// The other kinds are one agent's sentence: `title`, `detail`, any `lines`
+/// and their `buttons`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BarModel {
     pub kind: BarKind,
@@ -1764,42 +1784,54 @@ impl Presence {
                 rows: vec![],
             });
         }
+        let running: Vec<&TabActivity> = tabs
+            .iter()
+            .copied()
+            .filter(|tab| !self.tabs_paused.contains(&tab.scope))
+            .collect();
+        // One row per agent, however many things it does at once. An agent
+        // using the desktop keeps that row and its Stop, which ends its use
+        // of tabs too; while it is in a tab between desktop steps, the row
+        // names the tab.
         let mut rows: Vec<BarRow> = acting
             .iter()
             .map(|activity| {
                 let actor = self.actor(&activity.scope);
+                let tab = running
+                    .iter()
+                    .find(|tab| tab.in_flight && tab.scope == activity.scope)
+                    .filter(|_| !activity.in_flight);
                 BarRow {
                     name: actor.name,
                     tone: actor.tone,
                     faces: actor.faces,
-                    text: activity.row_text(),
-                    dots: if activity.in_flight {
-                        Dots::for_step(activity.step)
-                    } else {
-                        Dots::Ripple
+                    text: tab.map_or_else(|| activity.row_text(), |tab| tab.row_text()),
+                    dots: match tab {
+                        Some(tab) => Dots::for_step(tab.step),
+                        None if activity.in_flight => Dots::for_step(activity.step),
+                        None => Dots::Ripple,
                     },
                     stop: ButtonAction::Stop(activity.scope.clone()),
                 }
             })
             .collect();
         // Other chats' use of tabs: a row each, with a Stop that ends only
-        // that use. Desktop control is not paused or stopped by it.
-        let running: Vec<&TabActivity> = tabs
+        // that use. Desktop control is not paused or stopped by it. A chat's
+        // latest use speaks for the others it has under way.
+        let mut named: HashSet<&str> = acting
             .iter()
-            .copied()
-            .filter(|tab| !self.tabs_paused.contains(&tab.scope))
+            .map(|activity| activity.scope.as_str())
             .collect();
         for tab in &running {
-            let actor = self.actor(&tab.scope);
-            let mut text = format!("{} in {}", tab.step.label(), tab.tab);
-            if let Some(place) = &tab.place {
-                text = format!("{text} \u{b7} {place}");
+            if !named.insert(tab.scope.as_str()) {
+                continue;
             }
+            let actor = self.actor(&tab.scope);
             rows.push(BarRow {
                 name: actor.name,
                 tone: actor.tone,
                 faces: actor.faces,
-                text,
+                text: tab.row_text(),
                 dots: if tab.in_flight {
                     Dots::for_step(tab.step)
                 } else {
@@ -3528,6 +3560,51 @@ mod tests {
         let bar = presence.model(now).unwrap();
         assert_eq!(bar.kind, BarKind::Stopped);
         assert!(bar.detail.contains("other tabs"));
+    }
+
+    #[test]
+    fn an_agent_has_one_row_however_many_things_it_does_at_once() {
+        let mut presence = Presence::default();
+        let now = Instant::now();
+        presence.bind("chat", Some(actor("claude", None)));
+        // Three tabs read one after another, the earlier ones still fading.
+        let first = presence.begin_tab("chat", Step::ReadingPage, "Inbox", "Main", now);
+        presence.end_tab(&first, now);
+        let second = presence.begin_tab("chat", Step::ReadingPage, "Plan", "Main", now);
+        presence.end_tab(&second, now);
+        let third = presence.begin_tab("chat", Step::SavingPage, "Notes", "Window 2", now);
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.rows.len(), 1);
+        assert_eq!(
+            bar.rows[0].text,
+            "Saving the page into the project in the tab \u{201c}Notes\u{201d} \u{b7} Window 2"
+        );
+        assert_eq!(bar.rows[0].stop, ButtonAction::StopTabs("chat".into()));
+        assert_eq!(others_label(bar.rows.len()), None);
+        // Using the desktop as well keeps the one row, with the Stop that
+        // ends both. Between desktop steps it names the tab in use.
+        let click = presence.begin("chat", Step::Clicking, Some("Safari".into()), now);
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.rows.len(), 1);
+        assert_eq!(bar.rows[0].text, "Clicking in Safari");
+        assert_eq!(bar.rows[0].stop, ButtonAction::Stop("chat".into()));
+        presence.end(&click, now);
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.rows.len(), 1);
+        assert_eq!(
+            bar.rows[0].text,
+            "Saving the page into the project in the tab \u{201c}Notes\u{201d} \u{b7} Window 2"
+        );
+        assert_eq!(bar.rows[0].dots, Dots::Ripple);
+        assert_eq!(bar.rows[0].stop, ButtonAction::Stop("chat".into()));
+        presence.end_tab(&third, now);
+        assert_eq!(presence.model(now).unwrap().rows[0].text, "Safari");
+        // Another agent is a second row, which the bar counts at rest.
+        presence.bind("other", Some(actor("codex", None)));
+        presence.begin_tab("other", Step::ReadingPage, "Inbox", "Main", now);
+        let bar = presence.model(now).unwrap();
+        assert_eq!(bar.rows.len(), 2);
+        assert_eq!(others_label(bar.rows.len()).as_deref(), Some("+1 more"));
     }
 
     #[test]
