@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.180] - 2026-11-11
+
+### Changed
+
+- **Every agent sends its standing text once per conversation.** Later rounds on a work card send about 1,500 characters instead of about 4,000; a lead's later turns about 400 instead of about 2,400; a project bot's later wake-ups about 300 instead of about 4,400. With desktop control off, a chat's first message is about 6,000 characters shorter. A message added to a running turn no longer repeats any instructions.
+- **After a provider compacts a chat** (Pi, OpenCode), Aven sends its full instructions, memory and shared work again, so nothing is lost.
+
+### Fixed
+
+- **Discussion and race summaries keep the end of long replies,** where the conclusions are. A discussion's wrap-up kept the middle and lost them.
+- **A very long skill file** is sent up to 24,000 characters with a pointer to the rest.
+
 ## [0.1.179] - 2026-11-10
 
 ### Changed
