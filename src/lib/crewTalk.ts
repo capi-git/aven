@@ -191,17 +191,24 @@ export function talkAnswerText(reply: string): string {
 /**
  * A teammate's or helper's answer as it is passed back to whoever asked:
  * the words it wrote (not its closing block, notes or document), whole when
- * they fit. A longer one keeps its opening and its end, where the
- * conclusion usually is, with a note that Aven shortened it.
+ * they fit, and its one line for the team chat when the words don't already
+ * say it (a short "Done." can leave the answer itself in that line). A
+ * longer one keeps its opening and its end, where the conclusion usually
+ * is, with a note that Aven shortened it; the line always stays.
  */
 export function forwardedAnswer(reply: string, max = TALK_TEXT_MAX): string {
-  const text = talkAnswerText(reply) || parseTalk(reply).line;
-  if (text.length <= max) return text;
-  const note = `\n\n[Aven shortened this answer from ${text.length.toLocaleString("en-US")} characters; the middle is left out.]\n\n`;
-  const room = Math.max(0, max - note.length);
+  const words = talkAnswerText(reply);
+  const line = parseTalk(reply).line.trim();
+  const said =
+    line && !words.toLowerCase().includes(line.toLowerCase()) ? line : "";
+  if (!words) return said;
+  const after = said ? `\n\n${said}` : "";
+  if (words.length + after.length <= max) return `${words}${after}`;
+  const note = `\n\n[Aven shortened this answer from ${words.length.toLocaleString("en-US")} characters; the middle is left out.]\n\n`;
+  const room = Math.max(0, max - note.length - after.length);
   const head = Math.floor(room / 3);
   const tail = room - head;
-  return `${text.slice(0, head).trimEnd()}${note}${text.slice(text.length - tail).trimStart()}`;
+  return `${words.slice(0, head).trimEnd()}${note}${words.slice(words.length - tail).trimStart()}${after}`;
 }
 
 /** The teammate a reply names: by its name or title, never itself or the Fixer. */
