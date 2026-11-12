@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.183] - 2026-11-11
+
+### Changed
+
+- **Every chat ends with the same room under its last message.** A short reply and a long one now end the same distance above the message box, which is larger than before, and a chat shorter than the pane rests at the bottom. A new question stays at the bottom instead of going to the top of the pane. "Anchor prompts to top" in Settings is off after this update; turn it on to put the last question at the top again.
+
 ## [0.1.182] - 2026-11-11
 
 ### Changed
