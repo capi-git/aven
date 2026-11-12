@@ -8,9 +8,10 @@ import type { Block } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
 
 /**
- * The room under a chat's last message is one rule in every state: the last
- * turn fills the pane (its prompt at the top), and whatever ends the chat
- * stops a fixed distance above the pane's lower edge.
+ * The room under a chat's last message is one rule in every state: whatever
+ * ends the chat stops a fixed distance above the pane's lower edge, and no
+ * turn is stretched to make more. A chat shorter than the pane rests on that
+ * room, at the bottom. "Anchor prompts to top" is an opt-in on a new key.
  */
 
 vi.mock("./AgentMarkdown", () => ({
@@ -106,7 +107,8 @@ function stretched(): boolean[] {
 /**
  * happy-dom does not lay out. Model earlier history above a last turn that is
  * `live` pixels of content and at least `--transcript-viewport` tall when it
- * is stretched, over the content's bottom padding.
+ * is stretched, over the content's bottom padding, in a column that is at
+ * least one pane tall and packs its turns at the end (the CSS checked below).
  */
 function layOut(
   el: HTMLElement,
@@ -123,11 +125,14 @@ function layOut(
         0
       : 0;
   const total = () => earlier + Math.max(liveHeight, stretch()) + pad();
+  // The column is at least one pane tall and packs its turns at the end, so
+  // a chat shorter than the pane starts this far down.
+  const slack = () => Math.max(0, viewHeight - total());
   const clamp = (next: number) =>
     Math.max(0, Math.min(next, total() - viewHeight));
   Object.defineProperties(el, {
     clientHeight: { configurable: true, get: () => viewHeight },
-    scrollHeight: { configurable: true, get: total },
+    scrollHeight: { configurable: true, get: () => total() + slack() },
     scrollTop: {
       configurable: true,
       get: () => (position = clamp(position)),
@@ -138,9 +143,10 @@ function layOut(
   });
   return {
     /** Where the last turn's top sits, measured from the pane's top edge. */
-    lastTurnTop: () => earlier - el.scrollTop,
+    lastTurnTop: () => slack() + earlier - el.scrollTop,
     /** From the end of the last turn's content to the pane's lower edge. */
-    roomUnderContent: () => el.scrollTop + viewHeight - (earlier + liveHeight),
+    roomUnderContent: () =>
+      el.scrollTop + viewHeight - (slack() + earlier + liveHeight),
     grow: (amount: number) => {
       liveHeight += amount;
     },
@@ -150,37 +156,165 @@ function layOut(
   };
 }
 
-const END_ROOM = "40px";
+const END_ROOM = "96px";
+
+/** A store with nothing saved, or with what an older Aven saved. */
+function stubStorage(saved: Record<string, string> = {}) {
+  const stored = new Map(Object.entries(saved));
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+}
 
 describe("the room under a chat's last message", () => {
-  it("stretches only the last turn right after a send", async () => {
-    await render(chat(3), true);
-    expect(stretched()).toEqual([false, false, true]);
+  beforeEach(async () => {
+    stubStorage();
+    await reopen();
   });
 
-  it("keeps it stretched while the reply is written and after it ends", async () => {
+  it("stretches no turn right after a send", async () => {
+    await render(chat(3), true);
+    expect(stretched()).toEqual([false, false, false]);
+  });
+
+  it("stretches no turn while the reply is written and after it ends", async () => {
     await render(chat(3), true);
     await render(chat(3, "The reply"), true);
-    expect(stretched()).toEqual([false, false, true]);
+    expect(stretched()).toEqual([false, false, false]);
     await render(chat(3, "The reply, and the rest of it."), true);
-    expect(stretched()).toEqual([false, false, true]);
+    expect(stretched()).toEqual([false, false, false]);
     await render(chat(3, "The reply, and the rest of it."), false);
-    expect(stretched()).toEqual([false, false, true]);
+    expect(stretched()).toEqual([false, false, false]);
   });
 
-  it("stretches the last turn of a chat that is opened again", async () => {
+  it("stretches no turn of a chat that is opened again", async () => {
     await render(chat(3, "The reply"), true);
     await render(chat(3, "The reply"), false);
-    const before = stretched();
     await reopen();
     await render(chat(3, "The reply"), false);
-    expect(stretched()).toEqual(before);
-    expect(stretched()).toEqual([false, false, true]);
+    expect(stretched()).toEqual([false, false, false]);
   });
 
-  it("stretches the only turn of a short chat", async () => {
+  it.each([
+    ["at rest", false],
+    ["opened again", "reopen" as const],
+  ])(
+    "rests a chat shorter than the pane at the bottom, on the same room (%s)",
+    async (_, state) => {
+      let el = await render(chat(1, "Sure."), false);
+      if (state === "reopen") {
+        await reopen();
+        el = await render(chat(1, "Sure."), false);
+      }
+      (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
+      const view = layOut(el, { height: 600, earlier: 0, live: 120 });
+      await reportResize();
+      expect(view.roomUnderContent()).toBe(96);
+      expect(view.lastTurnTop()).toBe(600 - 96 - 120);
+    },
+  );
+
+  it("does not stretch the only turn of a short chat", async () => {
     await render(chat(1, "Sure."), false);
-    expect(stretched()).toEqual([true]);
+    expect(stretched()).toEqual([false]);
+    await reopen();
+    await render(chat(1, "Sure."), false);
+    expect(stretched()).toEqual([false]);
+  });
+
+  it.each(["1", "true"])(
+    "stretches nothing when an older Aven saved the setting as on (%s)",
+    async (saved) => {
+      stubStorage({ "monocode.transcriptAnchor": saved });
+      await reopen();
+      await render(chat(3), true);
+      expect(stretched()).toEqual([false, false, false]);
+      await render(chat(3, "The reply"), false);
+      expect(stretched()).toEqual([false, false, false]);
+    },
+  );
+
+  it.each([
+    ["just sent", true, undefined, 60],
+    ["while a short reply is written", true, "Sure", 120],
+    ["a short reply at rest", false, "Sure.", 120],
+    ["while a long reply is written", true, "A long reply", 1500],
+    ["a long reply at rest", false, "A long reply", 1500],
+  ])(
+    "ends the chat the same distance above the pane's edge (%s)",
+    async (_, busy, reply, live) => {
+      const el = await render(chat(3, reply), busy);
+      (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
+      const view = layOut(el, { height: 600, earlier: 900, live });
+      await reportResize();
+      expect(view.roomUnderContent()).toBe(96);
+    },
+  );
+
+  it.each([
+    ["a short reply", 120],
+    ["a long reply", 1500],
+  ])(
+    "opens a chat again with the same room it had when the reply ended (%s)",
+    async (_, live) => {
+      const blocks = chat(3, "The reply");
+      let el = await render(blocks, true);
+      el = await render(blocks, false);
+      (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
+      let view = layOut(el, { height: 600, earlier: 900, live });
+      await reportResize();
+      expect(view.roomUnderContent()).toBe(96);
+
+      await reopen();
+      el = await render(blocks, false);
+      (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
+      view = layOut(el, { height: 600, earlier: 900, live });
+      await reportResize();
+      expect(view.roomUnderContent()).toBe(96);
+    },
+  );
+
+  it.each([
+    ["while it is written", true],
+    ["at rest", false],
+  ])(
+    "keeps the room as the reply grows and the pane changes size (%s)",
+    async (_, busy) => {
+      const el = await render(chat(3, "A reply"), busy);
+      (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
+      const view = layOut(el, { height: 600, earlier: 900, live: 120 });
+      await reportResize();
+      expect(view.roomUnderContent()).toBe(96);
+      // More of the reply, past the pane's height, then a shorter pane.
+      view.grow(1400);
+      await render(chat(3, "A reply, and a lot more"), busy);
+      expect(view.roomUnderContent()).toBe(96);
+      view.resize(420);
+      await reportResize();
+      expect(view.roomUnderContent()).toBe(96);
+    },
+  );
+});
+
+describe("with prompts anchored to the top", () => {
+  beforeEach(async () => {
+    stubStorage();
+    saveTranscriptAnchor(true);
+    await reopen();
+  });
+
+  it("stretches only the last turn, in every state", async () => {
+    await render(chat(3), true);
+    expect(stretched()).toEqual([false, false, true]);
+    await render(chat(3, "The reply"), true);
+    expect(stretched()).toEqual([false, false, true]);
+    await render(chat(3, "The reply"), false);
+    expect(stretched()).toEqual([false, false, true]);
+    await reopen();
+    await render(chat(3, "The reply"), false);
+    expect(stretched()).toEqual([false, false, true]);
   });
 
   it("moves the stretch to the next question when it is sent", async () => {
@@ -194,84 +328,31 @@ describe("the room under a chat's last message", () => {
     ["just sent", true, undefined],
     ["finished", false, "Sure."],
   ])(
-    "puts the last prompt at the top of the pane with room under it (%s)",
+    "puts the last prompt at the top of the pane (%s)",
     async (_, busy, reply) => {
       const el = await render(chat(3, reply), busy);
       (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
       const view = layOut(el, { height: 600, earlier: 900, live: 120 });
       await reportResize();
       // The stretch and the bottom padding add up to exactly one pane.
-      expect(el.style.getPropertyValue("--transcript-viewport")).toBe("560px");
+      expect(el.style.getPropertyValue("--transcript-viewport")).toBe("504px");
       expect(view.lastTurnTop()).toBe(0);
-      expect(view.roomUnderContent()).toBe(480);
     },
   );
 
-  it("opens a chat again on the same view it had when the reply ended", async () => {
-    const blocks = chat(3, "Sure.");
-    let el = await render(blocks, true);
-    el = await render(blocks, false);
-    (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
-    let view = layOut(el, { height: 600, earlier: 900, live: 120 });
-    await reportResize();
-    const atRest = [view.lastTurnTop(), view.roomUnderContent()];
-
-    await reopen();
-    el = await render(blocks, false);
-    (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
-    view = layOut(el, { height: 600, earlier: 900, live: 120 });
-    await reportResize();
-    expect([view.lastTurnTop(), view.roomUnderContent()]).toEqual(atRest);
-  });
-
-  it.each([
-    ["while it is written", true],
-    ["at rest", false],
-    ["opened again", "reopen" as const],
-  ])(
-    "ends a reply longer than the pane the same distance above the edge (%s)",
-    async (_, state) => {
-      const blocks = chat(3, "A long reply");
-      let el = await render(blocks, state === true);
-      if (state === "reopen") {
-        await reopen();
-        el = await render(blocks, false);
-      }
-      (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
-      const view = layOut(el, { height: 600, earlier: 900, live: 1500 });
-      await reportResize();
-      expect(view.roomUnderContent()).toBe(40);
-      // More of the reply, then a shorter pane: the distance holds.
-      view.grow(300);
-      await render(chat(3, "A long reply, and more"), state === true);
-      expect(view.roomUnderContent()).toBe(40);
-      view.resize(420);
-      await reportResize();
-      expect(view.roomUnderContent()).toBe(40);
-    },
-  );
-
-  it("stretches nothing in any state when prompts are not kept at the top", async () => {
-    const stored = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => stored.get(key) ?? null,
-      setItem: (key: string, value: string) => stored.set(key, value),
-      removeItem: (key: string) => stored.delete(key),
-    });
-    saveTranscriptAnchor(false);
-    await reopen();
-    await render(chat(3), true);
-    expect(stretched()).toEqual([false, false, false]);
-    await render(chat(3, "The reply"), false);
-    expect(stretched()).toEqual([false, false, false]);
-    await reopen();
-    const el = await render(chat(3, "The reply"), false);
-    expect(stretched()).toEqual([false, false, false]);
-    // The fixed distance under the last line still holds.
+  it("ends a reply longer than the pane on the same room", async () => {
+    const el = await render(chat(3, "A long reply"), false);
     (el.firstElementChild as HTMLElement).style.paddingBottom = END_ROOM;
     const view = layOut(el, { height: 600, earlier: 900, live: 1500 });
     await reportResize();
-    expect(view.roomUnderContent()).toBe(40);
+    expect(view.roomUnderContent()).toBe(96);
+  });
+
+  it("stops the stretch when the setting is turned off", async () => {
+    await render(chat(3, "The reply"), false);
+    expect(stretched()).toEqual([false, false, true]);
+    await act(async () => saveTranscriptAnchor(false));
+    expect(stretched()).toEqual([false, false, false]);
   });
 });
 
@@ -293,6 +374,15 @@ describe("the room's size", () => {
 
   it("is the one the tests above assume", () => {
     expect(`${endRoom()}px`).toBe(END_ROOM);
+  });
+
+  it("holds a chat shorter than the pane at the bottom, on the same room", () => {
+    const rule = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].find(
+      ([, selectors]) =>
+        selectors!.trim() === ".personal-shell .personal-transcript-content",
+    );
+    expect(rule?.[2]).toMatch(/min-height:\s*100%/);
+    expect(rule?.[2]).toMatch(/justify-content:\s*flex-end/);
   });
 
   it("is set once, so a narrow pane keeps the same room", () => {

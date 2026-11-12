@@ -113,7 +113,8 @@ describe("light workspace surfaces", () => {
 
 const KEY = "monocode.transcriptLayout";
 const SCHEME_KEY = "monocode.colorScheme";
-const ANCHOR_KEY = "monocode.transcriptAnchor";
+const ANCHOR_KEY = "aven.transcriptAnchor";
+const OLD_ANCHOR_KEY = "monocode.transcriptAnchor";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
 const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
 const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
@@ -235,10 +236,27 @@ describe("transcript prompt-to-top setting", () => {
   beforeEach(mockLocalStorage);
   afterEach(() => {
     localStorage.removeItem(ANCHOR_KEY);
+    localStorage.removeItem(OLD_ANCHOR_KEY);
   });
 
-  it("defaults to on", () => {
-    expect(TRANSCRIPT_ANCHOR_DEFAULT).toBe(true);
+  it("defaults to off", () => {
+    expect(TRANSCRIPT_ANCHOR_DEFAULT).toBe(false);
+    expect(loadTranscriptAnchor()).toBe(false);
+  });
+
+  it.each(["1", "true", "0"])(
+    "does not read the old key, whatever it holds (%s)",
+    (saved) => {
+      localStorage.setItem(OLD_ANCHOR_KEY, saved);
+      expect(loadTranscriptAnchor()).toBe(false);
+    },
+  );
+
+  it("saves under the new key and leaves the old one alone", () => {
+    localStorage.setItem(OLD_ANCHOR_KEY, "0");
+    saveTranscriptAnchor(true);
+    expect(localStorage.getItem(ANCHOR_KEY)).toBe("1");
+    expect(localStorage.getItem(OLD_ANCHOR_KEY)).toBe("0");
     expect(loadTranscriptAnchor()).toBe(true);
   });
 

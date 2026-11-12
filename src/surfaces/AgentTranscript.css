@@ -7,15 +7,16 @@
   /* The chat outline remains usable in a narrow split without covering prose. */
   padding-inline-end: 24px;
 }
-/* The bottom padding is the room under a chat's last line: the same while a
-   reply is written, when it ends, and when the chat is opened again. It also
-   clears the jump-to-latest button, which sits in it. */
+/* The bottom padding is the room under a chat's last line: the same for a
+   short and a long chat, while a reply is written, when it ends, and when the
+   chat is opened again. A chat shorter than the pane rests on it, at the
+   bottom. It also clears the jump-to-latest button, which sits in it. */
 .personal-shell .personal-transcript-content {
   max-width: 800px;
   min-height: 100%;
   justify-content: flex-end;
   gap: 22px;
-  padding-block: 30px 40px;
+  padding-block: 30px 96px;
 }
 .personal-shell .personal-transcript-response .agent-markdown {
   font-size: var(--text-ui-reading);

@@ -10,7 +10,10 @@ const BLUR_KEY = "monocode.sidebarBlur";
 const BODY_KEY = "monocode.bodyGlass";
 const SCHEME_KEY = "monocode.colorScheme";
 const TRANSCRIPT_LAYOUT_KEY = "monocode.transcriptLayout";
-const TRANSCRIPT_ANCHOR_KEY = "monocode.transcriptAnchor";
+// A new key on purpose: "monocode.transcriptAnchor" was on unless turned off,
+// and its saved value is not read, so every install starts on the end-of-chat
+// rule in DESIGN.md. Turning this on is a new choice.
+const TRANSCRIPT_ANCHOR_KEY = "aven.transcriptAnchor";
 const CHAT_BACKGROUND_PATH_KEY = "monocode.chatBackgroundPath";
 const CHAT_BACKGROUND_OPACITY_KEY = "monocode.chatBackgroundOpacity";
 const CHAT_BACKGROUND_SCOPE_KEY = "monocode.chatBackgroundScope";
@@ -144,7 +147,7 @@ export const TRANSCRIPT_LAYOUT_DEFAULT: TranscriptLayout = "chat";
 
 export const CHANGES_VIEW_DEFAULT: ChangesView = "list";
 
-export const TRANSCRIPT_ANCHOR_DEFAULT = true;
+export const TRANSCRIPT_ANCHOR_DEFAULT = false;
 
 /** Fired on `window` whenever prompt-to-top anchoring flips (detail: boolean). */
 export const TRANSCRIPT_ANCHOR_CHANGE_EVENT = "monocode:transcriptanchorchange";

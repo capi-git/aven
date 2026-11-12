@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { saveTranscriptAnchor } from "../lib/appearance";
 import type { Block } from "../lib/session";
 import { AgentTranscript } from "./AgentTranscript";
 import { setTranscriptScrollDragging } from "../lib/transcriptScrollIntent";
@@ -287,8 +288,15 @@ describe("transcript reading position across resizes", () => {
     expect(showJump).toHaveBeenLastCalledWith(true);
   });
 
-  it("keeps a just-sent prompt at the top in the frame the pane resizes", async () => {
-    // Prompt-to-top is the default.
+  it("keeps a just-sent prompt at the top in the frame the pane resizes, with prompts anchored to the top", async () => {
+    // Prompt-to-top is a setting, off unless turned on.
+    const stored = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => stored.set(key, value),
+      removeItem: (key: string) => stored.delete(key),
+    });
+    saveTranscriptAnchor(true);
     base = (index, count) => (index === count - 1 ? 100 : 600);
     measure(await render(turnBlocks(3), true));
     await layout();
