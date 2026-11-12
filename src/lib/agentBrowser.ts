@@ -19,7 +19,10 @@ import type { MarkTone } from "./markTones";
 import type { AgentDesktopFaces } from "./agentMark";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
-import { agentBrowserWeb } from "./projectBotPermissions";
+import {
+  agentBrowserRestricted,
+  agentBrowserWeb,
+} from "./projectBotPermissions";
 import { offerGuidance } from "./agentGuidanceDelivery";
 
 export type AgentBrowserContext = {
@@ -101,6 +104,11 @@ type BindArgs = {
    * isn't sandboxed, and the host leaves it as it is.
    */
   web: boolean;
+  /**
+   * A teammate's chat is sandboxed wherever it runs (Avos reads your own
+   * folder until the project has a copy). The host only ever adds this.
+   */
+  restricted?: true;
 };
 type OpenRequest = {
   requestId: string;
@@ -332,6 +340,9 @@ function bind(
         workDir: context.cwd,
         ...(userTurn && typed ? { userTyped: true } : {}),
         web: agentBrowserWeb(context.sessionId),
+        ...(agentBrowserRestricted(context.sessionId)
+          ? { restricted: true as const }
+          : {}),
       };
       return invoke<Binding>("browser_agent_bind", args);
     });

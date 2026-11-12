@@ -58,7 +58,7 @@ import {
   stringField,
   summarizeToolRequest,
   toClaudePermissionResult,
-  isWebToolName,
+  toolReachesWeb,
   toolKindFromName,
   toolResultsFromUserMessage,
   toolStartFromEvent,
@@ -922,7 +922,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       kind: toolKindFromName(tool.name),
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
-      ...(isWebToolName(tool.name) ? { web: true as const } : {}),
+      ...(toolReachesWeb(tool.name, tool.input) ? { web: true as const } : {}),
     });
     emitTaskListIfNeeded(live, tool.name, tool.input);
     return;
@@ -946,6 +946,8 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       status: "pending",
       detail: summarizeToolRequest(tool.name, parsed),
       preview: previewFromTool(tool.name, parsed),
+      // A command is known only once its input is whole: Aven's browser.
+      ...(toolReachesWeb(tool.name, parsed) ? { web: true as const } : {}),
     });
     emitTaskListIfNeeded(live, tool.name, parsed);
     return;
@@ -1029,7 +1031,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       kind: toolKindFromName(tool.name),
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
-      ...(isWebToolName(tool.name) ? { web: true as const } : {}),
+      ...(toolReachesWeb(tool.name, tool.input) ? { web: true as const } : {}),
     });
     if (use.name === "ExitPlanMode") {
       const plan = extractExitPlanModePlan(use.input);
@@ -1729,6 +1731,8 @@ function noteSubagentTool(
     kind: "agent",
     status: "in_progress",
     detail: toolTitle(name, input),
+    // What its own agent read on the web, the turn read.
+    ...(toolReachesWeb(name, input) ? { web: true as const } : {}),
   });
 }
 

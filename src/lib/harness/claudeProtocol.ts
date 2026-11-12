@@ -1192,6 +1192,23 @@ export function isWebToolName(toolName: string): boolean {
   return normalized === "webfetch" || normalized === "websearch";
 }
 
+/**
+ * A shell command that drives Aven's browser (`… --aven-browser '{…}'`). What
+ * it brings back is a page's words or picture, as a web call's is.
+ */
+export function isAgentBrowserCall(input: Record<string, unknown>): boolean {
+  const command = stringField(input, "command") ?? stringField(input, "cmd");
+  return !!command && command.includes("--aven-browser");
+}
+
+/** Whether a tool call reads the web or a page: its result is anyone's words. */
+export function toolReachesWeb(
+  toolName: string,
+  input: Record<string, unknown>,
+): boolean {
+  return isWebToolName(toolName) || isAgentBrowserCall(input);
+}
+
 export function toolKindFromName(toolName: string): string {
   const normalized = toolName.toLowerCase();
   if (isTodoTool(toolName) || isClaudeTaskTool(toolName)) return "tasks";

@@ -1476,3 +1476,25 @@ describe("applyClaudeTaskTool", () => {
     expect(tasks.size).toBe(0);
   });
 });
+
+describe("calls that read the web or a page", () => {
+  it("counts Claude's web tools and any command that drives Aven's browser", async () => {
+    const { isAgentBrowserCall, toolReachesWeb } =
+      await import("./claudeProtocol");
+    expect(toolReachesWeb("WebFetch", {})).toBe(true);
+    expect(toolReachesWeb("WebSearch", {})).toBe(true);
+    expect(
+      toolReachesWeb("Bash", {
+        command: `B=/Applications/Aven.app/aven; "$B" --aven-browser '{"action":"open","url":"http://localhost:3000/"}'`,
+      }),
+    ).toBe(true);
+    expect(isAgentBrowserCall({ cmd: "aven --aven-browser --help" })).toBe(
+      true,
+    );
+    expect(toolReachesWeb("Bash", { command: "npm test" })).toBe(false);
+    expect(toolReachesWeb("Read", { file_path: "/a/--aven-browser" })).toBe(
+      false,
+    );
+    expect(isAgentBrowserCall({})).toBe(false);
+  });
+});

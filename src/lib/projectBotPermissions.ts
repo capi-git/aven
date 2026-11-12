@@ -12,6 +12,8 @@ import {
   CREW_ROLE_INFO,
   avosMayRead,
   crewAccess,
+  crewMemberPagesReachWeb,
+  crewMemberSeesPages,
   crewRoleUsesBrowser,
   crewRoleUsesWeb,
   crewRoleWritesCopy,
@@ -180,6 +182,7 @@ export const TEAM_ACCESS_ROLE_LINES = [
   "Teammates on Codex have no network and never stop to ask.",
   "The Fixer keeps its own rules.",
   "Planning a goal never uses the web or the browser.",
+  "Avos and the helpers it starts look at pages in Aven's browser with none of your sign-ins, and never change a file.",
   "The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you.",
   "The Designer never uses the web or the browser, and writes only its mock-up.",
 ];
@@ -660,7 +663,8 @@ function mockupsDenied(
 export function crewSandbox(
   crew: Pick<Crew, "copy" | "access">,
   role: Exclude<CrewRole, "fixer">,
-  browserSocket = agentBrowserSocket(),
+  /** Aven's browser socket; null for a teammate that may not use it. */
+  browserSocket: string | null | undefined = agentBrowserSocket(),
   /** It plans the goal now: no browser, whatever you set. */
   offline = false,
 ): ClaudeSandboxSettings {
@@ -734,12 +738,16 @@ export function crewChatPermissions(
           ? "The project's copy isn't ready yet, so this chat didn't start. Wait a moment, then send again."
           : undefined;
   const offline = crew.planning === found.member.id;
+  // Aven's browser, for a teammate that may use it now: never a removed
+  // one, a helper Avos didn't start, or one on Codex (no network at all).
+  const browser =
+    !offline && !crewChatBrowserOff(sessionId) ? agentBrowserSocket() : null;
   return {
     mode: "auto",
     rules: crewPermissionRules(crew, role, offline),
     sandbox: inYourFolder
-      ? avosFolderSandbox(crew)
-      : crewSandbox(crew, role, undefined, offline),
+      ? avosFolderSandbox(crew, browser)
+      : crewSandbox(crew, role, browser, offline),
     noEscalation: true,
     userSettingsOnly: true,
     noMcp: true,
@@ -759,8 +767,14 @@ export function crewChatPermissions(
  */
 export function avosFolderSandbox(
   crew: Pick<Crew, "path">,
+  /**
+   * Aven's browser socket, when it may look at pages (see
+   * `crewMemberUsesBrowser`): its one way out, to pages Aven keeps apart
+   * from yours (see `agentBrowserRestricted`). Null for none.
+   */
+  browserSocket: string | null = null,
 ): ClaudeSandboxSettings {
-  const sandbox = botSandbox({ copy: undefined }, null);
+  const sandbox = botSandbox({ copy: undefined }, browserSocket);
   const folder = slash(crew.path).replace(/\/+$/, "");
   return {
     ...sandbox,
@@ -781,11 +795,25 @@ export function crewChatBrowserOff(sessionId: string): boolean {
   const found = crewForChat(sessionId);
   if (!found || found.member.role === "fixer") return false;
   return (
-    // A teammate on Codex works with no network at all.
-    crewMemberApp(found.member).harness === "codex" ||
-    found.crew.planning === found.member.id ||
-    !crewRoleUsesBrowser(found.crew, found.member.role)
+    // A removed teammate's chat starts nothing, so it has no pages either.
+    !!found.retired ||
+    // Nor one on Codex (no network at all), one planning a goal, or a
+    // helper Avos didn't start.
+    !crewMemberSeesPages(found.crew, found.member)
   );
+}
+
+/**
+ * Whether a chat's browser is the sandboxed one whatever folder it runs in:
+ * pages of its own in the throwaway profile (none of your sign-ins), no
+ * other tabs, no editor, no desktop or simulator. Aven's host decides this
+ * by itself for an agent in one of its copies; Avos and a helper read your
+ * own folder while the project has no copy, so the window says it for every
+ * teammate's chat. It can only ever add the sandbox, never take it away.
+ */
+export function agentBrowserRestricted(sessionId: string): boolean {
+  const found = crewForChat(sessionId);
+  return !!found && found.member.role !== "fixer";
 }
 
 /**
@@ -803,7 +831,7 @@ export function agentBrowserWeb(sessionId: string): boolean {
   return (
     crewMemberApp(found.member).harness !== "codex" &&
     found.crew.planning !== found.member.id &&
-    crewRoleUsesWeb(found.crew, found.member.role)
+    crewMemberPagesReachWeb(found.crew, found.member)
   );
 }
 

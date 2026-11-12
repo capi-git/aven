@@ -814,13 +814,7 @@ pub fn browser_agent_bind(
         grant.own = own;
         // A chat without a usable folder still browses; only export needs it.
         grant.work_dir = work_dir.filter(|folder| valid_simulator_project(folder));
-        // A window can sandbox a chat, never free one: the sandbox set when
-        // its agent started in one of Aven's copies stays.
-        grant.restricted |= restricted == Some(true);
-        grant.allowed_sites = allowed_sites;
-        // Off unless the window says it is on, every bind: turning the web
-        // off for a team takes effect at the chat's next turn.
-        grant.web = web == Some(true);
+        bind_sandbox(grant, restricted, allowed_sites, web);
         crate::desktop_control::bind_session(token, actor.as_ref())?;
         // Only a message the user wrote ends their Stop and declines.
         if user_typed == Some(true) {
@@ -839,6 +833,24 @@ fn valid_simulator_project(project: &str) -> bool {
         && project.len() <= 4096
         && !project.contains('\0')
         && std::path::Path::new(project).is_absolute()
+}
+
+/// What its window says about a chat's sandbox, at every bind.
+fn bind_sandbox(
+    grant: &mut Grant,
+    restricted: Option<bool>,
+    allowed_sites: Vec<String>,
+    web: Option<bool>,
+) {
+    // A window can sandbox a chat, never free one: the sandbox set when
+    // its agent started in one of Aven's copies stays. Avos and a helper
+    // read the user's own folder while a project has no copy, so their
+    // window says it for them: where they run can't.
+    grant.restricted |= restricted == Some(true);
+    grant.allowed_sites = allowed_sites;
+    // Off unless the window says it is on, every bind: turning the web
+    // off for a team takes effect at the chat's next turn.
+    grant.web = web == Some(true);
 }
 
 fn bind_scope(
@@ -3888,6 +3900,58 @@ mod tests {
         )
         .unwrap();
         assert!(bound.values().next().unwrap().web);
+    }
+
+    #[test]
+    fn a_window_sandboxes_a_chat_in_the_users_own_folder_and_never_frees_it() {
+        // Avos before its project has a copy: its agent runs in the user's
+        // folder, so only its window can say it is sandboxed.
+        let mut grants = grants();
+        grants.get_mut("secret").unwrap().ids = vec!["tab-a".into()];
+        assert!(!grants["secret"].restricted);
+        bind_sandbox(
+            grants.get_mut("secret").unwrap(),
+            Some(true),
+            Vec::new(),
+            Some(true),
+        );
+        assert!(grants["secret"].restricted);
+        // The user's own tab is out of reach, and so are the other tabs,
+        // the editor, the desktop and the simulator.
+        assert!(authorize(&grants, "secret", &Request::Snapshot { id: "tab-a".into() }).is_err());
+        for json in refused_in_a_sandbox() {
+            let json = json.as_str();
+            assert!(
+                authorize(&grants, "secret", &parsed(json)).is_err(),
+                "{json}"
+            );
+        }
+        // It opens pages of its own: local ones, and the web while allowed.
+        for url in ["http://localhost:3000/insights", "https://example.com/"] {
+            let json = json!({"action":"open","url":url}).to_string();
+            assert!(
+                authorize(&grants, "secret", &parsed(&json)).is_ok(),
+                "{url}"
+            );
+        }
+        // A later bind that says nothing keeps the sandbox and drops the web.
+        bind_sandbox(grants.get_mut("secret").unwrap(), None, Vec::new(), None);
+        assert!(grants["secret"].restricted);
+        assert!(authorize(
+            &grants,
+            "secret",
+            &parsed(r#"{"action":"open","url":"https://example.com/"}"#)
+        )
+        .is_err());
+        assert!(authorize(
+            &grants,
+            "secret",
+            &parsed(r#"{"action":"open","url":"http://localhost:3000/"}"#)
+        )
+        .is_ok());
+        // A scope refresh between turns keeps it too.
+        bind_scope(&mut grants, "main", "session-a".into(), vec![], None).unwrap();
+        assert!(grants["secret"].restricted);
     }
 
     #[test]

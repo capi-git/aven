@@ -4,6 +4,9 @@ import { resetCrewsCache, updateCrew } from "./crews";
 import { memoryStorage } from "./devSmoke";
 import { launchRefusal } from "./harness/sessionPermissions";
 import {
+  agentBrowserRestricted,
+  agentBrowserWeb,
+  crewChatBrowserOff,
   crewChatPermissions,
   installBotPermissions,
   NEVER_READ_PATHS,
@@ -12,8 +15,12 @@ import { resetProjectBotsCache } from "./projectBots";
 
 const PROJECT = "/Users/me/clippedin";
 
+let socket: string | undefined;
+vi.mock("./agentBrowser", () => ({ agentBrowserSocket: () => socket }));
+
 let stop: () => void;
 beforeEach(() => {
+  socket = undefined;
   vi.stubGlobal("localStorage", memoryStorage());
   resetProjectBotsCache();
   resetCrewsCache();
@@ -88,4 +95,94 @@ it("still keeps every teammate that changes files out until the copy exists", ()
 it("refuses Avos's chat while Avos is off", () => {
   updateCrew(PROJECT, (crew) => ({ ...crew, on: false }));
   expect(launchRefusal("avos-chat", PROJECT)).toMatch(/Avos is off/);
+});
+
+const SOCKET = "/tmp/aven-browser.sock";
+const COPY = "/data/bots/clippedin-crew-1";
+const withCopy = () =>
+  updateCrew(PROJECT, (crew) => ({
+    ...crew,
+    copy: { path: COPY, branch: "aven/bot/crew-1", root: PROJECT },
+    helpers: [
+      {
+        id: "helper-1",
+        role: "helper" as const,
+        name: "Look at Insights",
+        helperOf: "lead",
+        sessionId: "helper-chat",
+      },
+      {
+        id: "helper-2",
+        role: "helper" as const,
+        name: "Read the routes",
+        helperOf: "builder",
+        sessionId: "other-helper-chat",
+      },
+    ],
+  }));
+
+it("gives Avos and a helper it started Aven's browser, and nothing else new", () => {
+  socket = SOCKET;
+  withCopy();
+  for (const chat of ["avos-chat", "helper-chat"]) {
+    const found = crewChatPermissions(chat)!;
+    expect(crewChatBrowserOff(chat)).toBe(false);
+    // The one way out of its sandbox is Aven's own browser socket.
+    expect(found.sandbox?.network?.allowUnixSockets).toEqual([SOCKET]);
+    expect(found.sandbox?.network?.allowedDomains).toEqual([]);
+    // It still changes nothing in the copy, and has no connections.
+    expect(found.sandbox?.filesystem?.denyWrite).toContain(COPY);
+    expect(found).toMatchObject({ readOnly: true, noMcp: true });
+    // Its pages are sandboxed ones, and reach the web as Avos may.
+    expect(agentBrowserRestricted(chat)).toBe(true);
+    expect(agentBrowserWeb(chat)).toBe(true);
+  }
+  // Avos keeps its search and fetch tools; a helper gets pages only.
+  expect(crewChatPermissions("avos-chat")!.rules.deny).not.toContain(
+    "WebFetch",
+  );
+  expect(crewChatPermissions("helper-chat")!.rules.deny).toEqual(
+    expect.arrayContaining(["WebFetch", "WebSearch"]),
+  );
+});
+
+it("gives no browser to a helper another teammate started", () => {
+  socket = SOCKET;
+  withCopy();
+  const found = crewChatPermissions("other-helper-chat")!;
+  expect(crewChatBrowserOff("other-helper-chat")).toBe(true);
+  expect(found.sandbox?.network?.allowUnixSockets).toBeUndefined();
+  expect(agentBrowserWeb("other-helper-chat")).toBe(false);
+  // Still sandboxed, should it ever reach the browser.
+  expect(agentBrowserRestricted("other-helper-chat")).toBe(true);
+});
+
+it("takes the browser away from Avos and its helpers when you turn the web off", () => {
+  socket = SOCKET;
+  withCopy();
+  updateCrew(PROJECT, (crew) => ({
+    ...crew,
+    access: { deletes: true, web: "none" as const, others: "refuse" as const },
+  }));
+  for (const chat of ["avos-chat", "helper-chat"]) {
+    expect(crewChatBrowserOff(chat)).toBe(true);
+    expect(
+      crewChatPermissions(chat)!.sandbox?.network?.allowUnixSockets,
+    ).toBeUndefined();
+    expect(agentBrowserWeb(chat)).toBe(false);
+  }
+});
+
+it("keeps Avos's browser sandboxed in your own folder, before there's a copy", () => {
+  socket = SOCKET;
+  const avos = crewChatPermissions("avos-chat")!;
+  expect(avos.workFolder).toBe(PROJECT);
+  expect(avos.sandbox?.network?.allowUnixSockets).toEqual([SOCKET]);
+  expect(avos.sandbox?.network?.allowedDomains).toEqual([]);
+  expect(avos.sandbox?.filesystem?.denyWrite).toContain(PROJECT);
+  // Aven's host can't tell from the folder that this chat is sandboxed, so
+  // the window says so at every bind.
+  expect(agentBrowserRestricted("avos-chat")).toBe(true);
+  // A chat of your own is never restricted by this.
+  expect(agentBrowserRestricted("my-chat")).toBe(false);
 });

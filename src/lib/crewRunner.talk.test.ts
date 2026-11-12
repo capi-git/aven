@@ -469,10 +469,16 @@ describe("what waits for you", () => {
     runner.stop();
   });
 
-  it("holds a Lead's cards once it has read another agent's words", async () => {
+  it("holds what Avos proposes in its answer to another agent, and not its next answer to you", async () => {
     team();
+    let turn = 0;
     const { runner, settle } = harness({
-      lead: () => talk({ line: "Noted." }),
+      lead: () =>
+        talk({
+          line: "Noted.",
+          cards: [{ title: `Card ${++turn}`, size: "small" }],
+          remember: `Rule ${turn}`,
+        }),
     });
     updateCrew(PATH, (crew) =>
       withTalk(crew, {
@@ -485,7 +491,42 @@ describe("what waits for you", () => {
     );
     runner.start();
     await settle();
-    expect(crewLead(getCrew(PATH)!)?.heardOthers).toBe(true);
+    // Its answer to a teammate's words: the card waits, and no rule is kept.
+    let crew = getCrew(PATH)!;
+    expect(Object.values(crew.ideas ?? {})).toHaveLength(1);
+    expect(Object.values(crew.ideas ?? {})[0]).toMatchObject({ by: "lead" });
+    expect(Object.values(crew.ideas ?? {})[0]).not.toHaveProperty("asked");
+    expect(crew.notes).toEqual([]);
+    // That held back one reply, not Avos for good: your next message builds
+    // at once and its rule is kept.
+    expect(crewLead(crew)?.heardOthers).toBeUndefined();
+    await tellTeam(PATH, "Always use pnpm, and fix the footer", "lead", NOON);
+    await settle();
+    crew = getCrew(PATH)!;
+    expect(
+      Object.values(crew.ideas ?? {}).some((idea) => idea.asked === true),
+    ).toBe(true);
+    expect(crew.notes.map((note) => note.text)).toEqual(["Rule 2"]);
+    runner.stop();
+  });
+
+  it("reads a team stored by an earlier build that held Avos back for good", async () => {
+    team((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.role === "lead" ? { ...member, heardOthers: true } : member,
+      ),
+    }));
+    const { runner, settle } = harness({
+      lead: () =>
+        talk({ line: "On it.", cards: [{ title: "Fix it", size: "small" }] }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Fix the footer", "lead", NOON);
+    await settle();
+    expect(Object.values(getCrew(PATH)!.ideas ?? {})[0]).toMatchObject({
+      asked: true,
+    });
     runner.stop();
   });
 
@@ -679,6 +720,76 @@ describe("helpers", () => {
     expect(
       getCrew(PATH)!.feed.some((entry) => /wanted a helper/.test(entry.text)),
     ).toBe(true);
+    runner.stop();
+  });
+
+  it("lets Avos start a helper that looks at a page, while both have Aven's browser", async () => {
+    // Access as it starts: Avos has the web, so it and its helpers look.
+    team();
+    let turns = 0;
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        turns++ === 0
+          ? talk({
+              line: "Looking at it.",
+              helpers: [
+                {
+                  title: "Look at Insights",
+                  task: "Open /insights and say what looks off.",
+                },
+              ],
+            })
+          : talk({ line: "The cards have no dates." }),
+      helper: () =>
+        talk({ line: "No dates." }, "The Latest guides cards show no dates."),
+    });
+    runner.start();
+    await tellTeam(PATH, "Check how the Insights page looks", "lead", NOON);
+    await settle();
+    // Avos is told it can look, and that its helpers can.
+    expect(sent[0]!.text).toContain('"helpers"');
+    expect(sent[0]!.text).toContain("take a screenshot and open the image");
+    expect(sent[0]!.text).toContain("looks at them as pictures");
+    const helperTurn = sent.find((turn) =>
+      turn.memberId.startsWith("helper-"),
+    )!;
+    expect(helperTurn.text).toContain(
+      "You can open pages in Aven's browser and look at them",
+    );
+    expect(helperTurn.text).toContain("open the image file it returns");
+    // A helper still starts no one and asks no one.
+    expect(helperTurn.text).not.toContain('"helpers"');
+    // Its answer came back, and Avos reported from it.
+    expect(sent.at(-1)!.memberId).toBe("lead");
+    expect(sent.at(-1)!.text).toContain(
+      "The Latest guides cards show no dates",
+    );
+    expect(lines()).toContain("The cards have no dates.");
+    runner.stop();
+  });
+
+  it("gives no helper pages once you turned the web off", async () => {
+    team((crew) => ({
+      ...crew,
+      access: { deletes: true, web: "none", others: "refuse" },
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        talk({ line: "Looking.", helpers: [{ title: "One", task: "1" }] }),
+      helper: () => talk({ line: "Done." }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Look", "lead", NOON);
+    await settle();
+    expect(sent[0]!.text).toContain("Aven's browser is off for you");
+    expect(sent[0]!.text).not.toContain("looks at them as pictures");
+    const helperTurn = sent.find((turn) =>
+      turn.memberId.startsWith("helper-"),
+    )!;
+    expect(helperTurn.text).toContain("you have no web");
+    expect(helperTurn.text).not.toContain(
+      "You can open pages in Aven's browser",
+    );
     runner.stop();
   });
 
@@ -1337,6 +1448,34 @@ describe("Avos answering you", () => {
         `Avos brought in the Researcher to look into “${ASKED}”`,
       );
       // Its turn on the question is the Researcher tests' (they have a copy).
+      runner.stop();
+    });
+
+    it("brings in the Designer for a mock-up when Avos has none", async () => {
+      team();
+      const { runner, sent, settle } = harness({
+        lead: () =>
+          talk(
+            { line: "The Designer is drawing it.", mockup: "The pricing page" },
+            "The Designer is drawing it now.",
+          ),
+      });
+      runner.start();
+      await tellTeam(PATH, "Mock up the pricing page", "lead", NOON);
+      await settle();
+      expect(sent[0]!.text).toContain('"mockup"');
+      const crew = getCrew(PATH)!;
+      const designers = crew.members.filter(
+        (member) => member.role === "designer",
+      );
+      expect(designers).toHaveLength(1);
+      expect(designers[0]).toMatchObject({ preset: "designer" });
+      expect(crew.cards.find((card) => card.kind === "mockup")).toMatchObject({
+        title: "The pricing page",
+      });
+      expect(notes()).toContain(
+        "Avos brought in the Designer to mock up “The pricing page”",
+      );
       runner.stop();
     });
 

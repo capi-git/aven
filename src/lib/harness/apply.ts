@@ -149,6 +149,7 @@ export function applyHarnessEvent(
           status: event.status,
           detail: event.detail,
           preview: event.preview,
+          ...(event.web ? { web: true as const } : {}),
           streaming: event.status !== "completed" && event.status !== "failed",
         }),
         event,
