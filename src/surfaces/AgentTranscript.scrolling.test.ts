@@ -526,10 +526,18 @@ describe("transcript bottom following", () => {
   });
 
   it("keeps following a stretched live turn when the stack over the message box gets shorter", async () => {
-    // After a send, the live turn fills the viewport so the prompt sits at
-    // the top. Starting a run swaps two rows over the message box for one
-    // bar: the viewport grows, the browser clamps the offset, and then the
-    // stretch grows with the viewport and the end moves back down.
+    // With prompts anchored to the top, the live turn fills the viewport so
+    // the prompt sits at the top. Starting a run swaps two rows over the
+    // message box for one bar: the viewport grows, the browser clamps the
+    // offset, and then the stretch grows with the viewport and the end moves
+    // back down.
+    const stored = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => stored.set(key, value),
+      removeItem: (key: string) => stored.delete(key),
+    });
+    saveTranscriptAnchor(true);
     const el = await render(answer("Here is the plan."));
     expect(container.querySelector(".transcript-turn-anchor")).not.toBeNull();
     const metrics = stretchedScrollMetrics(el, 400, 600, 150);

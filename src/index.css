@@ -374,9 +374,10 @@ html.chat-background-empty-only
 }
 
 /*
- * The last turn fills the transcript viewport, so its prompt sits at the top
- * with room for the reply under it. This holds in every state (just sent,
- * writing, finished, opened again), so the room under a chat never changes.
+ * Only with "Anchor prompts to top" on: the last turn fills the transcript
+ * viewport, so its prompt sits at the top with room for the reply under it,
+ * in every state (just sent, writing, finished, opened again). Off, the
+ * default, no turn is stretched and a chat ends on the column's bottom padding.
  */
 .transcript-turn-anchor {
   min-height: var(--transcript-viewport, 0px);

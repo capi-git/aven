@@ -839,9 +839,10 @@ function AgentTranscriptComponent({
                     modelName={modelName}
                     modelCatalog={modelCatalog}
                     transcriptLayout={transcriptLayout}
-                    // The last turn fills the pane in every state: just
-                    // sent, writing, finished, and when the chat is opened
-                    // again. One rule, so the room under it never changes.
+                    // Only with "Anchor prompts to top" on: the last turn
+                    // fills the pane in every state (just sent, writing,
+                    // finished, opened again). Off, the default, no turn is
+                    // stretched and the chat ends on the column's padding.
                     anchored={
                       promptAnchor &&
                       (spanStart && !spanShown ? spanLive : isLastTurn)
@@ -944,7 +945,7 @@ type TranscriptTurnProps = Pick<
   /** The model catalog's version: a turn names its model from it. */
   modelCatalog: number;
   transcriptLayout: TranscriptLayout;
-  /** The last turn is stretched to the viewport, its prompt at the top. */
+  /** With "Anchor prompts to top" on: stretched to the viewport, its prompt at the top. */
   anchored: boolean;
   workOpen: boolean;
   toggleWork: (turnId: string) => void;
@@ -3235,7 +3236,7 @@ function pinToBottom(el: HTMLElement | null) {
   el.scrollTop = el.scrollHeight;
 }
 
-/** Keep the last turn's min-height in lockstep with the visible transcript. */
+/** Keep a stretched last turn's min-height in lockstep with the visible transcript. */
 function syncTranscriptViewport(el: HTMLElement | null) {
   if (!el || el.clientHeight <= 0) return;
   const inner = el.firstElementChild as HTMLElement | null;
