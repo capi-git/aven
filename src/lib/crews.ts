@@ -212,8 +212,10 @@ export type CrewMember = {
   /** A helper: the teammate that started it, for one job (see `crew.helpers`). */
   helperOf?: string;
   /**
-   * The Lead has read another agent's words in this chat: anything it proposes
-   * from here on could come from them, so its cards wait for you.
+   * Set by earlier builds once the Lead had read another agent's words, and
+   * then it held back everything Avos proposed for good. No longer set or
+   * read: each reply is judged by itself (see `afterTalk` in crewRunner).
+   * Kept so stored teams read unchanged.
    */
   heardOthers?: boolean;
   /** What it is doing, one line, for the crew strip and the sidebar. */
@@ -1014,6 +1016,10 @@ export function crewRoleUsesWeb(
  * Whether a role may use Aven's browser. The Checker and Security use it to
  * try the work, so "Builders" leaves it to all but the Scout, whose ideas
  * build by themselves. The Researcher has it exactly when it has the web.
+ * So does Avos, and a quick helper Avos started (see
+ * `crewMemberUsesBrowser`): they open a page and look at it as a picture.
+ * What Avos starts in a reply that looked at a page waits for you, as after
+ * a search (see `turnUsedWeb` in crewRunner).
  */
 export function crewRoleUsesBrowser(
   crew: Pick<Crew, "access">,
@@ -1021,9 +1027,65 @@ export function crewRoleUsesBrowser(
 ): boolean {
   const { web } = crewAccess(crew);
   if (role === "researcher") return crewRoleUsesWeb(crew, role);
+  if (role === "lead" || role === "helper")
+    return crewRoleUsesWeb(crew, "lead");
   // Nor Aven's browser: a mock-up is a file, drawn without one.
-  if (role === "designer" || role === "lead" || role === "helper") return false;
+  if (role === "designer") return false;
   return web === "everyone" || (web === "builders" && role !== "scout");
+}
+
+/** Whether a quick helper is one Avos itself started. */
+function avosHelper(
+  crew: Pick<Crew, "members">,
+  member: Pick<CrewMember, "role" | "helperOf">,
+): boolean {
+  if (member.role !== "helper") return false;
+  const lead = crew.members.find((entry) => entry.role === "lead");
+  return !!lead && member.helperOf === lead.id;
+}
+
+/**
+ * Whether this teammate may use Aven's browser: its role's answer, and for
+ * a quick helper only one that Avos started. A helper another teammate
+ * started (a Scout's, whose ideas build by themselves) never gets pages to
+ * read: what a page says could come back as that teammate's own idea.
+ */
+export function crewMemberUsesBrowser(
+  crew: Pick<Crew, "access" | "members">,
+  member: Pick<CrewMember, "role" | "helperOf">,
+): boolean {
+  if (member.role === "helper" && !avosHelper(crew, member)) return false;
+  return crewRoleUsesBrowser(crew, member.role);
+}
+
+/**
+ * Whether this teammate may open pages in Aven's browser now: never one on
+ * Codex (it works with no network at all) or one planning a goal.
+ */
+export function crewMemberSeesPages(
+  crew: Pick<Crew, "access" | "members" | "planning">,
+  member: CrewMember,
+): boolean {
+  return (
+    crewMemberApp(member).harness !== "codex" &&
+    crew.planning !== member.id &&
+    crewMemberUsesBrowser(crew, member)
+  );
+}
+
+/**
+ * Whether this teammate's pages in Aven's browser may reach the web, not
+ * only the project's own local pages: its role's web answer, and for a
+ * helper Avos started, Avos's. A helper has no search or fetch tools either
+ * way (see `crewRoleUsesWeb`).
+ */
+export function crewMemberPagesReachWeb(
+  crew: Pick<Crew, "access" | "members">,
+  member: Pick<CrewMember, "role" | "helperOf">,
+): boolean {
+  if (member.role === "helper")
+    return avosHelper(crew, member) && crewRoleUsesWeb(crew, "lead");
+  return crewRoleUsesWeb(crew, member.role);
 }
 
 /** A team's access, as you set it or as it starts. */

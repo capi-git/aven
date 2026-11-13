@@ -3361,3 +3361,157 @@ describe("Claude question cards", () => {
     await turn;
   });
 });
+
+describe("a command that drives Aven's browser", () => {
+  const BROWSER = `'/Applications/Aven.app/Contents/MacOS/aven' --aven-browser '{"action":"screenshot","id":"page-1"}'`;
+  const marked = (events: HarnessEvent[]) =>
+    applyHarnessEvents(newSession("claude", "/repo"), events)
+      .blocks.filter((block) => block.tool)
+      .map((block) => [block.tool!.callId, block.tool!.web === true]);
+
+  it("is marked as reading a page once its streamed input is whole, and a plain command is not", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "stream_event",
+      event: { type: "message_start", message: { id: "msg_look" } },
+    });
+    for (const [index, command] of [BROWSER, "ls src"].entries()) {
+      emit({
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index,
+          content_block: {
+            type: "tool_use",
+            id: `toolu_${index}`,
+            name: "Bash",
+            input: {},
+          },
+        },
+      });
+      const json = JSON.stringify({ command });
+      for (const partial_json of [json.slice(0, 20), json.slice(20)])
+        emit({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            index,
+            delta: { type: "input_json_delta", partial_json },
+          },
+        });
+    }
+    expect(marked(events)).toEqual([
+      ["toolu_0", true],
+      ["toolu_1", false],
+    ]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("is marked when the call arrives whole, and when an agent of its own ran it", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "assistant",
+      message: {
+        id: "msg_whole",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_whole",
+            name: "Bash",
+            input: { command: BROWSER },
+          },
+          {
+            type: "tool_use",
+            id: "toolu_agent",
+            name: "Agent",
+            input: { description: "Look at the page", prompt: "Look" },
+          },
+        ],
+      },
+    });
+    expect(marked(events)).toEqual([
+      ["toolu_whole", true],
+      ["toolu_agent", false],
+    ]);
+    // What its own agent read, the turn read.
+    emit({
+      type: "assistant",
+      parent_tool_use_id: "toolu_agent",
+      message: {
+        id: "msg_sub",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_sub",
+            name: "WebFetch",
+            input: { url: "https://example.com" },
+          },
+        ],
+      },
+    });
+    expect(marked(events)).toEqual([
+      ["toolu_whole", true],
+      ["toolu_agent", true],
+    ]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("is marked on the turn's agent call when an agent's own agent ran it", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "assistant",
+      message: {
+        id: "msg_top",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_top",
+            name: "Agent",
+            input: { description: "Look at the site", prompt: "Look" },
+          },
+        ],
+      },
+    });
+    // The turn's agent starts an agent of its own, which starts a third.
+    for (const [parent, id] of [
+      ["toolu_top", "toolu_mid"],
+      ["toolu_mid", "toolu_deep"],
+    ])
+      emit({
+        type: "assistant",
+        parent_tool_use_id: parent,
+        message: {
+          id: `msg_${id}`,
+          content: [
+            {
+              type: "tool_use",
+              id,
+              name: "Agent",
+              input: { description: "Go deeper", prompt: "Look" },
+            },
+          ],
+        },
+      });
+    expect(marked(events)).toEqual([["toolu_top", false]]);
+    emit({
+      type: "assistant",
+      parent_tool_use_id: "toolu_deep",
+      message: {
+        id: "msg_page",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_page",
+            name: "Bash",
+            input: { command: BROWSER },
+          },
+        ],
+      },
+    });
+    expect(marked(events)).toEqual([["toolu_top", true]]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+});

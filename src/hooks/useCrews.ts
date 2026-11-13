@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { takeAgentPageUse } from "../lib/agentBrowser";
 import { claudeCheckerModel } from "../lib/crewModels";
 import { crewSendHold } from "../lib/crewSmoke";
 import {
@@ -138,6 +139,7 @@ export function useCrews(
       send: (sessionId, text, options) =>
         hostRef.current.send(sessionId, text, options),
       whyNotSent: (sessionId) => hostRef.current.whyNotSent?.(sessionId),
+      pageUsed: takeAgentPageUse,
       stopChat: (sessionId) => hostRef.current.stopChat(sessionId),
       freshConversation: (sessionId) =>
         hostRef.current.freshConversation(sessionId),

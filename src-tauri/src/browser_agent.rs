@@ -49,6 +49,11 @@ struct Grant {
     /// logins, and never lists other tabs, opens files or controls the
     /// desktop. Once set it stays, through every scope refresh.
     restricted: bool,
+    /// A chat that only reads (Avos, a helper, a Checker): Aven never
+    /// writes a file for it, so `export` is refused. Its own sandbox keeps
+    /// its commands from writing; this keeps Aven's host from doing it in
+    /// its place, in a copy or in the user's own folder. Once set it stays.
+    read_only: bool,
     /// Hosts a sandboxed chat may open besides local servers, with their
     /// subdomains: what its window allowed when it bound the chat.
     allowed_sites: Vec<String>,
@@ -766,6 +771,7 @@ pub fn browser_agent_bind(
     work_dir: Option<String>,
     user_typed: Option<bool>,
     restricted: Option<bool>,
+    read_only: Option<bool>,
     allowed_sites: Option<Vec<String>>,
     web: Option<bool>,
 ) -> Result<BrowserAgentBinding, String> {
@@ -814,13 +820,7 @@ pub fn browser_agent_bind(
         grant.own = own;
         // A chat without a usable folder still browses; only export needs it.
         grant.work_dir = work_dir.filter(|folder| valid_simulator_project(folder));
-        // A window can sandbox a chat, never free one: the sandbox set when
-        // its agent started in one of Aven's copies stays.
-        grant.restricted |= restricted == Some(true);
-        grant.allowed_sites = allowed_sites;
-        // Off unless the window says it is on, every bind: turning the web
-        // off for a team takes effect at the chat's next turn.
-        grant.web = web == Some(true);
+        bind_sandbox(grant, restricted, read_only, allowed_sites, web);
         crate::desktop_control::bind_session(token, actor.as_ref())?;
         // Only a message the user wrote ends their Stop and declines.
         if user_typed == Some(true) {
@@ -839,6 +839,26 @@ fn valid_simulator_project(project: &str) -> bool {
         && project.len() <= 4096
         && !project.contains('\0')
         && std::path::Path::new(project).is_absolute()
+}
+
+/// What its window says about a chat's sandbox, at every bind.
+fn bind_sandbox(
+    grant: &mut Grant,
+    restricted: Option<bool>,
+    read_only: Option<bool>,
+    allowed_sites: Vec<String>,
+    web: Option<bool>,
+) {
+    // A window can sandbox a chat, never free one: the sandbox set when
+    // its agent started in one of Aven's copies stays. Avos and a helper
+    // read the user's own folder while a project has no copy, so their
+    // window says it for them: where they run can't.
+    grant.restricted |= restricted == Some(true);
+    grant.read_only |= read_only == Some(true);
+    grant.allowed_sites = allowed_sites;
+    // Off unless the window says it is on, every bind: turning the web
+    // off for a team takes effect at the chat's next turn.
+    grant.web = web == Some(true);
 }
 
 fn bind_scope(
@@ -863,6 +883,7 @@ fn bind_scope(
             actor.or(previous.actor),
             (
                 previous.restricted,
+                previous.read_only,
                 previous.allowed_sites,
                 previous.opened,
                 previous.web,
@@ -879,13 +900,13 @@ fn bind_scope(
                     uuid::Uuid::new_v4().simple()
                 ),
                 actor,
-                (false, Vec::new(), Vec::new(), false),
+                (false, false, Vec::new(), Vec::new(), false),
             )
         }
     };
     crate::desktop_control::bind_session(&token, None)?;
     let mut seen = HashSet::new();
-    let (restricted, allowed_sites, opened, web) = sandbox;
+    let (restricted, read_only, allowed_sites, opened, web) = sandbox;
     grants.insert(
         token,
         Grant {
@@ -901,6 +922,7 @@ fn bind_scope(
             own: Vec::new(),
             work_dir: None,
             restricted,
+            read_only,
             allowed_sites,
             opened,
             web,
@@ -933,8 +955,15 @@ const SANDBOXED_PAGE: &str = "This chat runs in a sandbox: it can use only pages
 const SANDBOX_PROFILE_MISSING: &str =
     "The page didn't open in the sandbox's browser profile, so this chat can't use it.";
 
+const READ_ONLY: &str = "This chat only reads the project, so Aven can't save a page into it. Use {\"action\":\"read\"} for the page's text.";
+
 /// What a sandboxed chat may not do, checked before any request runs.
 fn restrict(grant: &Grant, request: &Request) -> Result<(), String> {
+    // Aven writes the export itself, outside the chat's sandbox: never for
+    // a chat that may change nothing.
+    if grant.read_only && matches!(request, Request::Export { .. }) {
+        return Err(READ_ONLY.into());
+    }
     if !grant.restricted {
         return Ok(());
     }
@@ -956,6 +985,35 @@ fn restrict(grant: &Grant, request: &Request) -> Result<(), String> {
     Ok(())
 }
 
+/// A local development server's host, lower-case.
+fn local_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]") || host.ends_with(".localhost")
+}
+
+const READ_ONLY_UPLOAD: &str = "This chat only reads the project, so it can send a file only to a page of the project running on this computer (localhost), never to a website. Ask the user to upload it themselves.";
+
+/// Whether a chat that only reads may send local files to the page at
+/// `page`. Aven reads an upload's files itself, outside the chat's sandbox,
+/// so for such a chat they go only to a local development server (a Checker
+/// trying the app's own file input), never to the web, whatever the user is
+/// then asked to approve.
+fn read_only_upload(grant: &Grant, page: Option<&str>) -> Result<(), String> {
+    if !grant.read_only {
+        return Ok(());
+    }
+    let local = page
+        .and_then(|url| tauri::Url::parse(url).ok())
+        .is_some_and(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && local_host(&url.host_str().unwrap_or_default().to_ascii_lowercase())
+        });
+    if local {
+        Ok(())
+    } else {
+        Err(READ_ONLY_UPLOAD.into())
+    }
+}
+
 /// Whether a sandboxed chat may open `url`: a local development server,
 /// one of `sites` (a host and its subdomains) its window allowed, or any
 /// host once the window allowed it the `web`. Only http(s) ever opens.
@@ -963,8 +1021,7 @@ fn allowed_site(url: &str, sites: &[String], web: bool) -> Result<(), String> {
     let parsed = tauri::Url::parse(url).map_err(|_| "Invalid web address".to_string())?;
     let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
     let http = matches!(parsed.scheme(), "http" | "https");
-    let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]")
-        || host.ends_with(".localhost");
+    let local = local_host(&host);
     let allowed = sites
         .iter()
         .any(|site| host == *site || host.ends_with(&format!(".{site}")));
@@ -1275,12 +1332,51 @@ fn should_attach_session_browser(session_id: &str) -> bool {
     valid_id(session_id) && !session_id.starts_with("aven-") && !session_id.starts_with("monocode-")
 }
 
+/// What a chat's agent is at its start, which decides its browser before it
+/// has the credential for one. `sandboxed`: it runs under a sandbox of
+/// Aven's (a bot's or a teammate's chat), in one of Aven's copies or, for
+/// Avos before a project has a copy, in the user's own folder, where the
+/// folder can't say so. `read_only`: it may change no file.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ChildSandbox {
+    pub sandboxed: bool,
+    pub read_only: bool,
+}
+
+/// The grant an agent starts with. Its sandbox is decided here, as the
+/// agent starts, never left to a later bind from its window: a bind can
+/// fail or be skipped (too many tabs, a page going to sleep, a first turn
+/// that sends no guidance), and the agent already holds its credential.
+fn spawn_scope(
+    grants: &mut HashMap<String, Grant>,
+    owner: &str,
+    session_id: &str,
+    sandbox: ChildSandbox,
+) -> Result<(), String> {
+    if let Some(grant) = grants.values().find(|grant| grant.session_id == session_id) {
+        if grant.owner != owner {
+            return Err("This session belongs to another app window".into());
+        }
+    } else {
+        bind_scope(grants, owner, session_id.into(), vec![], None)?;
+    }
+    if let Some(grant) = grants
+        .values_mut()
+        .find(|grant| grant.session_id == session_id)
+    {
+        grant.restricted |= sandbox.sandboxed;
+        grant.read_only |= sandbox.read_only;
+    }
+    Ok(())
+}
+
 /// Warm harnesses need their stable credential before the first visible turn.
 /// Do not narrow a scope that the frontend has already registered.
 pub(crate) fn ensure_child_environment(
     caller: &Webview,
     session_id: &str,
     workdir: &std::path::Path,
+    sandbox: ChildSandbox,
 ) -> Result<Vec<(String, String)>, String> {
     crate::browser::label(caller, "agent-check")?;
     if !should_attach_session_browser(session_id) {
@@ -1288,7 +1384,7 @@ pub(crate) fn ensure_child_environment(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = workdir;
+        let _ = (workdir, sandbox);
         return Ok(vec![]);
     }
     #[cfg(target_os = "macos")]
@@ -1299,27 +1395,16 @@ pub(crate) fn ensure_child_environment(
         // than from anything the page says. Without a known copies folder
         // no grant is made at all.
         let bots = crate::project_bots::bots_dir(caller.app_handle())?;
-        let sandboxed = sandboxed_workdir(workdir, &bots);
+        let sandbox = ChildSandbox {
+            sandboxed: sandbox.sandboxed || sandboxed_workdir(workdir, &bots),
+            ..sandbox
+        };
         {
             let mut grants = server
                 .grants
                 .lock()
                 .map_err(|_| "Browser access is unavailable")?;
-            if let Some(grant) = grants.values().find(|grant| grant.session_id == session_id) {
-                if grant.owner != caller.label() {
-                    return Err("This session belongs to another app window".into());
-                }
-            } else {
-                bind_scope(&mut grants, caller.label(), session_id.into(), vec![], None)?;
-            }
-            if sandboxed {
-                if let Some(grant) = grants
-                    .values_mut()
-                    .find(|grant| grant.session_id == session_id)
-                {
-                    grant.restricted = true;
-                }
-            }
+            spawn_scope(&mut grants, caller.label(), session_id, sandbox)?;
         }
         Ok(child_environment(session_id))
     }
@@ -1534,6 +1619,18 @@ fn serve_connection(
         .map_err(|error| error.to_string())
 }
 
+const PAGE_USE_EVENT: &str = "browser-agent-used";
+
+/// Whether its window is told that this chat used Aven's browser: every
+/// request a sandboxed chat (a bot's or a teammate's) is allowed, whatever
+/// it asks and however its agent made it (a command, a script, an agent of
+/// its own, one still running after its turn). What a page says can reach
+/// the chat through any of them, so its window holds back what the chat
+/// proposes next. Told as the request starts, before the chat has an answer.
+fn marks_page_use(grant: &Grant) -> bool {
+    grant.restricted
+}
+
 fn execute(
     server: &Arc<Server>,
     envelope: Envelope,
@@ -1553,6 +1650,14 @@ fn execute(
         let lease = BrowserRequestLease::acquire(&mut reservations, &grant, &envelope.request)?;
         (grant, lease)
     };
+    if marks_page_use(&grant) {
+        // Best effort: the window also marks the command it saw run.
+        let _ = server.app.emit_to(
+            EventTarget::webview(&grant.owner),
+            PAGE_USE_EVENT,
+            json!({"sessionId": grant.session_id}),
+        );
+    }
     let _long = LongAction::take(&envelope.request)?;
     // Working agents keep the Mac from idle sleep for the request's lifetime.
     let _awake = crate::keep_awake::hold_request();
@@ -3050,8 +3155,11 @@ fn page_action(
             reference, paths, ..
         } => {
             let page = crate::browser::preview(&caller, &id)?;
+            let address = page_url(&caller, &id);
+            // Before any file is read.
+            read_only_upload(grant, address.as_deref())?;
             let files = crate::browser_upload::check_files(&paths)?;
-            let site = upload_site(page_url(&caller, &id).as_deref())?;
+            let site = upload_site(address.as_deref())?;
             #[cfg(all(feature = "chromium", target_os = "macos"))]
             {
                 // Before asking: the reference is current and enabled, and a
@@ -3683,6 +3791,7 @@ mod tests {
                 own: Vec::new(),
                 work_dir: None,
                 restricted: false,
+                read_only: false,
                 allowed_sites: Vec::new(),
                 opened: Vec::new(),
                 web: false,
@@ -3888,6 +3997,188 @@ mod tests {
         )
         .unwrap();
         assert!(bound.values().next().unwrap().web);
+    }
+
+    #[test]
+    fn a_window_sandboxes_a_chat_in_the_users_own_folder_and_never_frees_it() {
+        // Avos before its project has a copy: its agent runs in the user's
+        // folder, so only its window can say it is sandboxed.
+        let mut grants = grants();
+        grants.get_mut("secret").unwrap().ids = vec!["tab-a".into()];
+        assert!(!grants["secret"].restricted);
+        bind_sandbox(
+            grants.get_mut("secret").unwrap(),
+            Some(true),
+            None,
+            Vec::new(),
+            Some(true),
+        );
+        assert!(grants["secret"].restricted);
+        // The user's own tab is out of reach, and so are the other tabs,
+        // the editor, the desktop and the simulator.
+        assert!(authorize(&grants, "secret", &Request::Snapshot { id: "tab-a".into() }).is_err());
+        for json in refused_in_a_sandbox() {
+            let json = json.as_str();
+            assert!(
+                authorize(&grants, "secret", &parsed(json)).is_err(),
+                "{json}"
+            );
+        }
+        // It opens pages of its own: local ones, and the web while allowed.
+        for url in ["http://localhost:3000/insights", "https://example.com/"] {
+            let json = json!({"action":"open","url":url}).to_string();
+            assert!(
+                authorize(&grants, "secret", &parsed(&json)).is_ok(),
+                "{url}"
+            );
+        }
+        // A later bind that says nothing keeps the sandbox and drops the web.
+        bind_sandbox(
+            grants.get_mut("secret").unwrap(),
+            None,
+            None,
+            Vec::new(),
+            None,
+        );
+        assert!(grants["secret"].restricted);
+        assert!(authorize(
+            &grants,
+            "secret",
+            &parsed(r#"{"action":"open","url":"https://example.com/"}"#)
+        )
+        .is_err());
+        assert!(authorize(
+            &grants,
+            "secret",
+            &parsed(r#"{"action":"open","url":"http://localhost:3000/"}"#)
+        )
+        .is_ok());
+        // A scope refresh between turns keeps it too.
+        bind_scope(&mut grants, "main", "session-a".into(), vec![], None).unwrap();
+        assert!(grants["secret"].restricted);
+    }
+
+    #[test]
+    fn an_agent_starts_sandboxed_before_any_bind_from_its_window() {
+        // Avos in the user's own folder: no grant yet, and no bind landed.
+        let mut grants = HashMap::new();
+        let avos = ChildSandbox {
+            sandboxed: true,
+            read_only: true,
+        };
+        spawn_scope(&mut grants, "main", "avos-chat", avos).unwrap();
+        let token = grants.keys().next().unwrap().clone();
+        assert!(grants[&token].restricted && grants[&token].read_only);
+        for json in refused_in_a_sandbox() {
+            let json = json.as_str();
+            assert!(authorize(&grants, &token, &parsed(json)).is_err(), "{json}");
+        }
+        // A chat of the user's own starts as before.
+        spawn_scope(&mut grants, "main", "my-chat", ChildSandbox::default()).unwrap();
+        let mine = grants
+            .values()
+            .find(|grant| grant.session_id == "my-chat")
+            .unwrap();
+        assert!(!mine.restricted && !mine.read_only);
+        // A grant its window made first is sandboxed as the agent starts,
+        // and a later start or bind that says nothing never frees it.
+        bind_scope(&mut grants, "main", "helper-chat".into(), vec![], None).unwrap();
+        spawn_scope(&mut grants, "main", "helper-chat", avos).unwrap();
+        spawn_scope(&mut grants, "main", "helper-chat", ChildSandbox::default()).unwrap();
+        bind_scope(&mut grants, "main", "helper-chat".into(), vec![], None).unwrap();
+        let helper = grants
+            .values_mut()
+            .find(|grant| grant.session_id == "helper-chat")
+            .unwrap();
+        bind_sandbox(helper, None, None, Vec::new(), None);
+        assert!(helper.restricted && helper.read_only);
+        // Another window can't start an agent on this chat's grant.
+        assert!(spawn_scope(&mut grants, "other", "avos-chat", avos).is_err());
+    }
+
+    #[test]
+    fn a_chat_that_only_reads_never_has_aven_save_a_page_for_it() {
+        // An absolute folder on this platform: a request is checked for one
+        // before the grant is looked at.
+        let site = if cfg!(windows) { r"C:\site" } else { "/site" };
+        let export = |id: &str| Request::Export {
+            id: id.into(),
+            to: site.into(),
+            name: Some("CLAUDE".into()),
+            replace: true,
+        };
+        // Avos, sandboxed, on a page it opened: reading is fine, saving is not.
+        let mut grants = sandboxed(&["tab-a"], &[]);
+        grants.get_mut("secret").unwrap().work_dir = Some(site.into());
+        assert!(authorize(&grants, "secret", &export("tab-a")).is_ok());
+        grants.get_mut("secret").unwrap().read_only = true;
+        assert_eq!(
+            authorize(&grants, "secret", &export("tab-a"))
+                .err()
+                .unwrap(),
+            READ_ONLY
+        );
+        assert!(authorize(&grants, "secret", &Request::Read { id: "tab-a".into() }).is_ok());
+        // The flag alone refuses it, should the sandbox flag ever be missing.
+        grants.get_mut("secret").unwrap().restricted = false;
+        assert_eq!(
+            authorize(&grants, "secret", &export("tab-a"))
+                .err()
+                .unwrap(),
+            READ_ONLY
+        );
+        // A bind can add it and never takes it away.
+        let grant = grants.get_mut("secret").unwrap();
+        grant.read_only = false;
+        bind_sandbox(grant, None, Some(true), Vec::new(), None);
+        bind_sandbox(grant, None, None, Vec::new(), None);
+        assert!(grant.read_only);
+    }
+
+    #[test]
+    fn a_chat_that_only_reads_sends_files_to_a_local_page_and_never_to_the_web() {
+        let mut grants = sandboxed(&["tab-a"], &[]);
+        let grant = grants.get_mut("secret").unwrap();
+        // A Builder, sandboxed in its copy: as before, the user is asked.
+        for page in [
+            Some("https://example.com/upload"),
+            Some("http://localhost:3000/"),
+            None,
+        ] {
+            assert!(read_only_upload(grant, page).is_ok());
+        }
+        // Avos, a helper, a Checker: only to the project's own running page.
+        grant.read_only = true;
+        for page in [
+            "http://localhost:3000/upload",
+            "http://127.0.0.1:5173/",
+            "http://app.localhost:8080/",
+        ] {
+            assert!(read_only_upload(grant, Some(page)).is_ok(), "{page}");
+        }
+        for page in [
+            Some("https://example.com/upload"),
+            Some("https://localhost.example.com/"),
+            Some("file:///Users/me/site/index.html"),
+            Some("about:blank"),
+            Some("not a url"),
+            None,
+        ] {
+            assert_eq!(
+                read_only_upload(grant, page).err().unwrap(),
+                READ_ONLY_UPLOAD,
+                "{page:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sandboxed_chat_tells_its_window_whenever_it_uses_the_browser() {
+        let mut grants = grants();
+        // A chat of the user's own: nothing is held back for it.
+        assert!(!marks_page_use(&grants["secret"]));
+        grants.get_mut("secret").unwrap().restricted = true;
+        assert!(marks_page_use(&grants["secret"]));
     }
 
     #[test]
@@ -4916,6 +5207,7 @@ mod tests {
                 own: Vec::new(),
                 work_dir: None,
                 restricted: false,
+                read_only: false,
                 allowed_sites: Vec::new(),
                 opened: Vec::new(),
                 web: false,
@@ -4982,6 +5274,7 @@ mod tests {
             own: Vec::new(),
             work_dir: None,
             restricted: false,
+            read_only: false,
             allowed_sites: Vec::new(),
             opened: Vec::new(),
             web: false,
@@ -5421,6 +5714,7 @@ mod tests {
             own: vec!["native-own".into()],
             work_dir: Some("/site".into()),
             restricted: false,
+            read_only: false,
             allowed_sites: Vec::new(),
             opened: Vec::new(),
             web: false,

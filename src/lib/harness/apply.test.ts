@@ -190,6 +190,33 @@ describe("a call that reaches the web", () => {
     expect(tool("web-1")?.status).toBe("completed");
     expect(tool("grep-1")?.web).toBeUndefined();
   });
+
+  it("takes the mark from an update, once a command's input is whole", () => {
+    let session = appendUser(newSession("claude", "/tmp"), "how does it look?");
+    session = applyHarnessEvent(session, {
+      type: "tool.started",
+      callId: "shell-1",
+      title: "Bash",
+      kind: "shell",
+      status: "pending",
+    });
+    const tool = () =>
+      session.blocks.find((block) => block.tool?.callId === "shell-1")?.tool;
+    expect(tool()?.web).toBeUndefined();
+    session = applyHarnessEvent(session, {
+      type: "tool.updated",
+      callId: "shell-1",
+      status: "pending",
+      detail: 'Bash: aven --aven-browser \'{"action":"screenshot"}\'',
+      web: true,
+    });
+    session = applyHarnessEvent(session, {
+      type: "tool.updated",
+      callId: "shell-1",
+      status: "completed",
+    });
+    expect(tool()?.web).toBe(true);
+  });
 });
 
 describe("approval lifetime", () => {

@@ -70,6 +70,8 @@ export type CrewBriefInput = {
   /** The Checker on Codex, whose sandbox is read-only. */
   harness?: "claude" | "codex";
   maxRounds: number;
+  /** Avos, or a helper it started, may open pages in Aven's browser. */
+  sees?: boolean;
 };
 
 /** A member's role, given on the first message of its conversation. */
@@ -124,24 +126,26 @@ export function crewBrief(input: CrewBriefInput): string {
       sandboxLine(input.copyPath, input.project),
       input.harness === "codex"
         ? "Your sandbox is read-only: you can read everything and run commands that only read."
-        : "You can't change the project's files in the copy, and you have no web. Put scratch files in the temp folder.",
+        : input.sees
+          ? "You can't change the project's files in the copy. You can open pages in Aven's browser and look at them; each message says how. Put scratch files in the temp folder."
+          : "You can't change the project's files in the copy, and you have no web. Put scratch files in the temp folder.",
       NEVER,
       "You can't start helpers or ask other teammates. Say what you found and what you couldn't check.",
       UNTRUSTED_RULE,
     ].join("\n\n");
   if (input.role === "lead")
     return [
-      `You are ${input.name}, who looks after ${projectName(input.project)}. You're always there: the user talks to you like a person on their team, through the week. You read the project, say what you found, take on what they ask, and bring in a helper (a Builder, a Checker…) only when the work needs one.`,
+      `You are ${input.name}, who looks after ${projectName(input.project)}. You're an agent of your own, always there: the user talks to you like a person on their team, through the week. You read the project, look at its pages, say what you found, and take on what they ask. Given a goal, you decide what it needs and start the helpers for it yourself (quick helpers that look into things, a Builder and a Checker to build, the Researcher, the Designer), then tell the user what came of it.`,
       'Work the user wants done again and again, or something to keep an eye on ("every morning…", "watch this page, and when it changes…"), is a job, not idea cards: Aven runs it on a schedule in the project itself and shows it in your chat. Each message tells you how to set one up when you may.',
-      "When you first meet the user, you have asked them what to keep an eye on and what's coming up this week. Set up what to keep an eye on as a job; take what's coming up as small, concrete cards. Don't bring in helpers until there is work for them.",
+      "When you first meet the user, you have asked them what to keep an eye on and what's coming up this week. Set up what to keep an eye on as a job; take what's coming up as small, concrete cards. Bring in helpers when there is work for them, not before.",
       input.copyPath
         ? sandboxLine(input.copyPath, input.project)
-        : `You work in the user's folder (${input.project}) and only read it: your sandbox lets you change nothing there, and its commands reach nothing on the network. Building happens later in a copy of the project, which needs Git; if this folder has no Git yet and the user asks you to build, say Aven can set up Git for it first.`,
+        : `You work in the user's folder (${input.project}) and only read it: your sandbox lets you change nothing there, and its commands reach nothing on the network but Aven's own browser, when a message offers it. Building happens later in a copy of the project, which needs Git; if this folder has no Git yet and the user asks you to build, say Aven can set up Git for it first.`,
       input.harness === "codex"
         ? "Your sandbox is read-only: you can read everything and run commands that only read."
         : input.copyPath
-          ? "You can't change the project's files in the copy. Each message says whether you may read the web. Put scratch files in the temp folder."
-          : "You can't change any files. Each message says whether you may read the web. Put scratch files in the temp folder.",
+          ? "You can't change the project's files in the copy. Each message says whether you may read the web and look at pages in Aven's browser. Put scratch files in the temp folder."
+          : "You can't change any files. Each message says whether you may read the web and look at pages in Aven's browser. Put scratch files in the temp folder.",
       NEVER,
       MEMORY_RULE,
       UNTRUSTED_RULE,

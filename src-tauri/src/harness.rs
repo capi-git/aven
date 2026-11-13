@@ -396,6 +396,7 @@ pub fn harness_free_port() -> Result<u16, String> {
 /// login-shell read. Callers await this before writing to the child. Kill can
 /// still race the fork, so a cancelled spawn must not reinsert the child.
 #[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
 pub fn harness_spawn(
     caller: tauri::Webview,
     app: AppHandle,
@@ -404,6 +405,8 @@ pub fn harness_spawn(
     command: String,
     args: Vec<String>,
     cwd: String,
+    browser_sandboxed: Option<bool>,
+    browser_read_only: Option<bool>,
 ) -> Result<u32, String> {
     let _work = crate::update_restart::begin_runtime_work(&app, "starting an agent")?;
     // Caller authorization remains required even when browser setup is optional.
@@ -435,7 +438,18 @@ pub fn harness_spawn(
     crate::control::configure_child(&app, caller.window().label(), &session_id, &mut cmd);
     configure_browser_environment(
         &mut cmd,
-        crate::browser_agent::ensure_child_environment(&caller, &session_id, &workdir),
+        crate::browser_agent::ensure_child_environment(
+            &caller,
+            &session_id,
+            &workdir,
+            // What the window knows of the chat (its own rules and sandbox).
+            // Missing means an ordinary chat; a copy's folder still decides
+            // by itself.
+            crate::browser_agent::ChildSandbox {
+                sandboxed: browser_sandboxed == Some(true),
+                read_only: browser_read_only == Some(true),
+            },
+        ),
     );
 
     let mut child =

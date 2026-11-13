@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { logError } from "../errors";
+import { sessionPermissions } from "./sessionPermissions";
 
 type LinePayload = { sessionId: string; line: string };
 type StdoutPayload = { sessionId: string; lines: string[] } | LinePayload;
@@ -322,11 +323,18 @@ export async function spawnChild(
   livePid.delete(sessionId);
   pendingExit.delete(sessionId);
   ownedChildren.add(sessionId);
+  // A chat with rules of its own (a bot's or a teammate's) starts with
+  // Aven's sandboxed browser, and one that only reads never has Aven save a
+  // page for it. Said as the agent starts, before it holds the browser's
+  // credential: a later bind from the window can fail or be skipped.
+  const permissions = sessionPermissions(sessionId);
   const pid = await invoke<number>("harness_spawn", {
     sessionId,
     command,
     args,
     cwd,
+    ...(permissions ? { browserSandboxed: true } : {}),
+    ...(permissions?.readOnly ? { browserReadOnly: true } : {}),
   });
   if (typeof pid !== "number" || pid <= 0) return;
   livePid.set(sessionId, pid);

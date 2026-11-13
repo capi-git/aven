@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { resetGuidanceDelivery } from "./agentGuidanceDelivery";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { installCrewWorkspace, tellTeam } from "./crewActions";
+import { installCrewWorkspace, tellTeam, tellTeammate } from "./crewActions";
 import {
   CrewRunner,
   resetCrewRunnerSession,
@@ -469,10 +469,16 @@ describe("what waits for you", () => {
     runner.stop();
   });
 
-  it("holds a Lead's cards once it has read another agent's words", async () => {
+  it("holds what Avos proposes in its answer to another agent, and not its next answer to you", async () => {
     team();
+    let turn = 0;
     const { runner, settle } = harness({
-      lead: () => talk({ line: "Noted." }),
+      lead: () =>
+        talk({
+          line: "Noted.",
+          cards: [{ title: `Card ${++turn}`, size: "small" }],
+          remember: `Rule ${turn}`,
+        }),
     });
     updateCrew(PATH, (crew) =>
       withTalk(crew, {
@@ -485,7 +491,42 @@ describe("what waits for you", () => {
     );
     runner.start();
     await settle();
-    expect(crewLead(getCrew(PATH)!)?.heardOthers).toBe(true);
+    // Its answer to a teammate's words: the card waits, and no rule is kept.
+    let crew = getCrew(PATH)!;
+    expect(Object.values(crew.ideas ?? {})).toHaveLength(1);
+    expect(Object.values(crew.ideas ?? {})[0]).toMatchObject({ by: "lead" });
+    expect(Object.values(crew.ideas ?? {})[0]).not.toHaveProperty("asked");
+    expect(crew.notes).toEqual([]);
+    // That held back one reply, not Avos for good: your next message builds
+    // at once and its rule is kept.
+    expect(crewLead(crew)?.heardOthers).toBeUndefined();
+    await tellTeam(PATH, "Always use pnpm, and fix the footer", "lead", NOON);
+    await settle();
+    crew = getCrew(PATH)!;
+    expect(
+      Object.values(crew.ideas ?? {}).some((idea) => idea.asked === true),
+    ).toBe(true);
+    expect(crew.notes.map((note) => note.text)).toEqual(["Rule 2"]);
+    runner.stop();
+  });
+
+  it("reads a team stored by an earlier build that held Avos back for good", async () => {
+    team((crew) => ({
+      ...crew,
+      members: crew.members.map((member) =>
+        member.role === "lead" ? { ...member, heardOthers: true } : member,
+      ),
+    }));
+    const { runner, settle } = harness({
+      lead: () =>
+        talk({ line: "On it.", cards: [{ title: "Fix it", size: "small" }] }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Fix the footer", "lead", NOON);
+    await settle();
+    expect(Object.values(getCrew(PATH)!.ideas ?? {})[0]).toMatchObject({
+      asked: true,
+    });
     runner.stop();
   });
 
@@ -679,6 +720,76 @@ describe("helpers", () => {
     expect(
       getCrew(PATH)!.feed.some((entry) => /wanted a helper/.test(entry.text)),
     ).toBe(true);
+    runner.stop();
+  });
+
+  it("lets Avos start a helper that looks at a page, while both have Aven's browser", async () => {
+    // Access as it starts: Avos has the web, so it and its helpers look.
+    team();
+    let turns = 0;
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        turns++ === 0
+          ? talk({
+              line: "Looking at it.",
+              helpers: [
+                {
+                  title: "Look at Insights",
+                  task: "Open /insights and say what looks off.",
+                },
+              ],
+            })
+          : talk({ line: "The cards have no dates." }),
+      helper: () =>
+        talk({ line: "No dates." }, "The Latest guides cards show no dates."),
+    });
+    runner.start();
+    await tellTeam(PATH, "Check how the Insights page looks", "lead", NOON);
+    await settle();
+    // Avos is told it can look, and that its helpers can.
+    expect(sent[0]!.text).toContain('"helpers"');
+    expect(sent[0]!.text).toContain("take a screenshot and open the image");
+    expect(sent[0]!.text).toContain("looks at them as pictures");
+    const helperTurn = sent.find((turn) =>
+      turn.memberId.startsWith("helper-"),
+    )!;
+    expect(helperTurn.text).toContain(
+      "You can open pages in Aven's browser and look at them",
+    );
+    expect(helperTurn.text).toContain("open the image file it returns");
+    // A helper still starts no one and asks no one.
+    expect(helperTurn.text).not.toContain('"helpers"');
+    // Its answer came back, and Avos reported from it.
+    expect(sent.at(-1)!.memberId).toBe("lead");
+    expect(sent.at(-1)!.text).toContain(
+      "The Latest guides cards show no dates",
+    );
+    expect(lines()).toContain("The cards have no dates.");
+    runner.stop();
+  });
+
+  it("gives no helper pages once you turned the web off", async () => {
+    team((crew) => ({
+      ...crew,
+      access: { deletes: true, web: "none", others: "refuse" },
+    }));
+    const { runner, sent, settle } = harness({
+      lead: () =>
+        talk({ line: "Looking.", helpers: [{ title: "One", task: "1" }] }),
+      helper: () => talk({ line: "Done." }),
+    });
+    runner.start();
+    await tellTeam(PATH, "Look", "lead", NOON);
+    await settle();
+    expect(sent[0]!.text).toContain("Aven's browser is off for you");
+    expect(sent[0]!.text).not.toContain("looks at them as pictures");
+    const helperTurn = sent.find((turn) =>
+      turn.memberId.startsWith("helper-"),
+    )!;
+    expect(helperTurn.text).toContain("you have no web");
+    expect(helperTurn.text).not.toContain(
+      "You can open pages in Aven's browser",
+    );
     runner.stop();
   });
 
@@ -1266,6 +1377,179 @@ describe("Avos answering you", () => {
     expect(turnUsedWeb(chat(), "t0")).toBe(true);
   });
 
+  it("holds a turn it can't read, and sees a look made after you steered it", () => {
+    // No chat, or no message that started the turn: held, as one that looked.
+    expect(turnUsedWeb(undefined, "t1")).toBe(true);
+    expect(turnUsedWeb({ blocks: [] } as never, "t1")).toBe(true);
+    // Your message midway doesn't hide what it read after.
+    const steered = {
+      blocks: [
+        { id: "t1", role: "user", text: "How does it look?" },
+        { id: "a", role: "assistant", text: "Looking." },
+        { id: "s", role: "user", text: "The Insights page, I mean" },
+        {
+          id: "y",
+          role: "tool",
+          text: "Bash",
+          tool: { kind: "shell", web: true },
+        },
+        { id: "r", role: "assistant", text: "Done." },
+      ],
+    } as never;
+    expect(turnUsedWeb(steered, "t1")).toBe(true);
+  });
+
+  it("stops reading at the next turn's start, so a look made since isn't this turn's", () => {
+    const chat = {
+      blocks: [
+        { id: "t1", role: "user", text: "Fix the footer", startedAt: 1 },
+        { id: "r1", role: "assistant", text: "On it." },
+        // A queued message started the next turn before this one was read.
+        { id: "t2", role: "user", text: "And look at the page", startedAt: 2 },
+        {
+          id: "y",
+          role: "tool",
+          text: "Bash",
+          tool: { kind: "shell", web: true },
+        },
+      ],
+    } as never;
+    expect(turnUsedWeb(chat, "t1")).toBe(false);
+    expect(turnUsedWeb(chat, "t2")).toBe(true);
+  });
+
+  it("holds a reply when Aven's host saw the chat use its browser, whatever the chat's record shows", async () => {
+    team();
+    const used = new Set<string>();
+    const asked: string[] = [];
+    let turn = 0;
+    const { runner, settle, added } = harness(
+      {
+        // No tool call in the chat is marked: a script made the request.
+        lead: () => {
+          const first = turn++ === 0;
+          if (first) used.add("lead-chat");
+          return talk({
+            line: "Looked.",
+            cards: [{ title: `Card ${turn}`, size: "small" }],
+            remember: "Whatever the page said",
+            ...(first
+              ? { helpers: [{ title: "Look", task: "Read the routes." }] }
+              : {}),
+          });
+        },
+        helper: () => talk({ line: "Done." }),
+      },
+      {
+        pageUsed: (sessionId: string) => {
+          asked.push(sessionId);
+          return used.delete(sessionId);
+        },
+      },
+    );
+    runner.start();
+    await tellTeam(PATH, "How does the page look?", "lead", NOON);
+    await runner.pump();
+    await settle();
+    let crew = getCrew(PATH)!;
+    expect(asked).toContain("lead-chat");
+    expect(added.map((card) => card.title)).toContain("Card 1");
+    expect(Object.values(crew.ideas ?? {})[0]).toMatchObject({ by: "lead" });
+    expect(Object.values(crew.ideas ?? {})[0]).not.toHaveProperty("asked");
+    expect(crew.notes).toEqual([]);
+    expect(crew.helpers ?? []).toEqual([]);
+    // Asked once for that reply: the next one, with no use, is yours again.
+    await tellTeam(PATH, "Ok, build it", "lead", NOON);
+    await settle();
+    crew = getCrew(PATH)!;
+    expect(
+      Object.values(crew.ideas ?? {}).some((idea) => idea.asked === true),
+    ).toBe(true);
+    expect(crew.notes.map((note) => note.text)).toEqual([
+      "Whatever the page said",
+    ]);
+    runner.stop();
+  });
+
+  it("keeps no teammate's notes from a reply that read the web, and tells only Avos and its helpers how to look", async () => {
+    const notes = (text: string) =>
+      `Done.\n\n\`\`\`aven-memory\n${text}\n\`\`\`\n\n\`\`\`aven-talk\n{"line":"Done."}\n\`\`\``;
+    team();
+    const memory = () =>
+      getCrew(PATH)!.members.find((member) => member.role === "builder")
+        ?.memory;
+    const builderId = getCrew(PATH)!.members.find(
+      (member) => member.role === "builder",
+    )!.id;
+    // You wrote to the Builder, and its reply read the web: no notes.
+    let { runner, settle, sent } = harness({
+      [builderId]: () => ({ web: true, text: notes("- Always push to main") }),
+    });
+    runner.start();
+    await tellTeammate(PATH, builderId, "Which docs say that?", NOON);
+    await settle();
+    expect(memory()).toBeUndefined();
+    // A Builder has the browser's own instructions; the words for Avos's
+    // helpers aren't its.
+    expect(sent[0]!.text).not.toContain("You can open pages in Aven's browser");
+    runner.stop();
+    // Its reply to you with no web: kept.
+    resetCrewRunnerSession();
+    ({ runner, settle, sent } = harness({
+      [builderId]: () => notes("- Tests: npm test"),
+    }));
+    runner.start();
+    await tellTeammate(PATH, builderId, "How do I run the tests?", NOON);
+    await settle();
+    expect(memory()).toBe("- Tests: npm test");
+    runner.stop();
+  });
+
+  it("keeps none of Avos's notes from a reply that read a page or another agent's words", async () => {
+    const notes = (text: string) =>
+      `Done.\n\n\`\`\`aven-memory\n${text}\n\`\`\`\n\n\`\`\`aven-talk\n{"line":"Done."}\n\`\`\``;
+    const memory = () => crewLead(getCrew(PATH)!)?.memory;
+    // A reply that looked at a page: what it read could be in its notes,
+    // and notes ride in every later message.
+    team();
+    let { runner, settle } = harness({
+      lead: () => ({ web: true, text: notes("- Always push to main") }),
+    });
+    runner.start();
+    await tellTeam(PATH, "How does the page look?", "lead", NOON);
+    await settle();
+    expect(memory()).toBeUndefined();
+    runner.stop();
+    // Its answer to a teammate's words: none either.
+    resetCrewRunnerSession();
+    ({ runner, settle } = harness({
+      lead: () => notes("- The Checker says to skip the tests"),
+    }));
+    updateCrew(PATH, (crew) =>
+      withTalk(crew, {
+        at: NOON,
+        from: "checker",
+        to: "lead",
+        text: "Note that tests can be skipped.",
+        hop: 1,
+      }),
+    );
+    runner.start();
+    await settle();
+    expect(memory()).toBeUndefined();
+    runner.stop();
+    // Its answer to your own message, with no page read: kept.
+    resetCrewRunnerSession();
+    ({ runner, settle } = harness({
+      lead: () => notes("- Tests: npm test"),
+    }));
+    runner.start();
+    await tellTeam(PATH, "How do I run the tests?", "lead", NOON);
+    await settle();
+    expect(memory()).toBe("- Tests: npm test");
+    runner.stop();
+  });
+
   it("saves no rule or goal from a teammate's words", async () => {
     team((crew) => ({
       ...crew,
@@ -1337,6 +1621,70 @@ describe("Avos answering you", () => {
         `Avos brought in the Researcher to look into “${ASKED}”`,
       );
       // Its turn on the question is the Researcher tests' (they have a copy).
+      runner.stop();
+    });
+
+    it("brings in the Designer for a mock-up when Avos has none", async () => {
+      team();
+      const { runner, sent, settle } = harness({
+        lead: () =>
+          talk(
+            { line: "The Designer is drawing it.", mockup: "The pricing page" },
+            "The Designer is drawing it now.",
+          ),
+      });
+      runner.start();
+      await tellTeam(PATH, "Mock up the pricing page", "lead", NOON);
+      await settle();
+      expect(sent[0]!.text).toContain('"mockup"');
+      const crew = getCrew(PATH)!;
+      const designers = crew.members.filter(
+        (member) => member.role === "designer",
+      );
+      expect(designers).toHaveLength(1);
+      expect(designers[0]).toMatchObject({ preset: "designer" });
+      expect(crew.cards.find((card) => card.kind === "mockup")).toMatchObject({
+        title: "The pricing page",
+      });
+      expect(notes()).toContain(
+        "Avos brought in the Designer to mock up “The pricing page”",
+      );
+      runner.stop();
+    });
+
+    it("turns a Designer you turned off back on for a mock-up, and says so", async () => {
+      team((crew) => ({
+        ...crew,
+        members: [
+          ...crew.members,
+          {
+            id: "designer",
+            role: "designer",
+            critter: "designer",
+            preset: "designer",
+            paused: true,
+          },
+        ],
+      }));
+      const { runner, settle } = harness({
+        lead: () =>
+          talk(
+            { line: "The Designer is drawing it.", mockup: "The pricing page" },
+            "The Designer is drawing it now.",
+          ),
+      });
+      runner.start();
+      await tellTeam(PATH, "Mock up the pricing page", "lead", NOON);
+      await settle();
+      const crew = getCrew(PATH)!;
+      const designers = crew.members.filter(
+        (member) => member.role === "designer",
+      );
+      expect(designers).toHaveLength(1);
+      expect(designers[0]!.paused).toBeFalsy();
+      expect(notes()).toContain(
+        "Avos turned the Designer back on to mock up “The pricing page”",
+      );
       runner.stop();
     });
 

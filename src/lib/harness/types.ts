@@ -75,6 +75,11 @@ export type HarnessEvent =
       status?: string;
       detail?: string;
       preview?: ToolPreview;
+      /**
+       * The call reaches the web, known once its input is whole (a command
+       * that drives Aven's browser) or from the agent it started.
+       */
+      web?: true;
       /** Every path affected when one structured edit changes multiple files. */
       paths?: string[];
     }

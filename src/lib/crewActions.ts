@@ -958,24 +958,35 @@ export type ResearcherBroughtIn = "added" | "on";
 export function bringInResearcher(
   path: string,
 ): { broughtIn: ResearcherBroughtIn | null } | { problem: string } {
+  return bringInHelper(path, "researcher");
+}
+
+/**
+ * The Researcher or the Designer, there and on for what Avos passes it from
+ * your message: Avos decides who a request needs, and Aven adds the
+ * ready-made helper when there is none, or turns it back on. What it may do
+ * comes from its role and Access, as for one you added yourself. Resolves
+ * with how it came (null when it was on), or what you need to do first.
+ */
+export function bringInHelper(
+  path: string,
+  role: "researcher" | "designer",
+): { broughtIn: ResearcherBroughtIn | null } | { problem: string } {
   const crew = getCrew(path);
   if (!crew?.on) return { problem: AVOS_ASLEEP };
-  if (cardResearcher(crew)) return { broughtIn: null };
-  const off = crew.members.find((member) => member.role === "researcher");
+  if (role === "researcher" ? cardResearcher(crew) : cardDesigner(crew))
+    return { broughtIn: null };
+  const off = crew.members.find((member) => member.role === role);
   if (off) {
     const problem = updateCrewMember(path, off.id, { paused: false });
     return problem ? { problem } : { broughtIn: "on" };
   }
-  const added = addCrewPreset(
-    path,
-    "researcher",
-    crewModelFor(crewModelsHere(), "researcher"),
-  );
+  const added = addCrewPreset(path, role, crewModelFor(crewModelsHere(), role));
   if (!("error" in added)) return { broughtIn: "added" };
   return {
     problem:
       added.error === HELPERS_FULL
-        ? "Avos needs the Researcher to look into that, but it has 8 helpers already. Remove one in Settings, then ask again."
+        ? `Avos needs the ${role === "researcher" ? "Researcher to look into that" : "Designer to mock that up"}, but it has 8 helpers already. Remove one in Settings, then ask again.`
         : added.error,
   };
 }
@@ -998,7 +1009,7 @@ export async function addQuestionCard(
     whileOff?: boolean;
     /** Whose words it is: yours, or a setup suggestion (quoted as data). */
     from?: "you" | "setup";
-    /** Avos brought the Researcher in for it (see `bringInResearcher`). */
+    /** Avos brought its helper in for it (see `bringInHelper`). */
     broughtIn?: ResearcherBroughtIn;
   } = {},
 ): Promise<{ card: FeatureCard | null; problem: string | null }> {
@@ -1053,7 +1064,11 @@ export async function addQuestionCard(
       title: clean,
       text:
         kind === "mockup"
-          ? `You asked ${who} to mock up “${clean}”`
+          ? options.broughtIn === "added"
+            ? `Avos brought in ${them} to mock up “${clean}”`
+            : options.broughtIn === "on"
+              ? `Avos turned ${them} back on to mock up “${clean}”`
+              : `You asked ${who} to mock up “${clean}”`
           : options.broughtIn === "added"
             ? `Avos brought in ${them} to look into “${clean}”`
             : options.broughtIn === "on"

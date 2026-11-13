@@ -58,7 +58,7 @@ import {
   stringField,
   summarizeToolRequest,
   toClaudePermissionResult,
-  isWebToolName,
+  toolReachesWeb,
   toolKindFromName,
   toolResultsFromUserMessage,
   toolStartFromEvent,
@@ -147,6 +147,11 @@ type Live = {
   nextControlId: number;
   toolsByIndex: Map<number, InFlightTool>;
   toolsById: Map<string, InFlightTool>;
+  /**
+   * An agent call made by one of the turn's own agents, by its id, with the
+   * turn's agent call it runs under: what it reads is marked there.
+   */
+  agentAncestors: Map<string, string>;
   agentTasks: Map<string, LiveAgentTask>;
   inactiveTaskIds: Set<string>;
   /** Shell tasks still blocking their Bash call; they may move to the background. */
@@ -561,6 +566,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     nextApprovalUiId: 1,
     nextControlId: 1,
     toolsByIndex: new Map(),
+    agentAncestors: new Map(),
     toolsById: new Map(),
     agentTasks: new Map(),
     inactiveTaskIds: new Set(),
@@ -699,6 +705,10 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   );
   for (const id of live.toolsById.keys()) {
     if (!activeAgentTools.has(id)) live.toolsById.delete(id);
+  }
+  // An agent's own agents go with the turn's agent call they ran under.
+  for (const [id, top] of live.agentAncestors) {
+    if (!live.toolsById.has(top)) live.agentAncestors.delete(id);
   }
   live.turnResultSeen = false;
   // Slash commands such as /compact can run inside the CLI without an echo.
@@ -903,7 +913,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
   const started = toolStartFromEvent(rec);
   if (started) {
     if (subagent) {
-      noteSubagentTool(live, rec, started.name, started.input);
+      noteSubagentTool(live, rec, started.name, started.input, started.id);
       return;
     }
     const tool: InFlightTool = {
@@ -922,7 +932,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       kind: toolKindFromName(tool.name),
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
-      ...(isWebToolName(tool.name) ? { web: true as const } : {}),
+      ...(toolReachesWeb(tool.name, tool.input) ? { web: true as const } : {}),
     });
     emitTaskListIfNeeded(live, tool.name, tool.input);
     return;
@@ -946,6 +956,8 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       status: "pending",
       detail: summarizeToolRequest(tool.name, parsed),
       preview: previewFromTool(tool.name, parsed),
+      // A command is known only once its input is whole: Aven's browser.
+      ...(toolReachesWeb(tool.name, parsed) ? { web: true as const } : {}),
     });
     emitTaskListIfNeeded(live, tool.name, parsed);
     return;
@@ -968,7 +980,7 @@ function recordRemainder(already: string, snapshot: string): string {
 function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   if (isSubagentMessage(rec)) {
     for (const use of assistantToolUses(rec)) {
-      noteSubagentTool(live, rec, use.name, use.input);
+      noteSubagentTool(live, rec, use.name, use.input, use.id);
     }
     return;
   }
@@ -1029,7 +1041,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       kind: toolKindFromName(tool.name),
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
-      ...(isWebToolName(tool.name) ? { web: true as const } : {}),
+      ...(toolReachesWeb(tool.name, tool.input) ? { web: true as const } : {}),
     });
     if (use.name === "ExitPlanMode") {
       const plan = extractExitPlanModePlan(use.input);
@@ -1717,11 +1729,18 @@ function noteSubagentTool(
   rec: Record<string, unknown>,
   name: string,
   input: Record<string, unknown>,
+  id?: string,
 ): void {
   const parentId = stringField(rec, "parent_tool_use_id");
   if (!parentId) return;
-  const parent = live.toolsById.get(parentId);
+  // The turn's own agent call this runs under: its parent, or, for an
+  // agent's own agent, the one that parent was started under.
+  const top = live.toolsById.has(parentId)
+    ? parentId
+    : live.agentAncestors.get(parentId);
+  const parent = top ? live.toolsById.get(top) : undefined;
   if (!parent || !isAgentToolName(parent.name)) return;
+  if (id && isAgentToolName(name)) live.agentAncestors.set(id, parent.id);
   live.onEvent({
     type: "tool.updated",
     callId: parent.id,
@@ -1729,6 +1748,8 @@ function noteSubagentTool(
     kind: "agent",
     status: "in_progress",
     detail: toolTitle(name, input),
+    // What its own agent read on the web, the turn read.
+    ...(toolReachesWeb(name, input) ? { web: true as const } : {}),
   });
 }
 

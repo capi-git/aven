@@ -19,7 +19,11 @@ import type { MarkTone } from "./markTones";
 import type { AgentDesktopFaces } from "./agentMark";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
-import { agentBrowserWeb } from "./projectBotPermissions";
+import {
+  agentBrowserReadOnly,
+  agentBrowserRestricted,
+  agentBrowserWeb,
+} from "./projectBotPermissions";
 import { offerGuidance } from "./agentGuidanceDelivery";
 
 export type AgentBrowserContext = {
@@ -101,6 +105,13 @@ type BindArgs = {
    * isn't sandboxed, and the host leaves it as it is.
    */
   web: boolean;
+  /**
+   * A teammate's chat is sandboxed wherever it runs (Avos reads your own
+   * folder until the project has a copy). The host only ever adds this.
+   */
+  restricted?: true;
+  /** A teammate that only reads: Aven saves no page for it (`export`). */
+  readOnly?: true;
 };
 type OpenRequest = {
   requestId: string;
@@ -332,6 +343,12 @@ function bind(
         workDir: context.cwd,
         ...(userTurn && typed ? { userTyped: true } : {}),
         web: agentBrowserWeb(context.sessionId),
+        ...(agentBrowserRestricted(context.sessionId)
+          ? { restricted: true as const }
+          : {}),
+        ...(agentBrowserReadOnly(context.sessionId)
+          ? { readOnly: true as const }
+          : {}),
       };
       return invoke<Binding>("browser_agent_bind", args);
     });
@@ -398,10 +415,37 @@ export async function refreshAgentBrowserScopes() {
   );
 }
 
+/**
+ * Sandboxed chats (a bot's or a teammate's) that used Aven's browser since
+ * anyone last asked: Aven's host says so for every request it allows one,
+ * however its agent made it (a command, a script, an agent of its own, one
+ * still running after its turn).
+ */
+const pageUses = new Set<string>();
+
+/**
+ * Whether this chat used Aven's browser since the last time this was asked.
+ * Asked once as a reply ends, to hold back what it proposes (see
+ * `afterTalk` in crewRunner): a use after that holds the next reply.
+ */
+export function takeAgentPageUse(sessionId: string): boolean {
+  return pageUses.delete(sessionId);
+}
+
 /** App-local registration. Remote pages never receive this listener or its capability. */
 export function installAgentBrowserHost(next: AgentBrowserHost) {
   host = next;
   let disposed = false;
+  // Kept whatever host is installed: a use is a fact about the chat.
+  const useListener = isTauri()
+    ? getCurrentWebview().listen<{ sessionId?: unknown }>(
+        "browser-agent-used",
+        ({ payload }) => {
+          if (typeof payload?.sessionId === "string")
+            pageUses.add(payload.sessionId);
+        },
+      )
+    : Promise.resolve(() => {});
   const listener = isTauri()
     ? getCurrentWebview().listen<OpenRequest>(
         "browser-agent-open",
@@ -638,6 +682,7 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
     wakeListener,
     tabsListener,
     reachListener,
+    useListener,
   ]);
   hostReady = subscriptions.ready;
   void hostReady.catch(() => {});

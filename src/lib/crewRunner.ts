@@ -94,6 +94,7 @@ import {
 } from "./crewPrompts";
 import {
   CREW_ROLE_INFO,
+  crewMemberSeesPages,
   crewRoleUsesBrowser,
   crewRoleUsesWeb,
   AVEN_DIR,
@@ -310,6 +311,12 @@ export type CrewRunnerDeps = {
   /** Why a chat refused a message just now, in words, when known. */
   whyNotSent?: (sessionId: string) => string | undefined;
   /**
+   * Whether this chat used Aven's browser since this was last asked, as
+   * Aven's host saw it (see `takeAgentPageUse`): however the agent made the
+   * request, and by an agent of its own too.
+   */
+  pageUsed?: (sessionId: string) => boolean;
+  /**
    * Avos brings in the helpers building needs (a Builder and a Checker)
    * before its first card builds. None here: such a card waits.
    */
@@ -502,19 +509,48 @@ export function replyForTurn(
 }
 
 /**
- * Whether a turn searched the web or read a page: any of its tool calls
- * carries the web mark (Claude's WebSearch and WebFetch), or is a fetch.
+ * The app, model and effort a helper started by `member` runs on: what you
+ * picked for new helpers (Opus 5.5 · Medium until you do); when Avos picks
+ * per job, what its asker runs on.
+ */
+function helperApp(
+  crew: Crew,
+  member: CrewMember,
+): Pick<CrewMember, "harness" | "model" | "effort"> {
+  const app = crewMemberApp(member);
+  const runs = helperRunsOn(crew) ?? {
+    model: avosTalkModel(member)?.model ?? app.model ?? "",
+  };
+  const harness = findModel(runs.model)?.harness ?? app.harness;
+  return {
+    harness: harness === "codex" ? "codex" : "claude",
+    ...(runs.model ? { model: runs.model } : {}),
+    ...("effort" in runs && runs.effort ? { effort: runs.effort } : {}),
+  };
+}
+
+/**
+ * Whether a turn searched the web, read a page or looked at one: any of its
+ * tool calls carries the web mark (Claude's WebSearch and WebFetch, a
+ * command that drives Aven's browser, or an agent of its own that did
+ * either), or is a fetch.
  */
 export function turnUsedWeb(
   session: Session | undefined,
   turnId: string,
 ): boolean {
-  if (!session) return false;
+  // A turn that can't be read is held, as one that looked: no chat, or no
+  // message that started it.
+  if (!session) return true;
   const start = session.blocks.findIndex((block) => block.id === turnId);
-  if (start < 0) return false;
+  if (start < 0) return true;
+  // To the next turn's start, or the chat's end: a message that steered
+  // this turn midway (it starts no turn, so it has no start time) doesn't
+  // hide what the turn read after it, and what a turn started since then
+  // read isn't this one's.
   for (let index = start + 1; index < session.blocks.length; index += 1) {
     const block = session.blocks[index]!;
-    if (block.role === "user") break;
+    if (block.role === "user" && block.startedAt != null) break;
     const kind = block.tool?.kind?.toLowerCase() ?? "";
     if (block.tool?.web || kind === "fetch" || kind === "webfetch") return true;
   }
@@ -945,14 +981,31 @@ export class CrewRunner {
       const fresh = getCrew(path) ?? crew;
       // A turn that could read the web starts nobody: a page could ask it to.
       // Nor does one whose crew turned quick helpers off.
-      // Avos has the web too, so it is judged by what its turn did: a
-      // reply that used the web starts no one (see `turnUsedWeb` below).
+      // Avos has the web and Aven's browser too, so it is judged by what its
+      // turn did: a reply that used either starts no one (see `turnUsedWeb`
+      // below).
       const mayStartHelpers =
         member.role !== "helper" &&
         fresh.limits.helpersPerDay > 0 &&
         !talk.answer &&
-        (member.role === "lead" || !crewRoleUsesWeb(fresh, member.role)) &&
-        !crewRoleUsesBrowser(fresh, member.role);
+        (member.role === "lead" ||
+          (!crewRoleUsesWeb(fresh, member.role) &&
+            !crewRoleUsesBrowser(fresh, member.role)));
+      // Whether it may open pages in Aven's browser this turn, and whether
+      // the helpers Avos starts may.
+      // Said to Avos and its helpers, who are new to it; every other
+      // teammate has the browser's own instructions, as before.
+      const sees =
+        (member.role === "lead" || member.role === "helper") &&
+        crewMemberSeesPages(fresh, member);
+      const helpersSee =
+        member.role === "lead" &&
+        crewMemberSeesPages(fresh, {
+          id: "",
+          role: "helper",
+          helperOf: member.id,
+          ...helperApp(fresh, member),
+        });
       this.talking.set(talkId, {
         path,
         to: member.id,
@@ -1018,6 +1071,8 @@ export class CrewRunner {
         crewMemberApp(member).harness !== "codex"
           ? { web: true }
           : {}),
+        ...(sees ? { sees: true } : {}),
+        ...(helpersSee ? { helpersSee: true } : {}),
         ...(fresh.askBeforeBuilding ? { asksFirst: true } : {}),
         // Let Avos choose: it picks the Builder's model and effort per card.
         ...(member.role === "lead" && talk.from === "you" && !talk.routine
@@ -1041,6 +1096,7 @@ export class CrewRunner {
                 names: this.names(fresh),
                 harness: crewMemberApp(member).harness,
                 maxRounds: fresh.limits.roundsPerCard,
+                ...(sees ? { sees: true } : {}),
               }),
             }),
       });
@@ -1145,7 +1201,30 @@ export class CrewRunner {
         );
     this.settleHeard(sessionId, turnId, failed);
     const isHelper = member?.role === "helper";
-    if (member && !failed && !isHelper)
+    const said = parseTalk(reply);
+    const isLead = member?.role === "lead";
+    // A reply that searched the web, read a page or looked at one in Aven's
+    // browser: what it proposes could be the page's words, not yours. For
+    // this reply only, its cards wait for you, and no rule, goal, job or
+    // helper comes of it.
+    // Aven's host says whether the chat used its browser, however the agent
+    // spelled the request; the chat's own record says the rest. Asked at
+    // every reply, so a use after this one holds the next.
+    const looked = this.deps.pageUsed?.(sessionId) ?? false;
+    const usedWeb =
+      !failed &&
+      (looked || turnUsedWeb(this.chatNow(sessionId) ?? undefined, turnId));
+    // Only its answer to your own message can build by itself: never its
+    // answer to a helper's or a teammate's words, or to a report (their
+    // words could be a page's), and never a routine, which runs with nobody
+    // watching. Judged for each reply, as the web is: a helper's answer
+    // holds back the reply that reads it, not every reply after it.
+    const yours = talk.from === "you" && !talk.routine && !usedWeb;
+    // Its notes ride in every later message, in every conversation: no
+    // teammate keeps any from a reply that read a page or another agent's
+    // words, which could have put them there.
+    const heldNotes = usedWeb || talk.from !== "you";
+    if (member && !failed && !isHelper && !heldNotes)
       this.remember(
         path,
         {
@@ -1156,17 +1235,6 @@ export class CrewRunner {
         },
         outcome,
       );
-    const said = parseTalk(reply);
-    const isLead = member?.role === "lead";
-    // A reply that searched the web or read a page: what it proposes could
-    // be the page's words, not yours. For this reply only, its cards wait
-    // for you, and no rule, goal, job or helper comes of it.
-    const usedWeb =
-      !failed && turnUsedWeb(this.chatNow(sessionId) ?? undefined, turnId);
-    // Only your own message, to a Lead that has read no other agent's words,
-    // can build by itself. A routine runs with nobody watching.
-    const yours =
-      talk.from === "you" && !talk.routine && !member?.heardOthers && !usedWeb;
     // Its answer to you, as you watched it being written: the thread keeps
     // it, unless it's too long for a post (then its one line).
     const answer =
@@ -1181,15 +1249,16 @@ export class CrewRunner {
     // cards, as the box once made them. Avos has no web, so a link goes to
     // the Researcher, brought in (or back on) when the team has none on.
     if (keep && (said.research || said.mockup)) {
-      const { addQuestionCard, bringInResearcher } =
-        await import("./crewActions");
+      const { addQuestionCard, bringInHelper } = await import("./crewActions");
       for (const [text, kind] of [
         [said.research, "research"],
         [said.mockup, "mockup"],
       ] as const)
         if (text) {
-          const ready =
-            kind === "research" ? bringInResearcher(path) : { broughtIn: null };
+          const ready = bringInHelper(
+            path,
+            kind === "research" ? "researcher" : "designer",
+          );
           const made =
             "problem" in ready
               ? ready
@@ -1267,16 +1336,9 @@ export class CrewRunner {
         talks: current.talks?.filter((entry) => entry.id !== talkId),
       };
       if (member)
-        next = withMemberId(next, member.id, (entry) => {
-          const heard = isLead && talk.from !== "you" && !entry.heardOthers;
-          return entry.doing || heard
-            ? {
-                ...entry,
-                doing: undefined,
-                ...(heard ? { heardOthers: true } : {}),
-              }
-            : entry;
-        });
+        next = withMemberId(next, member.id, (entry) =>
+          entry.doing ? { ...entry, doing: undefined } : entry,
+        );
       // Done either way. Its answer goes back to who started it, whatever
       // the hops: it's what that teammate is waiting for.
       if (isHelper) {
@@ -1397,21 +1459,12 @@ export class CrewRunner {
           });
           break;
         }
-        // On what you picked for new helpers (Opus 5.5 · Medium until you
-        // do); when Avos picks per job, on what its asker runs on.
-        const app = crewMemberApp(member);
-        const runs = helperRunsOn(next) ?? {
-          model: avosTalkModel(member)?.model ?? app.model ?? "",
-        };
-        const runsHarness = findModel(runs.model)?.harness ?? app.harness;
         const helper: CrewMember = {
           id: `helper-${this.newId()}`.slice(0, 40),
           role: "helper",
           name: asked.title.slice(0, 40),
           helperOf: member.id,
-          harness: runsHarness === "codex" ? "codex" : "claude",
-          ...(runs.model ? { model: runs.model } : {}),
-          ...("effort" in runs && runs.effort ? { effort: runs.effort } : {}),
+          ...helperApp(next, member),
         };
         next = withTalk(
           withFeed(withHelper(next, helper, now), {
