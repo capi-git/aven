@@ -20,6 +20,8 @@ class BrowserTabZoom {
   // like normal page zoom does. Report the effective display density so a
   // DPR-sized canvas keeps the same physical pixel budget when zooming out.
   double device_scale_factor() const { return backing_scale_ * factor_; }
+  // The display's own density, without zoom.
+  double backing_scale() const { return backing_scale_; }
   bool SetBackingScale(double scale) {
     if (!std::isfinite(scale) || scale <= 0 || scale > 8 || scale == backing_scale_)
       return false;

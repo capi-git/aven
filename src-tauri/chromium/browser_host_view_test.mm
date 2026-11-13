@@ -460,6 +460,64 @@ static void CheckMenuHoles() {
     CHECK(shade.shade == 1 && [shade.layer animationForKey:@"shade"] == nil);
     [shade placeAboveBrowser:browser frame:browser.frame opacity:0 fade:0];
   }
+  // A still picture over the page while an agent pictures it at another
+  // width: directly above the page and below a veil, it follows the page's
+  // frame, keeps the pointer from the page under it, and only the holder of
+  // the current picture's token removes it.
+  {
+    CHECK([parent hitTest:NSMakePoint(200, 300)] == browser);
+    SMBrowserStillView* still = [[SMBrowserStillView alloc] initWithFrame:browser.frame];
+    CHECK(!still.shown && [still show:nil aboveBrowser:browser frame:browser.frame] == 0);
+    // Laying out a pane with no picture adds nothing.
+    [still placeAboveBrowser:browser frame:browser.frame];
+    CHECK(!still.shown && still.superview == nil);
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef context = CGBitmapContextCreate(nullptr, 4, 4, 8, 0, space,
+        kCGImageAlphaPremultipliedLast);
+    CGImageRef image = CGBitmapContextCreateImage(context);
+    SMBrowserShadeView* shade = [[SMBrowserShadeView alloc] initWithFrame:browser.frame];
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.4 fade:0];
+    const NSUInteger first = [still show:image aboveBrowser:browser frame:browser.frame];
+    CHECK(first != 0 && still.shown && still.superview == clip);
+    CHECK(NSEqualRects(still.frame, browser.frame) && still.layer.contents != nil);
+    NSArray<NSView*>* order = clip.subviews;
+    CHECK([order indexOfObjectIdenticalTo:still] == [order indexOfObjectIdenticalTo:browser] + 1);
+    CHECK([order indexOfObjectIdenticalTo:still] < [order indexOfObjectIdenticalTo:shade]);
+    // A veil placed after the picture lands above the page; the next layout
+    // puts the picture back under it.
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0 fade:0];
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.4 fade:0];
+    [still placeAboveBrowser:browser frame:browser.frame];
+    order = clip.subviews;
+    CHECK([order indexOfObjectIdenticalTo:still] == [order indexOfObjectIdenticalTo:browser] + 1);
+    CHECK([order indexOfObjectIdenticalTo:still] < [order indexOfObjectIdenticalTo:shade]);
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0 fade:0];
+    // The pointer stops at the picture, and still passes where the page
+    // itself leaves it to the workspace.
+    CHECK([parent hitTest:NSMakePoint(200, 300)] == still);
+    const NSRect moved = NSInsetRect(browser.frame, 20, 10);
+    [still placeAboveBrowser:browser frame:moved];
+    CHECK(NSEqualRects(still.frame, moved));
+    [still placeAboveBrowser:browser frame:browser.frame];
+    // A second capture's picture replaces the first; the first one's end
+    // must not uncover the page under the second.
+    const NSUInteger second = [still show:image aboveBrowser:browser frame:browser.frame];
+    CHECK(second != 0 && second != first);
+    [still clear:first];
+    CHECK(still.shown);
+    [still clear:0];
+    CHECK(still.shown);
+    [still clear:second];
+    CHECK(!still.shown && still.superview == nil && still.layer.contents == nil);
+    CHECK([parent hitTest:NSMakePoint(200, 300)] == browser);
+    // A page that closes removes whatever picture is there.
+    [still show:image aboveBrowser:browser frame:browser.frame];
+    [still clear];
+    CHECK(!still.shown && [parent hitTest:NSMakePoint(200, 300)] == browser);
+    CGImageRelease(image);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+  }
   // A hover slide masks the covered leading strip and passes its pointer
   // events through; cancelling restores the page's own mask state.
   {

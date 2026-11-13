@@ -73,9 +73,39 @@ inline std::optional<BrowserRect> PageCaptureTarget(double width, double clip_le
   return BrowserRect{clip_left / width, 0, (width - clip_left - clip_right) / width, 1};
 }
 
+// An agent's picture of a page laid out at another width: a desktop layout
+// from a narrow pane, or a phone layout from a wide one. The page takes that
+// viewport only for the capture. The host chooses the height; both are CSS
+// pixels and whole numbers, bounded so the capture stays within the image
+// limits at Retina density.
+constexpr int kWidePageMinWidth = 320, kWidePageMaxWidth = 1920;
+constexpr int kWidePageMinHeight = 240, kWidePageMaxHeight = 2400;
+struct WidePageSize { int width = 0, height = 0; };
+
+inline std::optional<WidePageSize> WidePageViewport(double width, double height) {
+  if (!std::isfinite(width) || !std::isfinite(height) ||
+      width != std::floor(width) || height != std::floor(height) ||
+      width < kWidePageMinWidth || width > kWidePageMaxWidth ||
+      height < kWidePageMinHeight || height > kWidePageMaxHeight)
+    return std::nullopt;
+  return WidePageSize{int(width), int(height)};
+}
+
+// Whether a capture's pixels are that viewport at the display's density. A
+// pane laid out again mid-capture resizes the page under the capture, and its
+// picture is then of some other size: refuse it rather than mislabel it.
+// Chromium rounds each edge on its own, so allow two device pixels.
+inline bool WidePageCaptured(uint32_t pixels_wide, uint32_t pixels_high,
+                             WidePageSize size, double device_scale) {
+  if (!std::isfinite(device_scale) || device_scale <= 0 || device_scale > 16 ||
+      size.width <= 0 || size.height <= 0) return false;
+  return std::abs(double(pixels_wide) - size.width * device_scale) <= 2 &&
+         std::abs(double(pixels_high) - size.height * device_scale) <= 2;
+}
+
 // Read actual PNG dimensions rather than predicting Chromium's pixel rounding.
-inline bool EditCapturePngDimensions(const unsigned char* bytes, size_t size,
-                                     uint32_t& width, uint32_t& height) {
+inline bool PngDimensions(const unsigned char* bytes, size_t size,
+                          uint32_t& width, uint32_t& height) {
   constexpr unsigned char signature[]{137,80,78,71,13,10,26,10};
   if (!bytes || size < 24 || std::memcmp(bytes, signature, 8) != 0 ||
       bytes[8] || bytes[9] || bytes[10] || bytes[11] != 13 ||
@@ -85,7 +115,12 @@ inline bool EditCapturePngDimensions(const unsigned char* bytes, size_t size,
            uint32_t(bytes[at+2]) << 8 | uint32_t(bytes[at+3]);
   };
   width = number(16); height = number(20);
-  return width && height && width <= kEditCaptureMaxEdge &&
+  return width && height;
+}
+
+inline bool EditCapturePngDimensions(const unsigned char* bytes, size_t size,
+                                     uint32_t& width, uint32_t& height) {
+  return PngDimensions(bytes, size, width, height) && width <= kEditCaptureMaxEdge &&
       height <= kEditCaptureMaxEdge && uint64_t(width) * height <= kEditCaptureMaxPixels;
 }
 }  // namespace supermono

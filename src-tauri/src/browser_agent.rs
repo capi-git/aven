@@ -496,6 +496,10 @@ enum Request {
     Screenshot {
         id: String,
         label: Option<String>,
+        /// Picture the page laid out this wide instead of at its pane's
+        /// width: a desktop layout from a narrow pane.
+        #[serde(default)]
+        width: Option<u32>,
     },
     Click {
         id: String,
@@ -613,9 +617,14 @@ impl Request {
                 }
                 crate::browser_export::file_stem(name.as_deref()).map(|_| ())
             }
-            Self::Screenshot {
-                label: Some(label), ..
-            } => crate::turn_shots::validate_label(label),
+            Self::Screenshot { label, width, .. } => {
+                if let Some(width) = width {
+                    wide_page_size(*width)?;
+                }
+                label
+                    .as_deref()
+                    .map_or(Ok(()), crate::turn_shots::validate_label)
+            }
             Self::Fill { value, .. } if value.len() > 16000 => {
                 Err("Input exceeds the 16000 byte limit".into())
             }
@@ -1677,6 +1686,75 @@ fn execute(
 use crate::session_lock_macos::LOCKED_NOTE;
 #[cfg(not(target_os = "macos"))]
 const LOCKED_NOTE: &str = "The screen is locked.";
+
+const WIDE_PAGE_WIDTH: &str = "Screenshot width must be a whole number from 320 to 1920.";
+const WIDE_PAGE_OWN: &str = "A screenshot at another width lays the page out again for a moment, so it works only in a page you opened. Open this address yourself and take it there. Without width, a screenshot shows the user's tab as it is.";
+const WIDE_PAGE_LOCKED: &str = "The Mac is locked, so a screenshot at another width has to wait: the page could show that layout when the user unlocks. Take it after they unlock, and continue with snapshot until then.";
+
+/// The viewport a screenshot at `width` lays the page out in, in CSS pixels:
+/// as tall as a common screen of that width. From 900 up that is a 16:10
+/// desktop (1280 by 800, 1440 by 900); narrower is a phone or tablet held
+/// upright (390 by 845), at most 1024 tall.
+fn wide_page_size(width: u32) -> Result<(u32, u32), String> {
+    if !(320..=1920).contains(&width) {
+        return Err(WIDE_PAGE_WIDTH.into());
+    }
+    let height = if width >= 900 {
+        width * 5 / 8
+    } else {
+        (width * 13 / 6).min(1024)
+    };
+    Ok((width, height))
+}
+
+/// Whether a chat may picture a page at another width. For the capture the
+/// page really takes that viewport, so it is the chat's own page only
+/// (reading never changes the user's tab), and never behind a locked screen,
+/// where the capture waits and the page would hold that layout until the
+/// user unlocks.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+fn wide_page_allowed(own: bool, locked: bool) -> Result<(), String> {
+    if !own {
+        Err(WIDE_PAGE_OWN.into())
+    } else if locked {
+        Err(WIDE_PAGE_LOCKED.into())
+    } else {
+        Ok(())
+    }
+}
+
+/// What the page's helper is asked for: the page as its pane has it, or
+/// laid out in `wide` for the capture.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+fn page_shot_request(wide: Option<(u32, u32)>) -> Value {
+    match wide {
+        Some((width, height)) => {
+            json!({"action":"agent-screenshot","pageWidth":width,"pageHeight":height})
+        }
+        None => json!({"action":"agent-screenshot"}),
+    }
+}
+
+/// The capture's pixels per CSS pixel. A pane's capture has its window's
+/// density; a wide one is measured, because a large capture is bounded to
+/// fewer pixels than the display's density would give.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+fn page_shot_scale(wide: Option<(u32, u32)>, pixels_wide: u32, window_scale: f64) -> f64 {
+    match wide {
+        Some((width, _)) => f64::from(pixels_wide) / f64::from(width),
+        None => window_scale,
+    }
+}
+
+/// A wide picture's result names the viewport it shows.
+#[cfg_attr(not(all(feature = "chromium", target_os = "macos")), allow(dead_code))]
+fn with_page_size(mut result: Value, wide: Option<(u32, u32)>) -> Value {
+    if let (Some((width, height)), Value::Object(map)) = (wide, &mut result) {
+        map.insert("pageWidth".into(), json!(width));
+        map.insert("pageHeight".into(), json!(height));
+    }
+    result
+}
 
 const LOCKED_SCREENSHOT: &str = "The Mac is locked, so the page cannot render a new screenshot. Continue with snapshot, click, fill and press, and take screenshots after the user unlocks. Do not retry screenshots in a loop while it stays locked.";
 /// A locked screen can stop the compositor; do not wait the full timeout.
@@ -3079,13 +3157,17 @@ fn page_action(
             }
             Ok(snapshot)
         }
-        Request::Screenshot { label, .. } => {
+        Request::Screenshot { label, width, .. } => {
             let page = crate::browser::preview(&caller, &id)?;
             #[cfg(all(feature = "chromium", target_os = "macos"))]
             {
+                let wide = width.map(wide_page_size).transpose()?;
                 let (locked, epoch) = screen_lock();
+                if wide.is_some() {
+                    wide_page_allowed(target.own, locked)?;
+                }
                 locked_capture().admit(locked, epoch)?;
-                let request = json!({"action":"agent-screenshot"});
+                let request = page_shot_request(wide);
                 let result = tauri::async_runtime::block_on(async {
                     if locked {
                         page.command_within(request, LOCKED_CAPTURE_WAIT).await
@@ -3104,10 +3186,14 @@ fn page_action(
                     .get("data")
                     .and_then(Value::as_str)
                     .ok_or("Chromium did not return an image")?;
-                let (png, _, _) = crate::turn_shots::decode_png(data)?;
+                let (png, pixels_wide, _) = crate::turn_shots::decode_png(data)?;
                 // Captures are in device pixels; the backing scale brings a
                 // Retina capture back to the page's on-screen size.
-                let scale = tauri::async_runtime::block_on(page.scale_factor());
+                let scale = page_shot_scale(
+                    wide,
+                    pixels_wide,
+                    tauri::async_runtime::block_on(page.scale_factor()),
+                );
                 let image = crate::turn_shot_image::compress(&png, scale)?;
                 let app_data = server
                     .app
@@ -3134,10 +3220,11 @@ fn page_action(
                             .chat_mentions(&grant.session_id, names)
                     },
                 )
+                .map(|result| with_page_size(result, wide))
             }
             #[cfg(not(all(feature = "chromium", target_os = "macos")))]
             {
-                let _ = (page, label);
+                let _ = (page, label, width);
                 Err("Page screenshots require the Chromium build of Aven".into())
             }
         }
@@ -3292,6 +3379,7 @@ Usage: "$AVEN_BROWSER_EXECUTABLE" --aven-browser '<JSON>'
   {"action":"navigate","id":"TAB_ID","url":"https://example.com"}
   {"action":"snapshot","id":"TAB_ID"}
   {"action":"screenshot","id":"TAB_ID","label":"before"}
+  {"action":"screenshot","id":"TAB_ID","width":1280}
   {"action":"click","id":"TAB_ID","ref":"REF_FROM_LATEST_SNAPSHOT"}
   {"action":"hover","id":"TAB_ID","ref":"REF_FROM_LATEST_SNAPSHOT"}
   {"action":"fill","id":"TAB_ID","ref":"REF_FROM_LATEST_SNAPSHOT","value":"text"}
@@ -3368,7 +3456,14 @@ shows them the spot (see below).
 Screenshot saves a compressed JPEG of the page at its on-screen size (Retina
 captures are scaled to 1x) and returns {path,width,height,markdown}. A page
 shown on screen is captured as the user sees it; a background page is captured
-at its current size. Capture after the page finishes loading. Label is optional
+at its current size. A page beside the chat is narrow, often 500 to 700 pixels,
+so a responsive site shows its small-screen layout there. To judge the desktop
+layout, pass "width":1280 (320 to 1920): the picture is the page laid out that
+wide, 16:10 from 900 up and upright below that, and the result adds pageWidth
+and pageHeight. The user's pane keeps its size and shows no change. Width works
+only in a page you opened, and not while the Mac is locked; the page itself
+sees a short resize. Say which width a picture shows when you describe it.
+Capture after the page finishes loading. Label is optional
 plain text up to 64 bytes. To show the image, paste the returned markdown; open
 the image with an image or file reader before describing it. When your turn
 ends, Aven deletes that turn's unlabelled screenshots that no message in this
@@ -4209,6 +4304,16 @@ mod tests {
             }
         )
         .is_err());
+        // A picture at another width opens nothing: the same pages, no more.
+        let wide = |id: &str| {
+            parsed(&format!(
+                r#"{{"action":"screenshot","id":"{id}","width":1280}}"#
+            ))
+        };
+        assert!(authorize(&grants, "secret", &wide("tab-a")).is_ok());
+        let error = authorize(&grants, "secret", &wide("tab-b")).err().unwrap();
+        assert!(error.contains("pages it opened"), "{error}");
+        assert!(authorize(&grants, "secret", &wide(&tab_id("main", "surface-1"))).is_err());
         for json in refused_in_a_sandbox() {
             let json = json.as_str();
             let error = authorize(&grants, "secret", &parsed(json)).err().unwrap();
@@ -4533,7 +4638,7 @@ mod tests {
             let request: Request = serde_json::from_value(value).unwrap();
             assert!(matches!(
                 &request,
-                Request::Screenshot { id, label }
+                Request::Screenshot { id, label, width: None }
                     if id == "tab-a" && label.as_deref() == expected
             ));
             assert_eq!(request.id(), Some("tab-a"));
@@ -4543,6 +4648,7 @@ mod tests {
         let other_tab = Request::Screenshot {
             id: "tab-b".into(),
             label: None,
+            width: None,
         };
         assert!(authorize(&grants(), "secret", &other_tab).is_err());
         for input in [
@@ -4574,6 +4680,136 @@ mod tests {
         assert!(HELP.contains("When your turn\nends, Aven deletes that turn's unlabelled screenshots that no message in this\nchat shows; label a screenshot to keep it."));
         assert!(!HELP.contains("PNG"));
         assert!(!HELP.contains("task"));
+    }
+
+    #[test]
+    fn a_screenshot_width_is_bounded_and_names_a_common_screen() {
+        for (input, expected) in [
+            (r#"{"action":"screenshot","id":"tab-a","width":1280}"#, 1280),
+            (
+                r#"{"action":"screenshot","id":"tab-a","width":320,"label":"phone"}"#,
+                320,
+            ),
+            (r#"{"action":"screenshot","id":"tab-a","width":1920}"#, 1920),
+        ] {
+            let value = cli_request_value(input, false).unwrap();
+            let request: Request = serde_json::from_value(value).unwrap();
+            assert!(matches!(
+                &request,
+                Request::Screenshot { id, width: Some(width), .. } if id == "tab-a" && *width == expected
+            ));
+            // The same page scope as any screenshot: no other chat's page.
+            assert!(authorize(&grants(), "secret", &request).is_ok());
+            assert!(authorize(&grants(), "wrong", &request).is_err());
+        }
+        let absent: Request = serde_json::from_value(
+            cli_request_value(
+                r#"{"action":"screenshot","id":"tab-a","width":null}"#,
+                false,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(absent, Request::Screenshot { width: None, .. }));
+        for input in [
+            r#"{"action":"screenshot","id":"tab-a","width":319}"#,
+            r#"{"action":"screenshot","id":"tab-a","width":1921}"#,
+            r#"{"action":"screenshot","id":"tab-a","width":0}"#,
+            r#"{"action":"screenshot","id":"tab-a","width":-1280}"#,
+            r#"{"action":"screenshot","id":"tab-a","width":1280.5}"#,
+            r#"{"action":"screenshot","id":"tab-a","width":"1280"}"#,
+            r#"{"action":"screenshot","id":"tab-a","width":"desktop"}"#,
+            r#"{"action":"screenshot","id":"tab-a","width":1280,"height":800}"#,
+            r#"{"action":"screenshot","id":"tab-b","width":1280,"label":""}"#,
+        ] {
+            assert!(cli_request_value(input, false).is_err(), "{input}");
+        }
+        assert_eq!(
+            cli_request_value(
+                r#"{"action":"screenshot","id":"tab-a","width":2000}"#,
+                false
+            )
+            .unwrap_err(),
+            WIDE_PAGE_WIDTH
+        );
+        // A desktop is 16:10; a narrower page stands upright, at most 1024 tall.
+        for (width, height) in [
+            (1280, 800),
+            (1440, 900),
+            (1920, 1200),
+            (1024, 640),
+            (900, 562),
+            (899, 1024),
+            (768, 1024),
+            (390, 845),
+            (320, 693),
+        ] {
+            assert_eq!(wide_page_size(width), Ok((width, height)));
+        }
+        assert_eq!(wide_page_size(319).unwrap_err(), WIDE_PAGE_WIDTH);
+        assert_eq!(wide_page_size(1921).unwrap_err(), WIDE_PAGE_WIDTH);
+        // Every size stays inside what the page's helper accepts
+        // (browser_edit_capture.h: 320 to 1920 wide, 240 to 2400 tall).
+        for width in 320..=1920 {
+            let (_, height) = wide_page_size(width).unwrap();
+            assert!((240..=2400).contains(&height), "{width} gives {height}");
+        }
+    }
+
+    #[test]
+    fn a_wide_screenshot_is_for_the_chats_own_page_and_an_unlocked_mac() {
+        assert_eq!(wide_page_allowed(true, false), Ok(()));
+        // The user's tab is never laid out again for a look, locked or not.
+        assert_eq!(wide_page_allowed(false, false).unwrap_err(), WIDE_PAGE_OWN);
+        assert_eq!(wide_page_allowed(false, true).unwrap_err(), WIDE_PAGE_OWN);
+        assert_eq!(wide_page_allowed(true, true).unwrap_err(), WIDE_PAGE_LOCKED);
+        assert!(WIDE_PAGE_OWN.contains("only in a page you opened"));
+        assert!(WIDE_PAGE_LOCKED.contains("after they unlock"));
+    }
+
+    #[test]
+    fn a_wide_screenshot_asks_for_its_viewport_and_reports_it() {
+        // Without a width the helper is asked exactly as before, which the
+        // Mark up picture (`browser_capture`) also relies on.
+        assert_eq!(
+            page_shot_request(None),
+            json!({"action":"agent-screenshot"})
+        );
+        assert_eq!(
+            page_shot_request(Some((1280, 800))),
+            json!({"action":"agent-screenshot","pageWidth":1280,"pageHeight":800})
+        );
+        // A pane's capture is stored at its window's density, as before.
+        assert_eq!(page_shot_scale(None, 960, 2.0), 2.0);
+        // A wide capture is stored at its own width: Retina, plain, and the
+        // widest one, which the helper bounds to eight megapixels.
+        assert_eq!(page_shot_scale(Some((1280, 800)), 2560, 2.0), 2.0);
+        assert_eq!(page_shot_scale(Some((1280, 800)), 1280, 1.0), 1.0);
+        let bounded = page_shot_scale(Some((1920, 1200)), 3663, 2.0);
+        assert_eq!(
+            crate::turn_shot_image::stored_size(3663, 2289, bounded),
+            (1920, 1200)
+        );
+        assert_eq!(
+            crate::turn_shot_image::stored_size(2560, 1600, 2.0),
+            (1280, 800)
+        );
+        let stored = json!({"path":"/shots/1.jpg","width":1280,"height":800,"markdown":"![](</shots/1.jpg>)"});
+        assert_eq!(with_page_size(stored.clone(), None), stored);
+        let wide = with_page_size(stored.clone(), Some((1280, 800)));
+        assert_eq!(wide["pageWidth"], 1280);
+        assert_eq!(wide["pageHeight"], 800);
+        assert_eq!(wide["path"], stored["path"]);
+        // Agents learn when to use it, and what it does not change.
+        assert!(HELP.contains(r#"{"action":"screenshot","id":"TAB_ID","width":1280}"#));
+        for advice in [
+            "To judge the desktop\nlayout, pass \"width\":1280 (320 to 1920)",
+            "the result adds pageWidth\nand pageHeight",
+            "The user's pane keeps its size and shows no change.",
+            "only in a page you opened",
+        ] {
+            assert!(HELP.contains(advice), "{advice}");
+        }
     }
 
     #[test]
@@ -5601,6 +5837,13 @@ mod tests {
             Request::Screenshot {
                 id: id(),
                 label: None,
+                width: None,
+            },
+            // A picture at another width is still a look, not an act.
+            Request::Screenshot {
+                id: id(),
+                label: None,
+                width: Some(1280),
             },
             Request::Export {
                 id: id(),
