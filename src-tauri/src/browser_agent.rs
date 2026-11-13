@@ -4098,15 +4098,18 @@ mod tests {
 
     #[test]
     fn a_chat_that_only_reads_never_has_aven_save_a_page_for_it() {
+        // An absolute folder on this platform: a request is checked for one
+        // before the grant is looked at.
+        let site = if cfg!(windows) { r"C:\site" } else { "/site" };
         let export = |id: &str| Request::Export {
             id: id.into(),
-            to: "/site".into(),
+            to: site.into(),
             name: Some("CLAUDE".into()),
             replace: true,
         };
         // Avos, sandboxed, on a page it opened: reading is fine, saving is not.
         let mut grants = sandboxed(&["tab-a"], &[]);
-        grants.get_mut("secret").unwrap().work_dir = Some("/site".into());
+        grants.get_mut("secret").unwrap().work_dir = Some(site.into());
         assert!(authorize(&grants, "secret", &export("tab-a")).is_ok());
         grants.get_mut("secret").unwrap().read_only = true;
         assert_eq!(
