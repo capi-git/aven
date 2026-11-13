@@ -373,39 +373,57 @@ struct BrowserCornerMaskState {
   __weak CALayer* mask = nil;
   NSRect bounds = NSZeroRect;
   NSRect browser_frame = NSZeroRect;
-  double radius = -1;
+  double left_radius = -1;
+  double right_radius = -1;
   double scale = 0;
   bool flipped = false;
   std::vector<BrowserHole> holes;
 };
 
 // Round only the document's bottom corners; its top edge meets the HTML
-// toolbar. The path follows the full page within the clipping host, so a hover
+// toolbar. Each corner has its own radius: a page rounds only the corners it
+// shares with the rounded workspace card (browserBottomRadii in browser.ts).
+// The path follows the full page within the clipping host, so a hover
 // sidebar crops an existing curve rather than creating a new rounded edge.
-inline CGPathRef CreateBrowserBottomCornerPath(NSRect frame, double radius,
-                                               bool flipped) {
+inline CGPathRef CreateBrowserBottomCornerPath(NSRect frame, double left_radius,
+                                               double right_radius, bool flipped) {
   CGMutablePathRef path = CGPathCreateMutable();
-  const double r = std::isfinite(radius)
-      ? std::clamp(radius, 0.0, std::max(0.0, std::min(frame.size.width, frame.size.height) / 2))
-      : 0;
+  const double limit = std::max(0.0, std::min(frame.size.width, frame.size.height) / 2);
+  const auto clamp = [limit](double radius) {
+    return std::isfinite(radius) ? std::clamp(radius, 0.0, limit) : 0.0;
+  };
+  const double rl = clamp(left_radius), rr = clamp(right_radius);
   const double left = NSMinX(frame), right = NSMaxX(frame);
   const double bottom = NSMinY(frame), top = NSMaxY(frame);
-  if (r <= 0) {
+  if (rl <= 0 && rr <= 0) {
     CGPathAddRect(path, nullptr, NSRectToCGRect(frame));
     return path;
   }
   CGPathMoveToPoint(path, nullptr, left, top);
   CGPathAddLineToPoint(path, nullptr, right, top);
-  CGPathAddLineToPoint(path, nullptr, right, bottom + r);
-  CGPathAddArcToPoint(path, nullptr, right, bottom, right - r, bottom, r);
-  CGPathAddLineToPoint(path, nullptr, left + r, bottom);
-  CGPathAddArcToPoint(path, nullptr, left, bottom, left, bottom + r, r);
+  if (rr > 0) {
+    CGPathAddLineToPoint(path, nullptr, right, bottom + rr);
+    CGPathAddArcToPoint(path, nullptr, right, bottom, right - rr, bottom, rr);
+  } else {
+    CGPathAddLineToPoint(path, nullptr, right, bottom);
+  }
+  if (rl > 0) {
+    CGPathAddLineToPoint(path, nullptr, left + rl, bottom);
+    CGPathAddArcToPoint(path, nullptr, left, bottom, left, bottom + rl, rl);
+  } else {
+    CGPathAddLineToPoint(path, nullptr, left, bottom);
+  }
   CGPathCloseSubpath(path);
   if (!flipped) return path;
   const CGAffineTransform reflect = CGAffineTransformMake(1, 0, 0, -1, 0, bottom + top);
   CGPathRef reflected = CGPathCreateCopyByTransformingPath(path, &reflect);
   CGPathRelease(path);
   return reflected;
+}
+
+inline CGPathRef CreateBrowserBottomCornerPath(NSRect frame, double radius,
+                                               bool flipped) {
+  return CreateBrowserBottomCornerPath(frame, radius, radius, flipped);
 }
 
 // Menu cut-outs in the clipping host's coordinates. The page's top edge is
@@ -435,10 +453,12 @@ inline CGPathRef CreateBrowserHolesPath(NSRect browser_frame,
 // The visible page: its rounded bottom corners, minus every menu cut-out.
 // Exact subtraction (macOS 13+): overlapping menus and a menu crossing a
 // rounded corner never re-expose the page.
-inline CGPathRef CreateBrowserMaskPath(NSRect browser_frame, double radius,
+inline CGPathRef CreateBrowserMaskPath(NSRect browser_frame, double left_radius,
+                                       double right_radius,
                                        const std::vector<BrowserHole>& holes,
                                        bool flipped) {
-  CGPathRef page = CreateBrowserBottomCornerPath(browser_frame, std::max(0.0, radius), flipped);
+  CGPathRef page = CreateBrowserBottomCornerPath(
+      browser_frame, std::max(0.0, left_radius), std::max(0.0, right_radius), flipped);
   if (holes.empty()) return page;
   // The pinned CEF framework itself requires macOS 13; CEF's build files
   // still compile this wrapper for an older deployment target.
@@ -453,11 +473,18 @@ inline CGPathRef CreateBrowserMaskPath(NSRect browser_frame, double radius,
   return page;
 }
 
-inline bool ApplyBrowserMask(NSView* clip, NSRect browser_frame, double radius,
+inline CGPathRef CreateBrowserMaskPath(NSRect browser_frame, double radius,
+                                       const std::vector<BrowserHole>& holes,
+                                       bool flipped) {
+  return CreateBrowserMaskPath(browser_frame, radius, radius, holes, flipped);
+}
+
+inline bool ApplyBrowserMask(NSView* clip, NSRect browser_frame, double left_radius,
+                             double right_radius,
                              const std::vector<BrowserHole>& holes,
                              BrowserCornerMaskState& previous) {
   const double scale = std::max(1.0, clip.window.backingScaleFactor);
-  const bool masked = radius > 0 || !holes.empty();
+  const bool masked = left_radius > 0 || right_radius > 0 || !holes.empty();
   // A mask path assignment invalidates Core Animation's mask even if the path
   // describes the same pixels. Retain it through redundant layouts; invalidate
   // on real geometry, zoom, display-scale, cut-out, or host/mask changes.
@@ -466,7 +493,8 @@ inline bool ApplyBrowserMask(NSView* clip, NSRect browser_frame, double radius,
   if (previous.clip == clip && same_mask &&
       NSEqualRects(previous.bounds, clip.bounds) &&
       NSEqualRects(previous.browser_frame, browser_frame) &&
-      previous.radius == radius && previous.scale == scale &&
+      previous.left_radius == left_radius &&
+      previous.right_radius == right_radius && previous.scale == scale &&
       previous.flipped == static_cast<bool>(clip.flipped) &&
       previous.holes == holes) return false;
   clip.wantsLayer = YES;
@@ -482,7 +510,8 @@ inline bool ApplyBrowserMask(NSView* clip, NSRect browser_frame, double radius,
     mask.frame = clip.bounds;
     mask.contentsScale = scale;
     mask.fillColor = NSColor.blackColor.CGColor;
-    CGPathRef path = CreateBrowserMaskPath(browser_frame, radius, holes, clip.flipped);
+    CGPathRef path = CreateBrowserMaskPath(browser_frame, left_radius, right_radius,
+                                           holes, clip.flipped);
     mask.fillRule = kCAFillRuleNonZero;
     mask.path = path;
     CGPathRelease(path);
@@ -497,11 +526,18 @@ inline bool ApplyBrowserMask(NSView* clip, NSRect browser_frame, double radius,
   previous.mask = clip.layer.mask;
   previous.bounds = clip.bounds;
   previous.browser_frame = browser_frame;
-  previous.radius = radius;
+  previous.left_radius = left_radius;
+  previous.right_radius = right_radius;
   previous.scale = scale;
   previous.flipped = clip.flipped;
   previous.holes = holes;
   return true;
+}
+
+inline bool ApplyBrowserMask(NSView* clip, NSRect browser_frame, double radius,
+                             const std::vector<BrowserHole>& holes,
+                             BrowserCornerMaskState& previous) {
+  return ApplyBrowserMask(clip, browser_frame, radius, radius, holes, previous);
 }
 
 inline bool ApplyBrowserBottomCornerMask(NSView* clip, NSRect browser_frame,

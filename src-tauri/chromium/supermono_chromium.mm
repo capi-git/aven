@@ -1113,7 +1113,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     static const std::vector<supermono::BrowserHole> no_holes;
     if (!sliding)
       supermono::ApplyBrowserMask(clip_view_,aligned.browser,
-        auto_resize_ ? 0 : bottom_corner_radius_,auto_resize_ ? no_holes : holes_,corner_mask_);
+        auto_resize_ ? 0 : bottom_left_radius_,auto_resize_ ? 0 : bottom_right_radius_,
+        auto_resize_ ? no_holes : holes_,corner_mask_);
     else if (!holding) {
       CefRefPtr<Page> self=this;
       [clip_host slideLeadingEdgeFrom:slide_from to:slide_to completion:^{
@@ -2427,7 +2428,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   double shade_=0,shade_fade_=0;
   __strong SMBrowserAgentMarker *agent_marker_=nil;
   __strong SMBrowserEditAnnotation *edit_annotation_=nil;
-  double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_corner_radius_=0;
+  double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_left_radius_=0,bottom_right_radius_=0;
   // The geometry the previous Layout applied, to recognize a hover slide.
   double applied_x_=0,applied_y_=0,applied_w_=0,applied_h_=0,applied_left_=0,applied_right_=0;
   bool applied_showing_=false;
@@ -2677,9 +2678,9 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     last_error.clear(); return 1;
   } catch (const std::exception& e) { return Fail(e.what()); } catch (...) { return Fail("Chromium tab creation failed"); } }
 }
-extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius,const double *holes,int hole_count,const double *hit_margins,double shade,double shade_fade) {
+extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_left_radius,double bottom_right_radius,const double *holes,int hole_count,const double *hit_margins,double shade,double shade_fade) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
-    if (!Geometry(x,y,w,h) || !std::isfinite(clip_left) || !std::isfinite(clip_right) || clip_left<0 || clip_right<0 || clip_left+clip_right>w || !std::isfinite(viewport_height) || viewport_height<0 || viewport_height>262144 || !std::isfinite(bottom_corner_radius) || bottom_corner_radius<0 || bottom_corner_radius>262144) return Fail("Invalid browser bounds");
+    if (!Geometry(x,y,w,h) || !std::isfinite(clip_left) || !std::isfinite(clip_right) || clip_left<0 || clip_right<0 || clip_left+clip_right>w || !std::isfinite(viewport_height) || viewport_height<0 || viewport_height>262144 || !std::isfinite(bottom_left_radius) || bottom_left_radius<0 || bottom_left_radius>262144 || !std::isfinite(bottom_right_radius) || bottom_right_radius<0 || bottom_right_radius>262144) return Fail("Invalid browser bounds");
     if (hole_count<0 || hole_count>kMaxBrowserHoles || (hole_count>0 && !holes)) return Fail("Invalid browser bounds");
     if (!std::isfinite(shade) || shade<0 || shade>1 || !std::isfinite(shade_fade) || shade_fade<0 || shade_fade>supermono::kBrowserShadeMaxFade) return Fail("Invalid browser bounds");
     std::vector<supermono::BrowserHole> cut;
@@ -2703,7 +2704,7 @@ extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,doub
                std::min(hit_margins[2],w/2),std::min(hit_margins[3],h/2)};
     }
     page->hit_margins_=margins;
-    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->holes_=std::move(cut); page->shade_=shade; page->shade_fade_=shade_fade; page->visible_=visible; page->Layout(); return 1; }
+    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_left_radius_=bottom_left_radius; page->bottom_right_radius_=bottom_right_radius; page->holes_=std::move(cut); page->shade_=shade; page->shade_fade_=shade_fade; page->visible_=visible; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double y,double w,double h,double inset) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
@@ -2712,7 +2713,7 @@ extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double 
     [page->drop_indicator_ clear];
     [page->agent_marker_ clear];
     if (page->EditActive()) page->EditMode(false);
-    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->holes_.clear(); page->shade_=page->shade_fade_=0; page->hit_margins_={}; page->auto_resize_=inset>=0; page->Layout(); return 1; }
+    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_left_radius_=page->bottom_right_radius_=0; page->holes_.clear(); page->shade_=page->shade_fade_=0; page->hit_margins_={}; page->auto_resize_=inset>=0; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_command(const char *id,const char *request_id,const char *json) {
   @autoreleasepool { try {

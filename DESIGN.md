@@ -40,6 +40,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 - Heights: menu rows 26px, navigation rows 28px, buttons and tabs 24px, settings rows at least 48px.
 - Corners: use the `--aven-radius-*` tokens. Rows and controls are 6px, cards 10px, sheets 12px.
+- A web page has the same corners as any other pane in its place. Where a page meets a bottom corner of the workspace card, it rounds with the card's inner curve; beside another pane, the side panel or the terminal, it stays square.
 - A resize edge shows nothing extra while pointed at or dragged: the cursor says it can be grabbed. Only keyboard focus draws a line on it.
 - Use at most one hairline per header. Rows in a list or card are split by a hairline, not by gaps and boxes.
 - Line a section heading up with the edge of its card, and a page title with the same edge.

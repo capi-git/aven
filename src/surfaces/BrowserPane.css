@@ -332,10 +332,11 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* Panes are square and flush, so the page is square too, on macOS and
-     Windows. Native Chromium reads this measured radius (CSS cannot clip its
-     sibling view); at 0 it rounds nothing. Where a page reaches the window's
-     edge, the window's own rounded corner clips it. */
+  /* Panes are square and flush, so the page is square too. Native Chromium
+     sits above every CSS clip, so where the page meets a bottom corner of
+     the rounded workspace card it draws the card's inner curve itself, the
+     same curve the card's clip gives an HTML pane there (browserBottomRadii
+     in browser.ts). */
   border-radius: 0;
 }
 .browser-page-snapshot {
