@@ -752,7 +752,9 @@ export function createBrowserPresentation({
       motionHeld
     )
       return;
-    const frame = { ...sent };
+    // The frame this pass measured last, which is the one sent unless a
+    // layout failed; the hide that follows sends the same one.
+    const frame = { ...(lastBounds ?? sent) };
     delete frame.holes;
     delete frame.shade;
     const overlay = browserOverlayState(
@@ -766,6 +768,8 @@ export function createBrowserPresentation({
     if (JSON.stringify(next) === JSON.stringify(sent)) return;
     await adapter.layout(pageId, next, true);
     if (disposed) return;
+    // No size observers to move: this pass found the page not showing and
+    // `placement` stopped watching the surfaces that owned its cut-outs.
     nativeMovingCut = false;
     layoutRecords.set(surfaceId, { bounds: next, visible: true });
     lastBounds = next;

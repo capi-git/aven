@@ -18,7 +18,7 @@ int sm_chromium_create(const char *id, void *parent_nsview, const char *url,
 // the dividers beside the page. NULL means none.
 // `shade` (0..1, 0 for none) is the black veil of a dialog open over the
 // whole window: the page stays live under it and takes no pointer at all,
-// and the veil appears over `shade_fade_seconds` (at most 2).
+// and the veil appears over `shade_fade_seconds` (at most 1).
 int sm_chromium_layout(const char *id, double x, double y, double w, double h,
                        int visible, double clip_left, double clip_right, double viewport_height,
                        double bottom_corner_radius, const double *holes, int hole_count,

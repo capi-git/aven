@@ -171,6 +171,13 @@
 }
 @end
 
+namespace supermono {
+// The longest a dialog's veil takes to appear, in seconds. The source is
+// MAX_SHADE_FADE_MS in src/lib/browserOverlays.ts, which never sends more;
+// MAX_BROWSER_SHADE_FADE_MS in browser_chromium.rs refuses more on the way.
+constexpr double kBrowserShadeMaxFade = 1.0;
+}  // namespace supermono
+
 // The veil a dialog's backdrop casts over a live page. The workspace webview
 // draws that backdrop beneath the page, where it cannot dim it; this view
 // sits above the page inside its clipping host, so the page's mask cuts the
@@ -180,8 +187,9 @@
 @property(nonatomic, readonly) CGFloat shade;
 // Show the veil at `opacity` (0..1) over `frame`, directly above `browser`
 // in its clipping host, or remove it when `opacity` is 0. A veil that
-// appears fades in over `fade` seconds, as the dialog's own backdrop does;
-// it goes at once, as dialogs do.
+// appears, or darkens for a dialog opened over a dialog, fades there over
+// `fade` seconds, as that dialog's own backdrop does; it lightens and goes
+// at once, as dialogs do.
 - (void)placeAboveBrowser:(NSView*)browser
                     frame:(NSRect)frame
                   opacity:(CGFloat)opacity
@@ -231,16 +239,21 @@
   }
   self.autoresizingMask = browser.autoresizingMask;
   if (!NSEqualRects(self.frame, frame)) self.frame = frame;
-  const BOOL appearing = _shade <= 0;
   if (_shade != wanted) {
+    // From where it is drawn now: a second dialog can open mid-fade.
+    CALayer* drawn = self.layer.presentationLayer;
+    const CGFloat from = _shade <= 0 ? 0 : drawn ? drawn.opacity : _shade;
     self.layer.opacity = wanted;
-    if (appearing && fade > 0 && std::isfinite(fade) &&
+    if (wanted > from && fade > 0 && std::isfinite(fade) &&
         !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
       CABasicAnimation* rise = [CABasicAnimation animationWithKeyPath:@"opacity"];
-      rise.fromValue = @0;
+      rise.fromValue = @(from);
       rise.toValue = @(wanted);
-      rise.duration = std::min<NSTimeInterval>(fade, 1);
-      // --aven-ease-out in motion.css, the curve of the dialog's backdrop.
+      // The backdrop's own fade, read from its CSS (browserOverlays.ts,
+      // which holds the limit); never longer than kBrowserShadeMaxFade.
+      rise.duration = std::min<NSTimeInterval>(fade, supermono::kBrowserShadeMaxFade);
+      // The backdrop's curve: --aven-ease-out in src/motion.css. Keep the
+      // two equal; nothing else reads these four numbers.
       rise.timingFunction =
           [CAMediaTimingFunction functionWithControlPoints:0.22 :1 :0.36 :1];
       [self.layer addAnimation:rise forKey:@"shade"];
@@ -261,12 +274,17 @@ inline double BrowserPageShade(double shade, bool floating) {
   return floating || !std::isfinite(shade) ? 0 : std::clamp(shade, 0.0, 1.0);
 }
 
+// A dialog is open over the window and this page is dimmed under it. Though
+// on screen, it then behaves as a page hidden for the dialog did: the one
+// test for every gate that keeps the page out of the user's way.
+inline bool BrowserPageUnderDialog(double shade) { return shade > 0; }
+
 // Whether the page must refuse the keyboard when Chromium asks to focus it
 // (a navigation does). A page dimmed under a dialog is on screen but the
 // dialog owns the keyboard, exactly as when the page was hidden for it.
 inline bool BrowserPageRefusesFocus(bool visible, bool closing,
                                     bool update_prepared, double shade) {
-  return !visible || closing || update_prepared || shade > 0;
+  return !visible || closing || update_prepared || BrowserPageUnderDialog(shade);
 }
 
 // Whether an agent's picture of the page may be copied from the screen. A
@@ -274,7 +292,7 @@ inline bool BrowserPageRefusesFocus(bool visible, bool closing,
 // cut-out: its picture comes from the page's own surface instead, as a
 // hidden page's does, so it shows the page and nothing of the user's.
 inline bool BrowserPageCopiesFromScreen(bool on_screen, double shade) {
-  return on_screen && !(shade > 0);
+  return on_screen && !BrowserPageUnderDialog(shade);
 }
 
 // A rounded cut-out in native points, relative to the page's top-left corner.

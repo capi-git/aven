@@ -16,7 +16,12 @@ export const BROWSER_HOLE_AREA_LIMIT = 0.6;
  * the page is dimmed by a veil of its own to match (`BrowserShade`).
  */
 export const MODAL_VEILS = ".modal-backdrop, .workspace-dialog-shade";
-/** No backdrop fades in for longer than this; the native side refuses more. */
+/**
+ * No backdrop fades in for longer than this. This is the source of the
+ * limit: `MAX_BROWSER_SHADE_FADE_MS` in browser_chromium.rs and
+ * `kBrowserShadeMaxFade` in browser_host_view.h refuse more, and the native
+ * veil's curve is `--aven-ease-out` from motion.css, copied there.
+ */
 const MAX_SHADE_FADE_MS = 1000;
 
 /**
@@ -181,14 +186,20 @@ function milliseconds(time: string): number {
   return time.trim().endsWith("ms") ? value : value * 1000;
 }
 
-/** A modal dialog's backdrop: around it, or beside it or one of its ancestors. */
+/**
+ * A modal dialog's own backdrop: around it, beside it, or beside the frame
+ * that places it (`Modal`, the walkthrough). No further out: a dialog with
+ * no backdrop of its own, opened from inside another dialog, must not take
+ * that dialog's.
+ */
 function modalVeil(modal: HTMLElement): HTMLElement | null {
+  let node = modal.parentElement;
   for (
-    let node = modal.parentElement;
-    node && node !== document.body;
-    node = node.parentElement
+    let depth = 0;
+    depth < 2 && node && node !== document.body;
+    depth += 1, node = node.parentElement
   ) {
-    if (node.matches(MODAL_VEILS)) return node;
+    if (depth === 0 && node.matches(MODAL_VEILS)) return node;
     const beside = [...node.children].find(
       (child): child is HTMLElement =>
         child instanceof HTMLElement && child.matches(MODAL_VEILS),
@@ -196,6 +207,26 @@ function modalVeil(modal: HTMLElement): HTMLElement | null {
     if (beside) return beside;
   }
   return null;
+}
+
+/**
+ * How much of a veil's colour shows: its own `opacity` once it has stopped
+ * fading in (mid-fade the native veil runs the same fade itself). Null when
+ * something around it is see-through too, since the dialog would then be as
+ * well, which a cut-out cannot match.
+ */
+function veilOpacity(veil: HTMLElement, own: CSSStyleDeclaration) {
+  const settled = (element: HTMLElement, style: CSSStyleDeclaration) => {
+    const value = parseFloat(style.opacity);
+    return isEntering(element) || !Number.isFinite(value) ? 1 : value;
+  };
+  for (
+    let node = veil.parentElement;
+    node && node !== document.body;
+    node = node.parentElement
+  )
+    if (settled(node, getComputedStyle(node)) < 1) return null;
+  return Math.min(1, Math.max(0, settled(veil, own)));
 }
 
 /**
@@ -220,7 +251,9 @@ function veilShade(veil: HTMLElement, area: Box): BrowserShade | null {
     box.bottom < area.bottom - 1
   )
     return null;
-  const opacity = blackOpacity(style.backgroundColor);
+  const colour = blackOpacity(style.backgroundColor);
+  const shows = veilOpacity(veil, style);
+  const opacity = colour === null || shows === null ? 0 : colour * shows;
   if (!opacity) return null;
   const fades = style.animationName && style.animationName !== "none";
   const fadeMs = fades

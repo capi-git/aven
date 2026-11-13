@@ -395,6 +395,72 @@ describe("browser overlay cut-outs", () => {
     },
   );
 
+  it("finds a backdrop beside the frame that places the dialog, as a sheet's is", () => {
+    const { layer, panel } = dialog(new DOMRect(200, 100, 300, 200));
+    const frame = document.createElement("div");
+    layer.appendChild(frame);
+    frame.appendChild(panel);
+    expect(dimmed()).toMatchObject({
+      capture: false,
+      elements: [panel],
+      shade: { opacity: 0.4, fadeMs: 120 },
+    });
+  });
+
+  it("never lends a dialog's backdrop to a dialog without one opened inside it", () => {
+    const { panel } = dialog(new DOMRect(200, 100, 300, 200));
+    // An image viewer or the like, drawn inside the sheet's own content.
+    const content = document.createElement("div");
+    const section = document.createElement("div");
+    panel.appendChild(content);
+    content.appendChild(section);
+    const inner = overlay(new DOMRect(220, 120, 100, 80), {
+      role: "dialog",
+      parent: section,
+    });
+    inner.setAttribute("aria-modal", "true");
+    expect(dimmed()).toEqual({
+      capture: true,
+      holes: [],
+      elements: [],
+      moving: [],
+      movingAnimates: false,
+    });
+    inner.remove();
+    expect(dimmed().shade).toEqual({ opacity: 0.4, fadeMs: 120 });
+  });
+
+  it("counts a backdrop's own opacity once it has settled, never mid-fade", () => {
+    const { layer } = dialog(new DOMRect(200, 100, 300, 200), {
+      backgroundColor: "rgba(0, 0, 0, 0.4)",
+      opacity: "0.5",
+    });
+    expect(dimmed().shade).toEqual({ opacity: 0.2, fadeMs: 0 });
+    // Fading in from clear: the native veil runs that fade itself.
+    const backdrop = layer.querySelector<HTMLElement>(".modal-backdrop")!;
+    styles.set(backdrop, {
+      backgroundColor: "rgba(0, 0, 0, 0.4)",
+      opacity: "0",
+      animationName: "aven-fade",
+      animationDuration: "120ms",
+    });
+    backdrop.getAnimations = () =>
+      [{ playState: "running" }] as unknown as Animation[];
+    expect(dimmed().shade).toEqual({ opacity: 0.4, fadeMs: 120 });
+    // Left clear with nothing running: it dims nothing, so nothing to match.
+    backdrop.getAnimations = () => [];
+    expect(dimmed()).toMatchObject({ capture: true });
+  });
+
+  it("captures for a dialog whose whole layer is see-through", () => {
+    const { layer } = dialog(new DOMRect(200, 100, 300, 200));
+    styles.set(layer, { opacity: "0.6" });
+    expect(dimmed()).toMatchObject({ capture: true, holes: [] });
+    expect(dimmed().shade).toBeUndefined();
+    styles.set(layer, { opacity: "1" });
+    expect(dimmed().shade).toEqual({ opacity: 0.4, fadeMs: 120 });
+  });
+
   it("captures for a dialog on an engine that cannot dim a live page", () => {
     dialog(new DOMRect(200, 100, 300, 200));
     expect(state()).toMatchObject({ capture: true, holes: [] });

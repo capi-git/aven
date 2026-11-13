@@ -328,6 +328,10 @@ static void CheckMenuHoles() {
     using supermono::BrowserPageCopiesFromScreen;
     using supermono::BrowserPageRefusesFocus;
     using supermono::BrowserPageShade;
+    using supermono::BrowserPageUnderDialog;
+    CHECK(BrowserPageUnderDialog(0.4) && !BrowserPageUnderDialog(0));
+    CHECK(!BrowserPageUnderDialog(BrowserPageShade(0.4, true)));
+    CHECK(!BrowserPageUnderDialog(BrowserPageShade(NAN, false)));
     CHECK(BrowserPageShade(0.4, false) == 0.4 && BrowserPageShade(0.4, true) == 0);
     CHECK(BrowserPageShade(0, false) == 0 && BrowserPageShade(NAN, false) == 0);
     CHECK(BrowserPageShade(7, false) == 1 && BrowserPageShade(-1, false) == 0);
@@ -421,12 +425,26 @@ static void CheckMenuHoles() {
                                               userData:nullptr]];
     CHECK(entered == 0);
     clip.pointerEntered = nil;
-    // The same veil again changes nothing; a darker one (a dialog over the
-    // dialog) takes effect at once.
+    // The same veil again changes nothing. A darker one (a dialog over the
+    // dialog) fades there from where it is, as that dialog's backdrop does;
+    // back to the first dialog's it goes at once, as dialogs close.
+    const bool moves = !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
     [shade.layer removeAnimationForKey:@"shade"];
     [shade placeAboveBrowser:browser frame:browser.frame opacity:0.4 fade:0.12];
     CHECK([shade.layer animationForKey:@"shade"] == nil);
-    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.64 fade:0.12];
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.64 fade:5];
+    CHECK(std::abs(shade.shade - 0.64) < 1e-6 && std::abs(shade.layer.opacity - 0.64f) < 1e-6);
+    CABasicAnimation* darker = (CABasicAnimation*)[shade.layer animationForKey:@"shade"];
+    CHECK((darker != nil) == moves);
+    if (darker) {
+      CHECK(std::abs([darker.fromValue doubleValue] - 0.4) < 1e-6);
+      CHECK(std::abs([darker.toValue doubleValue] - 0.64) < 1e-6);
+      // Never longer than the limit the web side sends.
+      CHECK(darker.duration == supermono::kBrowserShadeMaxFade);
+    }
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.4 fade:0.12];
+    CHECK(std::abs(shade.shade - 0.4) < 1e-6 && [shade.layer animationForKey:@"shade"] == nil);
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.64 fade:0];
     CHECK(std::abs(shade.shade - 0.64) < 1e-6 && [shade.layer animationForKey:@"shade"] == nil);
     // The dialog closes: the veil goes at once and the page takes the pointer.
     [shade placeAboveBrowser:browser frame:browser.frame opacity:0 fade:0.12];

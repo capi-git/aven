@@ -144,7 +144,9 @@ pub struct BrowserShade {
     fade_ms: f64,
 }
 
-/// No backdrop fades in for longer than this.
+/// No backdrop fades in for longer than this. The source is
+/// `MAX_SHADE_FADE_MS` in `src/lib/browserOverlays.ts`; the native wrapper's
+/// `kBrowserShadeMaxFade` (browser_host_view.h) is the same second.
 const MAX_BROWSER_SHADE_FADE_MS: f64 = 1000.0;
 
 /// Widths of the pass-through strips along a page's edges, in CSS pixels.
