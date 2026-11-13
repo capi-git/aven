@@ -322,6 +322,27 @@ static void CheckMenuHoles() {
   CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 8, {}, previous));
   CHECK(clip.layer.mask != nil && Contains(((CAShapeLayer*)clip.layer.mask).path, 400, 200));
   CHECK([parent hitTest:NSMakePoint(400, 200)] == browser);
+  // What a page under a dialog's veil must not do, though it is on screen:
+  // take the keyboard, or hand an agent a picture copied from the screen.
+  {
+    using supermono::BrowserPageCopiesFromScreen;
+    using supermono::BrowserPageRefusesFocus;
+    using supermono::BrowserPageShade;
+    CHECK(BrowserPageShade(0.4, false) == 0.4 && BrowserPageShade(0.4, true) == 0);
+    CHECK(BrowserPageShade(0, false) == 0 && BrowserPageShade(NAN, false) == 0);
+    CHECK(BrowserPageShade(7, false) == 1 && BrowserPageShade(-1, false) == 0);
+    CHECK(!BrowserPageRefusesFocus(true, false, false, 0));
+    CHECK(BrowserPageRefusesFocus(true, false, false, 0.4));
+    CHECK(BrowserPageRefusesFocus(false, false, false, 0));
+    CHECK(BrowserPageRefusesFocus(true, true, false, 0));
+    CHECK(BrowserPageRefusesFocus(true, false, true, 0));
+    // A floating page is never dimmed, so it keeps the keyboard and its copy.
+    CHECK(!BrowserPageRefusesFocus(true, false, false, BrowserPageShade(0.4, true)));
+    CHECK(BrowserPageCopiesFromScreen(true, 0));
+    CHECK(!BrowserPageCopiesFromScreen(true, 0.4));
+    CHECK(!BrowserPageCopiesFromScreen(false, 0));
+    CHECK(BrowserPageCopiesFromScreen(true, BrowserPageShade(0.4, true)));
+  }
   // A dialog over the window: the page stays shown under a veil that sits
   // directly above it, the dialog is cut out of both, and the page takes no
   // pointer anywhere, so a press on the dimmed page reaches the workspace.

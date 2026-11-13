@@ -255,6 +255,28 @@
 
 namespace supermono {
 
+// The veil a page applies for a dialog over the window (0 for none). A
+// floating window holds only the page, so no dialog is ever over it.
+inline double BrowserPageShade(double shade, bool floating) {
+  return floating || !std::isfinite(shade) ? 0 : std::clamp(shade, 0.0, 1.0);
+}
+
+// Whether the page must refuse the keyboard when Chromium asks to focus it
+// (a navigation does). A page dimmed under a dialog is on screen but the
+// dialog owns the keyboard, exactly as when the page was hidden for it.
+inline bool BrowserPageRefusesFocus(bool visible, bool closing,
+                                    bool update_prepared, double shade) {
+  return !visible || closing || update_prepared || shade > 0;
+}
+
+// Whether an agent's picture of the page may be copied from the screen. A
+// page under a dialog is drawn dimmed, with the dialog showing through its
+// cut-out: its picture comes from the page's own surface instead, as a
+// hidden page's does, so it shows the page and nothing of the user's.
+inline bool BrowserPageCopiesFromScreen(bool on_screen, double shade) {
+  return on_screen && !(shade > 0);
+}
+
 // A rounded cut-out in native points, relative to the page's top-left corner.
 struct BrowserHole {
   double x = 0, y = 0, width = 0, height = 0, radius = 0;

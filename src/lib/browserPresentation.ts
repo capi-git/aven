@@ -737,6 +737,42 @@ export function createBrowserPresentation({
         if (latest && movingWanted()) tryStill(latest);
       });
   };
+  /**
+   * A page that waits for the tab replacing it keeps the layout it last had.
+   * What dimmed it or was cut out of it may have gone with the switch (the
+   * command palette that chose the tab): it must not wait dimmed around an
+   * empty cut-out. Send what is over it now, if that differs.
+   */
+  const shedGoneOverlays = async () => {
+    const sent = lastNativeBounds;
+    if (
+      !sent ||
+      (!sent.shade && !sent.holes?.length) ||
+      freezeState !== "none" ||
+      motionHeld
+    )
+      return;
+    const frame = { ...sent };
+    delete frame.holes;
+    delete frame.shade;
+    const overlay = browserOverlayState(
+      frame,
+      readState().holesSupported,
+      !!readState().shadeSupported,
+    );
+    // An overlay the page cannot show live is still up: it hides next.
+    if (overlay.capture) return;
+    const next = withOverlayHoles(frame, overlay);
+    if (JSON.stringify(next) === JSON.stringify(sent)) return;
+    await adapter.layout(pageId, next, true);
+    if (disposed) return;
+    nativeMovingCut = false;
+    layoutRecords.set(surfaceId, { bounds: next, visible: true });
+    lastBounds = next;
+    lastNativeBounds = next;
+    lastGeometry = JSON.stringify(next);
+    lastLayout = JSON.stringify([next, true]);
+  };
   const refreshZoomSnapshot = (refresh: boolean) => {
     if (!refresh || freezeState !== "none") {
       if (zoomRefreshActive) cancelOverlayCapture();
@@ -848,6 +884,8 @@ export function createBrowserPresentation({
         // Leaving this page for another tab. If that tab is a native page
         // still on its way in, keep this one painted until it arrives so
         // the window background never shows between them.
+        await shedGoneOverlays();
+        if (disposed) return;
         await waitForBrowserHandoff();
         if (disposed) return;
         if (!isPaused()) {
