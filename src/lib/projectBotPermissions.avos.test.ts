@@ -2,7 +2,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { resetCrewsCache, updateCrew } from "./crews";
 import { memoryStorage } from "./devSmoke";
-import { launchRefusal } from "./harness/sessionPermissions";
+import {
+  launchRefusal,
+  permissionRulesKey,
+} from "./harness/sessionPermissions";
 import {
   agentBrowserRestricted,
   agentBrowserWeb,
@@ -185,4 +188,31 @@ it("keeps Avos's browser sandboxed in your own folder, before there's a copy", (
   expect(agentBrowserRestricted("avos-chat")).toBe(true);
   // A chat of your own is never restricted by this.
   expect(agentBrowserRestricted("my-chat")).toBe(false);
+});
+
+it("starts Avos's agent again with the new sandbox when Use the web changes", () => {
+  socket = SOCKET;
+  withCopy();
+  const key = () => permissionRulesKey(crewChatPermissions("avos-chat"));
+  const on = key();
+  // The same Access, the same launch: the agent keeps running.
+  expect(key()).toBe(on);
+  updateCrew(PROJECT, (crew) => ({
+    ...crew,
+    access: { deletes: true, web: "none" as const, others: "refuse" as const },
+  }));
+  // A changed key starts the agent again at its next message (see
+  // `settingsKeyFor`), so a chat under way loses the browser at once, and
+  // gets it back the same way, without Aven starting again.
+  const off = key();
+  expect(off).not.toBe(on);
+  updateCrew(PROJECT, (crew) => ({
+    ...crew,
+    access: {
+      deletes: true,
+      web: "builders" as const,
+      others: "refuse" as const,
+    },
+  }));
+  expect(key()).toBe(on);
 });
