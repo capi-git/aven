@@ -229,16 +229,25 @@ function hasVisibleBrowserArea(bounds: BrowserBounds): boolean {
 function hasOccludingOverlay(
   bounds: BrowserBounds,
   holesSupported: boolean,
+  shadeSupported: boolean,
 ): boolean {
-  return browserOverlayState(bounds, holesSupported).capture;
+  return browserOverlayState(bounds, holesSupported, shadeSupported).capture;
 }
 
-/** Attach the live page's menu cut-outs, or none when the page is captured. */
+/**
+ * Attach the live page's cut-outs and, under a modal dialog, its veil; or
+ * neither when the page is captured.
+ */
 function withOverlayHoles(
   bounds: BrowserBounds,
   overlay: BrowserOverlayState,
 ): BrowserBounds {
-  return overlay.holes.length ? { ...bounds, holes: overlay.holes } : bounds;
+  if (!overlay.holes.length && !overlay.shade) return bounds;
+  return {
+    ...bounds,
+    ...(overlay.holes.length ? { holes: overlay.holes } : {}),
+    ...(overlay.shade ? { shade: overlay.shade } : {}),
+  };
 }
 
 /** What a pane last sent its native page: where it is, what is cut out of it, and whether it shows. */
@@ -264,6 +273,8 @@ export type BrowserPresentationState = {
   paused: boolean;
   nativeId: string | null;
   holesSupported: boolean;
+  /** The engine dims a live page under a modal dialog's veil. */
+  shadeSupported?: boolean;
   url: string;
   navigation: number;
   zoom: { factor: number | null; menu: unknown };
@@ -569,7 +580,11 @@ export function createBrowserPresentation({
   };
   const occluded = (bounds: BrowserBounds) =>
     freezeState === "frozen" ||
-    hasOccludingOverlay(bounds, readState().holesSupported);
+    hasOccludingOverlay(
+      bounds,
+      readState().holesSupported,
+      !!readState().shadeSupported,
+    );
   // Menus cut out of the live page change size without a style mutation
   // (late content, filtering). Track exactly the surfaces that own holes.
   let holeElements: HTMLElement[] = [];
@@ -595,7 +610,11 @@ export function createBrowserPresentation({
         movingCut: false,
       };
     }
-    const overlay = browserOverlayState(bounds, readState().holesSupported);
+    const overlay = browserOverlayState(
+      bounds,
+      readState().holesSupported,
+      !!readState().shadeSupported,
+    );
     trackHoleElements(overlay.elements);
     return withMoving({
       bounds: withOverlayHoles(bounds, overlay),

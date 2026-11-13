@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BROWSER_MOVING_ATTRIBUTE,
   MAX_BROWSER_HOLES,
+  blackOpacity,
   browserOverlayState,
   type BrowserOverlayState,
 } from "./browserOverlays";
@@ -28,6 +29,12 @@ type Style = Partial<
     | "borderTopRightRadius"
     | "borderBottomRightRadius"
     | "borderBottomLeftRadius"
+    | "display"
+    | "backgroundColor"
+    | "backgroundImage"
+    | "backdropFilter"
+    | "animationName"
+    | "animationDuration"
   >
 >;
 
@@ -47,8 +54,15 @@ describe("browser overlay cut-outs", () => {
         borderTopRightRadius: "0px",
         borderBottomRightRadius: "0px",
         borderBottomLeftRadius: "0px",
+        display: "block",
+        backgroundColor: "rgba(0, 0, 0, 0)",
+        backgroundImage: "none",
+        backdropFilter: "none",
+        animationName: "none",
+        animationDuration: "0s",
+        getPropertyValue: () => "",
         ...style,
-      } as CSSStyleDeclaration;
+      } as unknown as CSSStyleDeclaration;
     });
   });
   afterEach(() => {
@@ -76,6 +90,46 @@ describe("browser overlay cut-outs", () => {
   };
   const state = (supported = true, target = bounds): BrowserOverlayState =>
     browserOverlayState(target, supported);
+  /** With an engine that dims a live page under a dialog's veil. */
+  const dimmed = (): BrowserOverlayState =>
+    browserOverlayState(bounds, true, true);
+  /**
+   * A modal dialog as the app portals one: a layer over the window holding
+   * the backdrop and, beside it, the dialog.
+   */
+  const dialog = (
+    rect: DOMRect,
+    veil: Style | null = {
+      backgroundColor: "rgba(0, 0, 0, 0.4)",
+      animationName: "aven-fade",
+      animationDuration: "0.12s",
+    },
+    veilRect = new DOMRect(0, 0, 1200, 800),
+  ) => {
+    const layer = document.createElement("div");
+    document.body.appendChild(layer);
+    if (veil) {
+      const backdrop = document.createElement("div");
+      backdrop.className = "modal-backdrop";
+      vi.spyOn(backdrop, "getClientRects").mockReturnValue([
+        veilRect,
+      ] as unknown as DOMRectList);
+      styles.set(backdrop, veil);
+      layer.appendChild(backdrop);
+    }
+    const panel = overlay(rect, {
+      role: "dialog",
+      parent: layer,
+      style: {
+        borderTopLeftRadius: "16px",
+        borderTopRightRadius: "16px",
+        borderBottomRightRadius: "16px",
+        borderBottomLeftRadius: "16px",
+      },
+    });
+    panel.setAttribute("aria-modal", "true");
+    return { layer, panel };
+  };
 
   it("cuts a rounded menu out of the live page in page-relative pixels", () => {
     const menu = overlay(new DOMRect(400, 120, 224, 300), {
@@ -255,6 +309,123 @@ describe("browser overlay cut-outs", () => {
       moving: [],
       movingAnimates: false,
     });
+  });
+
+  it("keeps the page live under a dialog: dimmed like its backdrop, the dialog cut out", () => {
+    // Most of the page: a menu this large would be captured.
+    const { panel } = dialog(new DOMRect(60, 100, 560, 460));
+    expect(dimmed()).toEqual({
+      capture: false,
+      holes: [{ x: -40, y: 20, width: 560, height: 460, radius: 16 }],
+      elements: [panel],
+      moving: [],
+      movingAnimates: false,
+      shade: { opacity: 0.4, fadeMs: 120 },
+    });
+  });
+
+  it("dims the page for a dialog that does not touch it, and cuts its menus too", () => {
+    dialog(new DOMRect(5, 5, 40, 40));
+    expect(dimmed()).toEqual({
+      capture: false,
+      holes: [],
+      elements: [],
+      moving: [],
+      movingAnimates: false,
+      shade: { opacity: 0.4, fadeMs: 120 },
+    });
+    const menu = overlay(new DOMRect(300, 100, 200, 240));
+    expect(dimmed()).toMatchObject({
+      capture: false,
+      elements: [menu],
+      shade: { opacity: 0.4, fadeMs: 120 },
+    });
+  });
+
+  it("darkens the veil for a dialog over a dialog, and drops it when they close", () => {
+    const first = dialog(new DOMRect(200, 100, 300, 200));
+    const second = dialog(new DOMRect(250, 150, 200, 100), {
+      backgroundColor: "rgb(0 0 0 / 40%)",
+    });
+    expect(dimmed().shade).toEqual({ opacity: 1 - 0.6 * 0.6, fadeMs: 0 });
+    // A second dialog on the same backdrop adds no veil of its own.
+    const sibling = overlay(new DOMRect(260, 160, 100, 50), {
+      role: "dialog",
+      parent: second.layer,
+    });
+    sibling.setAttribute("aria-modal", "true");
+    expect(dimmed().shade).toEqual({ opacity: 1 - 0.6 * 0.6, fadeMs: 0 });
+    second.layer.remove();
+    first.layer.remove();
+    expect(dimmed()).toEqual(state());
+    expect(dimmed().shade).toBeUndefined();
+  });
+
+  it.each([
+    ["has no backdrop", null, undefined],
+    ["blurs what is behind it", { backdropFilter: "blur(8px)" }, undefined],
+    [
+      "is not plain black",
+      { backgroundColor: "rgba(20, 30, 60, 0.4)" },
+      undefined,
+    ],
+    [
+      "draws a picture",
+      { backgroundImage: "linear-gradient(black, white)" },
+      undefined,
+    ],
+    ["is clear", { backgroundColor: "rgba(0, 0, 0, 0)" }, undefined],
+    ["is hidden", { visibility: "hidden" }, undefined],
+    ["does not cover the page", {}, new DOMRect(0, 0, 400, 800)],
+  ] as const)(
+    "captures for a dialog whose backdrop %s",
+    (_name, veil, veilRect) => {
+      dialog(
+        new DOMRect(200, 100, 300, 200),
+        veil && { backgroundColor: "rgba(0, 0, 0, 0.4)", ...veil },
+        veilRect,
+      );
+      expect(dimmed()).toEqual({
+        capture: true,
+        holes: [],
+        elements: [],
+        moving: [],
+        movingAnimates: false,
+      });
+    },
+  );
+
+  it("captures for a dialog on an engine that cannot dim a live page", () => {
+    dialog(new DOMRect(200, 100, 300, 200));
+    expect(state()).toMatchObject({ capture: true, holes: [] });
+    expect(browserOverlayState(bounds, false, true)).toMatchObject({
+      capture: true,
+      holes: [],
+    });
+    expect(state().shade).toBeUndefined();
+  });
+
+  it("captures under a dialog too once its surfaces exceed the cut-out limit", () => {
+    dialog(new DOMRect(5, 5, 40, 40));
+    for (let index = 0; index <= MAX_BROWSER_HOLES; index++)
+      overlay(new DOMRect(110 + index * 60, 100, 40, 40));
+    expect(dimmed()).toMatchObject({ capture: true, holes: [] });
+    expect(dimmed().shade).toBeUndefined();
+  });
+
+  it("reads how opaque a black backdrop is in any notation, and refuses other colours", () => {
+    expect(blackOpacity("rgba(0, 0, 0, 0.4)")).toBe(0.4);
+    expect(blackOpacity("rgb(0, 0, 0)")).toBe(1);
+    expect(blackOpacity("rgb(0 0 0 / 40%)")).toBe(0.4);
+    expect(blackOpacity("oklab(0 0 0 / 0.4)")).toBe(0.4);
+    expect(blackOpacity("oklab(0 none none / 0.4)")).toBe(0.4);
+    expect(blackOpacity("color(srgb 0 0 0 / 0.4)")).toBe(0.4);
+    expect(blackOpacity("rgba(0, 0, 0, 0)")).toBe(0);
+    expect(blackOpacity("rgba(0, 0, 1, 0.4)")).toBeNull();
+    expect(blackOpacity("oklab(0.2 0 0 / 0.4)")).toBeNull();
+    expect(blackOpacity("color(srgb 0 0 / 0.4)")).toBeNull();
+    expect(blackOpacity("transparent")).toBeNull();
+    expect(blackOpacity("")).toBeNull();
   });
 
   it("captures when menus would cover most of the page or exceed the cut-out limit", () => {

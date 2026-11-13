@@ -22,6 +22,11 @@
 // Whether the pointer at `point` (this view's coordinates) belongs to the
 // page: not in a cut-out, an edge strip, or the part a slide has not uncovered.
 - (BOOL)pageTakesPoint:(NSPoint)point;
+// A dialog is open over the whole window. The page stays live and in place
+// under a veil (SMBrowserShadeView) but takes no pointer anywhere: every
+// press reaches the workspace webview beneath, whose backdrop dismisses the
+// dialog. A hidden page would need a still image to stand in for it.
+@property(nonatomic) BOOL inert;
 // Called when the pointer moves onto the live page. The workspace webview
 // beneath never sees the pointer cross into this view, so a hover panel
 // beside the page would otherwise stay open.
@@ -150,6 +155,7 @@
   _hitRect = rect;
 }
 - (BOOL)pageTakesPoint:(NSPoint)point {
+  if (_inert) return NO;
   if (_holes && [self holeContainsPoint:point]) return NO;
   if (point.x < [self visibleLeadingEdge]) return NO;
   return NSIsEmptyRect(_hitRect) || NSPointInRect(point, _hitRect);
@@ -162,6 +168,88 @@
       ![self pageTakesPoint:[self convertPoint:point fromView:self.superview]])
     return nil;
   return [super hitTest:point];
+}
+@end
+
+// The veil a dialog's backdrop casts over a live page. The workspace webview
+// draws that backdrop beneath the page, where it cannot dim it; this view
+// sits above the page inside its clipping host, so the page's mask cuts the
+// dialog out of both. It never takes the pointer.
+@interface SMBrowserShadeView : NSView
+// 0 when no dialog is open. Read by tests and by the page's own layout.
+@property(nonatomic, readonly) CGFloat shade;
+// Show the veil at `opacity` (0..1) over `frame`, directly above `browser`
+// in its clipping host, or remove it when `opacity` is 0. A veil that
+// appears fades in over `fade` seconds, as the dialog's own backdrop does;
+// it goes at once, as dialogs do.
+- (void)placeAboveBrowser:(NSView*)browser
+                    frame:(NSRect)frame
+                  opacity:(CGFloat)opacity
+                     fade:(NSTimeInterval)fade;
+@end
+
+@implementation SMBrowserShadeView
+- (instancetype)initWithFrame:(NSRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.wantsLayer = YES;
+    self.layer.backgroundColor = NSColor.blackColor.CGColor;
+    self.layer.opacity = 0;
+  }
+  return self;
+}
+- (NSView*)hitTest:(NSPoint)point {
+  return nil;
+}
+- (void)placeAboveBrowser:(NSView*)browser
+                    frame:(NSRect)frame
+                  opacity:(CGFloat)opacity
+                     fade:(NSTimeInterval)fade {
+  NSView* clip = browser.superview;
+  const CGFloat wanted =
+      clip && std::isfinite(opacity) ? std::clamp<CGFloat>(opacity, 0, 1) : 0;
+  // Every layout of a page with no dialog over it comes through here.
+  if (wanted <= 0 && _shade <= 0 && !self.superview) return;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (wanted <= 0) {
+    [self.layer removeAnimationForKey:@"shade"];
+    self.layer.opacity = 0;
+    _shade = 0;
+    [self removeFromSuperview];
+    [CATransaction commit];
+    return;
+  }
+  // Directly above the page: its drop target and agent pointer stay above.
+  if (self.superview != clip) {
+    [self removeFromSuperview];
+    [clip addSubview:self positioned:NSWindowAbove relativeTo:browser];
+  } else {
+    NSArray<NSView*>* siblings = clip.subviews;
+    if ([siblings indexOfObjectIdenticalTo:self] <
+        [siblings indexOfObjectIdenticalTo:browser])
+      [clip addSubview:self positioned:NSWindowAbove relativeTo:browser];
+  }
+  self.autoresizingMask = browser.autoresizingMask;
+  if (!NSEqualRects(self.frame, frame)) self.frame = frame;
+  const BOOL appearing = _shade <= 0;
+  if (_shade != wanted) {
+    self.layer.opacity = wanted;
+    if (appearing && fade > 0 && std::isfinite(fade) &&
+        !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+      CABasicAnimation* rise = [CABasicAnimation animationWithKeyPath:@"opacity"];
+      rise.fromValue = @0;
+      rise.toValue = @(wanted);
+      rise.duration = std::min<NSTimeInterval>(fade, 1);
+      // --aven-ease-out in motion.css, the curve of the dialog's backdrop.
+      rise.timingFunction =
+          [CAMediaTimingFunction functionWithControlPoints:0.22 :1 :0.36 :1];
+      [self.layer addAnimation:rise forKey:@"shade"];
+    } else {
+      [self.layer removeAnimationForKey:@"shade"];
+    }
+    _shade = wanted;
+  }
+  [CATransaction commit];
 }
 @end
 

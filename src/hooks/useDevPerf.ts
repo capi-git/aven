@@ -26,6 +26,13 @@ import {
   type Spread,
 } from "../lib/devPerf";
 import {
+  pagePopupResult,
+  pagePopupRound,
+  recordPageEvents,
+  type PagePopupResult,
+  type PagePopupRound,
+} from "../lib/devPerfPage";
+import {
   reactMarksSince,
   startReactProfile,
   stopReactProfile,
@@ -117,6 +124,8 @@ export type ScenarioResult = {
   focused: boolean;
   /** Time the page was hidden during the scenario; timings are unreliable then. */
   hiddenMs: number;
+  /** What a web page did for each popup opened over it. */
+  pagePopups?: PagePopupResult[];
   error?: string;
 };
 
@@ -218,6 +227,7 @@ export async function runDevPerf(
   const streamChunks = settings.streamChunks ?? 500;
   const steps: SmokeStep[] = [];
   const scenarios: ScenarioResult[] = [];
+  let pagePopups: PagePopupResult[] | undefined;
   const motion: MotionCheckResult[] = [];
   const restyle: ({ name: string } & Awaited<
     ReturnType<typeof analyzeRestyle>
@@ -347,8 +357,10 @@ export async function runDevPerf(
       visible: document.visibilityState === "visible",
       focused: document.hasFocus(),
       hiddenMs: round(hiddenMs, 0),
+      ...(pagePopups ? { pagePopups } : {}),
       ...(error ? { error } : {}),
     });
+    pagePopups = undefined;
     steps.push({ name, passed: !error, ...(error ? { detail: error } : {}) });
   };
 
@@ -849,6 +861,89 @@ export async function runDevPerf(
           await dragSidebarEdge(measure);
         },
       );
+      // A popup over a page is drawn beneath it: it is only whole on screen
+      // once the page is cut or shaded for it, or hidden behind a picture.
+      // A dialog (the command palette) and a menu (the tab's own) show both.
+      await scenario("popups over a web page", async (measure) => {
+        pressShortcut("9");
+        await pause(1_000);
+        if (!document.querySelector("[data-browser-pane]"))
+          throw new Error("No web page in front");
+        const recorder = recordPageEvents();
+        const settle = async () => {
+          const started = performance.now();
+          while (!recorder.quiet(250) && performance.now() - started < 4_000)
+            await pause(50);
+        };
+        const press = (key: string) =>
+          (document.activeElement ?? document.body).dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        const palette = () => document.querySelector("[data-command-palette]");
+        const menu = () => document.querySelector('[role="menu"]');
+        const popups: {
+          name: string;
+          open: () => void;
+          shown: () => unknown;
+        }[] = [
+          {
+            name: "command palette",
+            open: () => pressShortcut("k"),
+            shown: palette,
+          },
+          {
+            name: "tab menu",
+            open: () => {
+              const tab = document.querySelector<HTMLElement>(
+                ".aven-tab-strip [data-motion-slot][data-active='true']",
+              );
+              if (!tab) throw new Error("No tab in front");
+              const box = tab.getBoundingClientRect();
+              tab.dispatchEvent(
+                new MouseEvent("contextmenu", {
+                  clientX: box.left + box.width / 2,
+                  clientY: box.bottom - 2,
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+            },
+            shown: menu,
+          },
+        ];
+        const results: PagePopupResult[] = [];
+        try {
+          await settle();
+          for (const popup of popups) {
+            const rounds: PagePopupRound[] = [];
+            for (let index = 0; index < 6; index += 1) {
+              recorder.take();
+              measure.mark(popup.name);
+              const opened = performance.now();
+              await measure.time(popup.open, popup.shown);
+              await settle();
+              const openEvents = recorder.take();
+              const closed = performance.now();
+              await measure.time(
+                () => press("Escape"),
+                () => !popup.shown(),
+              );
+              await settle();
+              rounds.push(
+                pagePopupRound(opened, openEvents, closed, recorder.take()),
+              );
+            }
+            results.push(pagePopupResult(popup.name, rounds));
+          }
+        } finally {
+          recorder.stop();
+          pagePopups = results;
+        }
+      });
       // Leave a chat in front for the idle measurement.
       pressShortcut("1");
       await pause(300);

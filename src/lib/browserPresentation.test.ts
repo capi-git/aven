@@ -429,13 +429,70 @@ describe("browser presentation", () => {
     expect(snapshots.at(-1)?.width).toBe(600);
   });
 
+  it("keeps the page live under a dialog: one layout dims and cuts it, and no still picture is taken", async () => {
+    state.holesSupported = true;
+    state.shadeSupported = true;
+    const notify = (added: Node[], removed: Node[]) => {
+      for (const callback of mutationObservers)
+        callback([
+          {
+            type: "childList",
+            addedNodes: added as unknown as NodeList,
+            removedNodes: removed as unknown as NodeList,
+          },
+        ]);
+    };
+    // As the app portals a dialog: a layer over the window, outside the pane.
+    const layer = document.createElement("div");
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.style.backgroundColor = "rgba(0, 0, 0, 0.4)";
+    vi.spyOn(backdrop, "getClientRects").mockReturnValue([
+      new DOMRect(0, 0, 1200, 800),
+    ] as unknown as DOMRectList);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    vi.spyOn(dialog, "getClientRects").mockReturnValue([
+      new DOMRect(120, 100, 200, 150),
+    ] as unknown as DOMRectList);
+    layer.append(backdrop, dialog);
+    const before = native.layouts.length;
+    document.body.append(layer);
+    notify([layer], []);
+    await settle();
+    await paint();
+    expect(native.layouts.slice(before)).toEqual([
+      {
+        id: state.nativeId,
+        visible: true,
+        bounds: {
+          ...native.measured,
+          holes: [{ x: 20, y: 20, width: 200, height: 150, radius: 0 }],
+          shade: { opacity: 0.4, fadeMs: 0 },
+        },
+      },
+    ]);
+    expect(native.captures).toHaveLength(0);
+    expect(snapshots.filter(Boolean)).toHaveLength(0);
+
+    layer.remove();
+    notify([], [layer]);
+    await settle();
+    await paint();
+    expect(native.layouts.slice(before)).toHaveLength(2);
+    expect(native.page).toEqual({ bounds: native.measured, visible: true });
+    expect(native.captures).toHaveLength(0);
+    expect(snapshots.filter(Boolean)).toHaveLength(0);
+  });
+
   it("decodes and commits backing pixels before hiding Chromium", async () => {
     const pending = deferred<void>();
     native.nextDecode = pending;
     overlay();
     await settle();
     expect(native.decodes).toHaveLength(1);
-    expect(snapshots).toHaveLength(0);
+    expect(snapshots.filter(Boolean)).toHaveLength(0);
     expect(native.page.visible).toBe(true);
     pending.resolve();
     await settle();
@@ -468,7 +525,7 @@ describe("browser presentation", () => {
       pending.resolve("data:image/png;base64,obsolete");
       await settle();
       expect(native.decodes).toHaveLength(0);
-      expect(snapshots).toHaveLength(0);
+      expect(snapshots.filter(Boolean)).toHaveLength(0);
     },
   );
 
@@ -478,7 +535,7 @@ describe("browser presentation", () => {
     overlay();
     await vi.advanceTimersByTimeAsync(80);
     expect(native.page.visible).toBe(false);
-    expect(snapshots).toHaveLength(0);
+    expect(snapshots.filter(Boolean)).toHaveLength(0);
     pending.resolve("data:image/png;base64,late");
     await settle();
     expect(snapshots.at(-1)?.src).toBe("data:image/png;base64,late");
@@ -500,7 +557,7 @@ describe("browser presentation", () => {
     pending.resolve();
     await settle();
     expect(native.layouts).toHaveLength(2);
-    expect(snapshots).toHaveLength(0);
+    expect(snapshots.filter(Boolean)).toHaveLength(0);
     expect(mutationObservers.size).toBe(0);
     expect(resizeObservers.size).toBe(0);
     expect(native.stoppedFocus).toBe(1);
@@ -517,7 +574,7 @@ describe("browser presentation", () => {
     pending.resolve("data:image/png;base64,disposed");
     await settle();
     expect(native.decodes).toHaveLength(0);
-    expect(snapshots).toHaveLength(0);
+    expect(snapshots.filter(Boolean)).toHaveLength(0);
     expect(native.layouts).toHaveLength(1);
     expect(mutationObservers.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);

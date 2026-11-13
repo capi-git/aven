@@ -685,6 +685,25 @@ def print_recording(name, recorded):
           f'window server CPU {recorded["windowServerCpuPct"]:.0f}%')
 
 
+def print_page_popups(scenarios):
+    """What a web page did for each popup opened over it: the popup is drawn
+    beneath the page, so it is whole only once the page makes room for it."""
+    def ms(value):
+        return f'{value["p50"]:g}/{value["max"]:g}' if value else '-'
+    for item in scenarios:
+        for popup in item.get('pagePopups') or []:
+            line = (f'Over a web page, {popup["popup"]} ({popup["rounds"]} times): page {popup["how"]}; '
+                    f'input to popup whole {ms(popup.get("openMs"))} ms, to page live again {ms(popup.get("closeMs"))} ms '
+                    f'(median/worst); still pictures taken {popup["stills"]}')
+            if popup['stills']:
+                line += (f', each {ms(popup.get("stillMs"))} ms, up to {popup["stillKB"]} kB'
+                         + (f', {popup["pictureScale"]:g} picture pixels per page pixel'
+                            if popup.get('pictureScale') else ''))
+            if popup.get('blankMs') and popup['blankMs']['max'] > 0:
+                line += f'; page hidden with no picture beneath for {ms(popup["blankMs"])} ms'
+            print(line)
+
+
 def profile_scenario(root, name, launched, seconds=8):
     """Sample the interface's WebKit processes while one scenario runs."""
     marks = root / 'marks.log'
@@ -949,6 +968,7 @@ def report_perf(root, launched_at, compare):
               f'{cell(proc.get("footprintMB"), old_proc.get("footprintMB")):12}'
               + (f'  (window hidden {item["hiddenMs"] / 1000:.0f} s: timings unreliable)' if item.get('hiddenMs', 0) > 250 else '')
               + (f'  ERROR: {item["error"]}' if item.get('error') else ''))
+    print_page_popups(report.get('scenarios', []))
     print_over_limits(report.get('scenarios', []))
     print_motion(report.get('motion') or [])
     for item in report.get('restyle') or []:

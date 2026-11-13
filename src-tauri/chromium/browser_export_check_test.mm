@@ -251,7 +251,7 @@ int main(int argc, char **argv) {
       OnMain(^{
         created = sm_chromium_create("export-check", (__bridge void *)parent, first.c_str(), "", 0, 0, 1024, 768) != 0;
         // Hidden, as a tab the user is not looking at.
-        if (created) sm_chromium_layout("export-check", 0, 0, 1024, 768, 0, 0, 0, 768, 0, nullptr, 0, nullptr);
+        if (created) sm_chromium_layout("export-check", 0, 0, 1024, 768, 0, 0, 0, 768, 0, nullptr, 0, nullptr, 0, 0);
       });
       if (!created) {
         Report(false, "a hidden page opens", sm_chromium_last_error());
