@@ -68,7 +68,7 @@ async function bound(sessionId: string, cwd: string) {
   await boundWeb(sessionId, cwd);
   return mocks.invoke.mock.calls.findLast(
     ([name]) => name === "browser_agent_bind",
-  )![1] as { web?: boolean; restricted?: boolean };
+  )![1] as { web?: boolean; restricted?: boolean; readOnly?: boolean };
 }
 
 describe("which chats bind with the web", () => {
@@ -129,15 +129,23 @@ describe("Avos's and its helpers' pages", () => {
 
   it("binds them sandboxed and with the web, as Access allows Avos", async () => {
     await team(true);
+    // They only read, so Aven saves no page for them.
     expect(await bound("avos-chat", COPY)).toMatchObject({
       web: true,
       restricted: true,
+      readOnly: true,
     });
     dispose?.();
     expect(await bound("h-chat", COPY)).toMatchObject({
       web: true,
       restricted: true,
+      readOnly: true,
     });
+    dispose?.();
+    // A Builder writes in its copy: sandboxed, and it may save a page there.
+    const builder = await bound("b-chat", COPY);
+    expect(builder).toMatchObject({ restricted: true });
+    expect(builder).not.toHaveProperty("readOnly");
     dispose?.();
     const { setCrewAccess } = await import("./crewActions");
     setCrewAccess(PROJECT, { web: "none" });
@@ -152,9 +160,12 @@ describe("Avos's and its helpers' pages", () => {
     expect(await bound("avos-chat", PROJECT)).toMatchObject({
       web: true,
       restricted: true,
+      readOnly: true,
     });
     dispose?.();
     // A chat of your own is left as it is.
-    expect(await bound("my-chat", PROJECT)).not.toHaveProperty("restricted");
+    const mine = await bound("my-chat", PROJECT);
+    expect(mine).not.toHaveProperty("restricted");
+    expect(mine).not.toHaveProperty("readOnly");
   });
 });

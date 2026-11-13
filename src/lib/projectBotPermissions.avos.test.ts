@@ -7,6 +7,7 @@ import {
   permissionRulesKey,
 } from "./harness/sessionPermissions";
 import {
+  agentBrowserReadOnly,
   agentBrowserRestricted,
   agentBrowserWeb,
   crewChatBrowserOff,
@@ -215,4 +216,15 @@ it("starts Avos's agent again with the new sandbox when Use the web changes", ()
     },
   }));
   expect(key()).toBe(on);
+});
+
+it("has Aven save no page for a teammate that only reads", () => {
+  withCopy();
+  // Avos, a helper: they change nothing, and neither does Aven for them.
+  expect(agentBrowserReadOnly("avos-chat")).toBe(true);
+  expect(agentBrowserReadOnly("helper-chat")).toBe(true);
+  expect(crewChatPermissions("avos-chat")).toMatchObject({ readOnly: true });
+  // A Builder writes in its copy; a chat of your own is as it was.
+  expect(agentBrowserReadOnly("builder-chat")).toBe(false);
+  expect(agentBrowserReadOnly("my-chat")).toBe(false);
 });

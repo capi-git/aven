@@ -168,6 +168,39 @@ describe("child bridge", () => {
     expect(onExit).toHaveBeenCalledWith(1);
     release();
   });
+  it("starts a chat that has rules of its own with Aven's sandboxed browser, and no other", async () => {
+    installResolvedListeners();
+    mocks.invoke.mockReset().mockResolvedValue(7);
+    const child = await loadChild();
+    const { installSessionPermissions } = await import("./sessionPermissions");
+    const rules = { mode: "auto" as const, rules: {} };
+    const stop = installSessionPermissions((sessionId) =>
+      sessionId === "avos"
+        ? { ...rules, readOnly: true }
+        : sessionId === "builder"
+          ? rules
+          : undefined,
+    );
+    const started = async (sessionId: string) => {
+      await child.spawnChild(sessionId, "claude", [], "/repo");
+      return mocks.invoke.mock.calls.findLast(
+        ([name]) => name === "harness_spawn",
+      )![1];
+    };
+    // Said as the agent starts: no bind from the window is needed for it.
+    expect(await started("avos")).toMatchObject({
+      browserSandboxed: true,
+      browserReadOnly: true,
+    });
+    const builder = await started("builder");
+    expect(builder).toMatchObject({ browserSandboxed: true });
+    expect(builder).not.toHaveProperty("browserReadOnly");
+    const mine = await started("my-chat");
+    expect(mine).not.toHaveProperty("browserSandboxed");
+    expect(mine).not.toHaveProperty("browserReadOnly");
+    stop();
+  });
+
   it("does not hold output for children another window owns", async () => {
     installResolvedListeners();
     const child = await loadChild();

@@ -20,6 +20,7 @@ import type { AgentDesktopFaces } from "./agentMark";
 import { SETTINGS } from "./settingDefinitions";
 import { agentTabRecords, type AgentBrowserTab } from "./agentBrowserTabs";
 import {
+  agentBrowserReadOnly,
   agentBrowserRestricted,
   agentBrowserWeb,
 } from "./projectBotPermissions";
@@ -109,6 +110,8 @@ type BindArgs = {
    * folder until the project has a copy). The host only ever adds this.
    */
   restricted?: true;
+  /** A teammate that only reads: Aven saves no page for it (`export`). */
+  readOnly?: true;
 };
 type OpenRequest = {
   requestId: string;
@@ -342,6 +345,9 @@ function bind(
         web: agentBrowserWeb(context.sessionId),
         ...(agentBrowserRestricted(context.sessionId)
           ? { restricted: true as const }
+          : {}),
+        ...(agentBrowserReadOnly(context.sessionId)
+          ? { readOnly: true as const }
           : {}),
       };
       return invoke<Binding>("browser_agent_bind", args);

@@ -147,6 +147,11 @@ type Live = {
   nextControlId: number;
   toolsByIndex: Map<number, InFlightTool>;
   toolsById: Map<string, InFlightTool>;
+  /**
+   * An agent call made by one of the turn's own agents, by its id, with the
+   * turn's agent call it runs under: what it reads is marked there.
+   */
+  agentAncestors: Map<string, string>;
   agentTasks: Map<string, LiveAgentTask>;
   inactiveTaskIds: Set<string>;
   /** Shell tasks still blocking their Bash call; they may move to the background. */
@@ -561,6 +566,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
     nextApprovalUiId: 1,
     nextControlId: 1,
     toolsByIndex: new Map(),
+    agentAncestors: new Map(),
     toolsById: new Map(),
     agentTasks: new Map(),
     inactiveTaskIds: new Set(),
@@ -903,7 +909,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
   const started = toolStartFromEvent(rec);
   if (started) {
     if (subagent) {
-      noteSubagentTool(live, rec, started.name, started.input);
+      noteSubagentTool(live, rec, started.name, started.input, started.id);
       return;
     }
     const tool: InFlightTool = {
@@ -970,7 +976,7 @@ function recordRemainder(already: string, snapshot: string): string {
 function handleAssistant(live: Live, rec: Record<string, unknown>): void {
   if (isSubagentMessage(rec)) {
     for (const use of assistantToolUses(rec)) {
-      noteSubagentTool(live, rec, use.name, use.input);
+      noteSubagentTool(live, rec, use.name, use.input, use.id);
     }
     return;
   }
@@ -1719,11 +1725,18 @@ function noteSubagentTool(
   rec: Record<string, unknown>,
   name: string,
   input: Record<string, unknown>,
+  id?: string,
 ): void {
   const parentId = stringField(rec, "parent_tool_use_id");
   if (!parentId) return;
-  const parent = live.toolsById.get(parentId);
+  // The turn's own agent call this runs under: its parent, or, for an
+  // agent's own agent, the one that parent was started under.
+  const top = live.toolsById.has(parentId)
+    ? parentId
+    : live.agentAncestors.get(parentId);
+  const parent = top ? live.toolsById.get(top) : undefined;
   if (!parent || !isAgentToolName(parent.name)) return;
+  if (id && isAgentToolName(name)) live.agentAncestors.set(id, parent.id);
   live.onEvent({
     type: "tool.updated",
     callId: parent.id,

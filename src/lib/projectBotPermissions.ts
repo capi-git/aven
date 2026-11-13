@@ -817,6 +817,19 @@ export function agentBrowserRestricted(sessionId: string): boolean {
 }
 
 /**
+ * Whether Aven may save nothing for this chat (a page `export` writes files
+ * outside the chat's own sandbox): a teammate whose role changes no file,
+ * such as Avos, a helper, a Checker or the Researcher. The agent's start
+ * says the same (see `spawnChild`); this repeats it at every bind.
+ */
+export function agentBrowserReadOnly(sessionId: string): boolean {
+  const found = crewForChat(sessionId);
+  if (!found || found.member.role === "fixer") return false;
+  // A removed teammate's role is all that is known of it: it reads only.
+  return !!found.retired || !CREW_ROLE_INFO[found.member.role].edits;
+}
+
+/**
  * Whether a chat's pages in Aven's browser may reach the web: true for a
  * teammate whose role Access lets read the web now (see `crewRoleUsesWeb`),
  * on an app with a network, and not while it plans a goal. A project bot's

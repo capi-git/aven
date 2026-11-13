@@ -533,12 +533,15 @@ export function turnUsedWeb(
   session: Session | undefined,
   turnId: string,
 ): boolean {
-  if (!session) return false;
+  // A turn that can't be read is held, as one that looked: no chat, or no
+  // message that started it.
+  if (!session) return true;
   const start = session.blocks.findIndex((block) => block.id === turnId);
-  if (start < 0) return false;
+  if (start < 0) return true;
+  // To the chat's end, read as the turn ends: a message that steered it
+  // midway doesn't hide what it read after.
   for (let index = start + 1; index < session.blocks.length; index += 1) {
     const block = session.blocks[index]!;
-    if (block.role === "user") break;
     const kind = block.tool?.kind?.toLowerCase() ?? "";
     if (block.tool?.web || kind === "fetch" || kind === "webfetch") return true;
   }
@@ -1185,17 +1188,6 @@ export class CrewRunner {
         );
     this.settleHeard(sessionId, turnId, failed);
     const isHelper = member?.role === "helper";
-    if (member && !failed && !isHelper)
-      this.remember(
-        path,
-        {
-          role: member.role as CrewChatRole,
-          memberId: member.id,
-          sessionId,
-          turnId,
-        },
-        outcome,
-      );
     const said = parseTalk(reply);
     const isLead = member?.role === "lead";
     // A reply that searched the web, read a page or looked at one in Aven's
@@ -1210,6 +1202,21 @@ export class CrewRunner {
     // watching. Judged for each reply, as the web is: a helper's answer
     // holds back the reply that reads it, not every reply after it.
     const yours = talk.from === "you" && !talk.routine && !usedWeb;
+    // Its notes ride in every later message, in every conversation: Avos
+    // keeps none from a reply that read a page or another agent's words,
+    // which could have put them there.
+    const heldNotes = isLead && (usedWeb || talk.from !== "you");
+    if (member && !failed && !isHelper && !heldNotes)
+      this.remember(
+        path,
+        {
+          role: member.role as CrewChatRole,
+          memberId: member.id,
+          sessionId,
+          turnId,
+        },
+        outcome,
+      );
     // Its answer to you, as you watched it being written: the thread keeps
     // it, unless it's too long for a post (then its one line).
     const answer =

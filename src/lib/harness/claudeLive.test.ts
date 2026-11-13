@@ -3457,4 +3457,61 @@ describe("a command that drives Aven's browser", () => {
     emit({ type: "result", subtype: "success", session_id: "sess_1" });
     await turn;
   });
+
+  it("is marked on the turn's agent call when an agent's own agent ran it", async () => {
+    const { events, turn } = await startTurn("s1");
+    emit({
+      type: "assistant",
+      message: {
+        id: "msg_top",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_top",
+            name: "Agent",
+            input: { description: "Look at the site", prompt: "Look" },
+          },
+        ],
+      },
+    });
+    // The turn's agent starts an agent of its own, which starts a third.
+    for (const [parent, id] of [
+      ["toolu_top", "toolu_mid"],
+      ["toolu_mid", "toolu_deep"],
+    ])
+      emit({
+        type: "assistant",
+        parent_tool_use_id: parent,
+        message: {
+          id: `msg_${id}`,
+          content: [
+            {
+              type: "tool_use",
+              id,
+              name: "Agent",
+              input: { description: "Go deeper", prompt: "Look" },
+            },
+          ],
+        },
+      });
+    expect(marked(events)).toEqual([["toolu_top", false]]);
+    emit({
+      type: "assistant",
+      parent_tool_use_id: "toolu_deep",
+      message: {
+        id: "msg_page",
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_page",
+            name: "Bash",
+            input: { command: BROWSER },
+          },
+        ],
+      },
+    });
+    expect(marked(events)).toEqual([["toolu_top", true]]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
 });
