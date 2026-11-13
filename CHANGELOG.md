@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.184] - 2026-11-12
+
+### Changed
+
+- **Avos looks at pages and brings in the helpers a request needs.** Avos and the quick helpers it starts open a page in Aven's browser, read it and look at a picture of it, when "Use the web" in Access lets them. Their pages are their own, with none of your sign-ins, and they change no file. What Avos proposes in a reply that looked at a page waits for your go-ahead. When a request needs the Researcher or the Designer, Avos brings them in, or turns them back on.
+
+### Fixed
+
+- **A dialog over a web page opens at once.** The command palette, a settings sheet or a confirm over a browser page took a moment and made the page flicker, because Aven swapped the page for a picture first. The page now stays live and dims behind the dialog.
+- **Avos keeps starting work after it hears another agent.** Once Avos had read a helper's answer or a job report, everything it proposed waited for you from then on, and rules and goals were not saved. Each reply is now judged by itself.
+
 ## [0.1.183] - 2026-11-11
 
 ### Changed
