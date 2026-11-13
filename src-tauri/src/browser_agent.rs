@@ -985,6 +985,35 @@ fn restrict(grant: &Grant, request: &Request) -> Result<(), String> {
     Ok(())
 }
 
+/// A local development server's host, lower-case.
+fn local_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "[::1]") || host.ends_with(".localhost")
+}
+
+const READ_ONLY_UPLOAD: &str = "This chat only reads the project, so it can send a file only to a page of the project running on this computer (localhost), never to a website. Ask the user to upload it themselves.";
+
+/// Whether a chat that only reads may send local files to the page at
+/// `page`. Aven reads an upload's files itself, outside the chat's sandbox,
+/// so for such a chat they go only to a local development server (a Checker
+/// trying the app's own file input), never to the web, whatever the user is
+/// then asked to approve.
+fn read_only_upload(grant: &Grant, page: Option<&str>) -> Result<(), String> {
+    if !grant.read_only {
+        return Ok(());
+    }
+    let local = page
+        .and_then(|url| tauri::Url::parse(url).ok())
+        .is_some_and(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && local_host(&url.host_str().unwrap_or_default().to_ascii_lowercase())
+        });
+    if local {
+        Ok(())
+    } else {
+        Err(READ_ONLY_UPLOAD.into())
+    }
+}
+
 /// Whether a sandboxed chat may open `url`: a local development server,
 /// one of `sites` (a host and its subdomains) its window allowed, or any
 /// host once the window allowed it the `web`. Only http(s) ever opens.
@@ -992,8 +1021,7 @@ fn allowed_site(url: &str, sites: &[String], web: bool) -> Result<(), String> {
     let parsed = tauri::Url::parse(url).map_err(|_| "Invalid web address".to_string())?;
     let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
     let http = matches!(parsed.scheme(), "http" | "https");
-    let local = matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]")
-        || host.ends_with(".localhost");
+    let local = local_host(&host);
     let allowed = sites
         .iter()
         .any(|site| host == *site || host.ends_with(&format!(".{site}")));
@@ -1591,6 +1619,18 @@ fn serve_connection(
         .map_err(|error| error.to_string())
 }
 
+const PAGE_USE_EVENT: &str = "browser-agent-used";
+
+/// Whether its window is told that this chat used Aven's browser: every
+/// request a sandboxed chat (a bot's or a teammate's) is allowed, whatever
+/// it asks and however its agent made it (a command, a script, an agent of
+/// its own, one still running after its turn). What a page says can reach
+/// the chat through any of them, so its window holds back what the chat
+/// proposes next. Told as the request starts, before the chat has an answer.
+fn marks_page_use(grant: &Grant) -> bool {
+    grant.restricted
+}
+
 fn execute(
     server: &Arc<Server>,
     envelope: Envelope,
@@ -1610,6 +1650,14 @@ fn execute(
         let lease = BrowserRequestLease::acquire(&mut reservations, &grant, &envelope.request)?;
         (grant, lease)
     };
+    if marks_page_use(&grant) {
+        // Best effort: the window also marks the command it saw run.
+        let _ = server.app.emit_to(
+            EventTarget::webview(&grant.owner),
+            PAGE_USE_EVENT,
+            json!({"sessionId": grant.session_id}),
+        );
+    }
     let _long = LongAction::take(&envelope.request)?;
     // Working agents keep the Mac from idle sleep for the request's lifetime.
     let _awake = crate::keep_awake::hold_request();
@@ -3107,8 +3155,11 @@ fn page_action(
             reference, paths, ..
         } => {
             let page = crate::browser::preview(&caller, &id)?;
+            let address = page_url(&caller, &id);
+            // Before any file is read.
+            read_only_upload(grant, address.as_deref())?;
             let files = crate::browser_upload::check_files(&paths)?;
-            let site = upload_site(page_url(&caller, &id).as_deref())?;
+            let site = upload_site(address.as_deref())?;
             #[cfg(all(feature = "chromium", target_os = "macos"))]
             {
                 // Before asking: the reference is current and enabled, and a
@@ -4079,6 +4130,52 @@ mod tests {
         bind_sandbox(grant, None, Some(true), Vec::new(), None);
         bind_sandbox(grant, None, None, Vec::new(), None);
         assert!(grant.read_only);
+    }
+
+    #[test]
+    fn a_chat_that_only_reads_sends_files_to_a_local_page_and_never_to_the_web() {
+        let mut grants = sandboxed(&["tab-a"], &[]);
+        let grant = grants.get_mut("secret").unwrap();
+        // A Builder, sandboxed in its copy: as before, the user is asked.
+        for page in [
+            Some("https://example.com/upload"),
+            Some("http://localhost:3000/"),
+            None,
+        ] {
+            assert!(read_only_upload(grant, page).is_ok());
+        }
+        // Avos, a helper, a Checker: only to the project's own running page.
+        grant.read_only = true;
+        for page in [
+            "http://localhost:3000/upload",
+            "http://127.0.0.1:5173/",
+            "http://app.localhost:8080/",
+        ] {
+            assert!(read_only_upload(grant, Some(page)).is_ok(), "{page}");
+        }
+        for page in [
+            Some("https://example.com/upload"),
+            Some("https://localhost.example.com/"),
+            Some("file:///Users/me/site/index.html"),
+            Some("about:blank"),
+            Some("not a url"),
+            None,
+        ] {
+            assert_eq!(
+                read_only_upload(grant, page).err().unwrap(),
+                READ_ONLY_UPLOAD,
+                "{page:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sandboxed_chat_tells_its_window_whenever_it_uses_the_browser() {
+        let mut grants = grants();
+        // A chat of the user's own: nothing is held back for it.
+        assert!(!marks_page_use(&grants["secret"]));
+        grants.get_mut("secret").unwrap().restricted = true;
+        assert!(marks_page_use(&grants["secret"]));
     }
 
     #[test]

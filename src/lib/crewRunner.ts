@@ -311,6 +311,12 @@ export type CrewRunnerDeps = {
   /** Why a chat refused a message just now, in words, when known. */
   whyNotSent?: (sessionId: string) => string | undefined;
   /**
+   * Whether this chat used Aven's browser since this was last asked, as
+   * Aven's host saw it (see `takeAgentPageUse`): however the agent made the
+   * request, and by an agent of its own too.
+   */
+  pageUsed?: (sessionId: string) => boolean;
+  /**
    * Avos brings in the helpers building needs (a Builder and a Checker)
    * before its first card builds. None here: such a card waits.
    */
@@ -538,10 +544,13 @@ export function turnUsedWeb(
   if (!session) return true;
   const start = session.blocks.findIndex((block) => block.id === turnId);
   if (start < 0) return true;
-  // To the chat's end, read as the turn ends: a message that steered it
-  // midway doesn't hide what it read after.
+  // To the next turn's start, or the chat's end: a message that steered
+  // this turn midway (it starts no turn, so it has no start time) doesn't
+  // hide what the turn read after it, and what a turn started since then
+  // read isn't this one's.
   for (let index = start + 1; index < session.blocks.length; index += 1) {
     const block = session.blocks[index]!;
+    if (block.role === "user" && block.startedAt != null) break;
     const kind = block.tool?.kind?.toLowerCase() ?? "";
     if (block.tool?.web || kind === "fetch" || kind === "webfetch") return true;
   }
@@ -984,7 +993,11 @@ export class CrewRunner {
             !crewRoleUsesBrowser(fresh, member.role)));
       // Whether it may open pages in Aven's browser this turn, and whether
       // the helpers Avos starts may.
-      const sees = crewMemberSeesPages(fresh, member);
+      // Said to Avos and its helpers, who are new to it; every other
+      // teammate has the browser's own instructions, as before.
+      const sees =
+        (member.role === "lead" || member.role === "helper") &&
+        crewMemberSeesPages(fresh, member);
       const helpersSee =
         member.role === "lead" &&
         crewMemberSeesPages(fresh, {
@@ -1194,18 +1207,23 @@ export class CrewRunner {
     // browser: what it proposes could be the page's words, not yours. For
     // this reply only, its cards wait for you, and no rule, goal, job or
     // helper comes of it.
+    // Aven's host says whether the chat used its browser, however the agent
+    // spelled the request; the chat's own record says the rest. Asked at
+    // every reply, so a use after this one holds the next.
+    const looked = this.deps.pageUsed?.(sessionId) ?? false;
     const usedWeb =
-      !failed && turnUsedWeb(this.chatNow(sessionId) ?? undefined, turnId);
+      !failed &&
+      (looked || turnUsedWeb(this.chatNow(sessionId) ?? undefined, turnId));
     // Only its answer to your own message can build by itself: never its
     // answer to a helper's or a teammate's words, or to a report (their
     // words could be a page's), and never a routine, which runs with nobody
     // watching. Judged for each reply, as the web is: a helper's answer
     // holds back the reply that reads it, not every reply after it.
     const yours = talk.from === "you" && !talk.routine && !usedWeb;
-    // Its notes ride in every later message, in every conversation: Avos
-    // keeps none from a reply that read a page or another agent's words,
-    // which could have put them there.
-    const heldNotes = isLead && (usedWeb || talk.from !== "you");
+    // Its notes ride in every later message, in every conversation: no
+    // teammate keeps any from a reply that read a page or another agent's
+    // words, which could have put them there.
+    const heldNotes = usedWeb || talk.from !== "you";
     if (member && !failed && !isHelper && !heldNotes)
       this.remember(
         path,

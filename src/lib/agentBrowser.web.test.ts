@@ -169,3 +169,29 @@ describe("Avos's and its helpers' pages", () => {
     expect(mine).not.toHaveProperty("readOnly");
   });
 });
+
+describe("a sandboxed chat's use of the browser, as Aven's host saw it", () => {
+  it("is remembered until asked for, once, whichever way the agent made the request", async () => {
+    const api = await import("./agentBrowser");
+    dispose = api.installAgentBrowserHost({
+      surfaces: () => [],
+      open: vi.fn(),
+    });
+    const used = mocks.listen.mock.calls.find(
+      ([name]) => name === "browser-agent-used",
+    )![1] as (event: { payload: unknown }) => void;
+    expect(api.takeAgentPageUse("avos-chat")).toBe(false);
+    used({ payload: { sessionId: "avos-chat" } });
+    used({ payload: { sessionId: "avos-chat" } });
+    // Another chat's use is its own; a malformed event is nobody's.
+    used({ payload: { sessionId: 7 } });
+    used({ payload: null });
+    expect(api.takeAgentPageUse("helper-chat")).toBe(false);
+    expect(api.takeAgentPageUse("avos-chat")).toBe(true);
+    // Asked for: the next reply starts clean.
+    expect(api.takeAgentPageUse("avos-chat")).toBe(false);
+    // A use after a reply ended (an agent still running) holds the next.
+    used({ payload: { sessionId: "avos-chat" } });
+    expect(api.takeAgentPageUse("avos-chat")).toBe(true);
+  });
+});

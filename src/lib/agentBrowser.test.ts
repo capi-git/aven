@@ -760,6 +760,7 @@ describe("agent browser session connection", () => {
       "browser-agent-open-file",
       "browser-agent-reach",
       "browser-agent-tabs",
+      "browser-agent-used",
       "browser-agent-wake",
     ]);
     dispose();

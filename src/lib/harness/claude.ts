@@ -706,6 +706,10 @@ async function runTurn(live: Live, input: SendTurnInput): Promise<void> {
   for (const id of live.toolsById.keys()) {
     if (!activeAgentTools.has(id)) live.toolsById.delete(id);
   }
+  // An agent's own agents go with the turn's agent call they ran under.
+  for (const [id, top] of live.agentAncestors) {
+    if (!live.toolsById.has(top)) live.agentAncestors.delete(id);
+  }
   live.turnResultSeen = false;
   // Slash commands such as /compact can run inside the CLI without an echo.
   live.awaitingEcho = input.text.trim().startsWith("/") ? null : uuid;

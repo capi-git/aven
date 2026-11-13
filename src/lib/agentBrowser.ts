@@ -415,10 +415,37 @@ export async function refreshAgentBrowserScopes() {
   );
 }
 
+/**
+ * Sandboxed chats (a bot's or a teammate's) that used Aven's browser since
+ * anyone last asked: Aven's host says so for every request it allows one,
+ * however its agent made it (a command, a script, an agent of its own, one
+ * still running after its turn).
+ */
+const pageUses = new Set<string>();
+
+/**
+ * Whether this chat used Aven's browser since the last time this was asked.
+ * Asked once as a reply ends, to hold back what it proposes (see
+ * `afterTalk` in crewRunner): a use after that holds the next reply.
+ */
+export function takeAgentPageUse(sessionId: string): boolean {
+  return pageUses.delete(sessionId);
+}
+
 /** App-local registration. Remote pages never receive this listener or its capability. */
 export function installAgentBrowserHost(next: AgentBrowserHost) {
   host = next;
   let disposed = false;
+  // Kept whatever host is installed: a use is a fact about the chat.
+  const useListener = isTauri()
+    ? getCurrentWebview().listen<{ sessionId?: unknown }>(
+        "browser-agent-used",
+        ({ payload }) => {
+          if (typeof payload?.sessionId === "string")
+            pageUses.add(payload.sessionId);
+        },
+      )
+    : Promise.resolve(() => {});
   const listener = isTauri()
     ? getCurrentWebview().listen<OpenRequest>(
         "browser-agent-open",
@@ -655,6 +682,7 @@ export function installAgentBrowserHost(next: AgentBrowserHost) {
     wakeListener,
     tabsListener,
     reachListener,
+    useListener,
   ]);
   hostReady = subscriptions.ready;
   void hostReady.catch(() => {});

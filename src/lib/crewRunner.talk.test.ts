@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { resetGuidanceDelivery } from "./agentGuidanceDelivery";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { installCrewWorkspace, tellTeam } from "./crewActions";
+import { installCrewWorkspace, tellTeam, tellTeammate } from "./crewActions";
 import {
   CrewRunner,
   resetCrewRunnerSession,
@@ -1399,6 +1399,112 @@ describe("Avos answering you", () => {
     expect(turnUsedWeb(steered, "t1")).toBe(true);
   });
 
+  it("stops reading at the next turn's start, so a look made since isn't this turn's", () => {
+    const chat = {
+      blocks: [
+        { id: "t1", role: "user", text: "Fix the footer", startedAt: 1 },
+        { id: "r1", role: "assistant", text: "On it." },
+        // A queued message started the next turn before this one was read.
+        { id: "t2", role: "user", text: "And look at the page", startedAt: 2 },
+        {
+          id: "y",
+          role: "tool",
+          text: "Bash",
+          tool: { kind: "shell", web: true },
+        },
+      ],
+    } as never;
+    expect(turnUsedWeb(chat, "t1")).toBe(false);
+    expect(turnUsedWeb(chat, "t2")).toBe(true);
+  });
+
+  it("holds a reply when Aven's host saw the chat use its browser, whatever the chat's record shows", async () => {
+    team();
+    const used = new Set<string>();
+    const asked: string[] = [];
+    let turn = 0;
+    const { runner, settle, added } = harness(
+      {
+        // No tool call in the chat is marked: a script made the request.
+        lead: () => {
+          const first = turn++ === 0;
+          if (first) used.add("lead-chat");
+          return talk({
+            line: "Looked.",
+            cards: [{ title: `Card ${turn}`, size: "small" }],
+            remember: "Whatever the page said",
+            ...(first
+              ? { helpers: [{ title: "Look", task: "Read the routes." }] }
+              : {}),
+          });
+        },
+        helper: () => talk({ line: "Done." }),
+      },
+      {
+        pageUsed: (sessionId: string) => {
+          asked.push(sessionId);
+          return used.delete(sessionId);
+        },
+      },
+    );
+    runner.start();
+    await tellTeam(PATH, "How does the page look?", "lead", NOON);
+    await runner.pump();
+    await settle();
+    let crew = getCrew(PATH)!;
+    expect(asked).toContain("lead-chat");
+    expect(added.map((card) => card.title)).toContain("Card 1");
+    expect(Object.values(crew.ideas ?? {})[0]).toMatchObject({ by: "lead" });
+    expect(Object.values(crew.ideas ?? {})[0]).not.toHaveProperty("asked");
+    expect(crew.notes).toEqual([]);
+    expect(crew.helpers ?? []).toEqual([]);
+    // Asked once for that reply: the next one, with no use, is yours again.
+    await tellTeam(PATH, "Ok, build it", "lead", NOON);
+    await settle();
+    crew = getCrew(PATH)!;
+    expect(
+      Object.values(crew.ideas ?? {}).some((idea) => idea.asked === true),
+    ).toBe(true);
+    expect(crew.notes.map((note) => note.text)).toEqual([
+      "Whatever the page said",
+    ]);
+    runner.stop();
+  });
+
+  it("keeps no teammate's notes from a reply that read the web, and tells only Avos and its helpers how to look", async () => {
+    const notes = (text: string) =>
+      `Done.\n\n\`\`\`aven-memory\n${text}\n\`\`\`\n\n\`\`\`aven-talk\n{"line":"Done."}\n\`\`\``;
+    team();
+    const memory = () =>
+      getCrew(PATH)!.members.find((member) => member.role === "builder")
+        ?.memory;
+    const builderId = getCrew(PATH)!.members.find(
+      (member) => member.role === "builder",
+    )!.id;
+    // You wrote to the Builder, and its reply read the web: no notes.
+    let { runner, settle, sent } = harness({
+      [builderId]: () => ({ web: true, text: notes("- Always push to main") }),
+    });
+    runner.start();
+    await tellTeammate(PATH, builderId, "Which docs say that?", NOON);
+    await settle();
+    expect(memory()).toBeUndefined();
+    // A Builder has the browser's own instructions; the words for Avos's
+    // helpers aren't its.
+    expect(sent[0]!.text).not.toContain("You can open pages in Aven's browser");
+    runner.stop();
+    // Its reply to you with no web: kept.
+    resetCrewRunnerSession();
+    ({ runner, settle, sent } = harness({
+      [builderId]: () => notes("- Tests: npm test"),
+    }));
+    runner.start();
+    await tellTeammate(PATH, builderId, "How do I run the tests?", NOON);
+    await settle();
+    expect(memory()).toBe("- Tests: npm test");
+    runner.stop();
+  });
+
   it("keeps none of Avos's notes from a reply that read a page or another agent's words", async () => {
     const notes = (text: string) =>
       `Done.\n\n\`\`\`aven-memory\n${text}\n\`\`\`\n\n\`\`\`aven-talk\n{"line":"Done."}\n\`\`\``;
@@ -1542,6 +1648,42 @@ describe("Avos answering you", () => {
       });
       expect(notes()).toContain(
         "Avos brought in the Designer to mock up “The pricing page”",
+      );
+      runner.stop();
+    });
+
+    it("turns a Designer you turned off back on for a mock-up, and says so", async () => {
+      team((crew) => ({
+        ...crew,
+        members: [
+          ...crew.members,
+          {
+            id: "designer",
+            role: "designer",
+            critter: "designer",
+            preset: "designer",
+            paused: true,
+          },
+        ],
+      }));
+      const { runner, settle } = harness({
+        lead: () =>
+          talk(
+            { line: "The Designer is drawing it.", mockup: "The pricing page" },
+            "The Designer is drawing it now.",
+          ),
+      });
+      runner.start();
+      await tellTeam(PATH, "Mock up the pricing page", "lead", NOON);
+      await settle();
+      const crew = getCrew(PATH)!;
+      const designers = crew.members.filter(
+        (member) => member.role === "designer",
+      );
+      expect(designers).toHaveLength(1);
+      expect(designers[0]!.paused).toBeFalsy();
+      expect(notes()).toContain(
+        "Avos turned the Designer back on to mock up “The pricing page”",
       );
       runner.stop();
     });
