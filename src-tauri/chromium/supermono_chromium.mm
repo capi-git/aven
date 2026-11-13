@@ -476,6 +476,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     return true;
   }
   bool OnDragEnter(CefRefPtr<CefBrowser> browser,CefRefPtr<CefDragData>,DragOperationsMask) override {
+    // A page dimmed under a dialog takes no drop: the dialog is in the way.
+    if (Main(browser) && UnderDialog()) return true;
     if (Main(browser)) { user_input_=true; if (user_touch_.Pointer()) State(); }
     return false;
   }
@@ -507,7 +509,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     // An agent's fill or click focuses an element inside the page only. Never
     // let that become an app-level focus change that takes the user's keyboard.
     if (Main(browser) && agent_focus_guard_.Blocks(source==FOCUS_SOURCE_SYSTEM,Focused(),CFAbsoluteTimeGetCurrent())) return true;
-    return Main(browser) && (!visible_ || closing_ || update_prepared_);
+    return Main(browser) && supermono::BrowserPageRefusesFocus(visible_,closing_,update_prepared_,Shade());
   }
   void OnGotFocus(CefRefPtr<CefBrowser> browser) override { if (Main(browser)) State(); }
   void OnTakeFocus(CefRefPtr<CefBrowser> browser,bool next) override {
@@ -534,6 +536,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       TraceLayout("native-before-close");
       registration_=nullptr; browser_=nullptr; context_id_=0;
       [drop_indicator_ clear]; drop_indicator_=nil;
+      [shade_view_ removeFromSuperview]; shade_view_=nil;
       [agent_marker_ clear]; [agent_marker_ removeFromSuperview]; agent_marker_=nil;
       [edit_annotation_ clear]; [edit_annotation_ removeFromSuperview]; edit_annotation_=nil;
       [clip_view_ removeFromSuperview]; clip_view_=nil;
@@ -1088,7 +1091,11 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const auto aligned=supermono::AlignedBrowserHostFrames(parent_,full_frame,clip_frame);
     // A comment refers to the captured element, not a new layout of the page.
     // Keep the live browser attached; retire the annotation if its viewport changes.
-    if (edit_annotation_.active && (!visible_ || exposed<=0 ||
+    // A dialog over the window ends it too, as when the page hid for one:
+    // the comment box would stand undimmed above the veil.
+    const double shade=Shade();
+    const bool under_dialog=UnderDialog();
+    if (edit_annotation_.active && (!visible_ || exposed<=0 || under_dialog ||
         edit_annotation_.superview!=clip_view_ || clip_view_.superview!=parent_ ||
         !NSEqualRects(edit_annotation_.frame,aligned.browser) ||
         !NSEqualSizes(clip_view_.bounds.size,aligned.clip.size)))
@@ -1113,7 +1120,14 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         if (!self->closing_) self->Layout();
       }];
     }
-    if (!visible_ || update_prepared_ || exposed<=0)
+    // A dialog over the whole window: the page stays live and in place under
+    // the dialog's veil, cut out where the dialog is drawn, and leaves the
+    // pointer and the keyboard to the workspace. Nothing is captured, hidden
+    // or redrawn for it. Floating windows hold only the page.
+    if (clip_host) clip_host.inert=under_dialog;
+    if (under_dialog && !shade_view_) shade_view_=[[SMBrowserShadeView alloc] initWithFrame:aligned.browser];
+    [shade_view_ placeAboveBrowser:view frame:aligned.browser opacity:shade fade:shade_fade_];
+    if (!visible_ || update_prepared_ || exposed<=0 || under_dialog)
       supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
     const bool was_hidden=clip_view_.hidden;
     supermono::ApplyBrowserHostVisibility(clip_view_,view,visible_ && !update_prepared_ && exposed>0);
@@ -1301,8 +1315,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     else if (action=="stop") browser_->StopLoad();
     else if (action=="focus") {
       // The user asked for this page: an agent's recent action must not block it.
-      agent_focus_guard_.Release();
-      host->SetFocus(true); [parent_.window makeFirstResponder:(__bridge NSView*)host->GetWindowHandle()]; }
+      // Under a dialog the keyboard is the dialog's until it closes.
+      if (!UnderDialog()) {
+        agent_focus_guard_.Release();
+        host->SetFocus(true); [parent_.window makeFirstResponder:(__bridge NSView*)host->GetWindowHandle()];
+      }
+    }
     else if (action=="zoom") {
       const auto factor=Number(cmd,"factor",1);
       CefRefPtr<Page> self=this;
@@ -1564,6 +1582,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       });
     });
   }
+  // The veil of a dialog over the window, as this page applies it.
+  double Shade() const { return supermono::BrowserPageShade(shade_,auto_resize_); }
+  // Dimmed under a dialog: on screen, but out of the user's way as a hidden
+  // page is. New gates on `visible_` that guard the user's input, focus or
+  // what an agent sees should ask this too.
+  bool UnderDialog() const { return supermono::BrowserPageUnderDialog(Shade()); }
   bool EditActive() const { return editing_ || edit_selection_pending_ || edit_annotation_.active; }
   void EditEvent(Dict selection=nullptr,const std::string& error="",Dict screenshot=nullptr,const std::string& comment="") {
     auto event=Object(); event->SetString("type","edit"); event->SetBool("active",EditActive());
@@ -2281,9 +2305,15 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
     NSWindow *window=view.window;
     const auto exposed=supermono::PageCaptureTarget(w_,clip_left_,clip_right_,auto_resize_);
-    const bool shown=visible_ && !update_prepared_ && exposed && window && !clip_view_.hidden &&
+    const bool on_screen=visible_ && !update_prepared_ && exposed && window && !clip_view_.hidden &&
       (window.occlusionState & NSWindowOcclusionStateVisible);
-    const auto target=shown ? *exposed : supermono::BrowserRect{0,0,1,1};
+    // Under a dialog the screen shows the page dimmed, with the dialog in its
+    // cut-out. The agent gets the page itself, from its surface.
+    const bool shown=supermono::BrowserPageCopiesFromScreen(on_screen,Shade());
+    // Either way the picture is of what the user can see of the page: the
+    // part a hover sidebar covers is cropped from a surface picture too, so
+    // an agent's points keep their place from one picture to the next.
+    const auto target=on_screen ? *exposed : supermono::BrowserRect{0,0,1,1};
     auto params=Object(); params->SetString("format","png"); params->SetBool("captureBeyondViewport",false);
     if (shown) params->SetBool("fromSurface",false);
     CefRefPtr<Page> self=this;
@@ -2292,7 +2322,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     const double width=w_,height=h_,left=clip_left_,right=clip_right_;
     const auto current=[self,shown,parent,view,view_frame,clip_frame,window,width,height,left,right]() {
       if (self->closing_ || !self->browser_) return false;
-      return !shown || (self->visible_ && self->parent_==parent && view.window==window &&
+      // A dialog that opened meanwhile dimmed what was being copied.
+      return !shown || (self->visible_ && !self->UnderDialog() && self->parent_==parent && view.window==window &&
         self->w_==width && self->h_==height && self->clip_left_==left && self->clip_right_==right &&
         NSEqualRects(view.frame,view_frame) && NSEqualRects(self->clip_view_.frame,clip_frame));
     };
@@ -2390,6 +2421,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   __strong NSView *parent_=nil;
   __strong NSView *clip_view_=nil;
   __strong SMBrowserDropIndicator *drop_indicator_=nil;
+  // A dialog's veil over the live page: its opacity (0 when none is open) and
+  // how long it takes to appear, in seconds.
+  __strong SMBrowserShadeView *shade_view_=nil;
+  double shade_=0,shade_fade_=0;
   __strong SMBrowserAgentMarker *agent_marker_=nil;
   __strong SMBrowserEditAnnotation *edit_annotation_=nil;
   double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_corner_radius_=0;
@@ -2642,10 +2677,11 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     last_error.clear(); return 1;
   } catch (const std::exception& e) { return Fail(e.what()); } catch (...) { return Fail("Chromium tab creation failed"); } }
 }
-extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius,const double *holes,int hole_count,const double *hit_margins) {
+extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,double h,int visible,double clip_left,double clip_right,double viewport_height,double bottom_corner_radius,const double *holes,int hole_count,const double *hit_margins,double shade,double shade_fade) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
     if (!Geometry(x,y,w,h) || !std::isfinite(clip_left) || !std::isfinite(clip_right) || clip_left<0 || clip_right<0 || clip_left+clip_right>w || !std::isfinite(viewport_height) || viewport_height<0 || viewport_height>262144 || !std::isfinite(bottom_corner_radius) || bottom_corner_radius<0 || bottom_corner_radius>262144) return Fail("Invalid browser bounds");
     if (hole_count<0 || hole_count>kMaxBrowserHoles || (hole_count>0 && !holes)) return Fail("Invalid browser bounds");
+    if (!std::isfinite(shade) || shade<0 || shade>1 || !std::isfinite(shade_fade) || shade_fade<0 || shade_fade>supermono::kBrowserShadeMaxFade) return Fail("Invalid browser bounds");
     std::vector<supermono::BrowserHole> cut;
     cut.reserve(hole_count);
     for (int i=0;i<hole_count;++i) {
@@ -2667,7 +2703,7 @@ extern "C" int sm_chromium_layout(const char *id,double x,double y,double w,doub
                std::min(hit_margins[2],w/2),std::min(hit_margins[3],h/2)};
     }
     page->hit_margins_=margins;
-    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->holes_=std::move(cut); page->visible_=visible; page->Layout(); return 1; }
+    page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=clip_left; page->clip_right_=clip_right; page->viewport_height_=viewport_height; page->bottom_corner_radius_=bottom_corner_radius; page->holes_=std::move(cut); page->shade_=shade; page->shade_fade_=shade_fade; page->visible_=visible; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double y,double w,double h,double inset) {
   @autoreleasepool { if (!MainThread()) return 0; auto page=FindPage(id); if (!page) return 0;
@@ -2676,7 +2712,7 @@ extern "C" int sm_chromium_reparent(const char *id,void *parent,double x,double 
     [page->drop_indicator_ clear];
     [page->agent_marker_ clear];
     if (page->EditActive()) page->EditMode(false);
-    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->holes_.clear(); page->hit_margins_={}; page->auto_resize_=inset>=0; page->Layout(); return 1; }
+    page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h; page->clip_left_=page->clip_right_=page->viewport_height_=page->bottom_corner_radius_=0; page->holes_.clear(); page->shade_=page->shade_fade_=0; page->hit_margins_={}; page->auto_resize_=inset>=0; page->Layout(); return 1; }
 }
 extern "C" int sm_chromium_command(const char *id,const char *request_id,const char *json) {
   @autoreleasepool { try {

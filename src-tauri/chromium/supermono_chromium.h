@@ -16,10 +16,13 @@ int sm_chromium_create(const char *id, void *parent_nsview, const char *url,
 // `hit_margins` is [left, top, right, bottom] in points: strips along the
 // page's edges whose pointer events (but not pixels) go to that webview, for
 // the dividers beside the page. NULL means none.
+// `shade` (0..1, 0 for none) is the black veil of a dialog open over the
+// whole window: the page stays live under it and takes no pointer at all,
+// and the veil appears over `shade_fade_seconds` (at most 1).
 int sm_chromium_layout(const char *id, double x, double y, double w, double h,
                        int visible, double clip_left, double clip_right, double viewport_height,
                        double bottom_corner_radius, const double *holes, int hole_count,
-                       const double *hit_margins);
+                       const double *hit_margins, double shade, double shade_fade_seconds);
 int sm_chromium_reparent(const char *id, void *parent_nsview, double x, double y,
                         double w, double h, double auto_resize_top_inset);
 int sm_chromium_command(const char *id, const char *request_id, const char *request_json);

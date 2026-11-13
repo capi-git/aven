@@ -1,4 +1,4 @@
-import type { BrowserBounds, BrowserHole } from "./browser";
+import type { BrowserBounds, BrowserHole, BrowserShade } from "./browser";
 import { effectiveCssZoom, viewportRect } from "./drag";
 
 /** In-app surfaces that must appear above a native browser page. */
@@ -11,6 +11,20 @@ export const MAX_BROWSER_HOLES = 8;
 export const BROWSER_HOLE_AREA_LIMIT = 0.6;
 
 /**
+ * The backdrops that veil the whole window behind a modal dialog. The
+ * workspace draws them beneath a native page, where they cannot dim it, so
+ * the page is dimmed by a veil of its own to match (`BrowserShade`).
+ */
+export const MODAL_VEILS = ".modal-backdrop, .workspace-dialog-shade";
+/**
+ * No backdrop fades in for longer than this. This is the source of the
+ * limit: `MAX_BROWSER_SHADE_FADE_MS` in browser_chromium.rs and
+ * `kBrowserShadeMaxFade` in browser_host_view.h refuse more, and the native
+ * veil's curve is `--aven-ease-out` from motion.css, copied there.
+ */
+const MAX_SHADE_FADE_MS = 1000;
+
+/**
  * Marks a surface that moves with the pointer, such as a dragged tab's copy.
  * It is cut out of a live page exactly where it is drawn, never at a final
  * box, and only once a still image of the page lies beneath the page: its
@@ -20,8 +34,14 @@ export const BROWSER_HOLE_AREA_LIMIT = 0.6;
 export const BROWSER_MOVING_ATTRIBUTE = "data-native-browser-moving";
 
 export type BrowserOverlayState = {
-  /** Hide the native page behind a still image (modal or unsupported overlay). */
+  /** Hide the native page behind a still image (an overlay it cannot show live). */
   capture: boolean;
+  /**
+   * A modal dialog is open: the live page keeps its place under this veil
+   * and takes no pointer, and the dialog is one of `holes`. Never set with
+   * `capture`.
+   */
+  shade?: BrowserShade;
   /** Cut-outs for nonmodal surfaces over a live page, in page-relative CSS pixels. */
   holes: BrowserHole[];
   /** Elements that produced holes, so their size changes can be observed. */
@@ -133,6 +153,118 @@ function finalBox(element: HTMLElement, box: Box, style: CSSStyleDeclaration) {
   }
 }
 
+/**
+ * How opaque a plain black CSS colour is, in any notation an engine reports
+ * (`rgba(0, 0, 0, 0.4)`, `rgb(0 0 0 / 40%)`, `oklab(0 0 0 / 0.4)`,
+ * `color(srgb 0 0 0 / 0.4)`). Null for any other colour: only black can be
+ * laid over a live page as a plain veil.
+ */
+export function blackOpacity(color: string): number | null {
+  const match = /^([a-z]+)\((.*)\)$/i.exec(color.trim());
+  if (!match) return null;
+  const [channels = "", slashAlpha] = match[2].split("/");
+  const tokens = channels.split(/[\s,]+/).filter(Boolean);
+  // `color(srgb 0 0 0)` names its colour space first.
+  if (match[1].toLowerCase() === "color") tokens.shift();
+  // The comma notation carries its opacity as a fourth value.
+  const legacyAlpha =
+    slashAlpha === undefined && tokens.length === 4 ? tokens.pop() : undefined;
+  if (
+    tokens.length !== 3 ||
+    tokens.some((token) => token !== "none" && parseFloat(token) !== 0)
+  )
+    return null;
+  const text = (slashAlpha ?? legacyAlpha ?? "1").trim();
+  const value = parseFloat(text) / (text.endsWith("%") ? 100 : 1);
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : null;
+}
+
+/** A CSS time (`0.12s`, `120ms`), in ms. */
+function milliseconds(time: string): number {
+  const value = parseFloat(time);
+  if (!Number.isFinite(value)) return 0;
+  return time.trim().endsWith("ms") ? value : value * 1000;
+}
+
+/**
+ * A modal dialog's own backdrop: around it, beside it, or beside the frame
+ * that places it (`Modal`, the walkthrough). No further out: a dialog with
+ * no backdrop of its own, opened from inside another dialog, must not take
+ * that dialog's.
+ */
+function modalVeil(modal: HTMLElement): HTMLElement | null {
+  let node = modal.parentElement;
+  for (
+    let depth = 0;
+    depth < 2 && node && node !== document.body;
+    depth += 1, node = node.parentElement
+  ) {
+    if (depth === 0 && node.matches(MODAL_VEILS)) return node;
+    const beside = [...node.children].find(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && child.matches(MODAL_VEILS),
+    );
+    if (beside) return beside;
+  }
+  return null;
+}
+
+/**
+ * How much of a veil's colour shows: its own `opacity` once it has stopped
+ * fading in (mid-fade the native veil runs the same fade itself). Null when
+ * something around it is see-through too, since the dialog would then be as
+ * well, which a cut-out cannot match.
+ */
+function veilOpacity(veil: HTMLElement, own: CSSStyleDeclaration) {
+  const settled = (element: HTMLElement, style: CSSStyleDeclaration) => {
+    const value = parseFloat(style.opacity);
+    return isEntering(element) || !Number.isFinite(value) ? 1 : value;
+  };
+  for (
+    let node = veil.parentElement;
+    node && node !== document.body;
+    node = node.parentElement
+  )
+    if (settled(node, getComputedStyle(node)) < 1) return null;
+  return Math.min(1, Math.max(0, settled(veil, own)));
+}
+
+/**
+ * The veil a modal dialog's backdrop casts over the page in `area`, or null
+ * when a native page cannot match it: one that does not cover the page, or
+ * one that is not plain black (a blur, a picture). The page is then hidden
+ * behind a still image, as for any other overlay it cannot show live.
+ */
+function veilShade(veil: HTMLElement, area: Box): BrowserShade | null {
+  const style = getComputedStyle(veil);
+  if (style.display === "none" || style.visibility === "hidden") return null;
+  const filter =
+    style.backdropFilter || style.getPropertyValue("-webkit-backdrop-filter");
+  if (filter && filter !== "none") return null;
+  if (style.backgroundImage && style.backgroundImage !== "none") return null;
+  const box = clientBox(veil);
+  if (
+    !box ||
+    box.left > area.left + 1 ||
+    box.top > area.top + 1 ||
+    box.right < area.right - 1 ||
+    box.bottom < area.bottom - 1
+  )
+    return null;
+  const colour = blackOpacity(style.backgroundColor);
+  const shows = veilOpacity(veil, style);
+  const opacity = colour === null || shows === null ? 0 : colour * shows;
+  if (!opacity) return null;
+  const fades = style.animationName && style.animationName !== "none";
+  const fadeMs = fades
+    ? milliseconds(style.animationDuration.split(",")[0] ?? "")
+    : 0;
+  return {
+    opacity,
+    fadeMs: Math.min(MAX_SHADE_FADE_MS, Math.max(0, Math.round(fadeMs))),
+  };
+}
+
 function cornerRadius(style: CSSStyleDeclaration): number {
   // Use the smallest corner; a larger cut would expose the page beneath a
   // square corner, while a smaller one only shows the pane background.
@@ -170,19 +302,25 @@ function contains(outer: BrowserHole, inner: BrowserHole): boolean {
 /**
  * Decide how in-app surfaces appear above a live native page.
  *
- * Modal dialogs, very large surfaces, or engines without cut-out support take
- * the still-image path. Other menus and popovers become rounded holes in the
- * native page, which stays live and sharp around them.
+ * Menus and popovers become rounded holes in the native page, which stays
+ * live and sharp around them. So does a modal dialog, with the page dimmed
+ * under a veil that matches the dialog's backdrop (`shadeSupported`): the
+ * page is never hidden, captured or redrawn for it. Very large menus, a
+ * dialog whose backdrop the page cannot match, or an engine without
+ * cut-outs take the still-image path.
  */
 export function browserOverlayState(
   bounds: BrowserBounds,
   holesSupported: boolean,
+  shadeSupported = false,
 ): BrowserOverlayState {
   const area = visibleArea(bounds);
   const areaWidth = area.right - area.left;
   const areaHeight = area.bottom - area.top;
   if (areaWidth < 1 || areaHeight < 1) return NONE;
   let capture = false;
+  let shade: BrowserShade | undefined;
+  const veils = new Set<HTMLElement>();
   const moving: BrowserHole[] = [];
   let movingAnimates = false;
   const found: {
@@ -204,11 +342,28 @@ export function browserOverlayState(
       continue;
     const box = clientBox(element);
     if (!box) continue;
-    // Real modal dialogs block the entire workspace. Nonmodal surfaces only
-    // occlude the page where they overlap; a dismiss catcher is not a panel.
+    // Real modal dialogs block the entire workspace: the page dims under
+    // their veil wherever they are, and they are cut out of it like a menu
+    // where they overlap. Nonmodal surfaces only occlude the page where
+    // they overlap; a dismiss catcher is not a panel.
     if (modal) {
-      capture = true;
-      break;
+      const backdrop =
+        holesSupported && shadeSupported ? modalVeil(element) : null;
+      const veil = backdrop && veilShade(backdrop, area);
+      if (!backdrop || !veil) {
+        capture = true;
+        break;
+      }
+      // A dialog over a dialog: two backdrops, one over the other. Two
+      // dialogs on one backdrop are dimmed once.
+      if (!veils.has(backdrop))
+        shade = shade
+          ? {
+              opacity: 1 - (1 - shade.opacity) * (1 - veil.opacity),
+              fadeMs: veil.fadeMs,
+            }
+          : veil;
+      veils.add(backdrop);
     }
     if (!intersects(box, area)) continue;
     if (element.hasAttribute(BROWSER_MOVING_ATTRIBUTE) && holesSupported) {
@@ -290,11 +445,15 @@ export function browserOverlayState(
       return { ...entry, hole: { ...entry.hole, radius } };
     });
   if (!kept.length)
-    return moving.length ? { ...NONE, moving, movingAnimates } : NONE;
+    return moving.length || shade
+      ? { ...NONE, moving, movingAnimates, ...(shade ? { shade } : {}) }
+      : NONE;
   const covered = kept.reduce((sum, entry) => sum + entry.visibleArea, 0);
+  // A dimmed page is cut however much of it a dialog covers: what is left
+  // of it stays live, and nothing is captured.
   if (
     kept.length > MAX_BROWSER_HOLES ||
-    covered > areaWidth * areaHeight * BROWSER_HOLE_AREA_LIMIT
+    (!shade && covered > areaWidth * areaHeight * BROWSER_HOLE_AREA_LIMIT)
   )
     return { capture: true, holes: [], elements: [], moving, movingAnimates };
   return {
@@ -303,5 +462,6 @@ export function browserOverlayState(
     elements: kept.map(({ element }) => element),
     moving,
     movingAnimates,
+    ...(shade ? { shade } : {}),
   };
 }

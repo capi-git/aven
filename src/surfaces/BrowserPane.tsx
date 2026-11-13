@@ -250,6 +250,7 @@ function BrowserPaneSession({
   const [nativeMenus, setNativeMenus] = useState(false);
   // Read by the layout pass, which must not wait for a React render.
   const nativeHoles = useRef(false);
+  const nativeShade = useRef(false);
   const [holeMenus, setHoleMenus] = useState(false);
   const [nativeDropIndicator, setNativeDropIndicator] = useState(false);
   const [snapshot, setSnapshot] = useState<BrowserSnapshot | null>(null);
@@ -790,6 +791,7 @@ function BrowserPaneSession({
       setSnapshot(null);
       setNativeMenus(false);
       nativeHoles.current = false;
+      nativeShade.current = false;
       setHoleMenus(false);
       setNativeDropIndicator(false);
       setError(null);
@@ -801,6 +803,7 @@ function BrowserPaneSession({
     setReadyId(null);
     setNativeMenus(false);
     nativeHoles.current = false;
+    nativeShade.current = false;
     setHoleMenus(false);
     setNativeDropIndicator(false);
     setLoading(true);
@@ -822,6 +825,7 @@ function BrowserPaneSession({
         setSnapshot(null);
         setNativeMenus(false);
         nativeHoles.current = false;
+        nativeShade.current = false;
         setHoleMenus(false);
         setNativeDropIndicator(false);
         setToolsMenu(null);
@@ -852,8 +856,10 @@ function BrowserPaneSession({
       setNativeMenus(state.nativeMenus === true);
       const holes = state.nativeHoles === true;
       setHoleMenus(holes);
-      if (nativeHoles.current !== holes) {
+      const shade = state.nativeShade === true;
+      if (nativeHoles.current !== holes || nativeShade.current !== shade) {
         nativeHoles.current = holes;
+        nativeShade.current = shade;
         presentationController.current?.update();
       }
       setNativeDropIndicator(state.nativeDropIndicator === true);
@@ -1020,6 +1026,7 @@ function BrowserPaneSession({
         paused: !!presentation.current.error,
         nativeId: nativePageId.current,
         holesSupported: nativeHoles.current,
+        shadeSupported: nativeShade.current,
         url: urlRef.current,
         navigation: navigationSequence.current,
         zoom: snapshotZoom.current,

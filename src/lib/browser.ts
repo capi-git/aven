@@ -27,6 +27,20 @@ export type BrowserBounds = {
    * still draws there on macOS; Windows keeps the page clear of them.
    */
   hitMargins?: BrowserHitMargins;
+  /**
+   * A dialog is open over the whole window: the live page stays where it is
+   * under the dialog's veil and takes no pointer or keys, while the dialog
+   * shows through its `holes`.
+   */
+  shade?: BrowserShade;
+};
+
+/** The veil a dialog's backdrop casts over a live page; see `shade`. */
+export type BrowserShade = {
+  /** How dark: the backdrop's own opacity, above 0 and at most 1. */
+  opacity: number;
+  /** How long it takes to appear: the backdrop's own fade, in ms. */
+  fadeMs: number;
 };
 
 /** Widths of the strips along each edge of a page; see `hitMargins`. */
@@ -214,6 +228,8 @@ export type BrowserState = {
   nativeMenus?: boolean;
   /** The engine can cut layout `holes` so in-app menus show through the page. */
   nativeHoles?: boolean;
+  /** The engine can dim a live page under a dialog's veil (layout `shade`). */
+  nativeShade?: boolean;
   nativeDropIndicator?: boolean;
   /** The native page was destroyed; Retry must allocate a fresh page. */
   closed?: boolean;

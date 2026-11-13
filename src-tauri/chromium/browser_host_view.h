@@ -22,6 +22,11 @@
 // Whether the pointer at `point` (this view's coordinates) belongs to the
 // page: not in a cut-out, an edge strip, or the part a slide has not uncovered.
 - (BOOL)pageTakesPoint:(NSPoint)point;
+// A dialog is open over the whole window. The page stays live and in place
+// under a veil (SMBrowserShadeView) but takes no pointer anywhere: every
+// press reaches the workspace webview beneath, whose backdrop dismisses the
+// dialog. A hidden page would need a still image to stand in for it.
+@property(nonatomic) BOOL inert;
 // Called when the pointer moves onto the live page. The workspace webview
 // beneath never sees the pointer cross into this view, so a hover panel
 // beside the page would otherwise stay open.
@@ -150,6 +155,7 @@
   _hitRect = rect;
 }
 - (BOOL)pageTakesPoint:(NSPoint)point {
+  if (_inert) return NO;
   if (_holes && [self holeContainsPoint:point]) return NO;
   if (point.x < [self visibleLeadingEdge]) return NO;
   return NSIsEmptyRect(_hitRect) || NSPointInRect(point, _hitRect);
@@ -166,6 +172,128 @@
 @end
 
 namespace supermono {
+// The longest a dialog's veil takes to appear, in seconds. The source is
+// MAX_SHADE_FADE_MS in src/lib/browserOverlays.ts, which never sends more;
+// MAX_BROWSER_SHADE_FADE_MS in browser_chromium.rs refuses more on the way.
+constexpr double kBrowserShadeMaxFade = 1.0;
+}  // namespace supermono
+
+// The veil a dialog's backdrop casts over a live page. The workspace webview
+// draws that backdrop beneath the page, where it cannot dim it; this view
+// sits above the page inside its clipping host, so the page's mask cuts the
+// dialog out of both. It never takes the pointer.
+@interface SMBrowserShadeView : NSView
+// 0 when no dialog is open. Read by tests and by the page's own layout.
+@property(nonatomic, readonly) CGFloat shade;
+// Show the veil at `opacity` (0..1) over `frame`, directly above `browser`
+// in its clipping host, or remove it when `opacity` is 0. A veil that
+// appears, or darkens for a dialog opened over a dialog, fades there over
+// `fade` seconds, as that dialog's own backdrop does; it lightens and goes
+// at once, as dialogs do.
+- (void)placeAboveBrowser:(NSView*)browser
+                    frame:(NSRect)frame
+                  opacity:(CGFloat)opacity
+                     fade:(NSTimeInterval)fade;
+@end
+
+@implementation SMBrowserShadeView
+- (instancetype)initWithFrame:(NSRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.wantsLayer = YES;
+    self.layer.backgroundColor = NSColor.blackColor.CGColor;
+    self.layer.opacity = 0;
+  }
+  return self;
+}
+- (NSView*)hitTest:(NSPoint)point {
+  return nil;
+}
+- (void)placeAboveBrowser:(NSView*)browser
+                    frame:(NSRect)frame
+                  opacity:(CGFloat)opacity
+                     fade:(NSTimeInterval)fade {
+  NSView* clip = browser.superview;
+  const CGFloat wanted =
+      clip && std::isfinite(opacity) ? std::clamp<CGFloat>(opacity, 0, 1) : 0;
+  // Every layout of a page with no dialog over it comes through here.
+  if (wanted <= 0 && _shade <= 0 && !self.superview) return;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  if (wanted <= 0) {
+    [self.layer removeAnimationForKey:@"shade"];
+    self.layer.opacity = 0;
+    _shade = 0;
+    [self removeFromSuperview];
+    [CATransaction commit];
+    return;
+  }
+  // Directly above the page: its drop target and agent pointer stay above.
+  if (self.superview != clip) {
+    [self removeFromSuperview];
+    [clip addSubview:self positioned:NSWindowAbove relativeTo:browser];
+  } else {
+    NSArray<NSView*>* siblings = clip.subviews;
+    if ([siblings indexOfObjectIdenticalTo:self] <
+        [siblings indexOfObjectIdenticalTo:browser])
+      [clip addSubview:self positioned:NSWindowAbove relativeTo:browser];
+  }
+  self.autoresizingMask = browser.autoresizingMask;
+  if (!NSEqualRects(self.frame, frame)) self.frame = frame;
+  if (_shade != wanted) {
+    // From where it is drawn now: a second dialog can open mid-fade.
+    CALayer* drawn = self.layer.presentationLayer;
+    const CGFloat from = _shade <= 0 ? 0 : drawn ? drawn.opacity : _shade;
+    self.layer.opacity = wanted;
+    if (wanted > from && fade > 0 && std::isfinite(fade) &&
+        !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+      CABasicAnimation* rise = [CABasicAnimation animationWithKeyPath:@"opacity"];
+      rise.fromValue = @(from);
+      rise.toValue = @(wanted);
+      // The backdrop's own fade, read from its CSS (browserOverlays.ts,
+      // which holds the limit); never longer than kBrowserShadeMaxFade.
+      rise.duration = std::min<NSTimeInterval>(fade, supermono::kBrowserShadeMaxFade);
+      // The backdrop's curve: --aven-ease-out in src/motion.css. Keep the
+      // two equal; nothing else reads these four numbers.
+      rise.timingFunction =
+          [CAMediaTimingFunction functionWithControlPoints:0.22 :1 :0.36 :1];
+      [self.layer addAnimation:rise forKey:@"shade"];
+    } else {
+      [self.layer removeAnimationForKey:@"shade"];
+    }
+    _shade = wanted;
+  }
+  [CATransaction commit];
+}
+@end
+
+namespace supermono {
+
+// The veil a page applies for a dialog over the window (0 for none). A
+// floating window holds only the page, so no dialog is ever over it.
+inline double BrowserPageShade(double shade, bool floating) {
+  return floating || !std::isfinite(shade) ? 0 : std::clamp(shade, 0.0, 1.0);
+}
+
+// A dialog is open over the window and this page is dimmed under it. Though
+// on screen, it then behaves as a page hidden for the dialog did: the one
+// test for every gate that keeps the page out of the user's way.
+inline bool BrowserPageUnderDialog(double shade) { return shade > 0; }
+
+// Whether the page must refuse the keyboard when Chromium asks to focus it
+// (a navigation does). A page dimmed under a dialog is on screen but the
+// dialog owns the keyboard, exactly as when the page was hidden for it.
+inline bool BrowserPageRefusesFocus(bool visible, bool closing,
+                                    bool update_prepared, double shade) {
+  return !visible || closing || update_prepared || BrowserPageUnderDialog(shade);
+}
+
+// Whether an agent's picture of the page may be copied from the screen. A
+// page under a dialog is drawn dimmed, with the dialog showing through its
+// cut-out: its picture comes from the page's own surface instead, as a
+// hidden page's does, so it shows the page and nothing of the user's.
+inline bool BrowserPageCopiesFromScreen(bool on_screen, double shade) {
+  return on_screen && !BrowserPageUnderDialog(shade);
+}
 
 // A rounded cut-out in native points, relative to the page's top-left corner.
 struct BrowserHole {

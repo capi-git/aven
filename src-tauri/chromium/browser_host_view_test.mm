@@ -322,6 +322,144 @@ static void CheckMenuHoles() {
   CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 8, {}, previous));
   CHECK(clip.layer.mask != nil && Contains(((CAShapeLayer*)clip.layer.mask).path, 400, 200));
   CHECK([parent hitTest:NSMakePoint(400, 200)] == browser);
+  // What a page under a dialog's veil must not do, though it is on screen:
+  // take the keyboard, or hand an agent a picture copied from the screen.
+  {
+    using supermono::BrowserPageCopiesFromScreen;
+    using supermono::BrowserPageRefusesFocus;
+    using supermono::BrowserPageShade;
+    using supermono::BrowserPageUnderDialog;
+    CHECK(BrowserPageUnderDialog(0.4) && !BrowserPageUnderDialog(0));
+    CHECK(!BrowserPageUnderDialog(BrowserPageShade(0.4, true)));
+    CHECK(!BrowserPageUnderDialog(BrowserPageShade(NAN, false)));
+    CHECK(BrowserPageShade(0.4, false) == 0.4 && BrowserPageShade(0.4, true) == 0);
+    CHECK(BrowserPageShade(0, false) == 0 && BrowserPageShade(NAN, false) == 0);
+    CHECK(BrowserPageShade(7, false) == 1 && BrowserPageShade(-1, false) == 0);
+    CHECK(!BrowserPageRefusesFocus(true, false, false, 0));
+    CHECK(BrowserPageRefusesFocus(true, false, false, 0.4));
+    CHECK(BrowserPageRefusesFocus(false, false, false, 0));
+    CHECK(BrowserPageRefusesFocus(true, true, false, 0));
+    CHECK(BrowserPageRefusesFocus(true, false, true, 0));
+    // A floating page is never dimmed, so it keeps the keyboard and its copy.
+    CHECK(!BrowserPageRefusesFocus(true, false, false, BrowserPageShade(0.4, true)));
+    CHECK(BrowserPageCopiesFromScreen(true, 0));
+    CHECK(!BrowserPageCopiesFromScreen(true, 0.4));
+    CHECK(!BrowserPageCopiesFromScreen(false, 0));
+    CHECK(BrowserPageCopiesFromScreen(true, BrowserPageShade(0.4, true)));
+  }
+  // A dialog over the window: the page stays shown under a veil that sits
+  // directly above it, the dialog is cut out of both, and the page takes no
+  // pointer anywhere, so a press on the dimmed page reaches the workspace.
+  {
+    NSView* marker = [[NSView alloc] initWithFrame:browser.frame];
+    [clip addSubview:marker positioned:NSWindowAbove relativeTo:browser];
+    SMBrowserShadeView* shade = [[SMBrowserShadeView alloc] initWithFrame:browser.frame];
+    CHECK(shade.shade == 0 && shade.layer.opacity == 0);
+    const std::vector<supermono::BrowserHole> dialog = {{100, 50, 200, 100, 16}};
+    CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 0, dialog, previous));
+    clip.inert = YES;
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.4 fade:0.12];
+    CHECK(shade.superview == clip && NSEqualRects(shade.frame, browser.frame));
+    CHECK(std::abs(shade.shade - 0.4) < 1e-6 && std::abs(shade.layer.opacity - 0.4f) < 1e-6);
+    CHECK(CGColorGetAlpha(shade.layer.backgroundColor) == 1);
+    // It appears as the dialog's backdrop does, unless motion is reduced.
+    CHECK(([shade.layer animationForKey:@"shade"] != nil) ==
+          !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion);
+    // Above the page, below what was already above it; the mask covers both.
+    NSArray<NSView*>* order = clip.subviews;
+    CHECK([order indexOfObjectIdenticalTo:browser] < [order indexOfObjectIdenticalTo:shade]);
+    CHECK([order indexOfObjectIdenticalTo:shade] < [order indexOfObjectIdenticalTo:marker]);
+    [marker removeFromSuperview];
+    CHECK(clip.layer.mask != nil && !clip.hidden && !browser.hidden);
+    // Drawn: a white page under the veil is the grey the dialog's own 40%
+    // backdrop makes of white, and the dialog's cut-out shows neither.
+    {
+      browser.wantsLayer = YES;
+      browser.layer.backgroundColor = NSColor.whiteColor.CGColor;
+      [shade.layer removeAnimationForKey:@"shade"];
+      // AppKit attaches a subview's layer when its window next displays.
+      NSWindow* stage = [[NSWindow alloc] initWithContentRect:parent.frame
+                                                    styleMask:NSWindowStyleMaskBorderless
+                                                      backing:NSBackingStoreBuffered
+                                                        defer:YES];
+      stage.releasedWhenClosed = NO;
+      [stage.contentView addSubview:parent];
+      [stage displayIfNeeded];
+      [CATransaction flush];
+      const size_t width = 600, height = 400;
+      std::vector<uint8_t> pixels(width * height * 4, 0);
+      CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+      CGContextRef context = CGBitmapContextCreate(
+          pixels.data(), width, height, 8, width * 4, space,
+          static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedLast));
+      CGColorSpaceRelease(space);
+      CHECK(context);
+      [clip.layer renderInContext:context];
+      CGContextRelease(context);
+      // Layer coordinates, origin at the bottom left, as the mask's path is.
+      auto pixel = [&](size_t x, size_t y_up) {
+        return pixels.data() + ((height - 1 - y_up) * width + x) * 4;
+      };
+      const uint8_t* page = pixel(10, 10);
+      CHECK(page[3] == 255 && std::abs(page[0] - 153) <= 2 &&
+            page[0] == page[1] && page[1] == page[2]);
+      const uint8_t* cut = pixel(200, 300);
+      CHECK(cut[3] == 0);
+      browser.layer.backgroundColor = nil;
+      [parent removeFromSuperview];
+      [stage close];
+    }
+    CHECK(![clip pageTakesPoint:NSMakePoint(10, 10)]);
+    CHECK([parent hitTest:NSMakePoint(60, 60)] == workspace);
+    CHECK([parent hitTest:NSMakePoint(250, 350)] == workspace);
+    __block int entered = 0;
+    clip.pointerEntered = ^{ entered += 1; };
+    [clip mouseEntered:[NSEvent enterExitEventWithType:NSEventTypeMouseEntered
+                                              location:NSMakePoint(60, 60)
+                                         modifierFlags:0
+                                             timestamp:0
+                                          windowNumber:0
+                                               context:nil
+                                           eventNumber:0
+                                        trackingNumber:0
+                                              userData:nullptr]];
+    CHECK(entered == 0);
+    clip.pointerEntered = nil;
+    // The same veil again changes nothing. A darker one (a dialog over the
+    // dialog) fades there from where it is, as that dialog's backdrop does;
+    // back to the first dialog's it goes at once, as dialogs close.
+    const bool moves = !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+    [shade.layer removeAnimationForKey:@"shade"];
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.4 fade:0.12];
+    CHECK([shade.layer animationForKey:@"shade"] == nil);
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.64 fade:5];
+    CHECK(std::abs(shade.shade - 0.64) < 1e-6 && std::abs(shade.layer.opacity - 0.64f) < 1e-6);
+    CABasicAnimation* darker = (CABasicAnimation*)[shade.layer animationForKey:@"shade"];
+    CHECK((darker != nil) == moves);
+    if (darker) {
+      CHECK(std::abs([darker.fromValue doubleValue] - 0.4) < 1e-6);
+      CHECK(std::abs([darker.toValue doubleValue] - 0.64) < 1e-6);
+      // Never longer than the limit the web side sends.
+      CHECK(darker.duration == supermono::kBrowserShadeMaxFade);
+    }
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.4 fade:0.12];
+    CHECK(std::abs(shade.shade - 0.4) < 1e-6 && [shade.layer animationForKey:@"shade"] == nil);
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0.64 fade:0];
+    CHECK(std::abs(shade.shade - 0.64) < 1e-6 && [shade.layer animationForKey:@"shade"] == nil);
+    // The dialog closes: the veil goes at once and the page takes the pointer.
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0 fade:0.12];
+    clip.inert = NO;
+    CHECK(shade.superview == nil && shade.shade == 0 && shade.layer.opacity == 0);
+    CHECK(supermono::ApplyBrowserMask(clip, browser.frame, 8, {}, previous));
+    CHECK([parent hitTest:NSMakePoint(60, 60)] == browser);
+    CHECK([parent hitTest:NSMakePoint(250, 350)] == browser);
+    // Out-of-range values never leave a veil the page cannot lift.
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:NAN fade:NAN];
+    CHECK(shade.superview == nil && shade.shade == 0);
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:7 fade:INFINITY];
+    CHECK(shade.shade == 1 && [shade.layer animationForKey:@"shade"] == nil);
+    [shade placeAboveBrowser:browser frame:browser.frame opacity:0 fade:0];
+  }
   // A hover slide masks the covered leading strip and passes its pointer
   // events through; cancelling restores the page's own mask state.
   {

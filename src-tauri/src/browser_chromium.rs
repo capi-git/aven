@@ -34,7 +34,8 @@ fn trace_layout(
                 "x": bounds.x, "y": bounds.y, "width": bounds.width, "height": bounds.height,
                 "scale": bounds.scale, "viewportHeight": bounds.viewport_height,
                 "clipLeft": bounds.clip_left, "clipRight": bounds.clip_right,
-                "holes": bounds.holes.len(), "flags": flags,
+                "holes": bounds.holes.len(),
+                "shade": bounds.shade.map(|shade| shade.opacity), "flags": flags,
             }),
         );
     }
@@ -71,6 +72,8 @@ extern "C" {
         holes: *const f64,
         hole_count: c_int,
         hit_margins: *const f64,
+        shade: f64,
+        shade_fade_seconds: f64,
     ) -> c_int;
     fn sm_chromium_reparent(
         id: *const c_char,
@@ -124,7 +127,27 @@ pub struct BrowserBounds {
     /// beneath it (browserHitMargins.ts).
     #[serde(default)]
     hit_margins: Option<BrowserHitMargins>,
+    /// A dialog is open over the whole window: the live page stays in place
+    /// under this veil and takes no pointer (browserOverlays.ts).
+    #[serde(default)]
+    shade: Option<BrowserShade>,
 }
+
+/// The veil a dialog's backdrop casts over a live page.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserShade {
+    /// How dark, as the backdrop's own opacity.
+    opacity: f64,
+    /// How long it takes to appear, as the backdrop's own fade.
+    #[serde(default)]
+    fade_ms: f64,
+}
+
+/// No backdrop fades in for longer than this. The source is
+/// `MAX_SHADE_FADE_MS` in `src/lib/browserOverlays.ts`; the native wrapper's
+/// `kBrowserShadeMaxFade` (browser_host_view.h) is the same second.
+const MAX_BROWSER_SHADE_FADE_MS: f64 = 1000.0;
 
 /// Widths of the pass-through strips along a page's edges, in CSS pixels.
 #[derive(Clone, Copy, Default, Deserialize)]
@@ -193,6 +216,12 @@ impl BrowserBounds {
                     .any(|value| {
                         !value.is_finite() || *value < 0.0 || *value > MAX_BROWSER_HIT_MARGIN
                     })
+            })
+            || self.shade.is_some_and(|shade| {
+                !shade.opacity.is_finite()
+                    || !(0.0..=1.0).contains(&shade.opacity)
+                    || !shade.fade_ms.is_finite()
+                    || !(0.0..=MAX_BROWSER_SHADE_FADE_MS).contains(&shade.fade_ms)
             })
             || self.holes.len() > MAX_BROWSER_HOLES
             || self.holes.iter().any(|hole| {
@@ -273,6 +302,15 @@ impl BrowserBounds {
         .map(|value| value * ratio);
         Ok(points.iter().any(|value| *value > 0.0).then_some(points))
     }
+    /// `[opacity, fade seconds]` of the dialog veil, or zeros when no dialog
+    /// is open.
+    fn shade_values(&self) -> Result<[f64; 2], String> {
+        self.validate()?;
+        Ok(self
+            .shade
+            .filter(|shade| shade.opacity > 0.0)
+            .map_or([0.0, 0.0], |shade| [shade.opacity, shade.fade_ms / 1000.0]))
+    }
     fn viewport_points(&self, native_scale: f64) -> Result<f64, String> {
         self.points(native_scale)?;
         Ok(self.viewport_height.unwrap_or(0.0) * self.scale / native_scale)
@@ -322,6 +360,8 @@ pub(crate) struct BrowserState {
     engine: &'static str,
     native_menus: bool,
     native_holes: bool,
+    /// The layout command dims a live page under a dialog's veil (`shade`).
+    native_shade: bool,
     native_drop_indicator: bool,
     closed: bool,
     sleeping: bool,
@@ -1683,6 +1723,7 @@ pub async fn browser_create(
             engine: "chromium",
             native_menus: true,
             native_holes: true,
+            native_shade: true,
             native_drop_indicator: true,
             closed: false,
             sleeping: false,
@@ -2077,6 +2118,7 @@ pub async fn browser_layout(
         let bottom_corner_radius = bounds.bottom_radius_points(scale)?;
         let holes = bounds.hole_points(scale)?;
         let hit_margins = bounds.hit_margin_points(scale)?;
+        let [shade, shade_fade] = bounds.shade_values()?;
         trace_layout(
             "layout-accepted",
             &context.native_id,
@@ -2103,6 +2145,8 @@ pub async fn browser_layout(
                 hit_margins
                     .as_ref()
                     .map_or(std::ptr::null(), |margins| margins.as_ptr()),
+                shade,
+                shade_fade,
             )
         })
     })
@@ -2185,6 +2229,8 @@ async fn move_page(
                 std::ptr::null(),
                 0,
                 std::ptr::null(),
+                0.0,
+                0.0,
             )
         })
     })
@@ -3273,6 +3319,7 @@ mod tests {
             bottom_corner_radius: 8.0,
             holes: Vec::new(),
             hit_margins: None,
+            shade: None,
         };
         assert_eq!(bounds.points(2.0).unwrap(), [80.0, 40.0, 640.0, 480.0]);
         assert_eq!(bounds.viewport_points(2.0).unwrap(), 688.0);
@@ -3394,6 +3441,44 @@ mod tests {
             }
             .validate()
             .is_err());
+        }
+    }
+    #[test]
+    fn carries_a_dialog_veil_in_seconds_and_refuses_one_out_of_range() {
+        let bounds: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 100, "y": 50, "width": 800, "height": 600, "scale": 1.5,
+            "shade": {"opacity": 0.4, "fadeMs": 120}
+        }))
+        .unwrap();
+        bounds.validate().unwrap();
+        assert_eq!(bounds.shade_values().unwrap(), [0.4, 0.12]);
+        // No dialog, an older caller, or a clear veil: nothing is dimmed.
+        let legacy: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 0, "y": 0, "width": 800, "height": 600, "scale": 2
+        }))
+        .unwrap();
+        assert_eq!(legacy.shade_values().unwrap(), [0.0, 0.0]);
+        let clear: BrowserBounds = serde_json::from_value(serde_json::json!({
+            "x": 0, "y": 0, "width": 800, "height": 600, "scale": 2,
+            "shade": {"opacity": 0}
+        }))
+        .unwrap();
+        assert_eq!(clear.shade_values().unwrap(), [0.0, 0.0]);
+        for (opacity, fade_ms) in [
+            (f64::NAN, 0.0),
+            (-0.1, 0.0),
+            (1.1, 0.0),
+            (0.4, f64::NAN),
+            (0.4, -1.0),
+            (0.4, MAX_BROWSER_SHADE_FADE_MS + 1.0),
+        ] {
+            let invalid = BrowserBounds {
+                shade: Some(BrowserShade { opacity, fade_ms }),
+                ..bounds.clone()
+            };
+            assert!(invalid.validate().is_err());
+            assert!(invalid.shade_values().is_err());
+            assert!(invalid.points(1.0).is_err());
         }
     }
     #[test]
