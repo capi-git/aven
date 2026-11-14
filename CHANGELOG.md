@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.1.186] - 2026-11-14
+
+### Fixed
+
+- **Chat tabs show their agent's logo again.** Since 0.1.185 a chat tab showed the logo only while the chat worked, and a pane with one tab showed an empty grey square in its place.
+- **Every part of a split has its name.** With a split in front, a pane that has a row of tabs of its own showed only its icon, or nothing, in the top row.
+
 ## [0.1.185] - 2026-11-14
 
 ### Changed
