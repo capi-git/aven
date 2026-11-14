@@ -2125,7 +2125,7 @@ describe("browser tab integration", () => {
     expect(props.onSelectBrowser).toHaveBeenCalledExactlyOnceWith("web-a");
     expect(props.onReorder).not.toHaveBeenCalled();
   });
-  it("shows a chat tab's provider only while it works, separate from its group", async () => {
+  it("keeps each tab's provider separate from a mixed-provider group", async () => {
     await render({
       paneLocal: true,
       groupId: "team",
@@ -2140,15 +2140,19 @@ describe("browser tab integration", () => {
         container.querySelectorAll(`${selector} .provider-mark`),
         (node) => node.getAttribute("data-provider"),
       );
-    // A resting chat is its name alone, as in the sidebar.
-    expect(marks('[data-surface-tab-id="b"]')).toEqual([]);
+    expect(marks('[data-surface-tab-id="b"]')).toEqual(["claude"]);
+    expect(
+      container.querySelector(
+        '[data-surface-tab-id="b"] [data-working="true"]',
+      ),
+    ).toBeNull();
     // Without a group drag there is nothing for the grip to do, so it takes
     // no width.
     expect(container.querySelector(".personal-tab-group-handle")).toBeNull();
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
     await render({ activeId: "a" });
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
-    expect(marks('[data-surface-tab-id="b"]')).toEqual([]);
+    expect(marks('[data-surface-tab-id="b"]')).toEqual(["claude"]);
   });
 
   it("retains combined providers for two agent panes inside one tab", async () => {
@@ -2159,7 +2163,6 @@ describe("browser tab integration", () => {
           sessionCount: 2,
           multiPane: true,
           harnesses: ["claude", "codex"],
-          busyHarnesses: ["claude", "codex"],
         }),
       ],
       activeId: "a",

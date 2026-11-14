@@ -366,8 +366,12 @@ describe("a pane's title row with one tab", () => {
     expect(container.querySelector('[role="tablist"]')).toBeNull();
     expect(container.querySelector(".aven-tab-highlight")).toBeNull();
     expect(container.querySelector("[data-title-overflow]")).toBeNull();
-    // Its icon on a tile, which is not a control.
+    // Its icon on a tile, which is not a control: a chat's agent mark, never
+    // an empty tile.
     expect(container.querySelector(".aven-tab-deck")).not.toBeNull();
+    expect(
+      container.querySelector(".aven-tab-deck .provider-mark"),
+    ).not.toBeNull();
     expect(container.querySelector("button.aven-tab-deck")).toBeNull();
     expect(container.textContent).toContain("Only");
   });
