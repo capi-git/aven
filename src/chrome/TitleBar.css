@@ -5,9 +5,10 @@
 .personal-shell {
   --aven-tab-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --aven-tab-drag-surface: var(--aven-raised, var(--aven-control-bg));
-  /* The tab in front: a quiet neutral fill, the same grey in every project,
-     with no edge of its own (Increase contrast gives it the control edge). */
-  --aven-tab-selected: var(--aven-fill-secondary);
+  /* The tab in front: the sidebar's selected-row fill, the same grey in every
+     project, with no edge of its own (Increase contrast gives it the control
+     edge). */
+  --aven-tab-selected: var(--aven-selected);
   --aven-tab-selected-edge: inset 0 0 0 1px
     var(--aven-control-edge, transparent);
   /* A picked-up tab floats: a soft shadow under its face. */
@@ -152,11 +153,20 @@ html.theme-light .personal-shell {
     background-color 120ms var(--aven-tab-ease),
     color 120ms var(--aven-tab-ease);
 }
-.aven-tab[data-closable="true"] .aven-tab-button {
-  padding-right: 28px;
+/* Tabs read like the sidebar's rows: a name with no plate, the front one
+   filled. Close (and a browser tab's menu) show only while the tab is
+   pointed at, over the end of its name, so a tab is as wide as its name and
+   never changes width. */
+.aven-tab:is(:hover, :focus-within)[data-closable="true"] .aven-tab-label {
+  -webkit-mask-image: linear-gradient(to left, transparent 14px, #000 26px);
+  mask-image: linear-gradient(to left, transparent 14px, #000 26px);
+}
+.aven-tab:is(:hover, :focus-within)[data-has-menu="true"] .aven-tab-label {
+  -webkit-mask-image: linear-gradient(to left, transparent 34px, #000 46px);
+  mask-image: linear-gradient(to left, transparent 34px, #000 46px);
 }
 .aven-tab-button:hover {
-  background: var(--aven-fill-quaternary);
+  background: var(--aven-hover);
   color: var(--color-content);
 }
 .aven-tab[data-active="true"] .aven-tab-button {
@@ -185,8 +195,10 @@ html.theme-light .personal-shell {
   font-weight: 400;
   line-height: 1.25;
 }
+/* The front tab is told by its fill and brighter name, not a heavier
+   weight, which would widen it and move its neighbours. */
 .aven-tab[data-active="true"] .aven-tab-label {
-  font-weight: 500;
+  font-weight: 400;
 }
 .aven-tab-close {
   position: absolute;
@@ -205,9 +217,6 @@ html.theme-light .personal-shell {
   background: var(--aven-control-hover);
   color: var(--color-content);
 }
-.aven-tab[data-active="true"] .aven-tab-close {
-  opacity: 0.65;
-}
 .aven-tab:hover .aven-tab-close,
 .aven-tab:focus-within .aven-tab-close {
   opacity: 1;
@@ -217,23 +226,21 @@ html.theme-light .personal-shell {
   outline: 1px solid var(--aven-focus-ring, var(--color-accent));
   outline-offset: -1px;
 }
-/* A strip on a track, as in Cydonia: two tabs or more share the whole strip
-   equally, never narrower than 120px (then it scrolls), their labels
-   centred. One highlight under them is the tab in front; it slides between
-   tabs (useTabHighlight). A hairline parts two resting neighbours. */
+/* A strip on a track: each tab as wide as its name, from 88px to 224px,
+   starting at the left; they shrink together once the strip is full (then it
+   scrolls). One highlight under them is the tab in front; it slides between
+   tabs (useTabHighlight). */
 .aven-tab-strip[data-tab-track] {
   position: relative;
 }
 .aven-tab-strip[data-tab-track] .aven-tab-slot {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   width: auto;
-  min-width: 120px;
-  max-width: none;
+  min-width: 88px;
+  max-width: 224px;
 }
-/* Centred with the close button's room, which shows on hover (Cydonia
-   keeps an invisible close in the centred row). */
 .aven-tab-strip[data-tab-track] .aven-tab-button {
-  justify-content: center;
+  justify-content: flex-start;
 }
 .aven-tab-strip[data-tab-track] .aven-tab-label {
   flex: 0 1 auto;
@@ -325,16 +332,16 @@ html.theme-light .personal-shell {
   background: transparent;
   box-shadow: none;
 }
+/* With a split in front the highlight is its outline; the pane in front
+   carries the fill. */
+.aven-tab-strip:has(.aven-split-entry[data-active="true"])
+  > .aven-tab-highlight {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--aven-selected);
+}
+/* No lines between tabs: names with air between them, as in the sidebar. */
 .aven-tab-strip[data-tab-track] [data-tab-separator]::before {
-  content: "";
-  position: absolute;
-  /* The middle of the 2px gap before the tab. */
-  left: -1.5px;
-  top: 8px;
-  bottom: 8px;
-  width: 1px;
-  background: var(--aven-separator);
-  pointer-events: none;
+  content: none;
 }
 /* A tab being dragged moves its own fill; lines would stay behind. */
 .aven-tab-strip[data-tab-track]:has([data-sortable-dragging="true"])
@@ -408,8 +415,13 @@ html.theme-light .personal-shell {
   outline-offset: -1px;
 }
 /* A browser tab also holds its layout menu at the end, after the close. */
-.aven-tab[data-has-menu="true"] .aven-tab-button {
-  padding-right: 46px;
+.personal-shell .aven-tab[data-has-menu="true"] .personal-title-browser-menu {
+  opacity: 0;
+}
+.personal-shell
+  .aven-tab[data-has-menu="true"]:is(:hover, :focus-within)
+  .personal-title-browser-menu {
+  opacity: 1;
 }
 .aven-tab[data-has-menu="true"] .aven-tab-close {
   right: 22px;
@@ -897,10 +909,10 @@ html.theme-light .personal-shell {
   max-width: calc(var(--aven-split-panes, 2) * 224px);
 }
 .aven-tab-strip[data-tab-track] .aven-split-entry {
-  flex: var(--aven-split-panes, 2) 1 0;
-  width: auto;
+  flex: 0 1 calc(var(--aven-split-panes, 2) * 200px);
+  width: calc(var(--aven-split-panes, 2) * 200px);
   min-width: max(120px, calc(var(--aven-split-panes, 2) * 72px));
-  max-width: none;
+  max-width: calc(var(--aven-split-panes, 2) * 224px);
 }
 /* A pane with its own row of tabs is named there; here, its mark alone. */
 .aven-split-segment[data-named-below] .aven-split-label {
@@ -925,13 +937,14 @@ html.theme-light .personal-shell {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: var(--aven-hover);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--aven-hover);
   pointer-events: none;
   transition: background-color 120ms var(--aven-tab-ease);
 }
 .aven-split-entry[data-active="true"] .aven-split-fill {
-  background: var(--aven-tab-selected);
-  box-shadow: var(--aven-tab-selected-edge);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--aven-selected);
 }
 /* The highlight is the front split's fill. */
 .aven-tab-strip[data-tab-highlight="on"]
@@ -945,7 +958,7 @@ html.theme-light .personal-shell {
   display: flex;
   flex: 1 1 0;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
   min-width: 0;
   height: 22px;
@@ -974,10 +987,8 @@ html.theme-light .personal-shell {
   color: color-mix(in srgb, var(--color-content) 74%, transparent);
 }
 .aven-split-entry .aven-split-segment[data-lit="true"] {
-  background: var(--aven-thumb);
-  box-shadow: var(--aven-thumb-shadow);
+  background: var(--aven-tab-selected);
   color: var(--color-content);
-  font-weight: 500;
 }
 .aven-split-segment:focus-visible {
   outline: 1px solid var(--aven-focus-ring, var(--color-accent));
@@ -1343,18 +1354,17 @@ html.theme-light .personal-shell {
   display: none;
 }
 
-/* The window's own row of tabs: each tab named and starting
-   at its left, up to 224px wide and shrinking together only once the row is
-   full, with New chat right after the last one. The rest of the row is free to
-   take the window by. A pane's row of tabs keeps its equal widths. */
+/* The window's own row of tabs: each tab as wide as its name, up to 224px,
+   shrinking together only once the row is full, with New chat right after the
+   last one. The rest of the row is free to take the window by. */
 .workspace-status-strip .personal-titlebar > .personal-title-tabs {
   flex: 0 1 auto;
 }
 .workspace-status-strip
   .aven-tab-strip[data-tab-track]
   .aven-tab-slot:not([data-pinned]) {
-  flex: 0 1 224px;
-  width: 224px;
+  flex: 0 1 auto;
+  width: auto;
   min-width: 88px;
   max-width: 224px;
 }
@@ -1369,7 +1379,7 @@ html.theme-light .personal-shell {
   justify-content: center;
 }
 .workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-label {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
 }
 /* A split is a tab per pane wide, so each pane keeps its name. Its slot class
    also matches the single-tab rule above, which is as specific as this one
@@ -1382,24 +1392,18 @@ html.theme-light .personal-shell {
   min-width: calc(var(--aven-split-panes, 2) * 88px);
   max-width: calc(var(--aven-split-panes, 2) * 224px);
 }
+/* A sidebar row's height. */
 .workspace-status-strip .aven-tab-button,
 .workspace-status-strip .aven-split {
-  height: 30px;
-  min-height: 30px;
+  height: 28px;
+  min-height: 28px;
 }
 .workspace-status-strip .aven-split-segment {
-  height: 26px;
+  height: 24px;
 }
 .workspace-status-strip .aven-tab-highlight {
-  top: calc(50% - 15px);
-  height: 30px;
-}
-/* Tabs at rest sit on a faint plate of their own, with no lines between them. */
-.workspace-status-strip .aven-tab[data-active="false"] .aven-tab-button {
-  background: var(--aven-fill-quaternary);
-}
-.workspace-status-strip .aven-tab[data-active="false"] .aven-tab-button:hover {
-  background: var(--aven-fill-tertiary);
+  top: calc(50% - 14px);
+  height: 28px;
 }
 /* A pinned tab is a quiet mark, like the buttons beside it: no plate until it's
    pointed at or open. */

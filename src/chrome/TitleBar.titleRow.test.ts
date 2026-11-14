@@ -138,21 +138,21 @@ describe("a strip on a track", () => {
     expect(strip().querySelector(".aven-tab-highlight")).toBeNull();
   });
 
-  it("shares the strip equally down to 120px and slides 150ms", () => {
+  it("sizes each tab to its name, from 88px to 224px, and slides 150ms", () => {
     const css = readFileSync("src/chrome/TitleBar.css", "utf8");
     expect(css).toMatch(
-      /\.aven-tab-strip\[data-tab-track\] \.aven-tab-slot \{\s*flex: 1 1 0;\s*width: auto;\s*min-width: 120px;\s*max-width: none;/,
+      /\.aven-tab-strip\[data-tab-track\] \.aven-tab-slot \{\s*flex: 0 1 auto;\s*width: auto;\s*min-width: 88px;\s*max-width: 224px;/,
     );
     expect(css).toMatch(
-      /\.aven-tab-strip\[data-tab-track\] \.aven-tab-button \{\s*justify-content: center;/,
+      /\.aven-tab-strip\[data-tab-track\] \.aven-tab-button \{\s*justify-content: flex-start;/,
     );
     // The highlight takes the front tab's neutral fill, 26px with 6px corners.
     expect(css).toMatch(
       /\.aven-tab-highlight \{[^}]*height: 26px;[^}]*border-radius: var\(--aven-radius-sm\);[^}]*background: var\(--aven-tab-selected\);/,
     );
-    // Separators: 1px, 5px in from the 26px tab's top and bottom.
+    // No lines between tabs, as in the sidebar.
     expect(css).toMatch(
-      /\[data-tab-separator\]::before \{[^}]*top: 8px;[^}]*bottom: 8px;[^}]*width: 1px;/,
+      /\.aven-tab-strip\[data-tab-track\] \[data-tab-separator\]::before \{\s*content: none;/,
     );
   });
 });
