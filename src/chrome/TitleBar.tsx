@@ -578,26 +578,8 @@ function AvosTabMark({ path, className }: { path: string; className: string }) {
   );
 }
 
-export function TabIdentity({
-  tab,
-  active,
-  quiet = false,
-}: {
-  tab: Tab;
-  active: boolean;
-  /** In a tab row a chat is its name alone; its provider shows only while
-   *  it works, as the sidebar's chat rows do. */
-  quiet?: boolean;
-}) {
+export function TabIdentity({ tab, active }: { tab: Tab; active: boolean }) {
   const fileIcon = tab.files[0];
-  if (
-    quiet &&
-    !tab.race &&
-    !tab.botPath &&
-    tab.harnesses.length > 0 &&
-    tab.busyHarnesses.length === 0
-  )
-    return null;
   return (
     <span
       className="personal-title-tab-identity"
@@ -713,7 +695,7 @@ function TitleTabItem({
   const identity = pinned ? (
     <PinnedIdentity tab={tab} active={active} sigil={pinSigil} />
   ) : (
-    <TabIdentity tab={tab} active={active} quiet />
+    <TabIdentity tab={tab} active={active} />
   );
   const showStart =
     canDrag &&
@@ -1089,7 +1071,7 @@ function SplitSegment({
       onPointerLeave={() => onHover(null)}
     >
       {segment.tab ? (
-        <TabIdentity tab={segment.tab} active={front} quiet />
+        <TabIdentity tab={segment.tab} active={front} />
       ) : (
         <BrowserTabIcon favicon={segment.page?.favicon} />
       )}

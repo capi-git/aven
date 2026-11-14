@@ -165,10 +165,10 @@ describe("a split on the window's strip", () => {
       "Add sign-up flow",
       "linking.coaching",
     ]);
-    // A resting chat is its name alone, a page shows its icon.
+    // A chat shows its agent's mark, a page its icon.
     expect(
       segment("signup").querySelector(".personal-title-tab-identity"),
-    ).toBeNull();
+    ).not.toBeNull();
     expect(segment("page").querySelector("img")).not.toBeNull();
     // One hairline between the two segments.
     expect(entry().querySelectorAll(".aven-split-divider")).toHaveLength(1);
