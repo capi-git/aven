@@ -165,10 +165,10 @@ describe("a split on the window's strip", () => {
       "Add sign-up flow",
       "linking.coaching",
     ]);
-    // A chat shows its agent's mark, a page its icon.
+    // A resting chat is its name alone, a page shows its icon.
     expect(
       segment("signup").querySelector(".personal-title-tab-identity"),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(segment("page").querySelector("img")).not.toBeNull();
     // One hairline between the two segments.
     expect(entry().querySelectorAll(".aven-split-divider")).toHaveLength(1);
@@ -764,10 +764,10 @@ it("gives a split on the window's row a tab's width per pane, so each keeps its 
     /\s+/g,
     " ",
   );
-  // A single tab there is held to 224px by a rule four classes deep; the
-  // split's slot matches it too, so its own rule needs one class more.
+  // A single tab there is as wide as its name, by a rule four classes deep;
+  // the split's slot matches it too, so its own rule needs one class more.
   expect(css).toContain(
-    ".workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-slot:not([data-pinned]) { flex: 0 1 224px;",
+    ".workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-slot:not([data-pinned]) { flex: 0 1 auto;",
   );
   const split = css.match(
     /\.workspace-status-strip \.aven-tab-strip\[data-tab-track\] \.aven-tab-slot\.aven-split-entry \{([^}]*)\}/,

@@ -75,6 +75,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A work area** has the thing you talk to or work in on the left and a panel on the right. The panel has one header, a row of tabs and one scrolling body.
 
+**A tab** reads like a sidebar row: its name alone, as wide as the name (up to 224px), with no plate and no line between tabs. The tab in front has the sidebar's selected fill, and its name keeps its weight so nothing moves. A chat's tab shows its provider only while it works. Close, and a page's menu, show only while the tab is pointed at, over the end of its name. A split is one outline around its panes' names, with the pane in front filled.
+
 **Tabs join only on purpose.** Passing over a tab, or letting go on it quickly, only moves yours. Rest on it while a line fills around it, about half a second, and letting go then joins them.
 
 **An effort choice** is a row of dots, one per level the model really has, weakest on the left, lit up to the chosen one; pointed at, they light up to that one, fainter, and one muted line under them names it. No colour per level.

@@ -2125,7 +2125,7 @@ describe("browser tab integration", () => {
     expect(props.onSelectBrowser).toHaveBeenCalledExactlyOnceWith("web-a");
     expect(props.onReorder).not.toHaveBeenCalled();
   });
-  it("keeps each tab's provider separate from a mixed-provider group", async () => {
+  it("shows a chat tab's provider only while it works, separate from its group", async () => {
     await render({
       paneLocal: true,
       groupId: "team",
@@ -2140,19 +2140,15 @@ describe("browser tab integration", () => {
         container.querySelectorAll(`${selector} .provider-mark`),
         (node) => node.getAttribute("data-provider"),
       );
-    expect(marks('[data-surface-tab-id="b"]')).toEqual(["claude"]);
-    expect(
-      container.querySelector(
-        '[data-surface-tab-id="b"] [data-working="true"]',
-      ),
-    ).toBeNull();
+    // A resting chat is its name alone, as in the sidebar.
+    expect(marks('[data-surface-tab-id="b"]')).toEqual([]);
     // Without a group drag there is nothing for the grip to do, so it takes
     // no width.
     expect(container.querySelector(".personal-tab-group-handle")).toBeNull();
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
     await render({ activeId: "a" });
     expect(marks('[data-surface-tab-id="a"]')).toEqual(["codex"]);
-    expect(marks('[data-surface-tab-id="b"]')).toEqual(["claude"]);
+    expect(marks('[data-surface-tab-id="b"]')).toEqual([]);
   });
 
   it("retains combined providers for two agent panes inside one tab", async () => {
@@ -2163,6 +2159,7 @@ describe("browser tab integration", () => {
           sessionCount: 2,
           multiPane: true,
           harnesses: ["claude", "codex"],
+          busyHarnesses: ["claude", "codex"],
         }),
       ],
       activeId: "a",
@@ -2410,13 +2407,11 @@ describe("shared tab style", () => {
     expect(block(".aven-tab-button")).toMatch(
       /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: var\(--aven-radius-sm\);/,
     );
+    // Close shows only while the tab is pointed at; at rest a tab is its name.
     expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
       "background: var(--aven-tab-selected);",
     );
     expect(block(".aven-tab-close")).toContain("opacity: 0;");
-    expect(block('.aven-tab[data-active="true"] .aven-tab-close')).toContain(
-      "opacity: 0.65;",
-    );
     expect(block(".aven-tab-slot")).toContain("flex: 0 1 224px;");
     // The active tab is the same grey as every selected control; a project's
     // colour no longer tints it.
