@@ -10,6 +10,8 @@ typedef void (*sm_chromium_event_cb)(const char *id, const char *json, void *con
 int sm_chromium_initialize(const char *config_json, sm_chromium_event_cb cb, void *context);
 int sm_chromium_create(const char *id, void *parent_nsview, const char *url,
                       const char *profile_path, double x, double y, double w, double h);
+// `bottom_left_radius` and `bottom_right_radius` round the page's bottom
+// corners in points, each on its own; 0 keeps that corner square.
 // `holes` holds `hole_count` (at most 8) [x, y, width, height, radius] groups
 // in points, relative to the page's top-left corner. Pointer events and
 // pixels inside them belong to the workspace webview beneath the page.
@@ -21,7 +23,8 @@ int sm_chromium_create(const char *id, void *parent_nsview, const char *url,
 // and the veil appears over `shade_fade_seconds` (at most 1).
 int sm_chromium_layout(const char *id, double x, double y, double w, double h,
                        int visible, double clip_left, double clip_right, double viewport_height,
-                       double bottom_corner_radius, const double *holes, int hole_count,
+                       double bottom_left_radius, double bottom_right_radius,
+                       const double *holes, int hole_count,
                        const double *hit_margins, double shade, double shade_fade_seconds);
 int sm_chromium_reparent(const char *id, void *parent_nsview, double x, double y,
                         double w, double h, double auto_resize_top_inset);

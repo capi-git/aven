@@ -179,6 +179,19 @@ static void CheckBottomCornerClipping() {
     CHECK(Contains(path, 539.5, bottom));
     CHECK(!Contains(path, 559.5, bottom));
     CGPathRelease(path);
+
+    // A split page rounds only the corner it shares with the workspace card;
+    // the corner beside the other pane stays square.
+    path = supermono::CreateBrowserBottomCornerPath(
+        NSMakeRect(0, 0, 600, 400), 9, 0, flipped);
+    CHECK(!Contains(path, .5, bottom) && Contains(path, 599.5, bottom));
+    CHECK(Contains(path, 9, bottom) && Contains(path, 300, 200));
+    CGPathRelease(path);
+    path = supermono::CreateBrowserBottomCornerPath(
+        NSMakeRect(0, 0, 600, 400), 0, 9, flipped);
+    CHECK(Contains(path, .5, bottom) && !Contains(path, 599.5, bottom));
+    CHECK(Contains(path, 591, bottom) && Contains(path, 300, 200));
+    CGPathRelease(path);
   }
   CGPathRef square = supermono::CreateBrowserBottomCornerPath(
       NSMakeRect(0, 0, 100, 40), 0, false);

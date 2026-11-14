@@ -14,8 +14,13 @@ export type BrowserBounds = {
   /** Covered edge strips; the native page keeps its full viewport dimensions. */
   clipLeft?: number;
   clipRight?: number;
-  /** Bottom content curve, in CSS pixels; native views sit above CSS clipping. */
-  bottomCornerRadius?: number;
+  /**
+   * Bottom content curves, in CSS pixels, one per corner; native views sit
+   * above CSS clipping, so the page draws the curve of a rounded box that
+   * would clip it (browserBottomRadii).
+   */
+  bottomLeftRadius?: number;
+  bottomRightRadius?: number;
   /**
    * Regions cut out of the live native page so in-app menus drawn beneath it
    * show through. CSS pixels relative to the page origin (`x`, `y`).
@@ -381,21 +386,83 @@ export function normalizeBrowserUrl(value: string): string {
   return url.href;
 }
 
+/** A corner within this distance of a clipping box's corner is that corner. */
+const CORNER_SLOP = 1;
+
+function pixels(value: string | undefined): number {
+  const parsed = parseFloat(value ?? "0");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function clipsContent(style: CSSStyleDeclaration): boolean {
+  return [style.overflow, style.overflowX, style.overflowY].some(
+    (value) => !!value && value !== "visible",
+  );
+}
+
+/**
+ * The bottom curves a native page must draw itself. CSS rounds an HTML pane
+ * in the workspace card through the card's `overflow` clip, but a native page
+ * sits above every CSS clip. So where a page's bottom corner meets the corner
+ * of a rounded box that clips its contents, the page takes that box's inner
+ * curve (its radius less its border), exactly the curve an HTML pane there
+ * gets. A corner beside another pane, the side panel or a terminal keeps the
+ * page's own radius.
+ */
+export function browserBottomRadii(
+  element: HTMLElement,
+  rect: Pick<DOMRect, "x" | "y" | "width" | "height">,
+): { left: number; right: number } {
+  if (typeof getComputedStyle !== "function") return { left: 0, right: 0 };
+  const own = getComputedStyle(element);
+  let left = pixels(own?.borderBottomLeftRadius);
+  let right = pixels(own?.borderBottomRightRadius);
+  let leftOpen = left === 0;
+  let rightOpen = right === 0;
+  const bottom = rect.y + rect.height;
+  const end = rect.x + rect.width;
+  for (
+    let box = element.parentElement;
+    box && (leftOpen || rightOpen);
+    box = box.parentElement
+  ) {
+    const style = getComputedStyle(box);
+    if (!style || !clipsContent(style)) continue;
+    const outerLeft = pixels(style.borderBottomLeftRadius);
+    const outerRight = pixels(style.borderBottomRightRadius);
+    if (outerLeft === 0 && outerRight === 0) continue;
+    const frame = box.getBoundingClientRect();
+    const borderLeft = pixels(style.borderLeftWidth);
+    const borderRight = pixels(style.borderRightWidth);
+    const borderBottom = pixels(style.borderBottomWidth);
+    const innerBottom = frame.y + frame.height - borderBottom;
+    if (Math.abs(bottom - innerBottom) > CORNER_SLOP) continue;
+    if (
+      leftOpen &&
+      outerLeft > 0 &&
+      Math.abs(rect.x - (frame.x + borderLeft)) <= CORNER_SLOP
+    ) {
+      left = Math.max(0, outerLeft - Math.max(borderLeft, borderBottom));
+      leftOpen = false;
+    }
+    if (
+      rightOpen &&
+      outerRight > 0 &&
+      Math.abs(end - (frame.x + frame.width - borderRight)) <= CORNER_SLOP
+    ) {
+      right = Math.max(0, outerRight - Math.max(borderRight, borderBottom));
+      rightOpen = false;
+    }
+  }
+  const limit = Math.min(rect.width / 2, rect.height / 2);
+  return { left: Math.min(left, limit), right: Math.min(right, limit) };
+}
+
 export function browserBounds(element: HTMLElement): BrowserBounds | null {
   const rect = element.getBoundingClientRect();
   if (rect.width < 1 || rect.height < 1 || rect.x < 0 || rect.y < 0)
     return null;
-  const style =
-    typeof getComputedStyle === "function"
-      ? getComputedStyle(element)
-      : undefined;
-  const radius = Math.min(
-    parseFloat(style?.borderBottomLeftRadius ?? "0"),
-    parseFloat(style?.borderBottomRightRadius ?? "0"),
-  );
-  const bottomCornerRadius = Number.isFinite(radius)
-    ? Math.max(0, Math.min(radius, rect.width / 2, rect.height / 2))
-    : 0;
+  const radii = browserBottomRadii(element, rect);
   return {
     x: rect.x,
     y: rect.y,
@@ -403,7 +470,8 @@ export function browserBounds(element: HTMLElement): BrowserBounds | null {
     height: rect.height,
     scale: window.devicePixelRatio || 1,
     viewportHeight: window.innerHeight,
-    ...(bottomCornerRadius > 0 ? { bottomCornerRadius } : {}),
+    ...(radii.left > 0 ? { bottomLeftRadius: radii.left } : {}),
+    ...(radii.right > 0 ? { bottomRightRadius: radii.right } : {}),
   };
 }
 

@@ -68,7 +68,8 @@ extern "C" {
         clip_left: f64,
         clip_right: f64,
         viewport_height: f64,
-        bottom_corner_radius: f64,
+        bottom_left_radius: f64,
+        bottom_right_radius: f64,
         holes: *const f64,
         hole_count: c_int,
         hit_margins: *const f64,
@@ -118,8 +119,11 @@ pub struct BrowserBounds {
     clip_right: f64,
     #[serde(default)]
     viewport_height: Option<f64>,
+    /// Bottom curves the page draws itself, one per corner (browserBottomRadii).
     #[serde(default)]
-    bottom_corner_radius: f64,
+    bottom_left_radius: f64,
+    #[serde(default)]
+    bottom_right_radius: f64,
     /// In-app menus cut out of the live page, relative to its origin.
     #[serde(default)]
     holes: Vec<BrowserHole>,
@@ -204,9 +208,9 @@ impl BrowserBounds {
             || self.clip_left < 0.0
             || self.clip_right < 0.0
             || self.clip_left + self.clip_right > self.width
-            || !self.bottom_corner_radius.is_finite()
-            || self.bottom_corner_radius < 0.0
-            || self.bottom_corner_radius > 32768.0
+            || [self.bottom_left_radius, self.bottom_right_radius]
+                .iter()
+                .any(|radius| !radius.is_finite() || *radius < 0.0 || *radius > 32768.0)
             || self
                 .viewport_height
                 .is_some_and(|height| !height.is_finite() || height <= 0.0 || height > 32768.0)
@@ -315,14 +319,11 @@ impl BrowserBounds {
         self.points(native_scale)?;
         Ok(self.viewport_height.unwrap_or(0.0) * self.scale / native_scale)
     }
-    fn bottom_radius_points(&self, native_scale: f64) -> Result<f64, String> {
+    fn bottom_radius_points(&self, native_scale: f64) -> Result<[f64; 2], String> {
         self.points(native_scale)?;
-        Ok(self
-            .bottom_corner_radius
-            .min(self.width / 2.0)
-            .min(self.height / 2.0)
-            * self.scale
-            / native_scale)
+        let limit = (self.width / 2.0).min(self.height / 2.0);
+        Ok([self.bottom_left_radius, self.bottom_right_radius]
+            .map(|radius| radius.min(limit) * self.scale / native_scale))
     }
 }
 
@@ -2115,7 +2116,7 @@ pub async fn browser_layout(
         let [x, y, w, h] = bounds.points(scale)?;
         let [clip_left, clip_right] = bounds.clip_points(scale)?;
         let viewport_height = bounds.viewport_points(scale)?;
-        let bottom_corner_radius = bounds.bottom_radius_points(scale)?;
+        let [bottom_left_radius, bottom_right_radius] = bounds.bottom_radius_points(scale)?;
         let holes = bounds.hole_points(scale)?;
         let hit_margins = bounds.hit_margin_points(scale)?;
         let [shade, shade_fade] = bounds.shade_values()?;
@@ -2139,7 +2140,8 @@ pub async fn browser_layout(
                 clip_left,
                 clip_right,
                 viewport_height,
-                bottom_corner_radius,
+                bottom_left_radius,
+                bottom_right_radius,
                 holes.as_ptr(),
                 (holes.len() / 5) as c_int,
                 hit_margins
@@ -2182,12 +2184,12 @@ async fn move_page(
         let scale = window.scale_factor().map_err(|error| error.to_string())?;
         let mut clip = [0.0, 0.0];
         let mut viewport_height = 0.0;
-        let mut bottom_corner_radius = 0.0;
+        let mut bottom_radii = [0.0, 0.0];
         let [x, y, w, h] = if let Some(bounds) = bounds {
             if !floating {
                 clip = bounds.clip_points(scale)?;
                 viewport_height = bounds.viewport_points(scale)?;
-                bottom_corner_radius = bounds.bottom_radius_points(scale)?;
+                bottom_radii = bounds.bottom_radius_points(scale)?;
             }
             bounds.points(scale)?
         } else {
@@ -2222,7 +2224,8 @@ async fn move_page(
                 clip[0],
                 clip[1],
                 viewport_height,
-                bottom_corner_radius,
+                bottom_radii[0],
+                bottom_radii[1],
                 // Menu cut-outs and divider strips are transient; the shell
                 // republishes them after a reparent rather than reusing stale
                 // rectangles.
@@ -3316,15 +3319,25 @@ mod tests {
             clip_left: 0.0,
             clip_right: 0.0,
             viewport_height: Some(860.0),
-            bottom_corner_radius: 8.0,
+            bottom_left_radius: 8.0,
+            bottom_right_radius: 0.0,
             holes: Vec::new(),
             hit_margins: None,
             shade: None,
         };
         assert_eq!(bounds.points(2.0).unwrap(), [80.0, 40.0, 640.0, 480.0]);
         assert_eq!(bounds.viewport_points(2.0).unwrap(), 688.0);
-        assert_eq!(bounds.bottom_radius_points(2.0).unwrap(), 6.4);
-        assert_eq!(bounds.bottom_radius_points(1.0).unwrap(), 12.8);
+        assert_eq!(bounds.bottom_radius_points(2.0).unwrap(), [6.4, 0.0]);
+        assert_eq!(bounds.bottom_radius_points(1.0).unwrap(), [12.8, 0.0]);
+        assert_eq!(
+            BrowserBounds {
+                bottom_right_radius: 9.0,
+                ..bounds.clone()
+            }
+            .bottom_radius_points(2.0)
+            .unwrap(),
+            [6.4, 7.2]
+        );
         assert_eq!(
             BrowserBounds {
                 width: 10.0,
@@ -3332,11 +3345,17 @@ mod tests {
             }
             .bottom_radius_points(2.0)
             .unwrap(),
-            4.0
+            [4.0, 0.0]
         );
         for radius in [f64::NAN, f64::INFINITY, -1.0, 32769.0] {
             assert!(BrowserBounds {
-                bottom_corner_radius: radius,
+                bottom_left_radius: radius,
+                ..bounds.clone()
+            }
+            .validate()
+            .is_err());
+            assert!(BrowserBounds {
+                bottom_right_radius: radius,
                 ..bounds.clone()
             }
             .validate()
@@ -3346,7 +3365,7 @@ mod tests {
             "x": 0, "y": 0, "width": 800, "height": 600, "scale": 2
         }))
         .unwrap();
-        assert_eq!(legacy.bottom_radius_points(2.0).unwrap(), 0.0);
+        assert_eq!(legacy.bottom_radius_points(2.0).unwrap(), [0.0, 0.0]);
         assert_eq!(
             BrowserBounds {
                 viewport_height: None,

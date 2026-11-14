@@ -177,7 +177,7 @@ int main(int argc, char **argv) {
         created = sm_chromium_create("load-check", (__bridge void *)parent, first.c_str(), "", 0, 0,
                                      1024, 768) != 0;
         // Hidden, as an agent's background page is.
-        if (created) sm_chromium_layout("load-check", 0, 0, 1024, 768, 0, 0, 0, 768, 0, nullptr, 0, nullptr, 0, 0);
+        if (created) sm_chromium_layout("load-check", 0, 0, 1024, 768, 0, 0, 0, 768, 0, 0, nullptr, 0, nullptr, 0, 0);
       });
       if (!created) {
         Report(false, "a hidden page opens", sm_chromium_last_error());

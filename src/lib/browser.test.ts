@@ -38,13 +38,13 @@ it.each([688, 900])(
 );
 
 it.each([
-  ["8px", "8px", 8],
-  ["24px", "24px", 10],
-  ["0px", "0px", undefined],
-  ["invalid", "8px", undefined],
+  ["8px", "8px", { bottomLeftRadius: 8, bottomRightRadius: 8 }],
+  ["24px", "24px", { bottomLeftRadius: 10, bottomRightRadius: 10 }],
+  ["0px", "0px", {}],
+  ["invalid", "8px", { bottomRightRadius: 8 }],
 ])(
   "carries the measured bottom content radius %s/%s without altering viewport bounds",
-  (left, right, radius) => {
+  (left, right, radii) => {
     vi.stubGlobal("window", { innerHeight: 688, devicePixelRatio: 1.6 });
     vi.stubGlobal("getComputedStyle", () => ({
       borderBottomLeftRadius: left,
@@ -53,7 +53,8 @@ it.each([
     try {
       const element = {
         getBoundingClientRect: () => ({ x: 50, y: 100, width: 20, height: 60 }),
-      } as HTMLElement;
+        parentElement: null,
+      } as unknown as HTMLElement;
       expect(browserBounds(element)).toEqual({
         x: 50,
         y: 100,
@@ -61,13 +62,90 @@ it.each([
         height: 60,
         scale: 1.6,
         viewportHeight: 688,
-        ...(radius === undefined ? {} : { bottomCornerRadius: radius }),
+        ...radii,
       });
     } finally {
       vi.unstubAllGlobals();
     }
   },
 );
+
+describe("a page inside the rounded workspace card", () => {
+  type Box = {
+    rect: { x: number; y: number; width: number; height: number };
+    style: Partial<CSSStyleDeclaration>;
+    parent?: Box;
+  };
+  // The card: 10px corners, a 1px border and an overflow clip, as the
+  // unified toolbar's `.personal-main` draws it. Its inner box runs from
+  // (7, 41) to (793, 591).
+  const card: Box = {
+    rect: { x: 6, y: 40, width: 788, height: 552 },
+    style: {
+      overflow: "hidden",
+      borderBottomLeftRadius: "10px",
+      borderBottomRightRadius: "10px",
+      borderLeftWidth: "1px",
+      borderRightWidth: "1px",
+      borderBottomWidth: "1px",
+    },
+  };
+  // A pane between them clips square, as the workspace stage does.
+  const stage: Box = {
+    rect: { x: 7, y: 41, width: 786, height: 550 },
+    style: { overflow: "hidden", borderBottomLeftRadius: "0px" },
+    parent: card,
+  };
+
+  function bounds(rect: Box["rect"]) {
+    const nodes = new Map<object, Box>();
+    const element = (box: Box): HTMLElement => {
+      const node = {
+        getBoundingClientRect: () => box.rect,
+        get parentElement() {
+          return box.parent ? element(box.parent) : null;
+        },
+      };
+      nodes.set(node, box);
+      return node as unknown as HTMLElement;
+    };
+    vi.stubGlobal("window", { innerHeight: 600, devicePixelRatio: 2 });
+    vi.stubGlobal(
+      "getComputedStyle",
+      (node: object) => nodes.get(node)?.style ?? {},
+    );
+    try {
+      const page = browserBounds(
+        element({ rect, style: { borderRadius: "0px" }, parent: stage }),
+      );
+      return [page?.bottomLeftRadius, page?.bottomRightRadius];
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+
+  it("rounds both bottom corners with the card's inner curve when it fills the card", () => {
+    expect(bounds({ x: 7, y: 120, width: 786, height: 471 })).toEqual([9, 9]);
+  });
+
+  it("rounds only the corner a split page shares with the card", () => {
+    expect(bounds({ x: 7, y: 120, width: 392, height: 471 })).toEqual([
+      9,
+      undefined,
+    ]);
+    expect(bounds({ x: 401, y: 120, width: 392, height: 471 })).toEqual([
+      undefined,
+      9,
+    ]);
+  });
+
+  it("keeps square corners above a terminal or below another pane", () => {
+    expect(bounds({ x: 7, y: 120, width: 786, height: 300 })).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+});
 
 describe("browser omnibox", () => {
   it.each([
