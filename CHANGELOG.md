@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.185] - 2026-11-14
+
+### Changed
+
+- **Tabs read like sidebar rows.** A tab is now a plain row with a quiet highlight for the one in front, as in the sidebar, in place of a grey box for each tab. Tabs work as before: drag, split, Hold to join and ⌃⇥.
+- **An agent can see a page at desktop width.** When its browser pane is narrow, an agent can ask for a picture of its own page at a wider width and sees the desktop layout of a site, not the phone one. For about a second a still picture covers the pane while it takes it; your pane keeps its size.
+
+### Fixed
+
+- **A web page has round corners beside the side panel.** A page that ends next to the side panel had a square bottom corner; it now has the same curve as a chat in that place.
+
 ## [0.1.184] - 2026-11-12
 
 ### Changed
