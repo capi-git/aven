@@ -182,6 +182,22 @@ The pane hands the picture to its presentation, which paints it beneath the page
 
 In Aven Dev, also check marking up at different zoom levels and pane sizes, resizing the pane while marking up, a page that is still loading, and that the attached picture matches what was on screen.
 
+### Agent pictures at another width
+
+A page beside a chat is narrow, so a responsive site shows its small-screen layout there. An agent's `screenshot` with a `width` (320 to 1920 CSS pixels) pictures its own page laid out that wide: the host sends `agent-screenshot` with `pageWidth` and `pageHeight` (the height is a common screen's for that width, chosen in `browser_agent.rs`). No capture can lay a page out wider than its view, so the page really takes that viewport for a moment: `Emulation.setDeviceMetricsOverride` with that size at the display's own density and zoom 1, then a surface capture, for which Chromium resizes the page's inner view (the flash described under element comments), then the tab's zoom metrics again.
+
+The person must not see any of that. A page its pane shows is first copied at the pane's size, and that copy is laid over it as `SMBrowserStillView`, directly above the page inside its clipping host and flushed to the screen before the metrics change; it takes the pointer meanwhile, because the layout under it is not the one drawn. The helper waits about a third of a second for the new layout's transitions, then up to 1.2 seconds more while a font or a picture in view is still loading, since a wide layout often loads pictures the narrow one never asked for. After the capture it restores the zoom metrics, lays the pane out, waits until the page's own `innerWidth` is the pane's again, puts back its scroll position, answers, and removes the cover 80 ms later, when that layout is on screen. A hidden page needs no cover and takes the same steps. The copy comes from the screen (`fromSurface: false`, no flash) when the screen shows the page and nothing else. Under a dialog's veil, under the hover sidebar or while it slides, and in a window out of view (it could come into view mid-capture), the copy is the page's own surface, as an agent's plain picture is there; the veil and the sidebar are drawn above the cover as above the page.
+
+It refuses rather than guess: while an element comment is open, while the page loads, and for a capture whose pixels are not the asked size. The host refuses a page that is not the chat's own, so a look never lays out a tab of the person's, and refuses while the Mac is locked: a capture waits there, and the page would hold the wide layout until unlock. A capture that Chromium never finishes keeps its cover until it does, as its metrics can only be restored after Chromium restores its own.
+
+The geometry and the cover have unit checks (`browser_edit_capture_test.cc`, `browser_host_view_test.mm`). The real path has a live check:
+
+```sh
+./scripts/with-dev-env.sh python3 scripts/check-chromium-wide-shot.py
+```
+
+It serves a page that is red when narrow and blue from 1000 pixels, in a pane 480 wide, hidden and then on screen, and checks the picture (the wide layout, with a picture only that layout loads and the server sends late), the pane (covered by its own narrow picture from before Chromium resizes the view until its layout is back) and the page afterwards (its width and scroll position). It looks at the pane's views every few milliseconds and draws the cover as AppKit does; it does not record the screen, so a frame the GPU process shows for under those few milliseconds would not be seen. In Aven Dev, also check a wide screenshot of a real site beside a chat while watching the pane, at another zoom, while scrolling, and with the hover sidebar over the page.
+
 ## Signing and runtime behavior
 
 The packager adds the complete CEF framework, helper applications, CEF licenses and credits, and Aven's project and dependency notices. It signs nested native code before the host app, then runs strict signature verification. Some internal helper and executable identifiers retain compatibility names; the app is presented as Aven.

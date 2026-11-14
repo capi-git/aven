@@ -447,7 +447,30 @@ something looks, typically one before and one after each visual change, and
 never just to confirm text a snapshot already shows.
 
 A page on screen is captured as you see it, without changing its size or zoom.
-A background tab is captured at its current size. Screenshots are saved as
+A background tab is captured at its current size. A page beside a chat is
+narrow (about 475 to 715 pixels in a 1440-point window), so a responsive site
+shows its small-screen layout there, and that is all a plain screenshot can
+show. To judge another layout, an agent adds a width in CSS pixels, from 320
+to 1920:
+
+```sh
+"$AVEN_BROWSER_EXECUTABLE" --aven-browser \
+  '{"action":"screenshot","id":"PAGE_ID","width":1280}'
+```
+
+The picture is the page laid out that wide, at 100% zoom, in a viewport as
+tall as a common screen of that width: 16:10 from 900 up (1280 by 800, 1440 by
+900) and upright below that (390 by 845, at most 1,024 tall). The result adds
+`pageWidth` and `pageHeight`. Your pane keeps its size, zoom and scroll
+position and shows no change: while the picture is taken, a still picture of
+the pane covers the page, usually for well under a second, and takes no clicks.
+The page itself is laid out at that width for that moment, so its scripts see
+a resize and it may load pictures only that layout uses. For that reason a
+width works only in a page the agent opened, never in a tab of yours; it is
+refused while the Mac is locked and while you comment on an element of the
+page, and the agent is told to try again later or to take a plain screenshot.
+
+Screenshots are saved as
 compressed JPEG files at the page's on-screen size: a Retina capture is scaled
 to 1x and the long edge is at most 2,000 pixels, so small text stays readable
 at a fraction of a PNG's size. Screenshots are kept in Aven's app data folder

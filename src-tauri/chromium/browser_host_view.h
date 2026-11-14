@@ -266,6 +266,83 @@ constexpr double kBrowserShadeMaxFade = 1.0;
 }
 @end
 
+// A still picture of the page, drawn over the live page while an agent
+// pictures it at another width. For that capture the page really is laid out
+// at the other width and Chromium resizes its view; the pane goes on showing
+// what it showed. The picture sits directly above the page inside its
+// clipping host, so the page's crop, mask and cut-outs apply to it and the
+// veil, drop target and agent pointer stay above. While shown it keeps the
+// pointer from the page beneath, whose layout is not the one drawn.
+@interface SMBrowserStillView : NSView
+@property(nonatomic, readonly) BOOL shown;
+// Shows `image` over `frame` above `browser` and returns its token. A later
+// picture replaces it; only the holder of the current token removes it.
+- (NSUInteger)show:(CGImageRef)image aboveBrowser:(NSView*)browser frame:(NSRect)frame;
+// Keeps a shown picture over the page as the pane is laid out.
+- (void)placeAboveBrowser:(NSView*)browser frame:(NSRect)frame;
+- (void)clear:(NSUInteger)token;
+- (void)clear;
+@end
+
+@implementation SMBrowserStillView {
+  NSUInteger _token;
+}
+- (instancetype)initWithFrame:(NSRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.wantsLayer = YES;
+    self.layer.contentsGravity = kCAGravityResize;
+    self.layer.opaque = YES;
+  }
+  return self;
+}
+- (BOOL)shown {
+  return self.superview != nil;
+}
+- (NSView*)hitTest:(NSPoint)point {
+  return self.superview && NSPointInRect(point, self.frame) ? self : nil;
+}
+- (NSUInteger)show:(CGImageRef)image aboveBrowser:(NSView*)browser frame:(NSRect)frame {
+  if (!image || !browser.superview) return 0;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  self.layer.contents = (__bridge id)image;
+  [CATransaction commit];
+  [self removeFromSuperview];
+  [self placeAboveBrowser:browser frame:frame attach:YES];
+  return ++_token;
+}
+- (void)placeAboveBrowser:(NSView*)browser frame:(NSRect)frame {
+  [self placeAboveBrowser:browser frame:frame attach:NO];
+}
+- (void)placeAboveBrowser:(NSView*)browser frame:(NSRect)frame attach:(BOOL)attach {
+  NSView* clip = browser.superview;
+  if (!clip || (!attach && !self.superview)) return;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  // Directly above the page: the veil, drop target and pointer stay above.
+  NSArray<NSView*>* siblings = clip.subviews;
+  const NSUInteger page = [siblings indexOfObjectIdenticalTo:browser];
+  if (self.superview != clip || page + 1 >= siblings.count || siblings[page + 1] != self) {
+    [self removeFromSuperview];
+    [clip addSubview:self positioned:NSWindowAbove relativeTo:browser];
+  }
+  self.autoresizingMask = browser.autoresizingMask;
+  if (!NSEqualRects(self.frame, frame)) self.frame = frame;
+  [CATransaction commit];
+}
+- (void)clear:(NSUInteger)token {
+  if (token && token == _token) [self clear];
+}
+- (void)clear {
+  if (!self.superview && !self.layer.contents) return;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  [self removeFromSuperview];
+  self.layer.contents = nil;
+  [CATransaction commit];
+}
+@end
+
 namespace supermono {
 
 // The veil a page applies for a dialog over the window (0 for none). A

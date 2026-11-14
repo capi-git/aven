@@ -537,6 +537,7 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       registration_=nullptr; browser_=nullptr; context_id_=0;
       [drop_indicator_ clear]; drop_indicator_=nil;
       [shade_view_ removeFromSuperview]; shade_view_=nil;
+      [still_view_ clear]; still_view_=nil;
       [agent_marker_ clear]; [agent_marker_ removeFromSuperview]; agent_marker_=nil;
       [edit_annotation_ clear]; [edit_annotation_ removeFromSuperview]; edit_annotation_=nil;
       [clip_view_ removeFromSuperview]; clip_view_=nil;
@@ -1100,7 +1101,13 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
         !NSEqualRects(edit_annotation_.frame,aligned.browser) ||
         !NSEqualSizes(clip_view_.bounds.size,aligned.clip.size)))
       EditMode(false);
-    supermono::ApplyBrowserHostFrames(clip_view_,view,aligned,auto_resize_);
+    // For a wide capture Chromium sizes the view that draws the page, inside
+    // this one, and puts it back when the capture ends. A pane resized
+    // meanwhile would resize that view with this one, and the picture would
+    // be of neither width: this view takes its new frame after the capture.
+    auto frames=aligned;
+    if (wide_sizes_view_) frames.browser=view.frame;
+    supermono::ApplyBrowserHostFrames(clip_view_,view,frames,auto_resize_);
     // Dividers beside the page keep their grab area: the page still draws to
     // its edges but leaves the pointer in these strips to the workspace.
     // Floating windows contain only the page and have no dividers.
@@ -1127,6 +1134,8 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
     if (clip_host) clip_host.inert=under_dialog;
     if (under_dialog && !shade_view_) shade_view_=[[SMBrowserShadeView alloc] initWithFrame:aligned.browser];
     [shade_view_ placeAboveBrowser:view frame:aligned.browser opacity:shade fade:shade_fade_];
+    // The pane's own picture stays over the page while it is laid out wide.
+    [still_view_ placeAboveBrowser:view frame:aligned.browser];
     if (!visible_ || update_prepared_ || exposed<=0 || under_dialog)
       supermono::ReturnHiddenBrowserFocus(clip_view_,WorkspaceWebView(parent_));
     const bool was_hidden=clip_view_.hidden;
@@ -1342,7 +1351,10 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       if (!DropIndicator(cmd)) { Result(id_,request,false,Error("Invalid browser drop indicator")); return; }
     }
     else if (action=="snapshot") { Screenshot(request); return; }
-    else if (action=="agent-screenshot") { PageScreenshot(request); return; }
+    else if (action=="agent-screenshot") {
+      if (cmd->HasKey("pageWidth")) WidePageScreenshot(request,cmd); else PageScreenshot(request);
+      return;
+    }
     else if (action=="dom") { Dom(request,cmd->GetDictionary("request")); return; }
     else if (action=="fetch-resource") { FetchResource(request,Text(cmd,"url"),Number(cmd,"maxBytes",0),Boolean(cmd,"credentials")); return; }
     // The host gave up on its image loads: close them, answer nothing more.
@@ -2345,6 +2357,210 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
       Result(self->id_,request,true,shot);
     });
   }
+  // An agent's picture of the page laid out at another width: a desktop
+  // layout from a narrow pane. No capture can lay a page out wider than its
+  // view, so for a moment the page really takes that viewport (device metrics
+  // of that size, then a surface capture, for which Chromium sizes the view)
+  // and then returns to its pane's own. The user must not see that happen: a
+  // page on screen is first copied as the pane shows it, and that still
+  // picture covers the page until its own layout is back. A hidden page has
+  // nothing to cover. Whatever fails on the way, the page gets its zoom's
+  // metrics, its frame and its scroll position back.
+  struct WideShot {
+    std::string request;
+    supermono::WidePageSize size;
+    double device_scale=1;
+    NSUInteger still=0;  // The cover's token; 0 for a page that is not on screen.
+    bool measured=false; double inner_width=0,scroll_x=0,scroll_y=0;
+    int checks=0;
+    bool answered=false;
+  };
+  using WideShotRef=std::shared_ptr<WideShot>;
+  static constexpr int64_t kWideSettleMs=350,kWideStepMs=150,kWideReturnStepMs=40;
+  static constexpr int kWideSettleChecks=8,kWideReturnChecks=20;
+  // A small read of the page in Aven's isolated world: an expression that
+  // returns the JSON text of an object. For the bridge's own bookkeeping only.
+  void WorldRead(const std::string& expression,Completion done) {
+    CefRefPtr<Page> self=this;
+    EnsureWorld([self,expression,done](bool ok,Dict world) {
+      if (!ok) { done(false,world); return; }
+      auto params=Object(); params->SetString("expression",expression); params->SetInt("contextId",self->context_id_);
+      params->SetBool("returnByValue",true); params->SetBool("awaitPromise",false); params->SetInt("timeout",1000);
+      self->Dev("Runtime.evaluate",params,[self,done](bool ok,Dict value) {
+        if (!ok) { self->context_id_=0; done(false,value); return; }
+        auto read=value->HasKey("exceptionDetails") ? nullptr : Parse(Text(value->GetDictionary("result"),"value"));
+        if (!read) { done(false,Error("The page could not be read")); return; }
+        done(true,read);
+      });
+    });
+  }
+  void WidePageScreenshot(const std::string& request,Dict cmd) {
+    const auto size=supermono::WidePageViewport(Number(cmd,"pageWidth"),Number(cmd,"pageHeight"));
+    if (!size) { Result(id_,request,false,Error("Invalid screenshot width")); return; }
+    if (screenshot_running_ || wide_returning_ || zoom_.pending()) { Result(id_,request,false,Error("The browser is finishing another image or zoom change. Retry shortly.")); return; }
+    if (!browser_ || closing_) { Result(id_,request,false,Error("Browser is closed")); return; }
+    if (browser_->IsLoading()) { Result(id_,request,false,Error("The page is still loading. Retry the screenshot after it finishes.")); return; }
+    // An element comment refers to the layout the user sees.
+    if (EditActive()) { Result(id_,request,false,Error("The user is commenting on this page. Retry the screenshot when they finish, or take one without a width.")); return; }
+    NSView *view=(__bridge NSView*)browser_->GetHost()->GetWindowHandle();
+    NSWindow *window=view.window;
+    const auto exposed=supermono::PageCaptureTarget(w_,clip_left_,clip_right_,auto_resize_);
+    // The pane shows this page, or would the moment its window comes into
+    // view: either way it gets a cover.
+    const bool in_pane=visible_ && !update_prepared_ && exposed && window && !clip_view_.hidden;
+    const bool on_screen=in_pane && (window.occlusionState & NSWindowOcclusionStateVisible);
+    // The cover is a copy of the screen only when the screen shows the page
+    // and nothing else. Dimmed under a dialog, under the hover sidebar or
+    // while it slides, and in a window out of view, it is the page's own
+    // surface at the pane's size, as an agent's plain picture is there; the
+    // veil and the sidebar are drawn above the cover as above the page.
+    SMBrowserClipView *clip_host=[clip_view_ isKindOfClass:SMBrowserClipView.class] ? (SMBrowserClipView*)clip_view_ : nil;
+    const bool from_screen=supermono::BrowserPageCopiesFromScreen(on_screen,Shade()) &&
+      !clip_host.slidingLeadingEdge && (auto_resize_ || (clip_left_==0 && clip_right_==0));
+    auto shot=std::make_shared<WideShot>(); shot->request=request; shot->size=*size;
+    shot->device_scale=window ? window.backingScaleFactor : zoom_.backing_scale();
+    CefRefPtr<Page> self=this;
+    if (!in_pane) { screenshot_running_=true; WideMeasure(shot); return; }
+    auto params=Object(); params->SetString("format","png"); params->SetBool("captureBeyondViewport",false);
+    if (from_screen) params->SetBool("fromSurface",false);
+    NSView *parent=parent_;
+    const NSRect view_frame=view.frame,clip_frame=clip_view_.frame;
+    CaptureScreenshot(params,[self,shot,from_screen,parent,view,window,view_frame,clip_frame](bool ok,Dict result) {
+      if (!ok) { Result(self->id_,shot->request,false,result); return; }
+      // A copy of the screen is the page only if nothing moved or dimmed it.
+      const bool current=!self->closing_ && self->browser_ && !self->EditActive() && !self->zoom_.pending() &&
+        (!from_screen || (self->visible_ && !self->UnderDialog() && self->parent_==parent && view.window==window &&
+          NSEqualRects(view.frame,view_frame) && NSEqualRects(self->clip_view_.frame,clip_frame)));
+      if (!current) { Result(self->id_,shot->request,false,Error("The page moved or closed while capturing. Retry the screenshot.")); return; }
+      const auto data=Text(result,"data");
+      NSData *png=data.empty() || data.size()>supermono::kEditViewportMaxBase64 ? nil
+        : [[NSData alloc] initWithBase64EncodedString:Ns(data) options:0];
+      CGImageSourceRef source=png ? CGImageSourceCreateWithData((__bridge CFDataRef)png,nullptr) : nullptr;
+      CGImageRef image=source ? CGImageSourceCreateImageAtIndex(source,0,nullptr) : nullptr;
+      if (source) CFRelease(source);
+      if (!image) { Result(self->id_,shot->request,false,Error("Could not copy the page as it is shown. Retry the screenshot.")); return; }
+      NSView *page=(__bridge NSView*)self->browser_->GetHost()->GetWindowHandle();
+      if (!self->still_view_) self->still_view_=[[SMBrowserStillView alloc] initWithFrame:page.frame];
+      shot->still=[self->still_view_ show:image aboveBrowser:page frame:page.frame];
+      CGImageRelease(image);
+      // Chromium's frames reach the screen from its own process. The cover
+      // must be there before the page is asked for another layout.
+      [CATransaction flush];
+      self->screenshot_running_=true;
+      self->WideMeasure(shot);
+    });
+  }
+  // The pane's own layout width and scroll position, to return to.
+  void WideMeasure(WideShotRef shot) {
+    CefRefPtr<Page> self=this;
+    WorldRead("JSON.stringify({w:innerWidth,x:scrollX,y:scrollY})",[self,shot](bool ok,Dict read) {
+      if (ok) { shot->measured=true; shot->inner_width=Number(read,"w"); shot->scroll_x=Number(read,"x"); shot->scroll_y=Number(read,"y"); }
+      if (!self->browser_ || self->closing_) { self->WideFinish(shot,false,Error("Browser is closed")); return; }
+      // The page's own density at zoom 1; only its viewport changes. The
+      // view keeps its size until the capture, which sizes it itself.
+      auto params=Object(); params->SetInt("width",shot->size.width); params->SetInt("height",shot->size.height);
+      params->SetDouble("deviceScaleFactor",shot->device_scale); params->SetBool("mobile",false);
+      params->SetDouble("scale",1); params->SetBool("dontSetVisibleSize",true);
+      self->Dev("Emulation.setDeviceMetricsOverride",params,[self,shot](bool ok,Dict result) {
+        // A command that timed out may still have applied: restore either way.
+        if (!ok) { self->WideFinish(shot,false,result); return; }
+        self->WideSettle(shot,kWideSettleMs);
+      });
+    });
+  }
+  // The wide layout's own transitions, fonts and pictures get a moment: a
+  // desktop hero image is often one the narrow layout never loaded.
+  void WideSettle(WideShotRef shot,int64_t wait_ms) {
+    CefRefPtr<Page> self=this;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,wait_ms*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+      if (!self->browser_ || self->closing_) { self->WideFinish(shot,false,Error("Browser is closed")); return; }
+      if (++shot->checks>kWideSettleChecks) { self->WideCapture(shot); return; }
+      self->WorldRead("(()=>{let n=document.fonts&&document.fonts.status==='loading'?1:0;"
+        "for(const i of document.images){if(i.complete||!i.getClientRects().length)continue;"
+        "const r=i.getBoundingClientRect();if(r.bottom>=0&&r.top<=innerHeight&&r.right>=0&&r.left<=innerWidth)n++}"
+        "return JSON.stringify({pending:n})})()",[self,shot](bool ok,Dict read) {
+        if (ok && Number(read,"pending")>0) { self->WideSettle(shot,kWideStepMs); return; }
+        self->WideCapture(shot);
+      });
+    });
+  }
+  void WideCapture(WideShotRef shot) {
+    if (!browser_ || closing_) { WideFinish(shot,false,Error("Browser is closed")); return; }
+    auto params=Object(); params->SetString("format","png"); params->SetBool("captureBeyondViewport",false);
+    CefRefPtr<Page> self=this;
+    wide_sizes_view_=true;
+    // As for every capture, the agent hears of a timeout at once, and the
+    // page is restored only when Chromium has put back what it changed.
+    Dev("Page.captureScreenshot",params,[self,shot](bool ok,Dict result) {
+      self->wide_sizes_view_=false;
+      self->WideFinish(shot,ok,result);
+    },[self,shot](bool,Dict timed_out) { self->WideAnswer(shot,false,timed_out); });
+  }
+  void WideAnswer(WideShotRef shot,bool ok,Dict result) {
+    if (shot->answered) return;
+    shot->answered=true;
+    Result(id_,shot->request,ok,result);
+  }
+  void WideFinish(WideShotRef shot,bool ok,Dict result) {
+    if (ok) {
+      const auto data=Text(result,"data");
+      NSData *source=data.empty() || data.size()>supermono::kEditViewportMaxBase64 ? nil
+        : [[NSData alloc] initWithBase64EncodedString:Ns(data) options:0];
+      uint32_t pixels_wide=0,pixels_high=0,width=0,height=0;
+      NSData *png=nil;
+      if (!source) {
+        ok=false; result=Error("Could not capture this page at that width within the image limit. Retry with a smaller width.");
+      } else if (!supermono::PngDimensions((const unsigned char*)source.bytes,source.length,pixels_wide,pixels_high) ||
+                 !supermono::WidePageCaptured(pixels_wide,pixels_high,shot->size,shot->device_scale)) {
+        ok=false; result=Error("The page moved or changed size while capturing. Retry the screenshot.");
+      } else if (!(png=supermono::CropBrowserEditImage(source,supermono::BrowserRect{0,0,1,1},width,height))) {
+        ok=false; result=Error("Could not prepare the page image. Retry with a smaller width.");
+      } else {
+        result=Object(); result->SetString("data",Str([png base64EncodedStringWithOptions:0]));
+        result->SetString("mimeType","image/png"); result->SetInt("width",width); result->SetInt("height",height);
+        result->SetBool("visible",false);
+        result->SetInt("pageWidth",shot->size.width); result->SetInt("pageHeight",shot->size.height);
+      }
+    }
+    screenshot_running_=false;
+    if (!browser_ || closing_) { WideAnswer(shot,ok,result); [still_view_ clear:shot->still]; return; }
+    // Back to the tab's own metrics (its zoom), as after any zoom change.
+    CefRefPtr<Page> self=this;
+    wide_returning_=true;
+    shot->checks=0;
+    zoom_.Request(zoom_.factor());
+    zoom_waiters_.push_back([self,shot,ok,result](bool,Dict) {
+      if (self->browser_ && !self->closing_) self->Layout();
+      self->WideReturn(shot,ok,result,0);
+    });
+    ApplyZoom();
+  }
+  // The page is itself again once its layout width is the pane's; then its
+  // scroll position goes back. Only then does the agent get its answer, so
+  // its next capture meets the page as the user has it, and the cover comes
+  // off a frame or two later, when that layout is on screen.
+  void WideReturn(WideShotRef shot,bool ok,Dict result,int64_t wait_ms) {
+    CefRefPtr<Page> self=this;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,wait_ms*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+      const auto done=[self,shot,ok,result]() {
+        self->wide_returning_=false;
+        self->WideAnswer(shot,ok,result);
+        if (!shot->still) return;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,2*kWideReturnStepMs*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
+          [self->still_view_ clear:shot->still];
+        });
+      };
+      if (!self->browser_ || self->closing_ || !shot->measured || ++shot->checks>kWideReturnChecks) { done(); return; }
+      char restore[320];
+      snprintf(restore,sizeof restore,"(()=>{if(innerWidth!==%.17g)return JSON.stringify({back:0});"
+        "if(scrollX!==%.17g||scrollY!==%.17g)scrollTo({left:%.17g,top:%.17g,behavior:'instant'});"
+        "return JSON.stringify({back:1})})()",shot->inner_width,shot->scroll_x,shot->scroll_y,shot->scroll_x,shot->scroll_y);
+      self->WorldRead(restore,[self,shot,ok,result,done](bool read_ok,Dict read) {
+        if (read_ok && Number(read,"back")<1) { self->WideReturn(shot,ok,result,kWideReturnStepMs); return; }
+        done();
+      });
+    });
+  }
   void CaptureScreenshot(Dict params,Completion callback) {
     screenshot_running_=true;
     const bool restores_geometry=params->GetType("fromSurface")!=VTYPE_BOOL || params->GetBool("fromSurface");
@@ -2425,6 +2641,12 @@ class Page final : public CefClient, public CefLifeSpanHandler, public CefDispla
   // how long it takes to appear, in seconds.
   __strong SMBrowserShadeView *shade_view_=nil;
   double shade_=0,shade_fade_=0;
+  // What the pane showed, over the page while an agent pictures it at
+  // another width; and whether Chromium holds the view's size for that.
+  __strong SMBrowserStillView *still_view_=nil;
+  bool wide_sizes_view_=false;
+  // The page is on its way back to its pane's layout after such a capture.
+  bool wide_returning_=false;
   __strong SMBrowserAgentMarker *agent_marker_=nil;
   __strong SMBrowserEditAnnotation *edit_annotation_=nil;
   double x_=0,y_=0,w_=1,h_=1,clip_left_=0,clip_right_=0,viewport_height_=0,bottom_corner_radius_=0;

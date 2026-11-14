@@ -87,6 +87,10 @@ describe("agent browser session connection", () => {
     expect(text).toContain(
       'Take a screenshot only to judge how something looks, typically one labelled "before" and one "after" per visual change; do not screenshot just to confirm text a snapshot shows.',
     );
+    // A narrow pane is not the desktop layout; the agent can ask for one.
+    expect(text).toContain(
+      'to judge the desktop layout of a page you opened, add "width":1280 to the screenshot (320 to 1920). The user\'s pane does not change, and the result names the width in pageWidth',
+    );
     expect(text).toContain("find pages first");
     expect(text).toContain(
       "Navigating your page to another local server keeps the same page.",

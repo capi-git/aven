@@ -88,5 +88,32 @@ int main() {
   header[16] = 0; header[0] = 0;
   CHECK(!supermono::EditCapturePngDimensions(header, sizeof(header), width, height));
   CHECK(!supermono::EditCapturePngDimensions(header, 20, width, height));
+  // A page pictured at another width: whole CSS pixels within the bounds.
+  using supermono::WidePageViewport;
+  using supermono::WidePageCaptured;
+  auto desktop = WidePageViewport(1280, 800);
+  CHECK(desktop && desktop->width == 1280 && desktop->height == 800);
+  CHECK(WidePageViewport(320, 240) && WidePageViewport(1920, 2400));
+  CHECK(!WidePageViewport(319, 800) && !WidePageViewport(1921, 800));
+  CHECK(!WidePageViewport(1280, 239) && !WidePageViewport(1280, 2401));
+  CHECK(!WidePageViewport(1280.5, 800) && !WidePageViewport(1280, 800.5));
+  CHECK(!WidePageViewport(std::numeric_limits<double>::quiet_NaN(), 800));
+  CHECK(!WidePageViewport(1280, std::numeric_limits<double>::infinity()));
+  // The capture is that viewport at the display's density, to the pixel or two
+  // Chromium rounds; a pane's own size means the page was laid out mid-capture.
+  CHECK(WidePageCaptured(2560, 1600, *desktop, 2));
+  CHECK(WidePageCaptured(1280, 800, *desktop, 1));
+  CHECK(WidePageCaptured(2561, 1599, *desktop, 2));
+  CHECK(!WidePageCaptured(950, 1600, *desktop, 2));
+  CHECK(!WidePageCaptured(2560, 1200, *desktop, 2));
+  CHECK(!WidePageCaptured(1280, 800, *desktop, 2));
+  CHECK(!WidePageCaptured(2560, 1600, *desktop, 0));
+  CHECK(!WidePageCaptured(2560, 1600, {}, 2));
+  // A wide Retina capture is larger than an element capture may be; its
+  // size is still read from the header.
+  unsigned char wide[]{137,80,78,71,13,10,26,10,0,0,0,13,'I','H','D','R',0,0,15,0,0,0,9,96};
+  CHECK(supermono::PngDimensions(wide, sizeof(wide), width, height));
+  CHECK(width == 3840 && height == 2400);
+  CHECK(!supermono::EditCapturePngDimensions(wide, sizeof(wide), width, height));
   std::cout << "Element and page screenshot geometry, bounds and PNG dimensions passed\n";
 }

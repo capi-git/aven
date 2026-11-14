@@ -170,3 +170,14 @@ target_link_libraries(supermono_chromium_browser_export_check_test PRIVATE
   "-framework Cocoa" "-framework CoreGraphics" "-framework QuartzCore" "-framework ImageIO"
   "-framework IOSurface" "-framework AVFoundation" "-framework Security"
   "-framework UserNotifications")
+
+# Live: an agent's picture of a page at another width (a desktop layout from a
+# narrow pane) in the real bridge, and that the pane never shows it.
+# scripts/check-chromium-wide-shot.py builds and runs it in a throwaway bundle.
+add_executable(supermono_chromium_browser_wide_shot_check_test EXCLUDE_FROM_ALL browser_wide_shot_check_test.mm)
+target_compile_options(supermono_chromium_browser_wide_shot_check_test PRIVATE -fobjc-arc)
+target_link_libraries(supermono_chromium_browser_wide_shot_check_test PRIVATE
+  supermono_chromium_impl libcef_dll_wrapper ${CEF_STANDARD_LIBS} c++ "-Wl,-ObjC"
+  "-framework Cocoa" "-framework CoreGraphics" "-framework QuartzCore" "-framework ImageIO"
+  "-framework IOSurface" "-framework AVFoundation" "-framework Security"
+  "-framework UserNotifications")
