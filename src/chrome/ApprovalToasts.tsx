@@ -73,6 +73,7 @@ function ApprovalToastCard({
     <article
       className="approval-toast pointer-events-auto overflow-hidden aven-glass-overlay [--aven-radius-overlay:var(--aven-radius-bubble)]"
       role="status"
+      data-native-browser-occluded="true"
     >
       <button
         type="button"

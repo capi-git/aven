@@ -45,6 +45,8 @@ export function AvosNoticeCard({
       className="avos-notice pointer-events-auto overflow-hidden aven-glass-overlay [--aven-radius-overlay:var(--aven-radius-bubble)]"
       role="status"
       data-avos-notice={path}
+      // Over a live browser page, the page is cut away where the card is.
+      data-native-browser-occluded="true"
     >
       <div className="flex gap-2.5 px-3.5 pt-3">
         <CrewCritter
@@ -61,10 +63,9 @@ export function AvosNoticeCard({
             {many ? ` · ${plural(notices.length, "thing")} need you` : null}
           </span>
           {many ? null : (
-            <>
-              <br />
+            <span className="avos-notice-text" title={notices[0]?.text}>
               {notices[0]?.text}
-            </>
+            </span>
           )}
         </p>
         <button
@@ -87,7 +88,7 @@ export function AvosNoticeCard({
             <li key={notice.id} data-avos-notice-item={notice.id}>
               {many ? (
                 <span
-                  className="min-w-0 flex-1 truncate text-ui-caption text-content/80"
+                  className="avos-notice-text min-w-0 flex-1 text-ui-caption text-content/80"
                   title={notice.text}
                 >
                   {notice.text}
