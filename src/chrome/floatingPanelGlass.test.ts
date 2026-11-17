@@ -54,7 +54,6 @@ describe("in-flow glass cards on macOS", () => {
       ".settings-group-surface",
       ".settings-provider-card",
       ".aven-glass-card",
-      ".workspace-home-panel",
       ".scheduled-editor",
       ".automation-example-card",
       ".personal-activity-phase",

@@ -1,10 +1,20 @@
-import { useId } from "react";
+import { createContext, useId } from "react";
 import { Check, X } from "../chrome/icons";
 import type {
   GettingStartedCard as Card,
   GettingStartedStepId,
 } from "../lib/gettingStarted";
 import "./GettingStarted.css";
+
+/** The card and its actions while it is offered; null when it is not. */
+export type GettingStartedSlot = {
+  card: Card;
+  onStart: (step: GettingStartedStepId) => void;
+  onHide: () => void;
+} | null;
+
+/** Offered by the app; a new chat's empty screen shows the card. */
+export const GettingStartedContext = createContext<GettingStartedSlot>(null);
 
 const COUNT = ["None", "One", "Two", "Three", "Four", "Five"];
 
@@ -17,7 +27,7 @@ type Props = {
 };
 
 /**
- * Home's compact "Getting started" card: five first steps that tick
+ * The compact "Getting started" card under a new chat's message box: five first steps that tick
  * themselves, with Start on the next one. Once all five are done it says so
  * until hidden.
  */

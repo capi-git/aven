@@ -36,7 +36,6 @@ import {
 import type { Discussion } from "./discussions";
 import type { RaceRecord } from "./race";
 import { teamCompanions, type TeamMember, type TeamRun } from "./teamRuns";
-import { homeFinished, homeScope } from "./workspaceHome";
 
 const member = (
   sessionId: string,
@@ -516,11 +515,6 @@ describe("a member's own turn", () => {
     expect(sections.finished.map((row) => row.id)).toEqual([
       "chat:team:r1:ready:1",
     ]);
-    expect(
-      homeFinished(entries, homeScope([{ path: "/work/site" }], [])).map(
-        (row) => row.id,
-      ),
-    ).toEqual(["chat:team:r1:ready:1"]);
     expect(
       newTurnEnds(entries, new Set(), Date.now()).map((row) => row.id),
     ).toEqual(["chat:team:r1:ready:1"]);

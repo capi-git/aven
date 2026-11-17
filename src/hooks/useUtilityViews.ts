@@ -21,7 +21,7 @@ import { useReturnFocus } from "./useReturnFocus";
 
 /**
  * The full-screen utilities that replace the workspace (Settings, Search,
- * Inbox, Automations and Notes), the workspace Home, and the file picker.
+ * Inbox, Automations and Notes) and the file picker.
  * At most one utility is open. Opening one from the workspace remembers the
  * focused control, and leaving the last one restores it.
  */
@@ -31,7 +31,6 @@ export function useUtilityViews() {
     loadNotesEnabled,
     () => true,
   );
-  const [homeViewOpen, setHomeViewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] =
     useState<SettingsSectionId>(loadSettingsSection);
@@ -72,14 +71,13 @@ export function useUtilityViews() {
   }, []);
 
   /**
-   * Leave Home and close every utility, so the workspace, and whatever was
-   * just opened or started in it, is on screen. Actions that open or start a
-   * chat, browser or terminal from outside the workspace (the sidebar, Home,
-   * the Inbox or Notes) use this; a utility left over Home returns to Home.
+   * Close every utility, so the workspace, and whatever was just opened or
+   * started in it, is on screen. Actions that open or start a chat, browser
+   * or terminal from outside the workspace (the sidebar, the Inbox or Notes)
+   * use this.
    */
   const showWorkspace = useCallback(() => {
     closeUtilityViews();
-    setHomeViewOpen(false);
   }, [closeUtilityViews]);
 
   const captureUtilityFocus = useCallback(() => {
@@ -182,13 +180,6 @@ export function useUtilityViews() {
 
   const onOpenSettings = useCallback(() => openSettings(), [openSettings]);
 
-  const onOpenHome = useCallback(() => {
-    clearReturnFocus();
-    closeUtilityViews();
-    setFilePickerOpen(false);
-    setHomeViewOpen(true);
-  }, [clearReturnFocus, closeUtilityViews]);
-
   const onCloseSettings = useCallback(() => {
     const returnView = resolveSettingsReturnView(
       settingsReturnViewRef.current,
@@ -215,8 +206,6 @@ export function useUtilityViews() {
 
   return {
     notesEnabled,
-    homeViewOpen,
-    setHomeViewOpen,
     settingsOpen,
     setSettingsOpen,
     settingsSection,
@@ -255,6 +244,5 @@ export function useUtilityViews() {
     onOpenSettings,
     onCloseSettings,
     onSelectSettingsSection,
-    onOpenHome,
   };
 }

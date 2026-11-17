@@ -40,7 +40,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 - Heights: menu rows 26px, navigation rows 28px, buttons and tabs 24px, settings rows at least 48px.
 - Corners: use the `--aven-radius-*` tokens. Rows and controls are 6px, cards 10px, sheets 12px.
-- Each pane is its own card, as in Super Engineering: 10px corners, a faint edge, and 6px between it and the next pane or the project terminal. The gap is the divider; nothing is drawn in it. Home and Settings sit in one card. With a chat background the cards stay clear so the picture shows through.
+- Each pane is its own card, as in Super Engineering: 10px corners, a faint edge, and 6px between it and the next pane or the project terminal. The gap is the divider; nothing is drawn in it. Settings sits in one card. There is no Home page: with nothing open, Aven opens a new chat. With a chat background the cards stay clear so the picture shows through.
 - A web page has the same corners as any other pane in its place: its lower corners take its card's inner curve.
 - A resize edge shows nothing extra while pointed at or dragged: the cursor says it can be grabbed. Only keyboard focus draws a line on it.
 - Use at most one hairline per header. Rows in a list or card are split by a hairline, not by gaps and boxes.
@@ -96,7 +96,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **An agent** (Avos, a teammate, a bot, a chat) is drawn as Bot: a face of lit dots, with no box, screen or outline round it, that says what it's doing: a grey `>_` with a blinking cursor at rest (Avos shows its square eyes instead, blinking now and then; each helper its role's face), square eyes that look about while watching, narrow eyes scanning as it works, an amber `>` when it needs you, and green eyes, winking, when its work is ready. A soft glow behind the face, in the same colour, says it's working, watching, needs you (breathing) or is ready; at rest nothing glows. A done turn shows a happy `^^`, a failed one red eyes. Its face is in its project's colour (Avos, a bot, a chat) or its role's (a teammate). Its face is 13 by 9 dots at every size, its dots bolder when small so a sidebar's mark reads as the big one. A place for a helper still to come is a faint honeycomb of dots. Only agents have faces: a project's mark never stands for an agent.
 
-**Numbers** stay small. Use a few quiet tiles only in a panel's Overview. Home shows small chips, and only when the number isn't zero.
+**Numbers** stay small. Use a few quiet tiles only in a panel's Overview. Show a count only when it isn't zero.
 
 **Tools on a pane** show on hover or focus.
 

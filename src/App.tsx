@@ -92,11 +92,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
-import { WorkspaceHome } from "./surfaces/WorkspaceHome";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useProjectStatus } from "./hooks/useProjectStatus";
-import { useWorkspaceHomeData } from "./hooks/useWorkspaceHomeData";
-import { usePresenceTracking } from "./hooks/useHomeBriefing";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
 import { useSidebarData } from "./hooks/useSidebarData";
 import { useSessionModelControls } from "./hooks/useSessionModelControls";
@@ -811,6 +808,10 @@ import {
 } from "./lib/walkthrough";
 import { offerGettingStarted } from "./lib/gettingStarted";
 import type { GettingStartedStepId } from "./lib/gettingStarted";
+import {
+  GettingStartedContext,
+  type GettingStartedSlot,
+} from "./surfaces/GettingStarted";
 import { useGettingStarted } from "./hooks/useGettingStarted";
 import {
   createSampleProject,
@@ -1191,8 +1192,8 @@ export default function App({
   const walkthroughRef = useRef(walkthrough);
   walkthroughRef.current = walkthrough;
   useEffect(() => {
-    // Begun on this install: it resumes if Aven quits part way, and Home
-    // offers its Getting started card afterwards.
+    // Begun on this install: it resumes if Aven quits part way, and a new
+    // chat offers its Getting started card afterwards.
     const current = walkthroughRef.current;
     if (!current || current.started) return;
     const next = walkthroughReducer(current, { type: "start" });
@@ -1242,8 +1243,6 @@ export default function App({
   const profiles = useWorkspaceProfiles(recents, projectCwd);
   const {
     notesEnabled,
-    homeViewOpen,
-    setHomeViewOpen,
     settingsOpen,
     setSettingsOpen,
     settingsSection,
@@ -1281,7 +1280,6 @@ export default function App({
     onOpenSettings,
     onCloseSettings,
     onSelectSettingsSection,
-    onOpenHome,
   } = useUtilityViews();
   useChatConnectionsSettings(openSettings, settingsOpen);
   // Settings, Search and the other views load on request; fetch them once
@@ -2240,7 +2238,6 @@ export default function App({
     [onWorkspaceIntent],
   );
   const onNewBrowserTab = useCallback(() => {
-    setHomeViewOpen(false);
     const id = crypto.randomUUID();
     setBrowserWorkspaces((all) => ({
       ...all,
@@ -2251,7 +2248,7 @@ export default function App({
         { id, url: "" },
       ),
     }));
-  }, [projectCwd, setHomeViewOpen]);
+  }, [projectCwd]);
   const onSelectBrowserTab = useCallback(
     (surfaceId?: string) => {
       if (surfaceId && detachedIdsRef.current.has(surfaceId)) {
@@ -2264,7 +2261,6 @@ export default function App({
         if (surfaceId === undefined) onNewBrowserTab();
         return;
       }
-      setHomeViewOpen(false);
       setBrowserWorkspaces((all) => {
         const current = all[projectCwd];
         if (current?.activeTabId === target.id && current.expanded) return all;
@@ -2279,7 +2275,7 @@ export default function App({
       viewRef.current.select(browserIdForTab(projectCwd, target.id));
       setComposerFocused(false);
     },
-    [browserState, projectCwd, onNewBrowserTab, setHomeViewOpen],
+    [browserState, projectCwd, onNewBrowserTab],
   );
   const onCloseBrowserTab = useCallback(
     (surfaceId?: string) => {
@@ -2368,7 +2364,6 @@ export default function App({
   );
   const workspaceVisible =
     !profileHome &&
-    !homeViewOpen &&
     view.order.length > 0 &&
     !settingsOpen &&
     !searchViewOpen &&
@@ -2511,7 +2506,6 @@ export default function App({
     setOpenFiles(filesOpenInTabs(tabs, activeTabId));
   }, [activeTabId, tabs]);
   const leaveExpandedPreview = useCallback(() => {
-    setHomeViewOpen(false);
     setBrowserWorkspaces((all) => {
       const path = projectCwdRef.current;
       const current = all[path];
@@ -2519,7 +2513,7 @@ export default function App({
         ? { ...all, [path]: { ...current, expanded: false } }
         : all;
     });
-  }, [setHomeViewOpen]);
+  }, []);
   // Session surfaces outside the workspace tab tree, for stream flush pacing.
   const streamSurfacesRef = useRef<{
     inboxSessionId?: string;
@@ -2828,9 +2822,7 @@ export default function App({
             ? "automations"
             : notesViewOpen
               ? "notes"
-              : homeViewOpen || profileHome
-                ? "home"
-                : "workspace",
+              : "workspace",
     cwd: projectCwd,
     profileId: profiles.activeProfileId,
     surfaceId: view.focusedId,
@@ -3937,7 +3929,6 @@ export default function App({
         void detachedShowSurface.current(id, paneId);
         return;
       }
-      setHomeViewOpen(false);
       if (!restoreWorkspace) leaveExpandedPreview();
       setActiveTabId(id);
       const original = tabsRef.current.find((entry) => entry.id === id);
@@ -4090,7 +4081,6 @@ export default function App({
         if (profilesRef.current.activeProfileId !== profileId) return;
         const session = newDefaultSession(cwd);
         const tab = newTab(session.id);
-        setHomeViewOpen(false);
         closeUtilityViews();
         setProjectCwd(cwd);
         setSessions((previous) => [...previous, session]);
@@ -4141,7 +4131,6 @@ export default function App({
   }, [profileHome, onNewStandalone, onNewBrowserTab, closeUtilityViews]);
 
   const onNew = useCallback(() => {
-    setHomeViewOpen(false);
     if (profileHome) {
       void onNewStandalone();
       return;
@@ -4162,7 +4151,7 @@ export default function App({
 
   const onStartInboxItem = useCallback(
     (item: InboxItem) => {
-      // The Inbox may have been opened over Home; show the new chat.
+      // Leave the Inbox for the new chat.
       showWorkspace();
       const cwd = item.projectPath || sidebarCwd;
       const session = {
@@ -4182,7 +4171,7 @@ export default function App({
   const onAddNoteToChat = useCallback(
     (card: NoteComposerCard) => {
       if (!card.id) return;
-      // Notes may have been opened over Home; show the new chat.
+      // Leave Notes for the new chat.
       showWorkspace();
       const cwd =
         (card.sourceCwd && looksLikeProject(card.sourceCwd)
@@ -5160,7 +5149,6 @@ export default function App({
       setInboxViewOpen(place.kind === "inbox");
       setAutomationsViewOpen(place.kind === "automations");
       setNotesViewOpen(place.kind === "notes");
-      setHomeViewOpen(place.kind === "home");
       setFilePickerOpen(false);
       if (place.settingsSection && place.kind === "settings")
         setSettingsSection(place.settingsSection as SettingsSectionId);
@@ -5201,7 +5189,6 @@ export default function App({
       setInboxViewOpen,
       setAutomationsViewOpen,
       setNotesViewOpen,
-      setHomeViewOpen,
       setFilePickerOpen,
       setSettingsSection,
     ],
@@ -5708,7 +5695,6 @@ export default function App({
         surfaceId = restored.id;
         setActiveTabId(restored.id);
       }
-      setHomeViewOpen(false);
       closeUtilityViews();
       profilesRef.current.selectProfile(
         profilesRef.current.projectProfile(entry.cwd),
@@ -6424,7 +6410,6 @@ export default function App({
   const onSelectProject = useCallback(
     (path: string, restoreWorkspace = false) => {
       clearReturnFocus();
-      setHomeViewOpen(false);
       closeUtilityViews();
       const normalized = normalizeProjectPath(path);
       if (!looksLikeProject(normalized)) return;
@@ -6538,8 +6523,8 @@ export default function App({
   const startProjectChat = useCallback(
     (path: string, seed?: string): string => {
       revealProjectTask(path);
-      // The sidebar's "New chat" can be pressed over Home; the new chat has
-      // to replace it, or nothing seems to happen.
+      // The sidebar's "New chat" can be pressed over a utility view; the new
+      // chat has to replace it, or nothing seems to happen.
       showWorkspace();
       const session = seed
         ? { ...newDefaultSession(path), composerSeed: seed }
@@ -6598,10 +6583,10 @@ export default function App({
       // provider setup did; Settings can always open it again.
       if (!loadProviderSetup().finished)
         saveProviderSetup({ ...loadProviderSetup(), finished: true });
-      // Home holds the Getting started card that follows.
-      onOpenHome();
+      // A new chat holds the Getting started card that follows.
+      showWorkspace();
     },
-    [onOpenHome, showWorkspace],
+    [showWorkspace],
   );
   /** The Agents step is done: start the first chat with that provider. */
   const onWalkthroughAgents = useCallback(
@@ -6878,7 +6863,6 @@ export default function App({
 
   const onOpenWebLink = useCallback(
     async (value: string) => {
-      setHomeViewOpen(false);
       const url = normalizeBrowserUrl(value);
       if (profileHome) {
         await onNewStandalone(true, url);
@@ -6900,7 +6884,7 @@ export default function App({
       viewRef.current.focus(cwd, browserIdForTab(cwd, id));
       setComposerFocused(false);
     },
-    [profileHome, onNewStandalone, setHomeViewOpen, closeUtilityViews],
+    [profileHome, onNewStandalone, closeUtilityViews],
   );
 
   const onOpenFile = useCallback<OpenFileFn>(
@@ -8310,10 +8294,9 @@ export default function App({
       if (!bot?.on) return;
       const chat = await ensureBotChat(bot);
       if (!chat) return;
-      setHomeViewOpen(false);
       await onSelectHistorySession(chat.id);
     },
-    [ensureBotChat, onSelectHistorySession, setHomeViewOpen],
+    [ensureBotChat, onSelectHistorySession],
   );
   /**
    * A bot turned off: its chat is an ordinary chat in the project again,
@@ -9182,7 +9165,6 @@ export default function App({
   useEffect(() => {
     const show = () => {
       flushSync(() => {
-        setHomeViewOpen(false);
         leaveExpandedPreview();
         onOpenAutomations();
       });
@@ -9199,7 +9181,6 @@ export default function App({
     async (runId: string): Promise<boolean> => {
       requestAutomationRun(runId);
       flushSync(() => {
-        setHomeViewOpen(false);
         leaveExpandedPreview();
         onOpenAutomations();
       });
@@ -9213,7 +9194,7 @@ export default function App({
       }
       return true;
     },
-    [leaveExpandedPreview, onOpenAutomations, setHomeViewOpen],
+    [leaveExpandedPreview, onOpenAutomations],
   );
 
   showAutomationRunRef.current = showAutomationRun;
@@ -9256,7 +9237,6 @@ export default function App({
         flushSync(() => {
           profilesRef.current.selectProjectProfile(session.cwd);
           setProjectCwd(session.cwd);
-          setHomeViewOpen(false);
           closeUtilityViews();
           leaveExpandedPreview();
         });
@@ -10281,7 +10261,6 @@ export default function App({
             ),
           ),
       );
-      setHomeViewOpen(false);
       closeUtilityViews();
       profilesRef.current.selectProfile(
         profilesRef.current.projectProfile(cwd),
@@ -10423,7 +10402,6 @@ export default function App({
       const tab = { id: crypto.randomUUID(), url };
       // Like the pane's own new-tab button: the link's page owns the new tab.
       workspaceViews.select(id);
-      if (!background) setHomeViewOpen(false);
       setBrowserWorkspaces((all) => {
         const current = all[project] ?? EMPTY_BROWSER;
         return {
@@ -10587,7 +10565,6 @@ export default function App({
     setSessions((previous) => [...previous, session]);
     appendTab(tab, request.project);
     if (!request.background) {
-      setHomeViewOpen(false);
       leaveExpandedPreview();
       closeUtilityViews();
       if (!sameProjectPath(request.project, projectCwdRef.current)) {
@@ -10692,7 +10669,6 @@ export default function App({
     setSessions(withLanes);
     appendTab(laneTab, request.project);
     if (!origin) {
-      setHomeViewOpen(false);
       leaveExpandedPreview();
       closeUtilityViews();
       if (!sameProjectPath(request.project, projectCwdRef.current)) {
@@ -10833,7 +10809,6 @@ export default function App({
     const race = getRace(raceId);
     if (!race) return;
     flushSync(() => {
-      setHomeViewOpen(false);
       closeUtilityViews();
       leaveExpandedPreview();
       if (!sameProjectPath(race.project, projectCwdRef.current)) {
@@ -10866,7 +10841,6 @@ export default function App({
     const project = normalizeProjectPath(path ?? projectCwdRef.current);
     if (!looksLikeProject(project) || isProjectlessCwd(project)) return;
     flushSync(() => {
-      setHomeViewOpen(false);
       closeUtilityViews();
       leaveExpandedPreview();
       if (!sameProjectPath(project, projectCwdRef.current)) {
@@ -11161,7 +11135,6 @@ export default function App({
   teamActionsRef.current = {
     reviewChanges: (project) => {
       flushSync(() => {
-        setHomeViewOpen(false);
         if (!sameProjectPath(project, projectCwdRef.current)) {
           revealProjectTask(project);
           setProjectCwd(project);
@@ -11236,8 +11209,8 @@ export default function App({
     subscribeScheduledAgents,
     listScheduledAgents,
   );
-  // What each project's Avos waits on you for: its notices, the Dock badge
-  // and Home's Needs you all count these (Avos's items live in Avos).
+  // What each project's Avos waits on you for: its notices and the Dock badge
+  // count these (Avos's items live in Avos).
   const avosNeedList = useMemo<readonly AvosNeeds[]>(
     () =>
       botsAvailable()
@@ -11257,30 +11230,37 @@ export default function App({
     setDockAvosNeeds(avosNeedsCount(avosNeedList));
     syncDockBadge(sessionsRef.current);
   }, [avosNeedList, sessionsRef]);
-  const homeShown =
-    (profileHome || homeViewOpen || view.order.length === 0) &&
+  // Nothing open (a workspace without projects, or a project whose tabs all
+  // closed or moved to their own windows): open a new chat, as a new project
+  // does. It waits a tick, so a workspace being restored lands first, and
+  // tries once per place, so a failed start does not repeat. A first-run
+  // walkthrough picks the agent and project first.
+  const nothingOpenKey =
+    (profileHome || view.order.length === 0) &&
+    !walkthrough &&
+    !startingStandalone &&
     !settingsOpen &&
     !searchViewOpen &&
     !inboxViewOpen &&
     !automationsViewOpen &&
-    !notesViewOpen;
-  // When the user was last here, for Home's "While you were away" card.
-  usePresenceTracking();
-  // Built only while Home is on screen; keeps its identity across streaming
-  // flushes that change nothing it shows.
-  const homeData = useWorkspaceHomeData({
-    enabled: homeShown,
-    sessions,
-    inFlightIds: busySessionIds,
-    history,
-    activity: activityEntries,
-    projects: profiles.profileProjects,
-    standaloneCwds,
-    teams,
-    leadDecided,
-    avos: avosNeedList,
-  });
-  // Home's Getting started card, after the walkthrough on a fresh install.
+    !notesViewOpen
+      ? `${profiles.activeProfileId}\0${projectCwd}`
+      : "";
+  const openedForRef = useRef("");
+  useEffect(() => {
+    if (!nothingOpenKey) {
+      openedForRef.current = "";
+      return;
+    }
+    if (openedForRef.current === nothingOpenKey) return;
+    const timer = window.setTimeout(() => {
+      openedForRef.current = nothingOpenKey;
+      onNew();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [nothingOpenKey, onNew]);
+  // The Getting started card in a new chat, after the walkthrough on a fresh
+  // install.
   const gettingStarted = useGettingStarted({
     ready: !walkthrough,
     sessions,
@@ -11317,6 +11297,19 @@ export default function App({
       showWorkspace,
       startProjectChat,
     ],
+  );
+  const gettingStartedCard = gettingStarted.card;
+  const hideGettingStarted = gettingStarted.hide;
+  const gettingStartedSlot = useMemo<GettingStartedSlot>(
+    () =>
+      gettingStartedCard
+        ? {
+            card: gettingStartedCard,
+            onStart: onGettingStartedStart,
+            onHide: hideGettingStarted,
+          }
+        : null,
+    [gettingStartedCard, onGettingStartedStart, hideGettingStarted],
   );
   // The project boards on screen read the chats as small rows (workBoard).
   const boardOnScreen =
@@ -11399,7 +11392,7 @@ export default function App({
     },
     [closeUtilityViews, openBotChat],
   );
-  /** The project's menu and Home tile: add a bot, or open its settings. */
+  /** The project's menu: add a bot, or open its settings. */
   const onBotAction = useCallback(
     (path: string) => {
       if (getProjectBot(path)?.on) setBotSheet(path);
@@ -11607,11 +11600,10 @@ export default function App({
       if (!teammateChatReady(crew, member.id)) return firstCardChatText(name);
       const chat = await ensureCrewChat(crew, member.id);
       if (!chat) return `Couldn't open ${name}'s chat.`;
-      setHomeViewOpen(false);
       await onSelectHistorySession(chat.id);
       return null;
     },
-    [ensureCrewChat, onSelectHistorySession, openBotChat, setHomeViewOpen],
+    [ensureCrewChat, onSelectHistorySession, openBotChat],
   );
   /**
    * A helper's chat beside Avos: split the tab in front (Avos's) and put
@@ -11822,7 +11814,7 @@ export default function App({
     },
     [closeUtilityViews, onOpenBoard],
   );
-  // Every project's Avos at a glance: the sidebar's rows and Home's lines.
+  // Every project's Avos at a glance, for the sidebar's rows.
   const avosGlances = useMemo<readonly AvosGlance[]>(() => {
     if (!botsAvailable()) return NO_AVOS_GLANCES;
     const busy = new Set(
@@ -12054,9 +12046,6 @@ export default function App({
     inboxActive: inboxViewOpen,
     automationsActive: automationsViewOpen,
     notesActive: notesViewOpen,
-    // The workspace's row is its Home.
-    onOpenHome,
-    homeActive: homeShown,
     automationsUnread,
     inboxCount,
     notesEnabled,
@@ -12127,7 +12116,6 @@ export default function App({
       leaveNotes: onLeaveNotes,
     },
     motion: {
-      openHome: onOpenHome,
       showChanges: onShowSourceControl,
       hideChanges: onCloseInspector,
       showWorkspace,
@@ -12724,933 +12712,902 @@ export default function App({
     <LiveSessionsContext.Provider value={liveSessions}>
       <OrchestrationActions.Provider value={orchestrationActions}>
         <OrchestrationWorkers.Provider value={orchestrationWorkers}>
-          <div
-            className="personal-shell flex h-full text-content"
-            data-sidebar-pinned={sidebarOpen}
-            data-sidebar-card={floatingSidebar.revealed ? "open" : undefined}
-            data-unified-toolbar
-          >
-            <WorkspaceStatusBar
-              settingsView={
-                settingsOpen
-                  ? { section: settingsSection, onClose: onCloseSettings }
-                  : undefined
-              }
-              sessions={profileSessions}
-              onSelectSession={onOpenApprovalSession}
-              onToggleSidebar={onToggleSidebar}
-              sidebarOpen={sidebarOpen}
-              onSearch={onOpenSearch}
-              onNewBrowser={
-                workspaceVisible && visibleSurfaceIds.length > 0
-                  ? undefined
-                  : onGlobalNewBrowser
-              }
-              onGoBack={onRailBack}
-              onGoForward={onRailForward}
-              canGoBack={tabVisitNav.canBack}
-              canGoForward={tabVisitNav.canForward}
-              onHome={onOpenHome}
-              homeOpen={homeViewOpen || profileHome}
-              onToggleInspector={onToggleInspector}
-              inspectorOpen={inspector.open}
-              stripHost={setWindowStripHost}
-            />
-            {windowStripHost && windowStrip
-              ? createPortal(
-                  <div
-                    className="workspace-status-strip-content"
-                    data-window-drag-room
-                    onMouseDown={dragStatusBar}
-                  >
-                    {windowStrip}
-                  </div>,
-                  windowStripHost,
-                )
-              : null}
-            <div className="personal-shell-body">
-              {!sidebarOpen ? (
-                <button
-                  type="button"
-                  className="personal-panel-edge personal-panel-edge-left"
-                  aria-label="Show workspace sidebar"
-                  // Without the native sidebar layer this strip is what
-                  // reveals the sidebar, so a page at the window's edge
-                  // leaves it the pointer (browserHitMargins.ts).
-                  {...(nativeSidebar
-                    ? {}
-                    : {
-                        ...sidebarHover.edgeHandlers,
-                        "data-native-hit-margin": "",
-                      })}
-                  onClick={onToggleSidebar}
-                />
-              ) : null}
-              <Sidebar
-                key={sidebarGeneration}
-                {...sidebarProps}
-                open={
-                  nativeSidebar
-                    ? sidebarOpen && !floatingSidebar.dockHidden
-                    : sidebarHover.visible
+          <GettingStartedContext.Provider value={gettingStartedSlot}>
+            <div
+              className="personal-shell flex h-full text-content"
+              data-sidebar-pinned={sidebarOpen}
+              data-sidebar-card={floatingSidebar.revealed ? "open" : undefined}
+              data-unified-toolbar
+            >
+              <WorkspaceStatusBar
+                settingsView={
+                  settingsOpen
+                    ? { section: settingsSection, onClose: onCloseSettings }
+                    : undefined
                 }
-                floating={!sidebarOpen}
-                hoverHandlers={
-                  nativeSidebar ? undefined : sidebarHover.panelHandlers
+                sessions={profileSessions}
+                onSelectSession={onOpenApprovalSession}
+                onToggleSidebar={onToggleSidebar}
+                sidebarOpen={sidebarOpen}
+                onSearch={onOpenSearch}
+                onNewBrowser={
+                  workspaceVisible && visibleSurfaceIds.length > 0
+                    ? undefined
+                    : onGlobalNewBrowser
                 }
+                onGoBack={onRailBack}
+                onGoForward={onRailForward}
+                canGoBack={tabVisitNav.canBack}
+                canGoForward={tabVisitNav.canForward}
+                onToggleInspector={onToggleInspector}
+                inspectorOpen={inspector.open}
+                stripHost={setWindowStripHost}
               />
-
-              <div
-                className="personal-workspace-column"
-                data-settings-open={settingsOpen}
-              >
-                <div className="personal-workspace-body">
-                  <div
-                    className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col"
-                    // Panes are cards of their own; Home and Settings sit in
-                    // the one card.
-                    data-panes={(workspaceVisible && !homeShown) || undefined}
-                  >
-                    {homeShown ? (
-                      <WorkspaceHome
-                        profile={profiles.activeProfile.name}
-                        needsYou={homeData.needsYou}
-                        running={homeData.running}
-                        projects={homeData.projects}
-                        recent={homeData.recent}
-                        finished={homeData.finished}
-                        activeDays={homeData.activeDays}
-                        projectStatus={projectStatus}
-                        usageProviders={usageProviders}
-                        windows={detached.windows}
-                        onShowWindow={(id) => {
-                          void detached
-                            .show(id)
-                            .catch((error) =>
-                              message(String(error), { kind: "error" }),
-                            );
-                        }}
-                        onReturnWindow={(id) => {
-                          void detached
-                            .returnWindow(id)
-                            .catch((error) =>
-                              message(String(error), { kind: "error" }),
-                            );
-                        }}
-                        starting={startingStandalone}
-                        onNew={() => void onNewStandalone()}
-                        onBrowser={() => void onNewStandalone(true)}
-                        onProject={onSelectProject}
-                        onSession={(id) => {
-                          setHomeViewOpen(false);
-                          void onSelectHistorySession(id);
-                        }}
-                        onNewProjectTask={onNewProjectTask}
-                        onOpenBoard={onOpenBoard}
-                        avos={avosGlances}
-                        onOpenAvos={(path) => {
-                          setHomeViewOpen(false);
-                          onOpenAvos(path);
-                        }}
-                        bots={sidebarBots}
-                        onOpenBot={onOpenBot}
-                        onBotSettings={onBotAction}
-                        onAddProject={pickProject}
-                        onSearch={onOpenSearch}
-                        onLoadProjects={(paths) => {
-                          for (const path of paths)
-                            void refreshProfileHistory(path);
-                        }}
-                        gettingStarted={gettingStarted.card}
-                        onGettingStartedStart={onGettingStartedStart}
-                        onGettingStartedHide={gettingStarted.hide}
-                      />
-                    ) : null}
+              {windowStripHost && windowStrip
+                ? createPortal(
                     <div
-                      className="personal-workspace-content flex min-h-0 min-w-0 flex-1 flex-col"
-                      hidden={!workspaceVisible}
-                      aria-hidden={!workspaceVisible}
-                      inert={!workspaceVisible || undefined}
+                      className="workspace-status-strip-content"
+                      data-window-drag-room
+                      onMouseDown={dragStatusBar}
                     >
-                      {!IS_MAC ? (
-                        <MenuBar
-                          onNew={onNew}
-                          onNewTerminal={onNewTerminal}
-                          onToggleTerminal={onToggleProjectTerminal}
-                          onGoToFile={onGoToFile}
-                          onToggleSidebar={onToggleSidebar}
-                          onShowSourceControl={onToggleChanges}
-                          onCloseCurrentTab={
-                            browserExpanded
-                              ? () => onCloseBrowserTab(view.focusedId)
-                              : activeTabId
-                                ? () => onCloseTab(activeTabId)
-                                : undefined
-                          }
-                          onCloseOtherTabs={onCloseOtherTabs}
-                          onPickProject={pickProject}
-                          onFindInProject={onFindInProject}
-                          onSearch={onOpenSearch}
-                          onOpenInbox={onOpenInbox}
-                          onOpenAutomations={onOpenAutomations}
-                          onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-                          onZoomIn={() => {
-                            const next = saveUiScale(
-                              zoomInUiScale(loadUiScale()),
-                            );
-                            void applyUiScale(next);
-                          }}
-                          onZoomOut={() => {
-                            const next = saveUiScale(
-                              zoomOutUiScale(loadUiScale()),
-                            );
-                            void applyUiScale(next);
-                          }}
-                          onZoomReset={() => {
-                            saveUiScale(UI_SCALE_DEFAULT);
-                            void applyUiScale(UI_SCALE_DEFAULT);
-                          }}
-                        />
-                      ) : null}
+                      {windowStrip}
+                    </div>,
+                    windowStripHost,
+                  )
+                : null}
+              <div className="personal-shell-body">
+                {!sidebarOpen ? (
+                  <button
+                    type="button"
+                    className="personal-panel-edge personal-panel-edge-left"
+                    aria-label="Show workspace sidebar"
+                    // Without the native sidebar layer this strip is what
+                    // reveals the sidebar, so a page at the window's edge
+                    // leaves it the pointer (browserHitMargins.ts).
+                    {...(nativeSidebar
+                      ? {}
+                      : {
+                          ...sidebarHover.edgeHandlers,
+                          "data-native-hit-margin": "",
+                        })}
+                    onClick={onToggleSidebar}
+                  />
+                ) : null}
+                <Sidebar
+                  key={sidebarGeneration}
+                  {...sidebarProps}
+                  open={
+                    nativeSidebar
+                      ? sidebarOpen && !floatingSidebar.dockHidden
+                      : sidebarHover.visible
+                  }
+                  floating={!sidebarOpen}
+                  hoverHandlers={
+                    nativeSidebar ? undefined : sidebarHover.panelHandlers
+                  }
+                />
 
-                      <main className="relative min-h-0 min-w-0 flex-1">
-                        <div
-                          ref={dockGridRef}
-                          className="absolute inset-0 grid h-full min-h-0 min-w-0"
-                        >
-                          {projectTerminals.map((dock) => {
-                            const show =
-                              dock.open &&
-                              sameProjectPath(dock.projectPath, projectCwd);
-                            return (
-                              <div
-                                key={dock.projectPath}
-                                className={
-                                  show
-                                    ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
-                                    : "hidden"
+                <div
+                  className="personal-workspace-column"
+                  data-settings-open={settingsOpen}
+                >
+                  <div className="personal-workspace-body">
+                    <div
+                      className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col"
+                      // Panes are cards of their own; Settings sits in the one
+                      // card.
+                      data-panes={workspaceVisible || undefined}
+                    >
+                      <div
+                        className="personal-workspace-content flex min-h-0 min-w-0 flex-1 flex-col"
+                        hidden={!workspaceVisible}
+                        aria-hidden={!workspaceVisible}
+                        inert={!workspaceVisible || undefined}
+                      >
+                        {!IS_MAC ? (
+                          <MenuBar
+                            onNew={onNew}
+                            onNewTerminal={onNewTerminal}
+                            onToggleTerminal={onToggleProjectTerminal}
+                            onGoToFile={onGoToFile}
+                            onToggleSidebar={onToggleSidebar}
+                            onShowSourceControl={onToggleChanges}
+                            onCloseCurrentTab={
+                              browserExpanded
+                                ? () => onCloseBrowserTab(view.focusedId)
+                                : activeTabId
+                                  ? () => onCloseTab(activeTabId)
+                                  : undefined
+                            }
+                            onCloseOtherTabs={onCloseOtherTabs}
+                            onPickProject={pickProject}
+                            onFindInProject={onFindInProject}
+                            onSearch={onOpenSearch}
+                            onOpenInbox={onOpenInbox}
+                            onOpenAutomations={onOpenAutomations}
+                            onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+                            onZoomIn={() => {
+                              const next = saveUiScale(
+                                zoomInUiScale(loadUiScale()),
+                              );
+                              void applyUiScale(next);
+                            }}
+                            onZoomOut={() => {
+                              const next = saveUiScale(
+                                zoomOutUiScale(loadUiScale()),
+                              );
+                              void applyUiScale(next);
+                            }}
+                            onZoomReset={() => {
+                              saveUiScale(UI_SCALE_DEFAULT);
+                              void applyUiScale(UI_SCALE_DEFAULT);
+                            }}
+                          />
+                        ) : null}
+
+                        <main className="relative min-h-0 min-w-0 flex-1">
+                          <div
+                            ref={dockGridRef}
+                            className="absolute inset-0 grid h-full min-h-0 min-w-0"
+                          >
+                            {projectTerminals.map((dock) => {
+                              const show =
+                                dock.open &&
+                                sameProjectPath(dock.projectPath, projectCwd);
+                              return (
+                                <div
+                                  key={dock.projectPath}
+                                  className={
+                                    show
+                                      ? "h-full min-h-0 min-w-0 w-full overflow-hidden"
+                                      : "hidden"
+                                  }
+                                  style={
+                                    show ? { gridArea: "dock" } : undefined
+                                  }
+                                  aria-hidden={!show}
+                                >
+                                  <ProjectTerminalDock
+                                    dock={dock}
+                                    presented={show && workspaceVisible}
+                                    focused={show && projectTerminalFocused}
+                                    onFocus={focusProjectTerminal}
+                                    onHide={onHideProjectTerminal}
+                                    onSideChange={onProjectTerminalSide}
+                                    onSizePaint={paintDockSize}
+                                    onSizeCommit={commitDockSize}
+                                    onAddTerminal={onNewTerminal}
+                                    onSelectTerminal={onSelectProjectTerminal}
+                                    onCloseTerminal={onCloseProjectTerminal}
+                                    onReorderTerminals={
+                                      onReorderProjectTerminals
+                                    }
+                                    onTerminalMetaChange={onTerminalMetaChange}
+                                  />
+                                </div>
+                              );
+                            })}
+                            <div
+                              className="relative min-h-0 min-w-0"
+                              style={{ gridArea: "main" }}
+                            >
+                              {/* Tabs stay in each pane's own header, one pane or
+                              several, so the window toolbar stays clean. */}
+                              <MainWorkspaceStage
+                                headers={visibleSurfaceIds
+                                  // One header per pane, naming its tab once
+                                  // (paneTitleRow).
+                                  .filter((owner) => titleRowOf(owner).row)
+                                  .map((owner) => ({
+                                    id: owner,
+                                    key: workspaceHeaderKeys[owner],
+                                    content: paneBar(owner, {
+                                      variant: "title",
+                                      stackOnStrip: !spaceMode,
+                                      frontNamedBelow: splitTabIds.has(owner),
+                                      frontOwnHeader: titleRowOf(owner).lend,
+                                      frontNamed: frontNamed(owner),
+                                      onDropOnStrip,
+                                      // A tab let go on the middle of one of
+                                      // this pane's tabs, from any bar, stands
+                                      // beside it in a pane of its own.
+                                      onPairTabs: (target, dragged) =>
+                                        onWorkspaceIntent({
+                                          type: "pair",
+                                          id: dragged,
+                                          target,
+                                        }),
+                                      ...paneTitleTools(owner),
+                                    }),
+                                  }))}
+                                layout={view.layout}
+                                focusedId={view.focusedId}
+                                visible={workspaceVisible}
+                                onFocus={(id) => {
+                                  if (id === view.focusedId) return;
+                                  if (
+                                    browserSurfaces.some(
+                                      (tab) => tab.surfaceId === id,
+                                    )
+                                  )
+                                    onSelectBrowserTab(id);
+                                  else {
+                                    workspaceViews.select(id);
+                                    activateTab(id);
+                                  }
+                                }}
+                                onLayoutChange={(layout) =>
+                                  onWorkspaceIntent({ type: "resize", layout })
                                 }
-                                style={show ? { gridArea: "dock" } : undefined}
-                                aria-hidden={!show}
+                                onMinimizeSide={(split, index, side) =>
+                                  onWorkspaceIntent({
+                                    type: "minimize",
+                                    split,
+                                    index,
+                                    side,
+                                  })
+                                }
+                                hideInMenu
+                                onRestoreSplit={
+                                  view.restoreView
+                                    ? () =>
+                                        onWorkspaceIntent({ type: "restore" })
+                                    : undefined
+                                }
+                                restoreEdge={view.minimizedEdge}
+                                restoreStatus={restoreStatus}
+                                zoomedId={
+                                  paneZoomed && !view.minimizedEdge
+                                    ? (visibleSurfaceIds[0] ?? null)
+                                    : null
+                                }
+                                arrangement={{
+                                  key: `${projectCwd}\n${strip.front}`,
+                                  step: arrangementStep,
+                                }}
+                                glide={paneGlide}
+                                paneMinimum={(id) => {
+                                  if (browserSurfaceIds.has(id))
+                                    return PANE_MIN_PX.page;
+                                  const tab = tabs.find(
+                                    (entry) => entry.id === id,
+                                  );
+                                  return PANE_MIN_PX[
+                                    tab ? workspaceTabPaneKind(tab) : "file"
+                                  ];
+                                }}
+                                railContent={(owner) => {
+                                  const members = view.groups[owner] ?? [owner];
+                                  return paneRailContent({
+                                    members,
+                                    front: owner,
+                                    tabs: new Map(
+                                      titleTabs
+                                        .filter((tab) =>
+                                          members.includes(tab.id),
+                                        )
+                                        .map((tab) => [
+                                          tab.id,
+                                          {
+                                            busy: tab.busyHarnesses.length > 0,
+                                            needsYou: !!tab.needsInput,
+                                            chat: tab.harnesses.length > 0,
+                                          },
+                                        ]),
+                                    ),
+                                    pages: new Map(
+                                      browserTabsFor(members).map((page) => [
+                                        page.id,
+                                        page,
+                                      ]),
+                                    ),
+                                    project: projectCwd,
+                                    identity: (id) => {
+                                      const tab = titleTabs.find(
+                                        (entry) => entry.id === id,
+                                      );
+                                      return tab ? (
+                                        <TabIdentity tab={tab} active />
+                                      ) : null;
+                                    },
+                                    pageIcon: (favicon) => (
+                                      <BrowserTabIcon favicon={favicon} />
+                                    ),
+                                    labelOf: (id) => {
+                                      const tab = titleTabs.find(
+                                        (entry) => entry.id === id,
+                                      );
+                                      return tab
+                                        ? splitSegmentLabel({ id, tab })
+                                        : "Tab";
+                                    },
+                                  });
+                                }}
+                                onRestoreRail={(id) =>
+                                  onWorkspaceIntent({ type: "unrail", id })
+                                }
+                                focusRail={railFocus}
+                                landed={paneLanding}
+                                dragLabel="Move tab"
+                                surfaces={[
+                                  ...tabs
+                                    .filter((tab) => !detachedIds.has(tab.id))
+                                    .map((tab) => ({
+                                      id: tab.id,
+                                      content: (
+                                        <PaneTree
+                                          {...sessionPaneProps}
+                                          visible={
+                                            visibleSurfaceIds.includes(
+                                              tab.id,
+                                            ) && workspaceVisible
+                                          }
+                                          layout={tab.layout}
+                                          paneHeaderId={tab.id}
+                                          namedAbove={namedAboveIds.has(tab.id)}
+                                          sessions={sessions}
+                                          editorPanes={[
+                                            ...tab.editorPanes,
+                                            ...(tab.terminalPanes ?? []),
+                                          ]}
+                                          dirtyFileIds={dirtyFiles}
+                                          fileErrorCounts={fileErrorCounts}
+                                          focusedId={
+                                            tab.id === view.focusedId &&
+                                            workspaceVisible &&
+                                            !tab.diffFocused &&
+                                            !projectTerminalFocused
+                                              ? tab.focusedId
+                                              : ""
+                                          }
+                                          addToChatSessionId={
+                                            tab.id === activeTabId
+                                              ? active?.id
+                                              : undefined
+                                          }
+                                          composerFocused={
+                                            composerFocused &&
+                                            tab.id === view.focusedId &&
+                                            workspaceVisible &&
+                                            !projectTerminalFocused
+                                          }
+                                          onSelectFile={onSelectFileSurface}
+                                          onCloseFile={onCloseFile}
+                                          onReorderFiles={onReorderFiles}
+                                          onAddFileToChat={onAddFileToChat}
+                                          onFileDirtyChange={onFileDirtyChange}
+                                          onFileErrorCountChange={
+                                            onFileErrorCountChange
+                                          }
+                                          onRatio={(splitId, index, ratio) =>
+                                            onRatio(
+                                              tab.id,
+                                              splitId,
+                                              index,
+                                              ratio,
+                                            )
+                                          }
+                                          editorNavigation={editorNavigation}
+                                          onUpdatePlan={onUpdatePlan}
+                                          onMovePane={onMovePane}
+                                          onTerminalMetaChange={
+                                            onTerminalMetaChange
+                                          }
+                                        />
+                                      ),
+                                    })),
+                                  ...Object.entries(browserWorkspaces).flatMap(
+                                    ([project, state]) => {
+                                      const current =
+                                        normalizeBrowserWorkspace(state);
+                                      return current.open
+                                        ? current.tabs
+                                            .filter(
+                                              (tab) =>
+                                                !detachedIds.has(
+                                                  browserIdForTab(
+                                                    project,
+                                                    tab.id,
+                                                  ),
+                                                ),
+                                            )
+                                            .map((tab) => {
+                                              const id = browserIdForTab(
+                                                project,
+                                                tab.id,
+                                              );
+                                              return {
+                                                id,
+                                                content: (
+                                                  <WorkspaceBrowserSurface
+                                                    id={id}
+                                                    project={project}
+                                                    tabId={tab.id}
+                                                    url={tab.url}
+                                                    profile={tab.profile}
+                                                    attachedNativeId={
+                                                      detached.nativeBrowserIds[
+                                                        id
+                                                      ]
+                                                    }
+                                                    agentRequested={agentBrowserSurfaces.has(
+                                                      id,
+                                                    )}
+                                                    visible={
+                                                      project === projectCwd &&
+                                                      workspaceVisible &&
+                                                      visibleSurfaceIds.includes(
+                                                        id,
+                                                      )
+                                                    }
+                                                    expanded={
+                                                      visibleSurfaceIds.length ===
+                                                      1
+                                                    }
+                                                    headerLent={browserHeaderLent(
+                                                      id,
+                                                    )}
+                                                    actions={
+                                                      browserSurfaceActions
+                                                    }
+                                                  />
+                                                ),
+                                              };
+                                            })
+                                        : [];
+                                    },
+                                  ),
+                                ]}
+                              />
+                            </div>
+                          </div>
+                        </main>
+                      </div>
+                      {searchViewOpen ? (
+                        <LazyViewSlot label="search">
+                          <SearchView
+                            open
+                            cwd={sidebarCwd}
+                            recents={recents}
+                            history={projectHistory}
+                            sessions={sessions.filter(
+                              (session) => !session.inboxAsk,
+                            )}
+                            focusToken={searchViewFocusToken}
+                            // The window toolbar above holds the traffic
+                            // lights and the sidebar toggle.
+                            besideRail
+                            onClose={onLeaveSearch}
+                            onOpenFile={onOpenFile}
+                            onOpenSession={onSelectHistorySession}
+                            onOpenProject={onSelectProject}
+                          />
+                        </LazyViewSlot>
+                      ) : null}
+                      <div className="hidden" aria-hidden>
+                        {sessions
+                          .filter((session) => session.inboxAsk)
+                          .map((session) => {
+                            const visible =
+                              inboxViewOpen &&
+                              inboxAskPortal?.sessionId === session.id;
+                            return (
+                              <SessionSurface
+                                key={session.id}
+                                host={visible ? inboxAskPortal.host : undefined}
                               >
-                                <ProjectTerminalDock
-                                  dock={dock}
-                                  presented={show && workspaceVisible}
-                                  focused={show && projectTerminalFocused}
-                                  onFocus={focusProjectTerminal}
-                                  onHide={onHideProjectTerminal}
-                                  onSideChange={onProjectTerminalSide}
-                                  onSizePaint={paintDockSize}
-                                  onSizeCommit={commitDockSize}
-                                  onAddTerminal={onNewTerminal}
-                                  onSelectTerminal={onSelectProjectTerminal}
-                                  onCloseTerminal={onCloseProjectTerminal}
-                                  onReorderTerminals={onReorderProjectTerminals}
-                                  onTerminalMetaChange={onTerminalMetaChange}
+                                <SessionPane
+                                  {...sessionPaneProps}
+                                  session={session}
+                                  visible={visible}
+                                  focused={visible}
+                                  inSplit={false}
+                                  composerFocused={composerFocused}
                                 />
-                              </div>
+                              </SessionSurface>
                             );
                           })}
-                          <div
-                            className="relative min-h-0 min-w-0"
-                            style={{ gridArea: "main" }}
-                          >
-                            {/* Tabs stay in each pane's own header, one pane or
-                              several, so the window toolbar stays clean. */}
-                            <MainWorkspaceStage
-                              headers={visibleSurfaceIds
-                                // One header per pane, naming its tab once
-                                // (paneTitleRow).
-                                .filter((owner) => titleRowOf(owner).row)
-                                .map((owner) => ({
-                                  id: owner,
-                                  key: workspaceHeaderKeys[owner],
-                                  content: paneBar(owner, {
-                                    variant: "title",
-                                    stackOnStrip: !spaceMode,
-                                    frontNamedBelow: splitTabIds.has(owner),
-                                    frontOwnHeader: titleRowOf(owner).lend,
-                                    frontNamed: frontNamed(owner),
-                                    onDropOnStrip,
-                                    // A tab let go on the middle of one of
-                                    // this pane's tabs, from any bar, stands
-                                    // beside it in a pane of its own.
-                                    onPairTabs: (target, dragged) =>
-                                      onWorkspaceIntent({
-                                        type: "pair",
-                                        id: dragged,
-                                        target,
-                                      }),
-                                    ...paneTitleTools(owner),
-                                  }),
-                                }))}
-                              layout={view.layout}
-                              focusedId={view.focusedId}
-                              visible={workspaceVisible}
-                              onFocus={(id) => {
-                                if (id === view.focusedId) return;
-                                if (
-                                  browserSurfaces.some(
-                                    (tab) => tab.surfaceId === id,
-                                  )
-                                )
-                                  onSelectBrowserTab(id);
-                                else {
-                                  workspaceViews.select(id);
-                                  activateTab(id);
-                                }
-                              }}
-                              onLayoutChange={(layout) =>
-                                onWorkspaceIntent({ type: "resize", layout })
-                              }
-                              onMinimizeSide={(split, index, side) =>
-                                onWorkspaceIntent({
-                                  type: "minimize",
-                                  split,
-                                  index,
-                                  side,
-                                })
-                              }
-                              hideInMenu
-                              onRestoreSplit={
-                                view.restoreView
-                                  ? () => onWorkspaceIntent({ type: "restore" })
-                                  : undefined
-                              }
-                              restoreEdge={view.minimizedEdge}
-                              restoreStatus={restoreStatus}
-                              zoomedId={
-                                paneZoomed && !view.minimizedEdge
-                                  ? (visibleSurfaceIds[0] ?? null)
-                                  : null
-                              }
-                              arrangement={{
-                                key: `${projectCwd}\n${strip.front}`,
-                                step: arrangementStep,
-                              }}
-                              glide={paneGlide}
-                              paneMinimum={(id) => {
-                                if (browserSurfaceIds.has(id))
-                                  return PANE_MIN_PX.page;
-                                const tab = tabs.find(
-                                  (entry) => entry.id === id,
-                                );
-                                return PANE_MIN_PX[
-                                  tab ? workspaceTabPaneKind(tab) : "file"
-                                ];
-                              }}
-                              railContent={(owner) => {
-                                const members = view.groups[owner] ?? [owner];
-                                return paneRailContent({
-                                  members,
-                                  front: owner,
-                                  tabs: new Map(
-                                    titleTabs
-                                      .filter((tab) => members.includes(tab.id))
-                                      .map((tab) => [
-                                        tab.id,
-                                        {
-                                          busy: tab.busyHarnesses.length > 0,
-                                          needsYou: !!tab.needsInput,
-                                          chat: tab.harnesses.length > 0,
-                                        },
-                                      ]),
-                                  ),
-                                  pages: new Map(
-                                    browserTabsFor(members).map((page) => [
-                                      page.id,
-                                      page,
-                                    ]),
-                                  ),
-                                  project: projectCwd,
-                                  identity: (id) => {
-                                    const tab = titleTabs.find(
-                                      (entry) => entry.id === id,
-                                    );
-                                    return tab ? (
-                                      <TabIdentity tab={tab} active />
-                                    ) : null;
-                                  },
-                                  pageIcon: (favicon) => (
-                                    <BrowserTabIcon favicon={favicon} />
-                                  ),
-                                  labelOf: (id) => {
-                                    const tab = titleTabs.find(
-                                      (entry) => entry.id === id,
-                                    );
-                                    return tab
-                                      ? splitSegmentLabel({ id, tab })
-                                      : "Tab";
-                                  },
-                                });
-                              }}
-                              onRestoreRail={(id) =>
-                                onWorkspaceIntent({ type: "unrail", id })
-                              }
-                              focusRail={railFocus}
-                              landed={paneLanding}
-                              dragLabel="Move tab"
-                              surfaces={[
-                                ...tabs
-                                  .filter((tab) => !detachedIds.has(tab.id))
-                                  .map((tab) => ({
-                                    id: tab.id,
-                                    content: (
-                                      <PaneTree
-                                        {...sessionPaneProps}
-                                        visible={
-                                          visibleSurfaceIds.includes(tab.id) &&
-                                          workspaceVisible
-                                        }
-                                        layout={tab.layout}
-                                        paneHeaderId={tab.id}
-                                        namedAbove={namedAboveIds.has(tab.id)}
-                                        sessions={sessions}
-                                        editorPanes={[
-                                          ...tab.editorPanes,
-                                          ...(tab.terminalPanes ?? []),
-                                        ]}
-                                        dirtyFileIds={dirtyFiles}
-                                        fileErrorCounts={fileErrorCounts}
-                                        focusedId={
-                                          tab.id === view.focusedId &&
-                                          workspaceVisible &&
-                                          !tab.diffFocused &&
-                                          !projectTerminalFocused
-                                            ? tab.focusedId
-                                            : ""
-                                        }
-                                        addToChatSessionId={
-                                          tab.id === activeTabId
-                                            ? active?.id
-                                            : undefined
-                                        }
-                                        composerFocused={
-                                          composerFocused &&
-                                          tab.id === view.focusedId &&
-                                          workspaceVisible &&
-                                          !projectTerminalFocused
-                                        }
-                                        onSelectFile={onSelectFileSurface}
-                                        onCloseFile={onCloseFile}
-                                        onReorderFiles={onReorderFiles}
-                                        onAddFileToChat={onAddFileToChat}
-                                        onFileDirtyChange={onFileDirtyChange}
-                                        onFileErrorCountChange={
-                                          onFileErrorCountChange
-                                        }
-                                        onRatio={(splitId, index, ratio) =>
-                                          onRatio(tab.id, splitId, index, ratio)
-                                        }
-                                        editorNavigation={editorNavigation}
-                                        onUpdatePlan={onUpdatePlan}
-                                        onMovePane={onMovePane}
-                                        onTerminalMetaChange={
-                                          onTerminalMetaChange
-                                        }
-                                      />
-                                    ),
-                                  })),
-                                ...Object.entries(browserWorkspaces).flatMap(
-                                  ([project, state]) => {
-                                    const current =
-                                      normalizeBrowserWorkspace(state);
-                                    return current.open
-                                      ? current.tabs
-                                          .filter(
-                                            (tab) =>
-                                              !detachedIds.has(
-                                                browserIdForTab(
-                                                  project,
-                                                  tab.id,
-                                                ),
-                                              ),
-                                          )
-                                          .map((tab) => {
-                                            const id = browserIdForTab(
-                                              project,
-                                              tab.id,
-                                            );
-                                            return {
-                                              id,
-                                              content: (
-                                                <WorkspaceBrowserSurface
-                                                  id={id}
-                                                  project={project}
-                                                  tabId={tab.id}
-                                                  url={tab.url}
-                                                  profile={tab.profile}
-                                                  attachedNativeId={
-                                                    detached.nativeBrowserIds[
-                                                      id
-                                                    ]
-                                                  }
-                                                  agentRequested={agentBrowserSurfaces.has(
-                                                    id,
-                                                  )}
-                                                  visible={
-                                                    project === projectCwd &&
-                                                    workspaceVisible &&
-                                                    visibleSurfaceIds.includes(
-                                                      id,
-                                                    )
-                                                  }
-                                                  expanded={
-                                                    visibleSurfaceIds.length ===
-                                                    1
-                                                  }
-                                                  headerLent={browserHeaderLent(
-                                                    id,
-                                                  )}
-                                                  actions={
-                                                    browserSurfaceActions
-                                                  }
-                                                />
-                                              ),
-                                            };
-                                          })
-                                      : [];
-                                  },
-                                ),
-                              ]}
-                            />
-                          </div>
-                        </div>
-                      </main>
+                      </div>
+                      {inboxViewOpen ? (
+                        <LazyViewSlot label="inbox">
+                          <InboxView
+                            cwd={sidebarCwd}
+                            recents={recents}
+                            // The window toolbar above holds the traffic
+                            // lights and the sidebar toggle.
+                            besideRail
+                            onClose={onLeaveInbox}
+                            onStart={onStartInboxItem}
+                            onAsk={onAskInboxItem}
+                            onAskRestart={onRestartInboxAsk}
+                            onAskMount={setInboxAskPortal}
+                            onReviewAction={(run) =>
+                              automationReviewActionRef.current(run)
+                            }
+                            onOpenAutomationRun={(id) =>
+                              void showAutomationRun(id)
+                            }
+                            onOpenConnections={() =>
+                              openSettings("connections")
+                            }
+                          />
+                        </LazyViewSlot>
+                      ) : null}
+                      {automationsViewOpen ? (
+                        <LazyViewSlot label="automations">
+                          <AutomationsView
+                            cwd={sidebarCwd}
+                            recents={recents}
+                            // The window toolbar above holds the traffic
+                            // lights and the sidebar toggle.
+                            besideRail
+                            onClose={onLeaveAutomations}
+                            onRunAutomation={(agent) =>
+                              startScheduledAgentRef.current(agent)
+                            }
+                            onArchiveRunChat={(id) =>
+                              onRemoveHistorySession(id, "archive")
+                            }
+                            onOpenRunAsChat={onOpenRunAsChat}
+                            onApproval={onApproval}
+                            onStopRun={onStop}
+                            onReviewAction={(run) =>
+                              automationReviewActionRef.current(run)
+                            }
+                            onOpenConnections={() =>
+                              openSettings("connections")
+                            }
+                          />
+                        </LazyViewSlot>
+                      ) : null}
+                      {notesViewOpen ? (
+                        <LazyViewSlot label="notes">
+                          <NotesView
+                            // The window toolbar above holds the traffic
+                            // lights and the sidebar toggle.
+                            besideRail
+                            cwd={projectCwd}
+                            onClose={onLeaveNotes}
+                          />
+                        </LazyViewSlot>
+                      ) : null}
+                      {settingsOpen ? (
+                        <LazyViewSlot label="Settings">
+                          <SettingsView
+                            section={settingsSection}
+                            onSelectSection={onSelectSettingsSection}
+                            workspaceName={profiles.activeProfile.name}
+                            cwd={sidebarCwd}
+                            sessions={sidebarHistory}
+                            besideRail={sidebarOpen}
+                            onClose={onCloseSettings}
+                            onOpenSession={onOpenArchivedSession}
+                            onArchiveSession={onArchiveHistorySession}
+                            onDeleteSession={onDeleteHistorySession}
+                            onRestoreProject={onRestoreProject}
+                            onDeleteProject={(path) =>
+                              onRemoveProject(path, { purgeData: true })
+                            }
+                            onOpenWhatsNew={onOpenWhatsNew}
+                            onTakeTour={startTour}
+                          />
+                        </LazyViewSlot>
+                      ) : null}
                     </div>
-                    {searchViewOpen ? (
-                      <LazyViewSlot label="search">
-                        <SearchView
-                          open
-                          cwd={sidebarCwd}
-                          recents={recents}
-                          history={projectHistory}
-                          sessions={sessions.filter(
-                            (session) => !session.inboxAsk,
-                          )}
-                          focusToken={searchViewFocusToken}
-                          // The window toolbar above holds the traffic
-                          // lights and the sidebar toggle.
-                          besideRail
-                          onClose={onLeaveSearch}
-                          onOpenFile={onOpenFile}
-                          onOpenSession={onSelectHistorySession}
-                          onOpenProject={onSelectProject}
-                        />
-                      </LazyViewSlot>
-                    ) : null}
-                    <div className="hidden" aria-hidden>
-                      {sessions
-                        .filter((session) => session.inboxAsk)
-                        .map((session) => {
-                          const visible =
-                            inboxViewOpen &&
-                            inboxAskPortal?.sessionId === session.id;
-                          return (
-                            <SessionSurface
-                              key={session.id}
-                              host={visible ? inboxAskPortal.host : undefined}
-                            >
-                              <SessionPane
-                                {...sessionPaneProps}
-                                session={session}
-                                visible={visible}
-                                focused={visible}
-                                inSplit={false}
-                                composerFocused={composerFocused}
-                              />
-                            </SessionSurface>
-                          );
-                        })}
-                    </div>
-                    {inboxViewOpen ? (
-                      <LazyViewSlot label="inbox">
-                        <InboxView
-                          cwd={sidebarCwd}
-                          recents={recents}
-                          // The window toolbar above holds the traffic
-                          // lights and the sidebar toggle.
-                          besideRail
-                          onClose={onLeaveInbox}
-                          onStart={onStartInboxItem}
-                          onAsk={onAskInboxItem}
-                          onAskRestart={onRestartInboxAsk}
-                          onAskMount={setInboxAskPortal}
-                          onReviewAction={(run) =>
-                            automationReviewActionRef.current(run)
-                          }
-                          onOpenAutomationRun={(id) =>
-                            void showAutomationRun(id)
-                          }
-                          onOpenConnections={() => openSettings("connections")}
-                        />
-                      </LazyViewSlot>
-                    ) : null}
-                    {automationsViewOpen ? (
-                      <LazyViewSlot label="automations">
-                        <AutomationsView
-                          cwd={sidebarCwd}
-                          recents={recents}
-                          // The window toolbar above holds the traffic
-                          // lights and the sidebar toggle.
-                          besideRail
-                          onClose={onLeaveAutomations}
-                          onRunAutomation={(agent) =>
-                            startScheduledAgentRef.current(agent)
-                          }
-                          onArchiveRunChat={(id) =>
-                            onRemoveHistorySession(id, "archive")
-                          }
-                          onOpenRunAsChat={onOpenRunAsChat}
-                          onApproval={onApproval}
-                          onStopRun={onStop}
-                          onReviewAction={(run) =>
-                            automationReviewActionRef.current(run)
-                          }
-                          onOpenConnections={() => openSettings("connections")}
-                        />
-                      </LazyViewSlot>
-                    ) : null}
-                    {notesViewOpen ? (
-                      <LazyViewSlot label="notes">
-                        <NotesView
-                          // The window toolbar above holds the traffic
-                          // lights and the sidebar toggle.
-                          besideRail
-                          cwd={projectCwd}
-                          onClose={onLeaveNotes}
-                        />
-                      </LazyViewSlot>
-                    ) : null}
-                    {settingsOpen ? (
-                      <LazyViewSlot label="Settings">
-                        <SettingsView
-                          section={settingsSection}
-                          onSelectSection={onSelectSettingsSection}
-                          workspaceName={profiles.activeProfile.name}
-                          cwd={sidebarCwd}
-                          sessions={sidebarHistory}
-                          besideRail={sidebarOpen}
-                          onClose={onCloseSettings}
-                          onOpenSession={onOpenArchivedSession}
-                          onArchiveSession={onArchiveHistorySession}
-                          onDeleteSession={onDeleteHistorySession}
-                          onRestoreProject={onRestoreProject}
-                          onDeleteProject={(path) =>
-                            onRemoveProject(path, { purgeData: true })
-                          }
-                          onOpenWhatsNew={onOpenWhatsNew}
-                          onTakeTour={startTour}
-                        />
-                      </LazyViewSlot>
-                    ) : null}
-                  </div>
 
-                  <PersonalInspectorDock
-                    active={inspectorVisible}
-                    width={inspector.width}
-                    onWidthChange={onInspectorWidth}
-                    cwd={sidebarCwd}
-                    gitCwd={gitCwd}
-                    tab={inspector.tab}
-                    onTabChange={onInspectorTab}
-                    onClose={onCloseInspector}
-                    onOpenFile={onOpenFile}
-                    onOpenTerminal={onOpenTerminal}
-                    onFileMoved={onFileMoved}
-                    onFileDeleted={onFileDeleted}
-                    onOpenDiff={onOpenWorkingTreeDiff}
-                    onOpenAllChanges={onOpenAllChanges}
-                    onOpenCommit={onOpenCommit}
-                    onOpenBranchPicker={
-                      projectBranches ? setBranchAnchor : undefined
+                    <PersonalInspectorDock
+                      active={inspectorVisible}
+                      width={inspector.width}
+                      onWidthChange={onInspectorWidth}
+                      cwd={sidebarCwd}
+                      gitCwd={gitCwd}
+                      tab={inspector.tab}
+                      onTabChange={onInspectorTab}
+                      onClose={onCloseInspector}
+                      onOpenFile={onOpenFile}
+                      onOpenTerminal={onOpenTerminal}
+                      onFileMoved={onFileMoved}
+                      onFileDeleted={onFileDeleted}
+                      onOpenDiff={onOpenWorkingTreeDiff}
+                      onOpenAllChanges={onOpenAllChanges}
+                      onOpenCommit={onOpenCommit}
+                      onOpenBranchPicker={
+                        projectBranches ? setBranchAnchor : undefined
+                      }
+                      selectedDiffPath={
+                        activeTab
+                          ? selectedChangePath(activeTab, gitCwd)
+                          : undefined
+                      }
+                      selectedDiffKind={
+                        activeTab ? selectedChangeKind(activeTab) : undefined
+                      }
+                      selectedCommitSha={
+                        activeTab ? selectedCommitSha(activeTab) : undefined
+                      }
+                      textHarness={pickTextHarness(active?.harness)}
+                      filesSearchOpen={filesSearchOpen}
+                      onFilesSearchOpenChange={setFilesSearchOpen}
+                      onOpenFilesSearch={onFindInProject}
+                      searchFocusToken={searchFocusToken}
+                    />
+                  </div>
+                  <WorkspaceFooter
+                    active={footerShown}
+                    teams={
+                      <TeamWatchPills panel={teamWatch} sessions={sessions} />
                     }
-                    selectedDiffPath={
-                      activeTab
-                        ? selectedChangePath(activeTab, gitCwd)
-                        : undefined
+                    cwd={profileHome ? "~" : gitCwd}
+                    onToggleTerminal={() => {
+                      if (!profileHome) onToggleProjectTerminal();
+                    }}
+                    terminalOpen={!profileHome && dockVisible}
+                    usage={
+                      <FooterUsage
+                        providers={usageProviders}
+                        context={profileHome ? null : active?.context}
+                      />
                     }
-                    selectedDiffKind={
-                      activeTab ? selectedChangeKind(activeTab) : undefined
-                    }
-                    selectedCommitSha={
-                      activeTab ? selectedCommitSha(activeTab) : undefined
-                    }
-                    textHarness={pickTextHarness(active?.harness)}
-                    filesSearchOpen={filesSearchOpen}
-                    onFilesSearchOpenChange={setFilesSearchOpen}
-                    onOpenFilesSearch={onFindInProject}
-                    searchFocusToken={searchFocusToken}
                   />
                 </div>
-                <WorkspaceFooter
-                  active={footerShown}
-                  teams={
-                    <TeamWatchPills panel={teamWatch} sessions={sessions} />
-                  }
-                  cwd={profileHome ? "~" : gitCwd}
-                  onToggleTerminal={() => {
-                    if (!profileHome) onToggleProjectTerminal();
-                  }}
-                  terminalOpen={!profileHome && dockVisible}
-                  usage={
-                    <FooterUsage
-                      providers={usageProviders}
-                      context={profileHome ? null : active?.context}
-                    />
-                  }
-                />
               </div>
-            </div>
-            {botSheet ? (
-              <BotSettingsSheet
-                path={botSheet}
-                onClose={() => setBotSheet(null)}
-              />
-            ) : null}
-            {crewSheet && botsAvailable() ? (
-              <CrewSettingsSheet
-                path={crewSheet}
-                {...(crewSheetPage ? { initialPage: crewSheetPage } : {})}
-                fixerName={(() => {
-                  const bot = getProjectBot(crewSheet);
-                  return bot?.on ? botName(bot) : undefined;
-                })()}
-                onTurnOn={turnOnCrewFor}
-                onAddFixer={(path) => {
-                  setCrewSheet(null);
-                  onAddBot(path);
-                }}
-                onFixerSettings={(path) => {
-                  setCrewSheet(null);
-                  setBotSheet(path);
-                }}
-                onClose={() => setCrewSheet(null)}
-              />
-            ) : null}
-            {botGitSetup && botsAvailable() ? (
-              <BotGitSetupSheet
-                project={{
-                  ...botGitSetup,
-                  label: projectAppearance(botGitSetup.path).label,
-                }}
-                kind={botGitSetup.for}
-                onAdd={(path) => {
-                  const forTeam = botGitSetup.for === "team";
-                  setBotGitSetup(null);
-                  // Git is set up: on to what it was asked for.
-                  if (forTeam) onOpenAvos(path);
-                  else onAddBot(path);
-                }}
-                onClose={() => setBotGitSetup(null)}
-              />
-            ) : null}
-            {addProjectAnchor ? (
-              <AddProjectMenu
-                anchor={addProjectAnchor}
-                onDismiss={() => setAddProjectAnchor(null)}
-                onAddExisting={() => void pickProject()}
-                onClone={() => openWorkspaceAction("clone")}
-                onCreate={() => openWorkspaceAction("create")}
-              />
-            ) : null}
-            {branchAnchor && !profileHome ? (
-              <BranchPicker
-                key={gitCwd}
-                cwd={gitCwd}
-                branch={projectBranches?.current ?? undefined}
-                externalAnchor={branchAnchor}
-                side="bottom"
-                defaultOpen
-                hideTrigger
-                onClose={() => setBranchAnchor(null)}
-              />
-            ) : null}
-            {workspaceAction ? (
-              <WorkspaceActionDialog
-                key={`${workspaceAction.kind}:${workspaceAction.cwd}:${workspaceAction.profileId}`}
-                {...workspaceAction}
-                scripts={loadRunScripts(workspaceAction.cwd)}
-                onScriptsChange={(next) => {
-                  saveRunScripts(workspaceAction.cwd, next);
-                }}
-                onCreated={onCreatedProject}
-                onClose={() => setWorkspaceAction(null)}
-              />
-            ) : null}
-
-            {filePickerOpen ? (
-              <FilePicker
-                open
-                cwd={gitCwd}
-                openPaths={openFilePaths}
-                onOpenFile={onOpenFile}
-                onClose={() => setFilePickerOpen(false)}
-              />
-            ) : null}
-            <ImageViewer onOpenInTab={onOpenImageInTab} />
-            <UpdateNoticeDialog />
-            <UpdateRestartDialog />
-            {walkthrough && walkthrough.step !== "tour" ? (
-              <LazyViewSlot label="setup" quiet>
-                <WalkthroughDialog
-                  step={walkthrough.step}
-                  done={walkthrough.done}
-                  onAction={dispatchWalkthrough}
-                  onAgentsDone={onWalkthroughAgents}
-                  onProject={onWalkthroughProject}
+              {botSheet ? (
+                <BotSettingsSheet
+                  path={botSheet}
+                  onClose={() => setBotSheet(null)}
                 />
-              </LazyViewSlot>
-            ) : null}
-            {walkthrough?.step === "tour" || tourAgain ? (
-              <LazyViewSlot label="tour" quiet>
-                <TourOverlay prepare={tourPrepare} onClose={onTourClose} />
-              </LazyViewSlot>
-            ) : null}
-            {recentSwitcher.state ? (
-              <RecentSwitcher
-                state={recentSwitcher.state}
-                cards={recentSwitcher.state.keys.map((key) =>
-                  recentCard(key, {
-                    strip,
-                    tabs: titleTabs,
-                    pages: browserTabsFor(
-                      stripItemIds.concat(
-                        strip.entries.flatMap((entry) =>
-                          entry.kind === "space" ? viewMembers(entry.view) : [],
+              ) : null}
+              {crewSheet && botsAvailable() ? (
+                <CrewSettingsSheet
+                  path={crewSheet}
+                  {...(crewSheetPage ? { initialPage: crewSheetPage } : {})}
+                  fixerName={(() => {
+                    const bot = getProjectBot(crewSheet);
+                    return bot?.on ? botName(bot) : undefined;
+                  })()}
+                  onTurnOn={turnOnCrewFor}
+                  onAddFixer={(path) => {
+                    setCrewSheet(null);
+                    onAddBot(path);
+                  }}
+                  onFixerSettings={(path) => {
+                    setCrewSheet(null);
+                    setBotSheet(path);
+                  }}
+                  onClose={() => setCrewSheet(null)}
+                />
+              ) : null}
+              {botGitSetup && botsAvailable() ? (
+                <BotGitSetupSheet
+                  project={{
+                    ...botGitSetup,
+                    label: projectAppearance(botGitSetup.path).label,
+                  }}
+                  kind={botGitSetup.for}
+                  onAdd={(path) => {
+                    const forTeam = botGitSetup.for === "team";
+                    setBotGitSetup(null);
+                    // Git is set up: on to what it was asked for.
+                    if (forTeam) onOpenAvos(path);
+                    else onAddBot(path);
+                  }}
+                  onClose={() => setBotGitSetup(null)}
+                />
+              ) : null}
+              {addProjectAnchor ? (
+                <AddProjectMenu
+                  anchor={addProjectAnchor}
+                  onDismiss={() => setAddProjectAnchor(null)}
+                  onAddExisting={() => void pickProject()}
+                  onClone={() => openWorkspaceAction("clone")}
+                  onCreate={() => openWorkspaceAction("create")}
+                />
+              ) : null}
+              {branchAnchor && !profileHome ? (
+                <BranchPicker
+                  key={gitCwd}
+                  cwd={gitCwd}
+                  branch={projectBranches?.current ?? undefined}
+                  externalAnchor={branchAnchor}
+                  side="bottom"
+                  defaultOpen
+                  hideTrigger
+                  onClose={() => setBranchAnchor(null)}
+                />
+              ) : null}
+              {workspaceAction ? (
+                <WorkspaceActionDialog
+                  key={`${workspaceAction.kind}:${workspaceAction.cwd}:${workspaceAction.profileId}`}
+                  {...workspaceAction}
+                  scripts={loadRunScripts(workspaceAction.cwd)}
+                  onScriptsChange={(next) => {
+                    saveRunScripts(workspaceAction.cwd, next);
+                  }}
+                  onCreated={onCreatedProject}
+                  onClose={() => setWorkspaceAction(null)}
+                />
+              ) : null}
+
+              {filePickerOpen ? (
+                <FilePicker
+                  open
+                  cwd={gitCwd}
+                  openPaths={openFilePaths}
+                  onOpenFile={onOpenFile}
+                  onClose={() => setFilePickerOpen(false)}
+                />
+              ) : null}
+              <ImageViewer onOpenInTab={onOpenImageInTab} />
+              <UpdateNoticeDialog />
+              <UpdateRestartDialog />
+              {walkthrough && walkthrough.step !== "tour" ? (
+                <LazyViewSlot label="setup" quiet>
+                  <WalkthroughDialog
+                    step={walkthrough.step}
+                    done={walkthrough.done}
+                    onAction={dispatchWalkthrough}
+                    onAgentsDone={onWalkthroughAgents}
+                    onProject={onWalkthroughProject}
+                  />
+                </LazyViewSlot>
+              ) : null}
+              {walkthrough?.step === "tour" || tourAgain ? (
+                <LazyViewSlot label="tour" quiet>
+                  <TourOverlay prepare={tourPrepare} onClose={onTourClose} />
+                </LazyViewSlot>
+              ) : null}
+              {recentSwitcher.state ? (
+                <RecentSwitcher
+                  state={recentSwitcher.state}
+                  cards={recentSwitcher.state.keys.map((key) =>
+                    recentCard(key, {
+                      strip,
+                      tabs: titleTabs,
+                      pages: browserTabsFor(
+                        stripItemIds.concat(
+                          strip.entries.flatMap((entry) =>
+                            entry.kind === "space"
+                              ? viewMembers(entry.view)
+                              : [],
+                          ),
                         ),
                       ),
-                    ),
-                    blocksOf: (tabId) => {
-                      const tab = tabs.find((entry) => entry.id === tabId);
-                      if (!tab) return undefined;
-                      const ids = [tab.focusedId, ...leafIds(tab.layout)];
-                      for (const id of ids) {
-                        const session = sessions.find((item) => item.id === id);
-                        if (session) return session.blocks;
-                      }
-                      return undefined;
-                    },
-                    projectless: isProjectlessCwd(projectCwd),
-                  }),
-                )}
-                onChoose={recentSwitcher.choose}
-                onCancel={recentSwitcher.cancel}
-              />
-            ) : null}
-            {paletteOpen ? (
-              <LazyViewSlot label="command palette" quiet>
-                <CommandPalette
-                  open
-                  initialQuery={paletteQuery}
-                  onClose={() => setPaletteOpen(false)}
-                  project={{
-                    path: projectCwd,
-                    name: projectDisplayName(projectCwd, loadTabGroupLabels()),
-                  }}
-                  projects={paletteProjects}
-                  chats={paletteChats}
-                  agents={paletteAgents}
-                  commands={paletteCommands}
-                  searchChats={searchPaletteChats}
-                  searchSettings={searchSettings}
-                  onRunCommand={runPaletteCommand}
-                  onOpenChat={(id) => {
-                    void onSelectHistorySession(id);
-                    // An open chat's place lights up once it is in front.
-                    const tab = tabsRef.current.find((entry) =>
-                      leafIds(entry.layout).includes(id),
-                    );
-                    if (tab) showWhere(tab.id);
-                  }}
-                  onOpenProject={onSelectProject}
-                  onOpenFile={(path) => onOpenFile(path)}
-                  onOpenSetting={(setting) => {
-                    openSettings(setting.section);
-                    requestAnimationFrame(() =>
-                      requestAnimationFrame(() =>
-                        document
-                          .getElementById(setting.id)
-                          ?.scrollIntoView({ block: "center" }),
+                      blocksOf: (tabId) => {
+                        const tab = tabs.find((entry) => entry.id === tabId);
+                        if (!tab) return undefined;
+                        const ids = [tab.focusedId, ...leafIds(tab.layout)];
+                        for (const id of ids) {
+                          const session = sessions.find(
+                            (item) => item.id === id,
+                          );
+                          if (session) return session.blocks;
+                        }
+                        return undefined;
+                      },
+                      projectless: isProjectlessCwd(projectCwd),
+                    }),
+                  )}
+                  onChoose={recentSwitcher.choose}
+                  onCancel={recentSwitcher.cancel}
+                />
+              ) : null}
+              {paletteOpen ? (
+                <LazyViewSlot label="command palette" quiet>
+                  <CommandPalette
+                    open
+                    initialQuery={paletteQuery}
+                    onClose={() => setPaletteOpen(false)}
+                    project={{
+                      path: projectCwd,
+                      name: projectDisplayName(
+                        projectCwd,
+                        loadTabGroupLabels(),
                       ),
-                    );
-                  }}
-                  onStartChat={startPaletteChat}
-                  tabs={paletteTabs}
-                  chatLocations={paletteChatLocations}
-                  onOpenTab={(id) => {
-                    onSelectSurface(id);
-                    showWhere(id);
-                  }}
-                  onStartRace={(request) =>
-                    // A race that can't start explains why; keep what was typed.
-                    void startRace(request).then((started) => {
-                      if (started) return;
-                      setPaletteQuery(request.text);
-                      setPaletteOpen(true);
-                    })
-                  }
-                />
-              </LazyViewSlot>
-            ) : null}
+                    }}
+                    projects={paletteProjects}
+                    chats={paletteChats}
+                    agents={paletteAgents}
+                    commands={paletteCommands}
+                    searchChats={searchPaletteChats}
+                    searchSettings={searchSettings}
+                    onRunCommand={runPaletteCommand}
+                    onOpenChat={(id) => {
+                      void onSelectHistorySession(id);
+                      // An open chat's place lights up once it is in front.
+                      const tab = tabsRef.current.find((entry) =>
+                        leafIds(entry.layout).includes(id),
+                      );
+                      if (tab) showWhere(tab.id);
+                    }}
+                    onOpenProject={onSelectProject}
+                    onOpenFile={(path) => onOpenFile(path)}
+                    onOpenSetting={(setting) => {
+                      openSettings(setting.section);
+                      requestAnimationFrame(() =>
+                        requestAnimationFrame(() =>
+                          document
+                            .getElementById(setting.id)
+                            ?.scrollIntoView({ block: "center" }),
+                        ),
+                      );
+                    }}
+                    onStartChat={startPaletteChat}
+                    tabs={paletteTabs}
+                    chatLocations={paletteChatLocations}
+                    onOpenTab={(id) => {
+                      onSelectSurface(id);
+                      showWhere(id);
+                    }}
+                    onStartRace={(request) =>
+                      // A race that can't start explains why; keep what was typed.
+                      void startRace(request).then((started) => {
+                        if (started) return;
+                        setPaletteQuery(request.text);
+                        setPaletteOpen(true);
+                      })
+                    }
+                  />
+                </LazyViewSlot>
+              ) : null}
 
-            <TeamWatchFloat
-              panel={teamWatch}
-              sessions={sessions}
-              host={discussions.host}
-              onOpenFile={onOpenFile}
-              onStop={onStop}
-              pillsDocked={footerShown}
-            />
-            <ApprovalToasts
-              {...(avosNotices.length
-                ? {
-                    extra: avosNoticeCards(avosNotices).map((card) => (
-                      <AvosNoticeCard
-                        key={card.path}
-                        path={card.path}
-                        notices={card.notices}
-                        runs={avosNoticeRuns}
-                        onOpen={(item) => {
-                          if (item.open?.kind === "review")
-                            requestCrewReview(item.path);
-                          onOpenAvos(item.path);
-                        }}
-                        onAnswer={(run) =>
-                          void automationReviewActionRef.current(run)
-                        }
-                        onDismiss={(ids) =>
-                          setAvosNotices((current) =>
-                            current.filter((item) => !ids.includes(item.id)),
-                          )
-                        }
-                      />
-                    )),
-                  }
-                : {})}
-              notices={hiddenApprovalToasts}
-              onFocusSession={onOpenApprovalSession}
-              onApproval={onApproval}
-            />
-            <AgentPageNotices
-              notices={agentPageNotices}
-              onShow={(notice) => showAgentPageRef.current(notice)}
-              onDismiss={(id) =>
-                setAgentPageNotices((current) =>
-                  current.filter((item) => item.id !== id),
-                )
-              }
-            />
-            <SaveProblemNotice />
-            {whatsNewVersion ? (
-              <LazyViewSlot label="release notes" quiet>
-                <WhatsNewDialog
-                  version={whatsNewVersion}
-                  onClose={() => setWhatsNewVersion(null)}
-                />
-              </LazyViewSlot>
-            ) : null}
-          </div>
+              <TeamWatchFloat
+                panel={teamWatch}
+                sessions={sessions}
+                host={discussions.host}
+                onOpenFile={onOpenFile}
+                onStop={onStop}
+                pillsDocked={footerShown}
+              />
+              <ApprovalToasts
+                {...(avosNotices.length
+                  ? {
+                      extra: avosNoticeCards(avosNotices).map((card) => (
+                        <AvosNoticeCard
+                          key={card.path}
+                          path={card.path}
+                          notices={card.notices}
+                          runs={avosNoticeRuns}
+                          onOpen={(item) => {
+                            if (item.open?.kind === "review")
+                              requestCrewReview(item.path);
+                            onOpenAvos(item.path);
+                          }}
+                          onAnswer={(run) =>
+                            void automationReviewActionRef.current(run)
+                          }
+                          onDismiss={(ids) =>
+                            setAvosNotices((current) =>
+                              current.filter((item) => !ids.includes(item.id)),
+                            )
+                          }
+                        />
+                      )),
+                    }
+                  : {})}
+                notices={hiddenApprovalToasts}
+                onFocusSession={onOpenApprovalSession}
+                onApproval={onApproval}
+              />
+              <AgentPageNotices
+                notices={agentPageNotices}
+                onShow={(notice) => showAgentPageRef.current(notice)}
+                onDismiss={(id) =>
+                  setAgentPageNotices((current) =>
+                    current.filter((item) => item.id !== id),
+                  )
+                }
+              />
+              <SaveProblemNotice />
+              {whatsNewVersion ? (
+                <LazyViewSlot label="release notes" quiet>
+                  <WhatsNewDialog
+                    version={whatsNewVersion}
+                    onClose={() => setWhatsNewVersion(null)}
+                  />
+                </LazyViewSlot>
+              ) : null}
+            </div>
+          </GettingStartedContext.Provider>
         </OrchestrationWorkers.Provider>
       </OrchestrationActions.Provider>
     </LiveSessionsContext.Provider>

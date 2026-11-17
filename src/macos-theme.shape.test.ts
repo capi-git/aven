@@ -47,7 +47,6 @@ describe("the pro look's shapes", () => {
         ".settings-select,\n.settings-button",
       ],
       ["src/chrome/TeamCard.css", ".team-card-button"],
-      ["src/surfaces/WorkspaceHome.css", ".workspace-home-actions button"],
       ["src/surfaces/BrowserPane.css", ".browser-address"],
       ["src/surfaces/SettingsView.css", ".settings-search-field"],
       ["src/chrome/AgentPill.css", ".agent-pill"],
@@ -118,18 +117,13 @@ describe("the pro look's shapes", () => {
     expect(rule("src/surfaces/BotChat.css", ".bot-fix-card")).toContain(
       "border-radius: var(--aven-radius-lg);",
     );
-    expect(
-      rule("src/surfaces/WorkspaceHome.css", ".workspace-home-panel"),
-    ).toContain("border-radius: var(--aven-radius-xl, 12px);");
   });
 
   it("titles pages at 20px semibold rather than a large title", () => {
     expect(read("src/index.css")).toContain("--text-ui-title: 20px;");
-    for (const [file, selector] of [
-      ["src/surfaces/SettingsControls.css", ".settings-page-header h1"],
-      ["src/surfaces/WorkspaceHome.css", ".workspace-home-title h1"],
-    ])
-      expect(rule(file, selector)).toContain("font-weight: 600;");
+    expect(
+      rule("src/surfaces/SettingsControls.css", ".settings-page-header h1"),
+    ).toContain("font-weight: 600;");
   });
 
   it("keeps navigation and list rows at IDE density", () => {
@@ -190,10 +184,6 @@ describe("the pro look's shapes", () => {
 
   it("keeps the primary buttons a solid fill without a shadow", () => {
     for (const [file, selector] of [
-      [
-        "src/surfaces/WorkspaceHome.css",
-        ".workspace-home-actions .workspace-home-new",
-      ],
       ["src/chrome/GitChangesPanel.css", ".git-ship-button"],
       ["src/chrome/TeamCard.css", '.team-card-button[data-variant="primary"]'],
     ])
@@ -297,13 +287,9 @@ describe("the pro look's shapes", () => {
     expect(
       rule("src/macos-theme.css", "html.theme-light .personal-shell"),
     ).toContain("--aven-resting-card-edge: var(--aven-glass-card-edge);");
-    for (const [file, selector] of [
-      ["src/surfaces/SettingsControls.css", ".settings-group-surface"],
-      ["src/surfaces/WorkspaceHome.css", ".workspace-home-panel"],
-    ])
-      expect(rule(file, selector)).toMatch(
-        /border: 1px solid var\(--aven-resting-card-edge/,
-      );
+    expect(
+      rule("src/surfaces/SettingsControls.css", ".settings-group-surface"),
+    ).toMatch(/border: 1px solid var\(--aven-resting-card-edge/);
     // Cards in the chat keep their edge.
     expect(rule("src/chrome/TeamCard.css", ".team-card")).toContain(
       "border: 1px solid var(--aven-glass-card-edge",

@@ -25,7 +25,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Globe,
-  Home,
   PanelLeft,
   PanelRight,
   Search,
@@ -52,8 +51,6 @@ export type WorkspaceStatusBarProps = {
   onGoForward?: () => void;
   canGoBack?: boolean;
   canGoForward?: boolean;
-  onHome?: () => void;
-  homeOpen?: boolean;
   onToggleInspector?: () => void;
   inspectorOpen?: boolean;
   /** Settings shares the window header instead of stacking a second toolbar. */
@@ -196,8 +193,6 @@ export type WorkspaceNavigationProps = Pick<
   | "onGoForward"
   | "canGoBack"
   | "canGoForward"
-  | "onHome"
-  | "homeOpen"
 > & { compact?: boolean };
 
 /** Stays in the sidebar's layout; small widths move actions into a menu. */
@@ -210,8 +205,6 @@ export function WorkspaceNavigation({
   onGoForward,
   canGoBack,
   canGoForward,
-  onHome,
-  homeOpen,
   compact = false,
 }: WorkspaceNavigationProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -229,7 +222,6 @@ export function WorkspaceNavigation({
       icon: Globe,
       onSelect: onNewBrowser,
     },
-    { id: "home", label: "Workspace Home", icon: Home, onSelect: onHome },
     {
       id: "back",
       label: "Back",
@@ -298,17 +290,6 @@ export function WorkspaceNavigation({
           ) : null}
         </div>
         <div className="workspace-status-history">
-          {onHome ? (
-            <button
-              type="button"
-              aria-label="Workspace Home"
-              title="Workspace Home"
-              aria-pressed={!!homeOpen}
-              onClick={onHome}
-            >
-              <Home size={13} />
-            </button>
-          ) : null}
           {onGoBack ? (
             <button
               type="button"
@@ -405,7 +386,6 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
   onGoForward,
   canGoBack,
   canGoForward,
-  homeOpen,
   onToggleInspector,
   inspectorOpen,
   settingsView,
@@ -445,13 +425,12 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
         <WorkspaceNavigation
           onToggleSidebar={onToggleSidebar}
           sidebarOpen={sidebarOpen}
-          // Search and Home are the sidebar's, one hover away.
-          onNewBrowser={homeOpen ? undefined : onNewBrowser}
+          // Search is the sidebar's, one hover away.
+          onNewBrowser={onNewBrowser}
           onGoBack={onGoBack}
           onGoForward={onGoForward}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
-          homeOpen={homeOpen}
         />
       ) : null}
       {/* Activity sits with navigation on the left, only while it has something. */}

@@ -406,12 +406,10 @@ describe("sidebar workspace navigation", () => {
     );
   });
 
-  it("opens Home from the workspace row, New chat from its +, and counts new automation runs", async () => {
-    const home = vi.fn();
+  it("opens the workspace menu from the workspace row, New chat from its +, and counts new automation runs", async () => {
     const newChat = vi.fn();
     const live = {
       ...props,
-      onOpenHome: home,
       onNewStandalone: newChat,
       onSearch: noop,
       onOpenInbox: noop,
@@ -429,15 +427,12 @@ describe("sidebar workspace navigation", () => {
       visible('button[aria-label="New chat without a project"]'),
     ).toHaveLength(1);
     expect(visible(".personal-new-session")).toHaveLength(0);
-    // The workspace button opens its menu; the workspace you're in is its Home.
+    // The workspace button opens its menu.
     await click(button("Switch workspace, Personal"));
-    await click(
-      document.querySelector<HTMLElement>(
-        '[role="menuitemradio"][aria-checked="true"]',
-      )!,
-    );
+    expect(
+      document.querySelector('[role="menuitemradio"][aria-checked="true"]'),
+    ).not.toBeNull();
     await click(button("New chat without a project"));
-    expect(home).toHaveBeenCalledOnce();
     expect(newChat).toHaveBeenCalledOnce();
     expect(visible("button.personal-search-field")).toHaveLength(1);
     const tiles = visible('nav[aria-label="Library"] > button');
@@ -449,26 +444,17 @@ describe("sidebar workspace navigation", () => {
     expect(tiles[2].querySelector(".personal-library-count")?.textContent).toBe(
       "2",
     );
-
-    await act(async () =>
-      root.render(createElement(Sidebar, { ...live, homeActive: true })),
-    );
-    expect(
-      button("Switch workspace, Personal").getAttribute("aria-current"),
-    ).toBe("page");
   });
 
-  it("leaves Settings for Home from the workspace row and keeps Search there, not the tiles", async () => {
+  it("gives Settings the sidebar to itself and leaves it with Back to app", async () => {
     const order: string[] = [];
     await act(async () =>
       root.render(
         createElement(Sidebar, {
           ...props,
           settingsOpen: true,
-          homeActive: true,
           onSelectSettingsSection: noop,
           onCloseSettings: () => order.push("close settings"),
-          onOpenHome: () => order.push("home"),
           onSearch: noop,
           onOpenInbox: noop,
           onOpenAutomations: noop,

@@ -22,8 +22,6 @@ type Props = {
   onMenuChange?: (anchor: HTMLButtonElement | null) => void;
   /** Right-click on the workspace name, at a window point. */
   onWorkspaceMenu?: (x: number, y: number) => void;
-  /** The workspace's row opens its Home. */
-  homeActive?: boolean;
   /** New chat without a project, beside the workspace's name. */
   showNewSession?: boolean;
   startingNewSession?: boolean;
@@ -57,8 +55,8 @@ type Tile = {
 };
 
 /**
- * The top of the sidebar: the workspace's row (its Home, with its menu and
- * New chat beside it), Search as a field, then Notes, Inbox and Automations
+ * The top of the sidebar: the workspace's row (its menu, with New chat
+ * beside it), Search as a field, then Notes, Inbox and Automations
  * as a row of pinned tiles, as Arc pins its favourites. Live and preview
  * pages share geometry; previews never own focus or actions.
  */
@@ -68,7 +66,6 @@ export function ProfileSidebarHeader({
   menuOpen = false,
   onMenuChange,
   onWorkspaceMenu,
-  homeActive = false,
   showNewSession,
   startingNewSession = false,
   onNewSession,
@@ -182,7 +179,6 @@ export function ProfileSidebarHeader({
             title="Switch workspace"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            aria-current={homeActive ? "page" : undefined}
             onClick={(event) =>
               onMenuChange?.(menuOpen ? null : event.currentTarget)
             }

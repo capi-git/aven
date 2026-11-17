@@ -71,7 +71,7 @@ export type GettingStartedInput = {
 };
 
 export type GettingStarted = {
-  /** What Home shows, or null when the card is not offered or gone. */
+  /** What a new chat shows, or null when the card is not offered or gone. */
   card: GettingStartedCard | null;
   /** The project the steps work in: the sample if added, else the first. */
   target: string | null;
@@ -79,7 +79,7 @@ export type GettingStarted = {
 };
 
 /**
- * Home's Getting started card. It ticks each step from what really
+ * The Getting started card under a new chat's message box. It ticks each step from what really
  * happened and keeps ticks for good; once all five are done it shows its
  * done state until hidden, then never again. Nothing is read while the card
  * isn't offered, so existing installs pay nothing for it.
