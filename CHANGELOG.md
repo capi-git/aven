@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.1.190] - 2026-11-17
+
+### Added
+
+- **Forward a reply to another chat.** Forward, under each reply, sends it to a chat you pick or to a new chat. It waits above that chat's message box until you send it.
+- **@ another chat.** Type @ and pick a chat. The agent reads that chat's recent messages with yours.
+
+### Changed
+
+- **A project in the sidebar is its name alone.** The folder and the line down the side are gone. Its arrow shows at the row's end with New chat and ···.
+- **A short line stands between tabs.** The tab in front has no fill; its name is brighter.
+- **The message box says less while an agent works.** It says "Working" or "Running a command" and does not repeat the command or file that the chat already shows. Its own orb fades, so only one orb shows.
+- **The project you leave folds up** in the sidebar.
+
+### Fixed
+
+- **Dragging a divider is smoother.** A drag no longer redraws the whole pane at each step. Beside a web page, the pointer is no longer drawn twice in each frame.
+- **Switching chats, tabs and Settings is quicker.** Moving into the message box no longer makes Aven re-check every part of the window.
+- **No freeze when a reply reaches its first code block.** Code colouring froze the window for almost a second, most often just after a helper card.
+
 ## [0.1.189] - 2026-11-17
 
 ### Added
