@@ -226,6 +226,23 @@ html.has-chat-background:not(.chat-background-empty-only)
   transition: background-color var(--aven-motion-fast) ease;
   animation: aven-fade var(--aven-motion-base) var(--aven-ease-out) backwards;
 }
+/* Rails side by side are one strip: square where they meet. */
+.workspace-pane-rail[data-join-left] {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.workspace-pane-rail[data-join-right] {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.workspace-pane-rail[data-join-top] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.workspace-pane-rail[data-join-bottom] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
 .workspace-pane-rail:hover {
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
   color: var(--color-content);
