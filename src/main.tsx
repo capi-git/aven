@@ -13,6 +13,7 @@ import { watchWindowResize } from "./lib/windowResizeFlag";
 import { loadDevSmoke } from "./lib/devSmoke";
 import { revealWindow } from "./lib/windowReveal";
 import { initMotionPreference } from "./lib/motion";
+import { initTypography } from "./lib/typography";
 import "./index.css";
 import "./personal-shell.css";
 import "./macos-theme.css";
@@ -31,14 +32,17 @@ let stopWatchingMotion: (() => void) | undefined;
  * Every window, panel and pop-out follows one reduced-motion switch. Read
  * after the real-app check has swapped storage, like the other settings.
  */
+let stopWatchingTypography: (() => void) | undefined;
 function watchMotion() {
   stopWatchingMotion ??= initMotionPreference();
+  stopWatchingTypography ??= initTypography();
 }
 import.meta.hot?.dispose(() => {
   window.removeEventListener("dragover", preventFileDropNavigation);
   window.removeEventListener("drop", preventFileDropNavigation);
   stopWatchingWindowResize();
   stopWatchingMotion?.();
+  stopWatchingTypography?.();
 });
 
 const rootOptions = {

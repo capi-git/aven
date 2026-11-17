@@ -1,3 +1,4 @@
+import { SETTINGS } from "./settings";
 import { invoke } from "@tauri-apps/api/core";
 import { flushWorkspaceDrafts } from "./workspaceDraftFlush";
 import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -496,6 +497,13 @@ async function confirmQuitAndExit(
           okLabel: closeWindow ? "Close window" : "Quit",
         },
       );
+      if (!ok) return;
+    } else if (!closeWindow && SETTINGS.confirmQuit.load()) {
+      const ok = await ask("Quit Aven?", {
+        title: "Aven",
+        kind: "info",
+        okLabel: "Quit",
+      });
       if (!ok) return;
     }
     quitting = true;

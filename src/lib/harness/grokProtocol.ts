@@ -7,6 +7,7 @@ import type { UserQuestion, UserQuestionReply } from "../userQuestion";
 import { questionsFromUnknown, selectedAnswerLabels } from "../userQuestion";
 import {
   composeToolTitle,
+  extractAgentType,
   extractSearchQuery,
   extractShellCommand,
   extractSkillName,
@@ -411,6 +412,7 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
         status,
         detail: cap(toolDetail(update, tool) ?? "") || undefined,
         preview,
+        ...grokAgentType(toolKind, update, tool, grok.input),
       },
     ];
   }
@@ -604,6 +606,26 @@ function reasoningEfforts(
       },
     ];
   });
+}
+
+/** The agent type of a subagent call, for its row. */
+function grokAgentType(
+  kind: string | undefined,
+  update: Record<string, unknown>,
+  tool: Record<string, unknown>,
+  input: unknown,
+): { agentType?: string } {
+  if ((kind ?? "").toLowerCase() !== "agent") return {};
+  const type = extractAgentType(
+    update.rawInput,
+    tool.rawInput,
+    update.raw_input,
+    tool.raw_input,
+    update.input,
+    tool.input,
+    input,
+  );
+  return type ? { agentType: type } : {};
 }
 
 function grokToolFields(

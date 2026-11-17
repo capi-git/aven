@@ -353,6 +353,7 @@ describe("settings navigation", () => {
       "General",
       "Notifications",
       "Appearance",
+      "Terminal",
       "Keyboard shortcuts",
       "Chat",
       "Providers",
@@ -361,6 +362,7 @@ describe("settings navigation", () => {
       "Skills",
       "Browser",
       "Git",
+      "Worktrees",
       "Archive",
     ]);
   });

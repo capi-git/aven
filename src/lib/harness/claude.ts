@@ -70,7 +70,8 @@ import {
   type ClaudeControlResponse,
 } from "./claudeProtocol";
 import { elicitationPrompt, elicitationResult } from "../mcpElicitation";
-import { isAgentToolName } from "./preview";
+import { extractAgentType, isAgentToolName } from "./preview";
+import { subagentActivityFor } from "../subagentRuns";
 import {
   launchRefusal,
   permissionRulesKey,
@@ -933,6 +934,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
       ...(toolReachesWeb(tool.name, tool.input) ? { web: true as const } : {}),
+      ...agentTypeOf(tool.name, tool.input),
     });
     emitTaskListIfNeeded(live, tool.name, tool.input);
     return;
@@ -958,6 +960,7 @@ function handleStreamEvent(live: Live, rec: Record<string, unknown>): void {
       preview: previewFromTool(tool.name, parsed),
       // A command is known only once its input is whole: Aven's browser.
       ...(toolReachesWeb(tool.name, parsed) ? { web: true as const } : {}),
+      ...agentTypeOf(tool.name, parsed),
     });
     emitTaskListIfNeeded(live, tool.name, parsed);
     return;
@@ -1042,6 +1045,7 @@ function handleAssistant(live: Live, rec: Record<string, unknown>): void {
       status: isAgentToolName(tool.name) ? "in_progress" : "pending",
       preview: previewFromTool(tool.name, tool.input),
       ...(toolReachesWeb(tool.name, tool.input) ? { web: true as const } : {}),
+      ...agentTypeOf(tool.name, tool.input),
     });
     if (use.name === "ExitPlanMode") {
       const plan = extractExitPlanModePlan(use.input);
@@ -1721,7 +1725,18 @@ function handleToolProgress(live: Live, rec: Record<string, unknown>): void {
     kind: "agent",
     status: "in_progress",
     ...(detail ? { detail } : {}),
+    ...(progress.subagentType ? { agentType: progress.subagentType } : {}),
   });
+}
+
+/** The agent type a subagent call asked for, for its row. */
+function agentTypeOf(
+  name: string,
+  input: Record<string, unknown>,
+): { agentType?: string } {
+  if (!isAgentToolName(name)) return {};
+  const type = extractAgentType(input);
+  return type ? { agentType: type } : {};
 }
 
 function noteSubagentTool(
@@ -1748,6 +1763,7 @@ function noteSubagentTool(
     kind: "agent",
     status: "in_progress",
     detail: toolTitle(name, input),
+    agentActivity: subagentActivityFor(name, toolKindFromName(name)),
     // What its own agent read on the web, the turn read.
     ...(toolReachesWeb(name, input) ? { web: true as const } : {}),
   });

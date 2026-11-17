@@ -1,0 +1,133 @@
+/* The subagents a chat started side by side (SubagentCard.tsx): one grey
+   card, a header with the count, then a row each split by a hairline. Grey
+   words; colour only for a failed row. */
+
+.subagent-card {
+  margin: 4px 0;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-card, 10px);
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  overflow: hidden;
+}
+
+.subagent-card-head,
+.subagent-row-head {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  font-size: var(--text-ui-label);
+}
+
+.subagent-card-head {
+  height: 34px;
+  padding: 0 10px;
+}
+
+.subagent-card-head:hover,
+button.subagent-row-head:hover {
+  background: var(--aven-hover);
+}
+
+.subagent-card-mark,
+.subagent-row-mark {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.subagent-card-name {
+  flex: none;
+  font-weight: 500;
+  color: var(--color-content);
+}
+
+.subagent-card-line {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-card-time,
+.subagent-row-time {
+  flex: none;
+  margin-left: auto;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.subagent-card-chevron {
+  flex: none;
+  color: var(--aven-muted);
+  transition: transform 160ms ease;
+}
+
+.subagent-card-chevron[data-folded] {
+  transform: rotate(-90deg);
+}
+
+.subagent-row {
+  border-top: 1px solid var(--aven-line);
+}
+
+.subagent-row-head {
+  height: 32px;
+  padding: 0 10px;
+}
+
+.subagent-row-name {
+  min-width: 0;
+  max-width: 55%;
+  flex: none;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--color-content) 88%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-row-line {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-row-line[data-state="failed"] {
+  color: var(--color-red-400);
+}
+
+.subagent-row-type {
+  flex: none;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+
+/* Room for "0:00" so the times line up down the card. */
+.subagent-row-time {
+  min-width: 34px;
+  margin-left: 0;
+  text-align: right;
+}
+
+.subagent-row-report {
+  max-height: 320px;
+  padding: 2px 12px 10px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagent-card-chevron {
+    transition: none;
+  }
+}

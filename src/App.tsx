@@ -838,6 +838,7 @@ import type { InboxSessionPortal } from "./surfaces/InboxDiscussionPanel";
 import { inboxAskKey, inboxAskPrompt } from "./lib/inboxAsk";
 import { inboxComposerCard, type InboxItem } from "./lib/githubTasks";
 import {
+  SETTINGS,
   loadLiveAgentsEnabled,
   loadNotesEnabled,
   loadDiffViewer,
@@ -4504,7 +4505,22 @@ export default function App({
         void refreshHistory(sidebarCwd);
       };
 
+      // Only on request: closing never stops the agent, its chat stays.
+      const working =
+        SETTINGS.confirmCloseWorkingTab.load() &&
+        leafIds(closing.layout).some(
+          (paneId) =>
+            sessionsRef.current.find((session) => session.id === paneId)?.busy,
+        );
       void (async () => {
+        if (
+          working &&
+          !(await ask(
+            "An agent is still working in this tab. It keeps working after the tab closes, and its chat stays in the sidebar.",
+            { title: "Close this tab?", kind: "warning", okLabel: "Close tab" },
+          ))
+        )
+          return;
         if (unsaved.length > 0) {
           const ok = await confirmDiscardUnsaved(
             "Close this tab with unsaved files?",
@@ -6507,7 +6523,7 @@ export default function App({
   const startProjectChatInCopy = useCallback(
     async (path: string): Promise<string | null> => {
       try {
-        const copy = await createChatCopy(path);
+        const copy = await createChatCopy(path, SETTINGS.copyBase.load());
         notifyGitChanged();
         return startProjectChat(path, undefined, copy.path);
       } catch (error) {
@@ -12666,6 +12682,9 @@ export default function App({
                             }
                             onOpenWhatsNew={onOpenWhatsNew}
                             onTakeTour={startTour}
+                            projects={profiles.profileProjects.map(
+                              (project) => project.path,
+                            )}
                           />
                         </LazyViewSlot>
                       ) : null}

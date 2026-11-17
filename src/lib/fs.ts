@@ -127,8 +127,16 @@ export function gitWorktrees(
  * a branch holding commits the default branch lacks is kept. Race copies are
  * refused here and go through their race instead.
  */
-export function removeGitWorktree(cwd: string, path: string): Promise<void> {
-  return invoke<void>("git_worktree_remove", { cwd, path });
+export function removeGitWorktree(
+  cwd: string,
+  path: string,
+  removeBuildFolders = false,
+): Promise<void> {
+  return invoke<void>("git_worktree_remove", {
+    cwd,
+    path,
+    removeBuildFolders,
+  });
 }
 
 /**
@@ -137,10 +145,17 @@ export function removeGitWorktree(cwd: string, path: string): Promise<void> {
  */
 export function createChatCopy(
   cwd: string,
+  from: "current" | "default" = "current",
 ): Promise<{ path: string; branch: string }> {
   return invoke<{ path: string; branch: string }>("git_chat_copy_create", {
     cwd,
+    from,
   });
+}
+
+/** The folder chat copies are kept in, made if missing. */
+export function chatCopiesDir(): Promise<string> {
+  return invoke<string>("chat_copies_dir");
 }
 
 /** File list and counts only, for diff content views that do not need sync data. */

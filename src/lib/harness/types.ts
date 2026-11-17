@@ -66,6 +66,10 @@ export type HarnessEvent =
       web?: true;
       /** Every path affected when one structured edit changes multiple files. */
       paths?: string[];
+      /** A subagent call's agent type, such as "general-purpose". */
+      agentType?: string;
+      /** What a subagent is doing now, in a few words ("Editing"). */
+      agentActivity?: string;
     }
   | {
       type: "tool.updated";
@@ -82,6 +86,10 @@ export type HarnessEvent =
       web?: true;
       /** Every path affected when one structured edit changes multiple files. */
       paths?: string[];
+      /** A subagent call's agent type, such as "general-purpose". */
+      agentType?: string;
+      /** What a subagent is doing now, in a few words ("Editing"). */
+      agentActivity?: string;
     }
   | {
       type: "approval.requested";

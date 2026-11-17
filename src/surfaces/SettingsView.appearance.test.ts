@@ -44,9 +44,15 @@ const APPEARANCE_CONTROLS = [
   "Opacity",
   "Translucency",
   "Frame",
-  "Working mark",
   "Reduce motion",
+  "Transcript layout",
+  "Anchor prompts to top",
+  "Working mark",
   "Chat background",
+  "Diff view",
+  "Autosave files",
+  "Chat text size",
+  "Code font",
   "Use for all workspaces",
 ];
 
@@ -177,7 +183,7 @@ describe("workspace appearance settings", () => {
       )
       ?.getAttribute("aria-label");
 
-  it("shows exactly its nine controls without scope chips, the header pill or the dark/light note", async () => {
+  it("shows exactly its controls without scope chips, the header pill or the dark/light note", async () => {
     await mount();
     const controls = Array.from(
       container.querySelectorAll<HTMLElement>(
