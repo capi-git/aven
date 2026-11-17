@@ -40,7 +40,8 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 - Heights: menu rows 26px, navigation rows 28px, buttons and tabs 24px, settings rows at least 48px.
 - Corners: use the `--aven-radius-*` tokens. Rows and controls are 6px, cards 10px, sheets 12px.
-- A web page has the same corners as any other pane in its place. Where a page meets a bottom corner of the workspace card, it rounds with the card's inner curve; beside another pane, the side panel or the terminal, it stays square.
+- Each pane is its own card, as in Super Engineering: 10px corners, a faint edge, and 6px between it and the next pane or the project terminal. The gap is the divider; nothing is drawn in it. Home and Settings sit in one card. With a chat background the cards stay clear so the picture shows through.
+- A web page has the same corners as any other pane in its place: its lower corners take its card's inner curve.
 - A resize edge shows nothing extra while pointed at or dragged: the cursor says it can be grabbed. Only keyboard focus draws a line on it.
 - Use at most one hairline per header. Rows in a list or card are split by a hairline, not by gaps and boxes.
 - Line a section heading up with the edge of its card, and a page title with the same edge.
@@ -65,7 +66,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **Avos's settings** are rows in one card, Model, Instructions, Memory, Helpers, Access and Limits, each with one line and opening its own page; Avos is never listed as one of its helpers. Instructions (a Mono's Soul) is your standing words to Avos and the rules it keeps for every job; Memory is what it learned, one fact a row with Forget, editable as text, with what its helpers learned under it. `…` › What Avos remembers opens Memory. The header's switch turns Avos on and off, and Pause is in Avos's `…`. Who builds what shows only once there are two Builders.
 
-**A project list** gives only projects a mark and a heavier name. A chat is its title in muted text, lined up under the project's name. It brightens when it's open, working or needs you, and its time shows on hover.
+**A project list** shows each project as a folder: a small arrow, a grey folder (open while its chats show) and its name, heavier than a chat's. A logo you chose stands in for the folder. Its chats sit in under it, along a faint line. A chat is its title in muted text. It brightens when it's open, working or needs you, and its time shows on hover.
 
 **A file an agent made for you** is a link in the chat's link blue, with a small arrow before its name. The agent keeps it in the project's hidden `.aven/files` folder, which Git leaves alone. A file there is never a change to the project: it doesn't show in the chat's changes bar or in Changes, and Ship it never commits it. A document in the project itself, such as a README, is a change like any other. Clicking the link saves a copy to Downloads as a browser does, keeping both when the name is taken; a small popup under the link names the copy, says Downloaded, and offers Open and Show in Finder, and the arrow becomes a check. A link to any other file opens it in Aven.
 
@@ -75,7 +76,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A work area** has the thing you talk to or work in on the left and a panel on the right. The panel has one header, a row of tabs and one scrolling body.
 
-**A tab** reads like a sidebar row: its name alone, as wide as the name (up to 224px), with no plate and no line between tabs. The tab in front has the sidebar's selected fill, and its name keeps its weight so nothing moves. A chat's tab shows its provider's mark before its name. Close, and a page's menu, show only while the tab is pointed at, over the end of its name. A split is one outline around its panes' names, with the pane in front filled; every pane keeps its name there, even one that has a row of tabs of its own.
+**A tab** reads like a sidebar row: its name alone, as wide as the name (up to 224px), with no plate and no line between tabs. The tab in front has the sidebar's selected fill, and its name keeps its weight so nothing moves. A chat's tab shows its provider's mark before its name. Close, and a page's menu, show only while the tab is pointed at, over the end of its name. A split is one outline around its panes' marks, with the pane in front filled. Each pane in a split names itself in its own card's top row, so a name is said once.
 
 **Tabs join only on purpose.** Passing over a tab, or letting go on it quickly, only moves yours. Rest on it while a line fills around it, about half a second, and letting go then joins them.
 

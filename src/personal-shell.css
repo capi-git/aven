@@ -715,7 +715,7 @@ html.theme-light.is-mac
 }
 
 /* Design A: a single window toolbar over the workspace. The native window
-   supplies the outer curve; panes meet flush between hairlines
+   supplies the outer curve; each pane is its own card, 6px from the next
    (WorkspaceStage.css), and overlays float as rounded cards. */
 .personal-shell[data-unified-toolbar] {
   flex-direction: column;
@@ -868,6 +868,70 @@ html
   .personal-main.body-glass {
   margin-left: 0;
 }
+/* Your panes: each one its own rounded card with a faint edge, a small gap
+   apart, on the window's own background (as Super Engineering draws them).
+   The card around them steps back; Home and Settings keep it. With a chat
+   background the panes stay clear, so the picture shows through them. */
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-main.body-glass[data-panes],
+html.has-native-glass.glass-body:not(.theme-light)
+  .personal-shell[data-unified-toolbar]
+  .personal-main.body-glass[data-panes] {
+  --aven-pane-fill: var(--aven-inset-panel);
+  --aven-pane-edge: color-mix(in srgb, var(--color-content) 10%, transparent);
+  border-color: transparent;
+  background: transparent;
+}
+html.has-native-glass.glass-body:not(.theme-light)
+  .personal-shell[data-unified-toolbar]
+  .personal-main.body-glass[data-panes] {
+  --aven-pane-fill: color-mix(
+    in srgb,
+    var(--aven-inset-panel) 45%,
+    transparent
+  );
+}
+html.has-chat-background:not(.chat-background-empty-only)
+  .personal-shell[data-unified-toolbar]
+  .personal-main.body-glass[data-panes] {
+  --aven-pane-fill: transparent;
+}
+/* The project terminal is a card of its own too, the same gap from the panes. */
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-main[data-panes]
+  [data-project-terminal-dock] {
+  border: 1px solid var(--aven-pane-edge);
+  border-radius: 10px;
+  background: var(--aven-pane-fill);
+  overflow: hidden;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-main[data-panes]
+  [data-project-terminal-dock][data-dock-side="bottom"] {
+  margin-top: 6px;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-main[data-panes]
+  [data-project-terminal-dock][data-dock-side="top"] {
+  margin-bottom: 6px;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-main[data-panes]
+  [data-project-terminal-dock][data-dock-side="left"] {
+  margin-right: 6px;
+}
+html
+  .personal-shell[data-unified-toolbar]
+  .personal-main[data-panes]
+  [data-project-terminal-dock][data-dock-side="right"] {
+  margin-left: 6px;
+}
+
 /* The project terminal docks flush against the panes, with the same hairline
    on the side that faces them. */
 html .personal-shell[data-unified-toolbar] [data-project-terminal-dock] {

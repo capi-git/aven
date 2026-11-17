@@ -97,10 +97,12 @@ html.has-chat-background:not(.chat-background-empty-only)
   z-index: 1;
 }
 
-/* Panes meet edge to edge, as in an IDE: square, flush with the workspace's
-   edges, one pixel apart (GUTTER and EDGE in WorkspaceStage.tsx) with the
-   divider's hairline in that gap. A pane has no fill, edge or backdrop
-   filter of its own; the window already provides the glass. */
+/* Each pane is its own card: rounded, with a faint edge and the workspace's
+   fill (--aven-pane-fill, --aven-pane-edge from the shell), flush with the
+   workspace's edges and 6px apart (GUTTER and EDGE in WorkspaceStage.tsx).
+   The gap is the divider; nothing is drawn in it. No backdrop filter of its
+   own: the window already provides the glass. A web page in a pane takes
+   the card's inner curve at its lower corners (browserBottomRadii). */
 .workspace-stage-surface {
   --workspace-background-width: 100cqw;
   --workspace-background-height: 100cqh;
@@ -112,8 +114,9 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--aven-pane-edge, transparent);
+  border-radius: var(--aven-radius-pane-card, 10px);
+  background: var(--aven-pane-fill, transparent);
 }
 .workspace-stage-surface[data-has-header="true"] {
   --workspace-background-header-offset: 32px;
@@ -128,7 +131,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   min-height: 32px;
   min-width: 0;
   overflow: hidden;
-  border-radius: 0;
+  border-radius: var(--aven-radius-pane-card, 10px)
+    var(--aven-radius-pane-card, 10px) 0 0;
   box-sizing: border-box;
   box-shadow: inset 0 calc(-1 * var(--aven-hairline)) 0 var(--aven-separator);
 }
@@ -335,8 +339,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   touch-action: none;
   outline: none;
 }
-/* A faint line in a 9px target: pointing at it or dragging changes only the
-   cursor. Beside a native page the target is kept clear of the page
+/* The gap between two cards, in a 9px target: pointing at it or dragging
+   changes only the cursor. Beside a native page the target is kept clear of the page
    (data-native-hit-margin, browserHitMargins.ts). */
 .workspace-stage-sash[data-direction="right"] {
   width: 9px;
@@ -351,7 +355,7 @@ html.has-chat-background:not(.chat-background-empty-only)
 .workspace-stage-sash::after {
   content: "";
   position: absolute;
-  background: var(--aven-separator);
+  background: transparent;
   transition:
     background-color var(--aven-motion-fast) ease,
     width var(--aven-motion-fast) ease,

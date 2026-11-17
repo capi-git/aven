@@ -109,27 +109,30 @@ it("still opens the context menu at the pointer", async () => {
   expect(frame?.style.top).toBe("50px");
 });
 
-it("shows the project as its Stack in its colour, fanned only while it is open", async () => {
+it("shows the project as a grey folder, open only while its chats show", async () => {
   await render();
   const mark = () => host.querySelector<HTMLElement>(".project-mark")!;
-  const stack = () => mark().querySelector<HTMLElement>(".stack-mark")!;
-  expect(mark().dataset.kind).toBe("stack");
-  expect(stack().hasAttribute("data-open")).toBe(false);
-  // A colour saved before marks is the Stack's, from the theme's tokens.
+  expect(mark().dataset.kind).toBe("folder");
+  const closed = mark().innerHTML;
+  // A saved colour stays for its agents' marks; the folder stays grey.
   await act(async () => saveTabGroupColor(projectKey(PATH), 4));
-  expect(stack().dataset.tone).toBe("green");
-  expect(stack().getAttribute("style")).toBeNull();
+  expect(mark().querySelector("[data-tone]")).toBeNull();
   expect(host.innerHTML).not.toContain(TAB_GROUP_COLORS[4]);
   await render(undefined, true);
-  expect(stack().hasAttribute("data-open")).toBe(true);
+  expect(mark().innerHTML).not.toBe(closed);
   await render(undefined, false);
-  expect(stack().hasAttribute("data-open")).toBe(false);
+  expect(mark().innerHTML).toBe(closed);
+  // Its open-or-closed arrow stands before it at all times.
+  const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
+  expect(css).toMatch(
+    /\.personal-navigation \.personal-project-disclosure \{\s*order: -1;[^}]*opacity: 1;/,
+  );
 });
 
-it("keeps the Stack still while an agent runs: its little working screen says so", async () => {
+it("keeps the folder still while an agent runs: its little working screen says so", async () => {
   await render({ running: 1, waiting: 0, unread: 0 });
   const mark = host.querySelector<HTMLElement>(".project-mark")!;
-  expect(mark.dataset.kind).toBe("stack");
+  expect(mark.dataset.kind).toBe("folder");
   expect(mark.hasAttribute("data-active")).toBe(false);
   expect(host.querySelector(".dot-mark-lit")).toBeNull();
   expect(host.querySelector(".personal-project-running")).not.toBeNull();
@@ -225,9 +228,6 @@ it("customizes the name and colour from the actions menu, and resets", async () 
       .click(),
   );
   expect(loadTabGroupColors()[projectKey(PATH)]).toBe(7);
-  expect(
-    host.querySelector<HTMLElement>(".project-mark .stack-mark")?.dataset.tone,
-  ).toBe("teal");
 
   await act(async () =>
     [...dialog()!.querySelectorAll<HTMLButtonElement>("button")]

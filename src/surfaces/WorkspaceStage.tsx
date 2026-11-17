@@ -425,10 +425,10 @@ function applyGeometry(element: HTMLElement, values: CSSProperties) {
       element.style.setProperty(name, String(value));
   }
 }
-/** Half of the gap between panes. Panes meet flush, and the hairline that
- * divides them is drawn in this one-pixel gap: native browser children need
- * a real gap, because CSS stacking cannot draw over them. */
-export const PANE_GUTTER = 0.5;
+/** Half of the gap between panes. Each pane is its own card, 6px from the
+ * next; the gap is the divider (native browser children need a real gap,
+ * because CSS stacking cannot draw over them). */
+export const PANE_GUTTER = 3;
 const GUTTER = PANE_GUTTER;
 /** Space between the panes and the workspace's outer edges: none. The
  * workspace's own regions (sidebar, side panel, toolbar) draw the hairline

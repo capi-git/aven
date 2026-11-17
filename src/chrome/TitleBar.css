@@ -1319,19 +1319,30 @@ html.theme-light .personal-shell {
   max-width: none;
 }
 
-/* A split's panes are named once, on the top row. A pane's own name is plain
-   words with no pill, shown only while you point at its top edge; you can still
-   drag the pane by it. */
+/* A split's panes each name themselves, in their own card's top row: plain
+   words with no pill, and you can drag the pane by them. The top row shows
+   the split by its panes' marks only, so no name is said twice. */
 .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
   .personal-tab-strip,
 [data-pane-strip] > .aven-tab-strip {
-  opacity: 0;
-  transition: opacity var(--aven-motion-fast) ease;
-}
-.personal-titlebar[data-title-layout="lone"][data-pane-local="true"]:hover
-  .personal-tab-strip,
-[data-pane-strip]:hover > .aven-tab-strip {
   opacity: 1;
+}
+.workspace-status-strip .aven-tab-strip .aven-split-entry {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+/* A segment is a size container, so it cannot take its width from its
+   mark: it gets one mark's room. */
+.workspace-status-strip .aven-split-segment {
+  flex: 0 0 28px;
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+}
+.workspace-status-strip .aven-split-segment .aven-split-label {
+  display: none;
 }
 .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
   .personal-tab-strip

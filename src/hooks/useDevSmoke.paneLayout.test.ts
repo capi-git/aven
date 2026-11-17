@@ -38,8 +38,8 @@ function layout({
   floating = false,
   chip = false,
   stripHeight = 32,
-  radius = "0px",
-  edge = "0px",
+  radius = "10px",
+  edge = "1px",
   inset = 0,
   divider = 0.5,
   hairlines = true,
@@ -145,7 +145,7 @@ describe("paneLayoutProblem", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one 32px strip per pane above its content, with no line under it, and no title row naming the tab again; square panes flush with the workspace, divided by a 0.5px hairline; chat and file tabs 26px tall, 6px corners",
+      "one 32px strip per pane above its content, with no line under it, and no title row naming the tab again; 10px cards flush with the workspace, divided by a 0.5px hairline; chat and file tabs 26px tall, 6px corners",
     );
     // Under Increase contrast, or on a 1x screen, the hairline is a full pixel.
     expect(paneLayoutProblem(layout({ divider: 1 })).problem).toBeNull();
@@ -175,12 +175,12 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(file).problem).toBe(
       "the chat's strip covers 20px of its content",
     );
-    // The iOS look's floating cards: rounded, edged and inset.
-    expect(paneLayoutProblem(layout({ radius: "11px" })).problem).toBe(
-      "the pane's corners are 11px",
+    // Each pane is a card with 10px corners and a faint 1px edge.
+    expect(paneLayoutProblem(layout({ radius: "0px" })).problem).toBe(
+      "the pane's corners are 0px, not 10px",
     );
-    expect(paneLayoutProblem(layout({ edge: "1px" })).problem).toBe(
-      "the pane has a 1px edge of its own",
+    expect(paneLayoutProblem(layout({ edge: "2px" })).problem).toBe(
+      "the pane has a 2px edge",
     );
     expect(paneLayoutProblem(layout({ inset: 5 })).problem).toBe(
       "the pane is 5px from the workspace edge",
