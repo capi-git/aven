@@ -1388,16 +1388,17 @@ html.theme-light .personal-shell {
 .workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-label {
   flex: 0 1 auto;
 }
-/* A split is a tab per pane wide, so each pane keeps its name. Its slot class
-   also matches the single-tab rule above, which is as specific as this one
-   without the second class and would hold it to one tab's width. */
+/* A split shows its panes' marks only (each pane names itself in its own
+   card), so it is as wide as its marks. Its slot class also matches the
+   single-tab rule above, which is as specific as this one without the
+   second class and would hold it to one tab's width. */
 .workspace-status-strip
   .aven-tab-strip[data-tab-track]
   .aven-tab-slot.aven-split-entry {
-  flex: 0 1 calc(var(--aven-split-panes, 2) * 200px);
-  width: calc(var(--aven-split-panes, 2) * 200px);
-  min-width: calc(var(--aven-split-panes, 2) * 88px);
-  max-width: calc(var(--aven-split-panes, 2) * 224px);
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  max-width: none;
 }
 /* A sidebar row's height. */
 .workspace-status-strip .aven-tab-button,
