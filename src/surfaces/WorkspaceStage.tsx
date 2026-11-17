@@ -29,6 +29,7 @@ import {
   defaultPaneMinimum,
   fitLayout,
   fitShares,
+  railPullSash,
   resizeSash,
   sashOffset,
   stepSash,
@@ -418,6 +419,8 @@ const FOCUS_WAIT_MS = 1500;
 const DRAG_FRAME_DEADLINE_MS = 16;
 /** How long panes glide after one folds or opens (WorkspaceStage.css). */
 const FOLD_GLIDE_MS = 240;
+/** How far a press on a rail moves before it is a pull, not a click. */
+const RAIL_PULL_SLOP_PX = 4;
 
 function applyGeometry(element: HTMLElement, values: CSSProperties) {
   for (const [name, value] of Object.entries(values)) {
@@ -741,6 +744,10 @@ export function WorkspaceStage({
   const sashNodes = useRef(new Map<string, HTMLDivElement>());
   const railNodes = useRef(new Map<string, HTMLButtonElement>());
   const lastMinimizedSash = useRef<string | null>(null);
+  // A rail pulled open by its own strip: the click that ends the press is
+  // not a second way to open it.
+  const railPulled = useRef(false);
+  const stopRailPull = useRef<(() => void) | null>(null);
   const pendingFocus = useRef<PendingFocus | null>(null);
   useLayoutEffect(() => {
     if (
@@ -1206,7 +1213,13 @@ export function WorkspaceStage({
     const draft = dragDraft.current;
     if (draft && draftRails) paint(draft.tree, draft.size);
   }, [draftRails]);
-  useEffect(() => () => stopResize.current?.(false), []);
+  useEffect(
+    () => () => {
+      stopResize.current?.(false);
+      stopRailPull.current?.();
+    },
+    [],
+  );
 
   const joining = dragTarget?.edge === "tab" && dragTarget.index === undefined;
   const hintZone = joining
@@ -1648,7 +1661,7 @@ export function WorkspaceStage({
   /** The divider `sash` as fitted to the stage now, in pixels. */
   function measuredSash(
     tree: LayoutNode,
-    sash: StageSash,
+    sash: Pick<StageSash, "splitId" | "index">,
     measured: { width: number; height: number },
   ): FitSash | undefined {
     return fitNow(tree, measured)?.sashes.find(
@@ -1661,23 +1674,102 @@ export function WorkspaceStage({
     event: ReactPointerEvent<HTMLDivElement>,
     sash: StageSash,
   ) {
+    if (event.button !== 0) return;
+    const began = beginResize(sash, event.currentTarget, event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+    if (!began) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  /**
+   * A press on a collapsed pane's rail. Let go where it was pressed, it is
+   * the click that opens the pane at its last size. Moved along the rail's
+   * thin axis, it pulls the pane open instead, as dragging the divider on
+   * that side does: the rail is a far wider place to take hold of.
+   */
+  function startRailPull(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    id: string,
+    axis: "x" | "y",
+  ) {
+    railPulled.current = false;
+    stopRailPull.current?.();
+    if (!visible || event.button !== 0) return;
+    const pointerId = event.pointerId;
+    const from = { x: event.clientX, y: event.clientY };
+    const stop = () => {
+      stopRailPull.current = null;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("blur", stop);
+    };
+    const end = (next: PointerEvent) => {
+      if (next.pointerId === pointerId) stop();
+    };
+    const move = (next: PointerEvent) => {
+      if (next.pointerId !== pointerId) return;
+      const travel =
+        axis === "x" ? next.clientX - from.x : next.clientY - from.y;
+      if (Math.abs(travel) < RAIL_PULL_SLOP_PX) return;
+      stop();
+      const tree = current.current.layout;
+      const container = stage.current;
+      if (!tree || !container) return;
+      const fitted = fitNow(tree, stageSize(container));
+      const sash =
+        fitted && railPullSash(tree, fitted, id, travel < 0 ? -1 : 1);
+      const handle = sash && sashNodes.current.get(sashKey(sash));
+      if (!sash || !handle) return;
+      // From where the rail was pressed, so the pane's edge keeps its place
+      // under the pointer.
+      if (!beginResize(sash, handle, pointerId, from)) return;
+      railPulled.current = true;
+      // The click, if the rail is still there to get one, comes straight
+      // after the release; a later press of a key on a rail is its own.
+      const released = (last: PointerEvent) => {
+        if (last.pointerId !== pointerId) return;
+        window.removeEventListener("pointerup", released);
+        window.removeEventListener("pointercancel", released);
+        window.setTimeout(() => (railPulled.current = false), 0);
+      };
+      window.addEventListener("pointerup", released);
+      window.addEventListener("pointercancel", released);
+    };
+    stopRailPull.current = stop;
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("blur", stop);
+  }
+
+  /**
+   * Start dragging the divider `sash` with pointer `pointerId`, pressed at
+   * `from` (viewport pixels). `handle` is the divider's own element: it takes
+   * the pointer and the focus, and outlives a rail that opens mid-drag.
+   */
+  function beginResize(
+    sash: Pick<StageSash, "splitId" | "index" | "dir">,
+    handle: HTMLElement,
+    pointerId: number,
+    from: { x: number; y: number },
+  ): boolean {
     const tree = current.current.layout;
     const container = stage.current;
-    if (!visible || event.button !== 0 || !tree || !container) return;
+    if (!visible || !tree || !container) return false;
     stopResize.current?.(false);
     const measured = stageSize(container);
     const fitted = measuredSash(tree, sash, measured);
-    if (!fitted) return;
+    if (!fitted) return false;
     const horizontal = sash.dir === "right";
-    const startPointer = horizontal ? event.clientX : event.clientY;
+    const startPointer = horizontal ? from.x : from.y;
     // Pointer travel is in the viewport's pixels; the panes are laid out in
     // the stage's own, which CSS zoom scales.
     const localZoom = effectiveCssZoom(container) || 1;
     const startOffset = sashOffset(fitted);
-    event.preventDefault();
-    event.stopPropagation();
-    const handle = event.currentTarget;
-    const pointerId = event.pointerId;
     handle.focus({ preventScroll: true });
     handle.setPointerCapture(pointerId);
     const restoreSelection = suppressTextSelection();
@@ -1818,6 +1910,7 @@ export function WorkspaceStage({
     window.addEventListener("blur", blur);
     window.addEventListener("keydown", key);
     handle.addEventListener("lostpointercapture", lost);
+    return true;
   }
 
   /** Arrow keys move a divider; Home and End fold a side; = evens them. */
@@ -2116,10 +2209,18 @@ export function WorkspaceStage({
             data-pane-rail={id}
             data-axis={axis}
             aria-label={`Open ${label}`}
-            title={`${label}. Click to open`}
+            title={`${label}. Click or drag to open`}
             style={surfaceStyle(rect)}
-            onPointerDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              startRailPull(event, id, axis);
+            }}
             onClick={() => {
+              // The press was a pull: the drag has already placed the pane.
+              if (railPulled.current) {
+                railPulled.current = false;
+                return;
+              }
               // The rail goes as its pane opens: the keyboard goes into it.
               pendingFocus.current = {
                 pane: id,

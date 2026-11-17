@@ -3,12 +3,13 @@ import { leaf, type LayoutNode } from "./layout";
 import {
   PANE_MIN_PX,
   PANE_RAIL_PX,
-  collapseThreshold,
+  RAIL_OPEN_PX,
   distributeLengths,
   fitLayout,
   fitShares,
   innerSashBoundary,
   minAlong,
+  railPullSash,
   resizeSash,
   sashOffset,
   stepSash,
@@ -171,8 +172,8 @@ describe("dragging a divider", () => {
     expect((stopped.layout as Split).sizes).toEqual([0.24, 0.76]);
     expect(resizeSash(two(), sash(two()), 192).railed.before).toBe(false);
     expect(resizeSash(two(), sash(two()), 191).railed.before).toBe(true);
-    // A rail still opens from half its minimum.
-    expect(collapseThreshold(240)).toBe(120);
+    // A rail opens after a short pull, whatever its pane needs open.
+    expect(RAIL_OPEN_PX).toBe(PANE_RAIL_PX + 12);
   });
 
   it("folds a pane dragged past its hold to a rail that keeps its share", () => {
@@ -192,10 +193,19 @@ describe("dragging a divider", () => {
     const folded = resizeSash(two(), sash(two()), 0).layout;
     const rail = sash(folded);
     expect(rail.railed).toEqual([true, false]);
-    // Out past half its minimum: open, held at its 240px.
-    const opened = resizeSash(folded, rail, 150).layout as Split;
-    expect(opened.children[0].rail).toBeUndefined();
-    expect(opened.sizes).toEqual([0.24, 0.76]);
+    // A short pull out opens it, held at its 240px until the pointer is
+    // past that.
+    for (const offset of [RAIL_OPEN_PX, 150, 240]) {
+      const opened = resizeSash(folded, rail, offset).layout as Split;
+      expect(opened.children[0].rail).toBeUndefined();
+      expect(opened.sizes).toEqual([0.24, 0.76]);
+    }
+    expect((resizeSash(folded, rail, 300).layout as Split).sizes).toEqual([
+      0.3, 0.7,
+    ]);
+    // A nudge opens nothing.
+    const nudged = resizeSash(folded, rail, RAIL_OPEN_PX - 1).layout as Split;
+    expect(nudged.children[0].rail).toBe(0.5);
     // Back towards the edge it stays a 28px rail, whatever the pointer.
     const still = resizeSash(folded, rail, -500).layout as Split;
     expect(still.sizes[0]).toBe(0.028);
@@ -285,9 +295,9 @@ describe("dragging a divider", () => {
     const railed = (next: LayoutNode) =>
       (next as Split).children.map((child) => child.rail !== undefined);
 
-    it("opens neither for a nudge or a short drag", () => {
+    it("opens neither for a nudge", () => {
       const fitted = sash(layout());
-      for (const travel of [2, 60]) {
+      for (const travel of [2, 11]) {
         const next = resizeSash(layout(), fitted, sashOffset(fitted) + travel);
         expect(railed(next.layout)).toEqual([true, true, false]);
         expect(next.railed).toEqual({ before: true, after: true });
@@ -296,8 +306,10 @@ describe("dragging a divider", () => {
 
     it("opens the rail dragged out past its threshold, and only it", () => {
       const fitted = sash(layout());
-      const next = resizeSash(layout(), fitted, sashOffset(fitted) + 150);
-      expect(railed(next.layout)).toEqual([false, true, false]);
+      for (const travel of [12, 150]) {
+        const next = resizeSash(layout(), fitted, sashOffset(fitted) + travel);
+        expect(railed(next.layout)).toEqual([false, true, false]);
+      }
     });
 
     it("opens the other side when nothing else in the split is open", () => {
@@ -308,6 +320,68 @@ describe("dragging a divider", () => {
       // The chat on the right folds; the rail on the left must open.
       const next = resizeSash(two, sash(two), 1000).layout;
       expect(railed(next)).toEqual([false, true]);
+    });
+  });
+});
+
+describe("a rail pulled by its own strip", () => {
+  // chat | rail | page, as a collapsed chat between two open panes.
+  const three = () =>
+    columns(
+      [0.486, 0.028, 0.486],
+      [leaf("chat"), { ...leaf("chat-b"), rail: 0.3 }, leaf("page")],
+    );
+  const pull = (layout: LayoutNode, id: string, toward: -1 | 1) =>
+    railPullSash(layout, fitLayout(layout, 1000, 600, minimum), id, toward);
+
+  it("takes the divider on the side it is pulled toward", () => {
+    expect(pull(three(), "chat-b", -1)?.index).toBe(0);
+    expect(pull(three(), "chat-b", 1)?.index).toBe(1);
+  });
+
+  it("opens the rail that way, taking the room from the pane there", () => {
+    const left = pull(three(), "chat-b", -1)!;
+    const opened = resizeSash(three(), left, sashOffset(left) - 250)
+      .layout as Split;
+    expect(opened.children[1].rail).toBeUndefined();
+    // The chat on the left stops at its 240px; the pane takes the rest.
+    expect(widths(opened)).toEqual([240, 274, 486]);
+    const right = pull(three(), "chat-b", 1)!;
+    const other = resizeSash(three(), right, sashOffset(right) + 250)
+      .layout as Split;
+    expect(other.children[1].rail).toBeUndefined();
+    expect(widths(other)).toEqual([486, 278, 236]);
+  });
+
+  it("has no divider to pull past the arrangement's edge", () => {
+    const edge = columns(
+      [0.972, 0.028],
+      [leaf("chat"), { ...leaf("page"), rail: 0.4 }],
+    );
+    expect(pull(edge, "page", 1)).toBeUndefined();
+    expect(pull(edge, "page", -1)?.index).toBe(0);
+    // An open pane is not pulled at all.
+    expect(pull(edge, "chat", 1)).toBeUndefined();
+  });
+
+  it("finds the divider beside panes collapsed together, from any of them", () => {
+    const layout = columns(
+      [0.5, 0.5],
+      [
+        leaf("chat"),
+        {
+          type: "split",
+          id: "stack",
+          dir: "down",
+          rail: 0.5,
+          sizes: [0.5, 0.5],
+          children: [leaf("page"), leaf("file")],
+        },
+      ],
+    );
+    expect(pull(layout, "file", -1)).toMatchObject({
+      splitId: "cols",
+      index: 0,
     });
   });
 });

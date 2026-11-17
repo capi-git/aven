@@ -225,18 +225,50 @@ export function sashOffset(sash: FitSash): number {
 }
 
 /**
- * How far out a rail must be dragged before it opens: past half its minimum.
+ * How far out a rail must be dragged before it opens: a short pull, so the
+ * drag answers at once and a nudge still opens nothing. It opens at its
+ * minimum, and follows the pointer from there.
  */
-export function collapseThreshold(min: number): number {
-  return Math.max(PANE_RAIL_PX + 12, min / 2);
-}
+export const RAIL_OPEN_PX = PANE_RAIL_PX + 12;
 
 /**
  * How small a pane being dragged smaller gets before it folds: a short hold
  * past its minimum, so a pull toward the edge doesn't stall on the way.
  */
 function foldThreshold(min: number): number {
-  return Math.max(collapseThreshold(min), min - 48);
+  return Math.max(RAIL_OPEN_PX, min / 2, min - 48);
+}
+
+/**
+ * The divider that opens a rail pulled by its own strip: the one on the side
+ * the pointer moves toward (`toward` -1 for left or up, 1 for right or down),
+ * between the collapsed node holding `leafId` and its neighbour there. None
+ * when the rail has no neighbour on that side.
+ */
+export function railPullSash(
+  layout: LayoutNode,
+  fit: LayoutFit,
+  leafId: string,
+  toward: -1 | 1,
+): FitSash | undefined {
+  const owner = fit.leaves.find((leaf) => leaf.id === leafId)?.rail?.owner;
+  if (!owner) return undefined;
+  const find = (node: LayoutNode): FitSash | undefined => {
+    if (node.type === "leaf") return undefined;
+    const at = node.children.findIndex((child) => child.id === owner);
+    if (at < 0) {
+      for (const child of node.children) {
+        const found = find(child);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    const index = toward < 0 ? at - 1 : at;
+    return fit.sashes.find(
+      (sash) => sash.splitId === node.id && sash.index === index,
+    );
+  };
+  return find(layout);
 }
 
 export type SashResize = {
@@ -289,15 +321,12 @@ export function resizeSash(
   let before = wanted;
   let railBefore = false;
   let railAfter = false;
-  if (
-    before <
-    (sash.railed[i] ? collapseThreshold(minBefore) : foldThreshold(minBefore))
-  ) {
+  if (before < (sash.railed[i] ? RAIL_OPEN_PX : foldThreshold(minBefore))) {
     railBefore = true;
     before = PANE_RAIL_PX;
   } else if (
     pair - before <
-    (sash.railed[i + 1] ? collapseThreshold(minAfter) : foldThreshold(minAfter))
+    (sash.railed[i + 1] ? RAIL_OPEN_PX : foldThreshold(minAfter))
   ) {
     railAfter = true;
     before = pair - PANE_RAIL_PX;
@@ -401,7 +430,7 @@ export function resizeSash(
       if (!collapse) {
         if (child.rail === undefined) return child;
         const length = at === i ? wanted : pair - wanted;
-        if (othersOpen && length < collapseThreshold(sash.opens[at])) {
+        if (othersOpen && length < RAIL_OPEN_PX) {
           kept[at === i ? "before" : "after"] = true;
           return child;
         }
