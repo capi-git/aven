@@ -882,6 +882,13 @@ export async function runDevPerf(
         );
         await pause(1_500);
       });
+      // For the frame recorder (`--perf-record`): a cyan line drawn by Aven's
+      // interface at each web page's left edge. The test page draws a
+      // magenta one at its own; in step, the two start at the same column.
+      const edgeMarker = document.createElement("style");
+      edgeMarker.dataset.perfEdgeMarker = "";
+      edgeMarker.textContent = `[data-browser-pane] { position: relative; } [data-browser-pane]::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #00ffff; pointer-events: none; }`;
+      document.head.append(edgeMarker);
       await scenario(
         "switching between a chat and the browser",
         async (measure) => {

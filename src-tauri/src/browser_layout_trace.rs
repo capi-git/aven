@@ -16,7 +16,11 @@ pub fn record(phase: &str, id: &str, window: &str, visible: bool, geometry: Valu
     #[cfg(debug_assertions)]
     if let Some(writer) = writer() {
         if let Ok(mut writer) = writer.lock() {
+            // The same clock as the frame recorder's presentation times
+            // (mach absolute time), in milliseconds.
+            let at = uptime_ms();
             let _ = writer.append(&serde_json::json!({
+                "at": at,
                 "phase": phase, "id": id, "window": window,
                 "visible": visible, "geometry": geometry,
             }));
@@ -24,6 +28,23 @@ pub fn record(phase: &str, id: &str, window: &str, visible: bool, geometry: Valu
     }
     #[cfg(not(debug_assertions))]
     let _ = (phase, id, window, visible, geometry);
+}
+
+/// Milliseconds on the clock frame recorders read (mach absolute time).
+#[cfg(debug_assertions)]
+fn uptime_ms() -> f64 {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn clock_gettime_nsec_np(clock: u32) -> u64;
+        }
+        // CLOCK_UPTIME_RAW.
+        (unsafe { clock_gettime_nsec_np(8) }) as f64 / 1e6
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        0.0
+    }
 }
 
 #[cfg(debug_assertions)]

@@ -539,6 +539,7 @@ PERF_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>Speed tes
 <style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;color:#222}
 pre{background:#f4f4f4;padding:12px;border-radius:6px;overflow:auto}</style></head><body>
 <h1>Speed test page</h1>
+<div style="position:fixed;left:0;top:0;bottom:0;width:16px;background:#ff00ff"></div>
 """ + "\n".join(
     f"<h2>Section {index}</h2><p>Aven's speed test opens this page in the built-in browser and switches to it and "
     f"away from it. The page is plain and static so the numbers reflect Aven, not the page.</p>"
@@ -648,7 +649,7 @@ def record_scenario(root, name, recorder, app, seconds):
     else:
         return None
     before = window_server_seconds()
-    done = subprocess.run([str(recorder), '0', str(app.pid), str(seconds * 1000)],
+    done = subprocess.run([str(recorder), '0', str(app.pid), str(seconds * 1000), 'edges'],
                           capture_output=True, text=True)
     used = window_server_seconds() - before
     (ROOT / 'target/perf/last-recording.json').write_text(done.stdout or done.stderr)
@@ -677,6 +678,8 @@ def print_recording(name, recorded):
         run = []
     if len(run) >= 3:
         gaps.extend(run)
+    if any('cyan' in frame for frame in recorded['frames']):
+        print_edges(name, recorded['frames'])
     gaps.sort()
     if not gaps:
         print(f'Recording of "{name}": no motion captured.')
@@ -685,6 +688,31 @@ def print_recording(name, recorded):
           f'median {gaps[len(gaps) // 2]:.1f}, 95th {gaps[int(len(gaps) * .95)]:.1f}, worst {gaps[-1]:.1f}; '
           f'over 20 ms: {sum(gap > 20 for gap in gaps)}, over 33 ms: {sum(gap > 33 for gap in gaps)}; '
           f'window server CPU {recorded["windowServerCpuPct"]:.0f}%')
+
+
+def print_edges(name, frames):
+    """Whether a web page and Aven's interface moved together: the speed test
+    draws a cyan line in the interface at the page's left edge, and the test
+    page draws a magenta line at its own. In step, both start at the same
+    column; a frame where they differ, or where only one shows, is a frame
+    where the page and the interface disagree."""
+    both = [f for f in frames if f.get('cyanLeft') is not None and f.get('magentaLeft') is not None]
+    if not both:
+        print(f'Edges in "{name}": no frame showed both markers.')
+        return
+    offsets = [f['magentaLeft'] - f['cyanLeft'] for f in both]
+    rest = max(set(offsets), key=offsets.count)
+    apart = [f for f, offset in zip(both, offsets) if abs(offset - rest) > 1]
+    page_only = sum(1 for f in frames if f.get('magentaLeft') is not None and f.get('cyanLeft') is None)
+    edge_only = sum(1 for f in frames if f.get('cyanLeft') is not None and f.get('magentaLeft') is None)
+    # The cyan line's tallest run: the toolbar's height at rest, where the
+    # page covers the rest of it; taller means the page left it bare.
+    resting = sorted(f['cyan'] for f in both)[len(both) // 2]
+    uncovered = sum(1 for f in both if f['cyan'] > resting + 12)
+    worst = max((abs(f['magentaLeft'] - f['cyanLeft'] - rest) for f in apart), default=0)
+    print(f'Edges in "{name}": {len(frames)} frames, {len(both)} with both; page out of step with the '
+          f'interface in {len(apart)} (worst {worst:.0f} px); page without the interface\'s edge {page_only}, '
+          f'edge without the page {edge_only}, edge uncovered beside the page {uncovered}')
 
 
 def print_page_popups(scenarios):
