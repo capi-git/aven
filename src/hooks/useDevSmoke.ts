@@ -2301,7 +2301,13 @@ export function useDevSmoke(options: Options) {
     if (config.perf) void runDevPerf(config, () => latest.current);
     else if (config.iphone)
       void runDevIphoneCheck(config, () => latest.current);
-    else void runDevSmoke(config, () => latest.current);
+    else
+      // LOCAL ONLY: the filming run (useDevDemo.ts).
+      void import("./useDevDemo").then(async (demo) =>
+        (await demo.isDemo(config))
+          ? demo.runDevDemo(config, () => latest.current)
+          : runDevSmoke(config, () => latest.current),
+      );
   }, []);
 }
 
