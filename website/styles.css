@@ -1,0 +1,1682 @@
+/*
+ * Aven's website. Plain CSS, no build step.
+ * It is shaped as Aven is: one sheet of dark glass over a wallpaper, with
+ * soft tiles and round badges on it. Few lines, sentence
+ * case, few words, and colour only in the wallpaper and the app's own pictures.
+ */
+
+:root {
+  --ground: #050506;
+  --veil-color: #050506;
+  --veil-low: 0.46;
+  --veil-high: 0.94;
+  --card: rgba(11, 11, 13, 0.76);
+  --bar: rgba(18, 18, 21, 0.8);
+  --bar-solid: #121215;
+  --tile: rgba(242, 242, 240, 0.06);
+  --tile-strong: rgba(242, 242, 240, 0.11);
+  --well: rgba(0, 0, 0, 0.34);
+  --raised: #0f0f11;
+  --ink: #f2f2f0;
+  --ink-rgb: 242, 242, 240;
+  --muted: #9a9aa0;
+  --line: rgba(242, 242, 240, 0.09);
+  --line-strong: rgba(242, 242, 240, 0.18);
+  --shot-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.9);
+
+  --sans:
+    "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --dots: "Doto", var(--mono);
+
+  /* Aven's corners, scaled up with the page: its controls are 24px tall and
+     these are 40px. */
+  --radius-small: 9px;
+  --radius-control: 12px;
+  --radius-tile: 16px;
+  --radius-shot: 16px;
+  --radius-card: 26px;
+  --radius-round: 999px;
+
+  --rail: 150px;
+  --top: 52px;
+  --top-gap: 10px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ground: #f3f3f1;
+    --veil-color: #f6f6f4;
+    --veil-low: 0.6;
+    --veil-high: 0.97;
+    --card: rgba(255, 255, 255, 0.8);
+    --bar: rgba(255, 255, 255, 0.8);
+    --bar-solid: #ffffff;
+    --tile: rgba(17, 17, 19, 0.05);
+    --tile-strong: rgba(17, 17, 19, 0.09);
+    --well: rgba(17, 17, 19, 0.05);
+    --raised: #f5f5f4;
+    --ink: #111113;
+    --ink-rgb: 17, 17, 19;
+    --muted: #5f5f66;
+    --line: rgba(17, 17, 19, 0.09);
+    --line-strong: rgba(17, 17, 19, 0.2);
+    --shot-shadow: 0 30px 70px -34px rgba(0, 0, 0, 0.35);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--top) + var(--top-gap) + 14px);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The glass the whole page sits on, in three layers: the wallpaper from the
+   pictures, already blurred in the file so nothing is blurred while the page
+   scrolls; a sharp copy of it, shown as far as Translucency says; and a veil
+   over both, as solid as Opacity says. The Glass tile in Workspace sets the
+   two numbers, as the same sliders do in Aven. */
+.glass {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: -1;
+  height: 100vh;
+  height: 100lvh;
+  background: url("assets/glass.jpg") center / cover no-repeat;
+  pointer-events: none;
+}
+
+.sky {
+  position: absolute;
+  inset: 0;
+  background: center / cover no-repeat;
+  opacity: 0;
+  transition: opacity 500ms ease;
+}
+
+.sky.is-in {
+  opacity: calc(var(--clear, 0.2) * 0.9);
+}
+
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--veil-color);
+  opacity: calc(
+    var(--veil-low) + (var(--veil-high) - var(--veil-low)) * var(--solid, 0.52)
+  );
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+
+.skip {
+  position: absolute;
+  left: 16px;
+  top: -60px;
+  z-index: 20;
+  padding: 8px 14px;
+  background: var(--ink);
+  color: var(--ground);
+  border-radius: var(--radius-control);
+  text-decoration: none;
+}
+
+.skip:focus {
+  top: 12px;
+}
+
+/* Top row: a bar of glass that floats over the page. */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-top: var(--top-gap);
+  pointer-events: none;
+}
+
+.top-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: calc(100% - 24px);
+  max-width: 1176px;
+  height: var(--top);
+  padding-inline: 14px 11px;
+  border-radius: 18px;
+  background: var(--bar-solid);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 14px 34px -18px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+}
+
+@supports (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  .top-row {
+    background: var(--bar);
+    -webkit-backdrop-filter: saturate(1.5) blur(24px);
+    backdrop-filter: saturate(1.5) blur(24px);
+  }
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.mark {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* The sections are tabs, as chats are in Aven: the one on screen is lit. */
+
+.top-nav {
+  display: flex;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.top-nav a,
+.quiet {
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.top-nav a {
+  padding: 5px 11px;
+  border-radius: var(--radius-small);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.top-nav a:hover,
+.top-nav a[aria-current],
+.quiet:hover {
+  color: var(--ink);
+}
+
+.top-nav a[aria-current] {
+  background: var(--tile-strong);
+}
+
+.top-end {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* Buttons */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: var(--ground);
+  font: 500 15px/1 var(--sans);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+
+.button:hover {
+  opacity: 0.86;
+}
+
+.button:active {
+  opacity: 0.72;
+}
+
+.button.plain {
+  background: var(--tile-strong);
+  color: var(--ink);
+}
+
+.button.plain:hover {
+  opacity: 1;
+  background: rgba(var(--ink-rgb), 0.17);
+}
+
+.button.small {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: var(--radius-small);
+  font-size: 13px;
+}
+
+/* Hero */
+
+.hero {
+  position: relative;
+  margin-top: calc(-1 * (var(--top) + var(--top-gap)));
+  padding-top: calc(var(--top) + var(--top-gap));
+  padding-bottom: 72px;
+}
+
+.paper {
+  position: absolute;
+  inset: 0 0 auto 0;
+  width: 100%;
+  height: min(820px, 100%);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(#000 40%, transparent);
+  mask-image: linear-gradient(#000 40%, transparent);
+}
+
+.hero-head {
+  position: relative;
+  padding-top: 72px;
+}
+
+.hero-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 328px;
+  gap: 48px 72px;
+  align-items: end;
+  padding-block: 36px 64px;
+}
+
+h1 {
+  margin: 0 0 0 -0.04em;
+  font-family: var(--dots);
+  font-weight: 900;
+  font-variation-settings: "ROND" 100;
+  font-size: clamp(40px, 12.2vw, 136px);
+  line-height: 0.94;
+  letter-spacing: -0.04em;
+}
+
+h1 .line {
+  display: block;
+  width: fit-content;
+}
+
+/* The headline writes itself once, a column of dots at a time. The page's
+   first script holds it until the dot face is in, so no other face shows. */
+.hold h1 .line {
+  visibility: hidden;
+}
+
+.write h1 .line {
+  animation: write 480ms steps(33, end) backwards;
+}
+
+.write h1 .line + .line {
+  animation-delay: 480ms;
+}
+
+@keyframes write {
+  from {
+    clip-path: inset(-12% 100% -12% -4%);
+  }
+
+  to {
+    clip-path: inset(-12% -4% -12% -4%);
+  }
+}
+
+/* The full stops stay for screen readers. In dots they read as plus signs. */
+h1 .stop {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.lead {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.hero-words .lead {
+  max-width: 52ch;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 32px;
+}
+
+/* The facts beside the headline, as the tiles in Aven's overview: the value
+   large, its name small under it. */
+
+.spec {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.spec div {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 1px;
+  padding: 12px 15px 13px;
+  border-radius: var(--radius-tile);
+  background: var(--tile);
+}
+
+.spec dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.spec dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pictures of the app */
+
+.shot {
+  position: relative;
+  border-radius: var(--radius-shot);
+  background: var(--raised);
+  box-shadow:
+    0 0 0 1px var(--line-strong),
+    var(--shot-shadow);
+}
+
+.tour > .shot {
+  border-radius: 22px;
+}
+
+.shot-pan {
+  position: relative;
+  border-radius: inherit;
+}
+
+.shot img {
+  width: 100%;
+  border-radius: inherit;
+}
+
+.pan-hint {
+  display: none;
+}
+
+.figure {
+  margin: 0;
+}
+
+/* The walk-through at the top: one real task, a step at a time. The steps are
+   tabs, as chats are in Aven, and the lit one fills while its picture shows.
+   Without the script there is one picture and no steps. */
+
+.tour-steps {
+  display: none;
+}
+
+.tour.is-live .tour-steps {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.tour-steps li {
+  min-width: 0;
+}
+
+.tour-steps button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+  height: 38px;
+  padding: 0 15px 0 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+  font: 500 14px/1 var(--sans);
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.tour-steps button:hover {
+  background: var(--tile);
+  color: var(--ink);
+}
+
+.tour-steps button[aria-current] {
+  background: var(--tile);
+  color: var(--ink);
+}
+
+.tour-steps .num,
+.tour-steps .word {
+  position: relative;
+}
+
+.tour-steps .num {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tile-strong);
+  font: 500 12px/1 var(--mono);
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.tour-steps button[aria-current] .num {
+  background: var(--ink);
+  color: var(--ground);
+}
+
+.tour-steps .word {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tour-steps .fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--ink-rgb), 0.09);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
+.tour.is-playing .tour-steps button[aria-current] .fill {
+  animation: tour-fill 4600ms linear forwards;
+}
+
+.tour.is-paused .tour-steps button[aria-current] .fill,
+.tour.is-away .tour-steps button[aria-current] .fill {
+  animation-play-state: paused;
+}
+
+/* Once you pick a step yourself the pictures stop changing, and the lit tab
+   is simply lit. */
+.tour:not(.is-playing) .tour-steps button[aria-current] .fill {
+  transform: none;
+}
+
+@keyframes tour-fill {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* The first picture gives the frame its size. The others lie over it, and
+   the one coming in fades in above the one that is showing. */
+.tour .scene {
+  position: relative;
+}
+
+.tour .scene.more {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  visibility: hidden;
+}
+
+.tour .scene.is-on {
+  z-index: 1;
+  visibility: visible;
+}
+
+.tour .scene.is-in {
+  z-index: 2;
+  visibility: visible;
+}
+
+.tour-say {
+  max-width: 64ch;
+  min-height: 1.55em;
+  margin: 18px 4px 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+/* Sections sit on the glass, as the top of the page does. Each opens with its
+   name in dots beside what it says; everything under it keeps to the same two
+   columns, one part to two. */
+
+.band {
+  padding-block: 76px;
+}
+
+.band .wrap > * + * {
+  margin-top: 20px;
+}
+
+.band-head,
+.sets,
+.duo {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: 24px 48px;
+}
+
+.band .wrap > .band-head + * {
+  margin-top: 56px;
+}
+
+.band-name {
+  margin: 0 0 0 -0.04em;
+  font-family: var(--dots);
+  font-weight: 900;
+  font-variation-settings: "ROND" 100;
+  font-size: clamp(38px, 5vw, 62px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.band-say > * + * {
+  margin-top: 18px;
+}
+
+h2 {
+  max-width: 19ch;
+  margin: 0;
+  font-size: clamp(30px, 3.5vw, 46px);
+  font-weight: 600;
+  line-height: 1.06;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+
+h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.band .wrap > h3 {
+  margin-top: 72px;
+}
+
+.band .wrap > .shot,
+.band .wrap > .note {
+  margin-top: 28px;
+}
+
+.note {
+  max-width: 68ch;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Tiles: a name and a line, three to a row. */
+
+.tiles,
+.names,
+.relay {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tiles li,
+.relay li,
+.names li,
+.platform {
+  border-radius: 20px;
+  background: var(--tile);
+}
+
+.tiles li,
+.relay li {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 20px 22px 22px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.tiles b,
+.relay b {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.tiles li > span,
+.relay .line {
+  color: var(--muted);
+}
+
+/* Workspace ends with a live control, not a picture: its sliders set this
+   page's own glass, as the same sliders do in Aven. It keeps to the section's
+   two columns: its name and a line, then the sliders. */
+.glass-tile {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: 20px 48px;
+  align-items: center;
+  padding: 24px 24px 24px 28px;
+  border-radius: 24px;
+  background-color: var(--tile);
+}
+
+.glass-tile[hidden] {
+  display: none;
+}
+
+.band .wrap > .glass-tile {
+  margin-top: 10px;
+}
+
+.glass-say b {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.glass-say p {
+  max-width: 30ch;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.dials {
+  display: grid;
+  gap: 2px;
+  padding: 8px 20px;
+  border-radius: 16px;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.dial {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr) 3.2em;
+  gap: 14px;
+  align-items: center;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dial + .dial {
+  border-top: 1px solid var(--line);
+}
+
+.dial output {
+  color: var(--muted);
+  font: 400 12.5px/1 var(--mono);
+  text-align: right;
+}
+
+.dial input {
+  --v: 50%;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dial input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--ink) var(--v),
+    var(--tile-strong) var(--v)
+  );
+}
+
+.dial input::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--ink) var(--v),
+    var(--tile-strong) var(--v)
+  );
+}
+
+.dial input::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  transition: transform 140ms ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dial input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+
+.dial input:active::-webkit-slider-thumb {
+  transform: scale(1.18);
+}
+
+.seg {
+  display: flex;
+  grid-column: 2 / -1;
+  justify-self: end;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--tile);
+}
+
+.seg button {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font: 500 13px/1 var(--sans);
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.seg button:hover,
+.seg button[aria-checked="true"] {
+  color: var(--ink);
+}
+
+.seg button[aria-checked="true"] {
+  background: var(--tile-strong);
+}
+
+.steps li::before,
+.relay li::before {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--tile-strong);
+  color: var(--ink);
+  font: 500 12px/1 var(--mono);
+}
+
+/* Providers: how each set is made ready, said once, then the names. */
+
+.sets {
+  align-items: start;
+}
+
+.set-name {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.names {
+  margin-top: 0;
+}
+
+.sets > div + div .names {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.names li {
+  padding: 26px 22px 27px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+/* Agents: the work passes along a row of five, and each one lights in turn. */
+
+.relay {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  counter-reset: step;
+}
+
+.relay li {
+  position: relative;
+  overflow: hidden;
+  counter-increment: step;
+  padding: 18px 18px 22px;
+  font-size: 14px;
+}
+
+.relay li::before {
+  content: counter(step);
+  position: relative;
+  margin-bottom: 26px;
+}
+
+.relay b,
+.relay .line {
+  position: relative;
+}
+
+.relay .fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--ink-rgb), 0.08);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+}
+
+.relay.is-live .fill {
+  animation: relay 10s linear infinite;
+}
+
+.relay.is-away .fill {
+  animation-play-state: paused;
+}
+
+.relay li:nth-child(2) .fill {
+  animation-delay: 2s;
+}
+
+.relay li:nth-child(3) .fill {
+  animation-delay: 4s;
+}
+
+.relay li:nth-child(4) .fill {
+  animation-delay: 6s;
+}
+
+.relay li:nth-child(5) .fill {
+  animation-delay: 8s;
+}
+
+@keyframes relay {
+  0% {
+    opacity: 1;
+    transform: scaleX(0);
+  }
+
+  20% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+
+  27%,
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+
+/* Words beside a picture, on the section's two columns. */
+
+.duo {
+  align-items: center;
+}
+
+.duo.top {
+  align-items: start;
+}
+
+.band .wrap > .duo {
+  margin-top: 72px;
+}
+
+.duo-say > * + * {
+  margin-top: 14px;
+}
+
+.duo-say .lead {
+  font-size: 16px;
+}
+
+.points {
+  margin: 22px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.points li {
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+/* Schedule: the examples as Aven shows them, with when each one runs. */
+
+.plans li {
+  grid-template-rows: auto 1fr auto;
+}
+
+.when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 14px 0 0;
+}
+
+.when .pill {
+  padding: 3px 11px;
+  border-radius: var(--radius-round);
+  background: var(--tile-strong);
+  color: var(--ink);
+  font: 400 12.5px/1.5 var(--mono);
+}
+
+.when .next {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Install */
+
+.platforms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.platform {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 28px 30px 30px;
+}
+
+.platform h3 {
+  font-size: 26px;
+  letter-spacing: -0.02em;
+}
+
+.platform p {
+  flex: 1;
+  max-width: 44ch;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.steps {
+  margin-bottom: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.steps li:first-child {
+  border-top: 0;
+}
+
+.steps li::before {
+  content: counter(step);
+}
+
+.code {
+  position: relative;
+  border-radius: var(--radius-tile);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.duo-say > .code {
+  margin-top: 20px;
+}
+
+.code pre {
+  margin: 0;
+  padding: 20px 22px;
+  overflow-x: auto;
+  font: 400 13.5px/1.75 var(--mono);
+}
+
+.copy {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  height: 28px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: var(--radius-round);
+  background: var(--tile-strong);
+  color: var(--muted);
+  font: 500 12px/1 var(--sans);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.copy:hover {
+  background: rgba(var(--ink-rgb), 0.17);
+  color: var(--ink);
+}
+
+/* Foot */
+
+.foot {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.foot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 48px;
+  padding-block: 64px 64px;
+}
+
+.foot p {
+  max-width: 56ch;
+  margin: 0;
+}
+
+.foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 24px;
+}
+
+.foot nav a {
+  text-decoration: none;
+}
+
+.foot nav a:hover {
+  color: var(--ink);
+}
+
+/* Motion. Nearly all of it waits for the page's first script to say that
+   motion is wanted (the "motion" class), so the page is whole without the
+   script and still under Reduce motion. */
+
+/* What you scroll to comes in: up a little, each tile after its neighbour. */
+.motion .rise {
+  opacity: 0;
+  transform: translateY(22px);
+}
+
+.motion .rise.is-seen {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 640ms ease,
+    transform 780ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: calc(var(--i, 0) * 70ms);
+}
+
+/* A section's name writes itself in dots, as the headline does. */
+.motion .band-name.waits {
+  clip-path: inset(-12% 100% -12% -4%);
+}
+
+.motion .band-name.is-seen {
+  animation: write 640ms steps(30, end) backwards;
+}
+
+/* The top of the page arrives in order: the headline writes itself, then the
+   words, the facts and the picture come up under it. */
+.hold .hero-words,
+.hold .spec div,
+.hold .tour {
+  opacity: 0;
+}
+
+.write .hero-words,
+.write .spec div,
+.write .tour {
+  animation: rise 780ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+
+.write .hero-words {
+  animation-delay: 560ms;
+}
+
+.write .spec div:nth-child(1) {
+  animation-delay: 680ms;
+}
+
+.write .spec div:nth-child(2) {
+  animation-delay: 735ms;
+}
+
+.write .spec div:nth-child(3) {
+  animation-delay: 790ms;
+}
+
+.write .spec div:nth-child(4) {
+  animation-delay: 845ms;
+}
+
+.write .spec div:nth-child(5) {
+  animation-delay: 900ms;
+}
+
+.write .spec div:nth-child(6) {
+  animation-delay: 955ms;
+}
+
+.write .tour {
+  animation-delay: 1040ms;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+}
+
+/* The mark in the top row builds from its bottom row up, as its name says. */
+.write .mark circle {
+  animation: dot 380ms ease backwards;
+}
+
+.write .mark circle:nth-child(n + 11) {
+  animation-delay: 120ms;
+}
+
+.write .mark circle:nth-child(n + 7):nth-child(-n + 10) {
+  animation-delay: 220ms;
+}
+
+.write .mark circle:nth-child(n + 4):nth-child(-n + 6) {
+  animation-delay: 320ms;
+}
+
+.write .mark circle:nth-child(n + 2):nth-child(-n + 3) {
+  animation-delay: 420ms;
+}
+
+.write .mark circle:nth-child(1) {
+  animation-delay: 520ms;
+}
+
+@keyframes dot {
+  from {
+    opacity: 0;
+    transform: translateY(0.7px);
+  }
+}
+
+/* The lit tab in the top row slides from one section's name to the next, as
+   the highlight on Aven's own tabs does. */
+.top-nav,
+.top-nav a {
+  position: relative;
+}
+
+.nav-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--w, 0);
+  height: var(--h, 0);
+  border-radius: var(--radius-small);
+  background: var(--tile-strong);
+  opacity: 0;
+  transform: translate(var(--x, 0), var(--y, 0));
+  transition:
+    transform 360ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    width 360ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 220ms ease;
+  pointer-events: none;
+}
+
+.nav-glow.is-on {
+  opacity: 1;
+}
+
+.top-nav.has-glow a[aria-current] {
+  background: none;
+}
+
+/* A soft light follows the pointer across a tile, as on glass. */
+@media (hover: hover) {
+  .glow.glow {
+    background-image: radial-gradient(
+      300px circle at var(--mx, -600px) var(--my, -600px),
+      rgba(var(--ink-rgb), 0.075),
+      transparent 70%
+    );
+  }
+}
+
+/* The wallpaper behind the glass drifts up as the page goes by, from the
+   night sky at the top of the page to the horizon at its foot. */
+@supports (animation-timeline: scroll()) {
+  .motion .glass {
+    height: 135vh;
+    height: 135lvh;
+    animation: drift linear both;
+    animation-timeline: scroll(root block);
+  }
+}
+
+@keyframes drift {
+  to {
+    transform: translateY(-25.9%);
+  }
+}
+
+.button {
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease,
+    transform 120ms ease;
+}
+
+.button:active {
+  transform: scale(0.975);
+}
+
+/* Narrow windows */
+
+@media (max-width: 960px) {
+  .hero-head {
+    padding-top: 64px;
+  }
+
+  .hero-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: 36px 56px;
+  }
+
+  .spec {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: 560px;
+  }
+
+  .band {
+    padding-block: 60px;
+  }
+
+  .duo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tiles,
+  .sets > div + div .names {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Stacked under its words, a close-up keeps to its own size. */
+  .duo > .shot {
+    max-width: 820px;
+  }
+
+  .relay li {
+    padding: 14px 14px 18px;
+  }
+
+  .relay li::before {
+    margin-bottom: 14px;
+  }
+}
+
+@media (max-width: 720px) {
+  .wrap {
+    padding-inline: 16px;
+  }
+
+  .top-row {
+    width: calc(100% - 16px);
+    padding-inline: 12px 8px;
+    border-radius: 16px;
+  }
+
+  .top-nav {
+    display: none;
+  }
+
+  .top-end {
+    margin-left: auto;
+  }
+
+  .hero {
+    padding-bottom: 28px;
+  }
+
+  .hero-head {
+    padding-top: 48px;
+  }
+
+  .hero-grid {
+    padding-block: 32px 44px;
+  }
+
+  .lead {
+    font-size: 17px;
+  }
+
+  /* Two facts to a row, so the first picture comes sooner. */
+  .spec {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: none;
+  }
+
+  .spec dd {
+    font-size: 17px;
+  }
+
+  .band {
+    padding-block: 44px;
+  }
+
+  .band-head,
+  .sets {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .band .wrap > .band-head + * {
+    margin-top: 32px;
+  }
+
+  .band .wrap > h3,
+  .band .wrap > .duo {
+    margin-top: 52px;
+  }
+
+  .tiles,
+  .relay {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .tiles li {
+    padding: 18px 20px 20px;
+  }
+
+  /* Nine short tiles in one column make a long page, so these go two to a
+     row, and the odd one out takes the whole row. */
+  .tiles.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tiles.compact li {
+    padding: 16px 16px 18px;
+    font-size: 14px;
+  }
+
+  .tiles.compact b {
+    font-size: 16px;
+  }
+
+  .tiles.compact li:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  /* On a phone the five go down the page, each a row with its number beside
+     its name. */
+  .relay li,
+  .relay li:nth-child(n) {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 3px 14px;
+    padding: 16px 18px 18px;
+  }
+
+  .relay li::before {
+    grid-row: span 2;
+    margin: 0;
+  }
+
+  .relay .line {
+    grid-column: 2;
+  }
+
+  .names li {
+    padding: 20px 18px 21px;
+    font-size: 18px;
+  }
+
+  /* On a phone only the lit step has its name; the others are their
+     numbers. */
+  .tour.is-live .tour-steps {
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+
+  .tour-steps button {
+    height: 36px;
+    padding: 0 7px;
+    font-size: 13px;
+  }
+
+  .tour-steps button:not([aria-current]) .word {
+    display: none;
+  }
+
+  .tour-steps button[aria-current] {
+    padding-right: 13px;
+  }
+
+  .tour-say {
+    min-height: 4.65em;
+    margin-top: 14px;
+  }
+
+  .glass-tile {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 22px 16px 16px;
+  }
+
+  .glass-say {
+    padding-inline: 6px;
+  }
+
+  .dials {
+    padding-inline: 14px;
+  }
+
+  .dial {
+    grid-template-columns: 6.6em minmax(0, 1fr) 2.8em;
+    gap: 10px;
+  }
+
+  /* A whole window is too small to read on a phone, so each picture is
+     shown larger and slides sideways. */
+  .shot,
+  .tour > .shot {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    border-radius: 14px;
+  }
+
+  .shot::-webkit-scrollbar {
+    display: none;
+  }
+
+  .shot-pan {
+    width: 820px;
+    border-radius: 0;
+  }
+
+  .shot[data-pan="end"] .shot-pan {
+    width: 760px;
+  }
+
+  .pan-hint {
+    display: block;
+    margin: 6px 4px 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .button.small {
+    height: 36px;
+    padding: 0 15px;
+    border-radius: 10px;
+  }
+
+  .quiet {
+    padding: 10px 0;
+  }
+
+  .foot nav a {
+    padding: 6px 0;
+  }
+
+  .code pre {
+    padding-top: 52px;
+  }
+
+  .platforms {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .platform {
+    padding: 22px 20px 24px;
+  }
+
+  .foot-row {
+    flex-direction: column;
+    gap: 24px;
+    padding-block: 40px 56px;
+  }
+
+  .foot nav {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .button,
+  .copy,
+  .top-nav a,
+  .nav-glow,
+  .tour-steps button,
+  .tour-steps .num,
+  .sky,
+  .seg button {
+    transition: none;
+  }
+
+  .button:active {
+    transform: none;
+  }
+
+  .write h1 .line,
+  .relay.is-live .fill {
+    animation: none;
+  }
+}

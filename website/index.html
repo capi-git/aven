@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aven: every agent, one window</title>
+    <meta
+      name="description"
+      content="Aven is a desktop workspace for coding agents. Chats, your project and a browser in one window, with the provider accounts you already have. Free and open source for Mac and Windows."
+    />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="author" content="Capi" />
+    <link rel="canonical" href="https://aven-desktop.vercel.app/" />
+    <meta property="og:url" content="https://aven-desktop.vercel.app/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Aven: every agent, one window" />
+    <meta
+      property="og:description"
+      content="A desktop workspace for coding agents. Free and open source for Mac and Windows."
+    />
+    <meta
+      property="og:image"
+      content="https://aven-desktop.vercel.app/assets/og.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Doto:wght,ROND@900,100&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script>
+      // Say that motion is wanted, and hold the headline until its dot face
+      // has arrived, then let it write itself once. Under Reduce motion
+      // nothing here runs and the page is simply there.
+      (function () {
+        var root = document.documentElement;
+        if (!window.matchMedia) return;
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+          return;
+        var done = false;
+        function write() {
+          if (done) return;
+          done = true;
+          root.classList.remove("hold");
+          root.classList.add("write");
+          document.dispatchEvent(new Event("aven:write"));
+        }
+        root.classList.add("motion", "hold");
+        setTimeout(write, 1500);
+        if (document.fonts && document.fonts.load) {
+          document.fonts.load('900 1em "Doto"').then(write, write);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="glass" aria-hidden="true"><div class="sky"></div></div>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="top">
+      <div class="wrap top-row">
+        <a class="brand" href="#" aria-label="Aven, top of page">
+          <svg class="mark" viewBox="0 0 5 5" aria-hidden="true">
+            <circle cx="0.5" cy="0.5" r="0.34" />
+            <circle cx="0.5" cy="1.5" r="0.34" />
+            <circle cx="1.5" cy="1.5" r="0.34" />
+            <circle cx="0.5" cy="2.5" r="0.34" />
+            <circle cx="1.5" cy="2.5" r="0.34" />
+            <circle cx="2.5" cy="2.5" r="0.34" />
+            <circle cx="0.5" cy="3.5" r="0.34" />
+            <circle cx="1.5" cy="3.5" r="0.34" />
+            <circle cx="2.5" cy="3.5" r="0.34" />
+            <circle cx="3.5" cy="3.5" r="0.34" />
+            <circle cx="0.5" cy="4.5" r="0.34" />
+            <circle cx="1.5" cy="4.5" r="0.34" />
+            <circle cx="2.5" cy="4.5" r="0.34" />
+            <circle cx="3.5" cy="4.5" r="0.34" />
+            <circle cx="4.5" cy="4.5" r="0.34" />
+          </svg>
+          <span>Aven</span>
+        </a>
+        <nav class="top-nav" aria-label="Sections">
+          <a href="#workspace">Workspace</a>
+          <a href="#providers">Providers</a>
+          <a href="#agents">Agents</a>
+          <a href="#schedule">Schedule</a>
+          <a href="#install">Install</a>
+        </nav>
+        <div class="top-end">
+          <a class="quiet" href="https://github.com/capi-git/aven">GitHub</a>
+          <a class="button small" href="#install">Download</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <canvas class="paper" aria-hidden="true"></canvas>
+        <div class="wrap hero-head">
+          <h1>
+            <span class="line">Every agent<span class="stop">.</span></span>
+            <span class="line">One window<span class="stop">.</span></span>
+          </h1>
+        </div>
+        <div class="wrap hero-grid">
+          <div class="hero-words">
+            <p class="lead">
+              A desktop workspace for coding agents. Your chats, your project
+              and a real browser, side by side.
+            </p>
+            <div class="actions">
+              <a
+                class="button"
+                data-os="mac"
+                href="https://github.com/capi-git/aven/releases/latest/download/Aven-macos-arm64.zip"
+                >Download for Mac</a
+              >
+              <a
+                class="button plain"
+                data-os="windows"
+                href="https://github.com/capi-git/aven/releases/latest/download/Aven-windows-x64-setup.exe"
+                >Download for Windows</a
+              >
+            </div>
+          </div>
+
+          <dl class="spec" aria-label="Aven at a glance">
+            <div>
+              <dt>Version</dt>
+              <dd><span data-version>0.1.181</span></dd>
+            </div>
+            <div>
+              <dt>Mac</dt>
+              <dd>Apple Silicon</dd>
+            </div>
+            <div>
+              <dt>Windows</dt>
+              <dd>x64</dd>
+            </div>
+            <div>
+              <dt>Providers</dt>
+              <dd>8</dd>
+            </div>
+            <div>
+              <dt>Aven account</dt>
+              <dd>None</dd>
+            </div>
+            <div>
+              <dt>Licence</dt>
+              <dd>MIT</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="wrap">
+          <figure class="figure tour" id="window" data-tour>
+            <ol class="tour-steps" aria-label="One task in Aven, step by step">
+              <li>
+                <button
+                  type="button"
+                  aria-current="step"
+                  data-focus="0.36"
+                  data-say="Write what you want in a new chat. The files of the project are beside it."
+                >
+                  <span class="fill"></span>
+                  <span class="num">1</span>
+                  <span class="word">Ask</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  data-scene="assets/tour-check.webp"
+                  data-alt="The agent's reply, Done, and the Changes panel, which lists README.md with 18 added lines."
+                  data-focus="1"
+                  data-say="The agent says what it did. Changes lists each file it touched, with the lines it added."
+                >
+                  <span class="fill"></span>
+                  <span class="num">2</span>
+                  <span class="word">Check the change</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  data-scene="assets/split.webp"
+                  data-alt="On the left the chat; on the right the project's website open in the built-in browser."
+                  data-focus="0.5"
+                  data-say="Open the site in a tab beside the chat. The page and the conversation share one window."
+                >
+                  <span class="fill"></span>
+                  <span class="num">3</span>
+                  <span class="word">See it live</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  data-scene="assets/avos.webp"
+                  data-alt="Avos's chat. The Builder, Checker and Security report in turn, then a card offers Review and Apply all."
+                  data-focus="0.05"
+                  data-say="Give a larger job to Avos. A Builder, a Checker and Security each take a turn."
+                >
+                  <span class="fill"></span>
+                  <span class="num">4</span>
+                  <span class="word">Hand it to Avos</span>
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  data-scene="assets/review.webp"
+                  data-alt="The Review panel, with the page before and after the change shown as two phone screens."
+                  data-focus="1"
+                  data-say="Compare the page before and after. Nothing reaches your files until you press Apply."
+                >
+                  <span class="fill"></span>
+                  <span class="num">5</span>
+                  <span class="word">Review and apply</span>
+                </button>
+              </li>
+            </ol>
+            <div class="shot">
+              <div class="shot-pan">
+                <img
+                  class="scene is-on"
+                  src="assets/tour-ask.webp"
+                  width="2400"
+                  height="1590"
+                  fetchpriority="high"
+                  alt="A new chat in Aven with the message Write a short README for the Juniper site typed in. The project's files are listed on the right."
+                />
+              </div>
+            </div>
+            <figcaption>
+              <p class="tour-say">
+                Write what you want in a new chat. The files of the project are
+                beside it.
+              </p>
+              <p class="pan-hint">Swipe a picture sideways to see all of it.</p>
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="band" id="workspace">
+        <div class="wrap">
+          <header class="band-head">
+            <p class="band-name">Workspace</p>
+            <div class="band-say">
+              <h2>Everything a task needs stays in view.</h2>
+              <p class="lead">
+                Read the change, run it and see it, without leaving the window.
+              </p>
+            </div>
+          </header>
+
+          <ul class="tiles compact">
+            <li>
+              <b>Tabs</b>
+              <span>Chats and pages in one row. Drag to split.</span>
+            </li>
+            <li>
+              <b>Browser</b>
+              <span>Your site, live, beside the chat that changes it.</span>
+            </li>
+            <li>
+              <b>Changes</b>
+              <span>Each file the agent touched, line by line.</span>
+            </li>
+            <li>
+              <b>Message box</b>
+              <span>Type / for skills and @ for files.</span>
+            </li>
+            <li>
+              <b>File editor</b>
+              <span>Open a file beside the chat that changed it.</span>
+            </li>
+            <li>
+              <b>Comment on a page</b>
+              <span>Select an element and send a note to the chat.</span>
+            </li>
+            <li>
+              <b>Project board</b>
+              <span
+                >Write a feature down, press Build, and follow its card.</span
+              >
+            </li>
+            <li>
+              <b>Notes and Inbox</b>
+              <span
+                >Markdown notes, and your GitHub issues and pull requests.</span
+              >
+            </li>
+            <li>
+              <b>Terminal</b>
+              <span>A shell in the project folder.</span>
+            </li>
+          </ul>
+
+          <div class="glass-tile" data-glass hidden>
+            <div class="glass-say">
+              <b>Glass</b>
+              <p>Set how much shows through. Try it: this page is glass too.</p>
+            </div>
+            <div class="dials">
+              <label class="dial">
+                <span>Opacity</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="52"
+                  data-dial="solid"
+                />
+                <output>52%</output>
+              </label>
+              <label class="dial">
+                <span>Translucency</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="20"
+                  data-dial="clear"
+                />
+                <output>20%</output>
+              </label>
+              <div class="dial">
+                <span id="frame-name">Frame</span>
+                <div class="seg" role="radiogroup" aria-labelledby="frame-name">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked="false"
+                    data-frame="lighter"
+                  >
+                    Lighter
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked="true"
+                    data-frame="default"
+                  >
+                    Default
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked="false"
+                    data-frame="darker"
+                  >
+                    Darker
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band" id="providers">
+        <div class="wrap">
+          <header class="band-head">
+            <p class="band-name">Providers</p>
+            <div class="band-say">
+              <h2>Use the accounts you already pay for.</h2>
+              <p class="lead">
+                Aven runs each provider's own tool with your sign-in. It needs
+                no Aven account, and the charges stay with the provider.
+              </p>
+            </div>
+          </header>
+
+          <div class="sets">
+            <div>
+              <p class="set-name" id="set-aven">
+                Install and sign in from Aven
+              </p>
+              <ul class="names" aria-labelledby="set-aven">
+                <li>Claude Code</li>
+                <li>Codex</li>
+              </ul>
+            </div>
+            <div>
+              <p class="set-name" id="set-found">Found when installed</p>
+              <ul class="names" aria-labelledby="set-found">
+                <li>Cursor</li>
+                <li>Grok Build</li>
+                <li>OpenCode</li>
+                <li>Pi</li>
+                <li>omp</li>
+                <li>fx</li>
+              </ul>
+            </div>
+          </div>
+          <p class="note">
+            Nothing is installed until you choose it. New models appear without
+            an Aven release.
+          </p>
+        </div>
+      </section>
+
+      <section class="band" id="agents">
+        <div class="wrap">
+          <header class="band-head">
+            <p class="band-name">Agents</p>
+            <div class="band-say">
+              <h2>Ask once. A bot and its helpers do the work.</h2>
+              <p class="lead">
+                Avos takes your request and shares it out. Nothing reaches your
+                folder until you apply it.
+              </p>
+            </div>
+          </header>
+
+          <ol class="relay" data-live>
+            <li>
+              <span class="fill"></span>
+              <b>Avos</b>
+              <span class="line">Takes your request and shares it out.</span>
+            </li>
+            <li>
+              <span class="fill"></span>
+              <b>Builder</b>
+              <span class="line"
+                >Makes the change in a copy of your project.</span
+              >
+            </li>
+            <li>
+              <span class="fill"></span>
+              <b>Checker</b>
+              <span class="line"
+                >Tests it, and opens the page at phone and laptop size.</span
+              >
+            </li>
+            <li>
+              <span class="fill"></span>
+              <b>Security</b>
+              <span class="line">Reads the change before it comes back.</span>
+            </li>
+            <li>
+              <span class="fill"></span>
+              <b>You</b>
+              <span class="line">Review the result, then apply it.</span>
+            </li>
+          </ol>
+
+          <div class="duo">
+            <div class="duo-say">
+              <h3>Each helper reports in the chat</h3>
+              <p class="lead">
+                When the work is ready, one card offers Review and Apply all.
+              </p>
+            </div>
+            <div class="shot">
+              <div class="shot-pan">
+                <img
+                  src="assets/helpers.webp"
+                  width="1709"
+                  height="648"
+                  loading="lazy"
+                  alt="Avos's chat, close up. The Builder, Checker and Security report in turn, then a card offers Review and Apply all."
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="duo">
+            <div class="duo-say">
+              <h3>See the change before it reaches your files</h3>
+              <p class="lead">
+                Review shows the page before and after the change, side by side.
+              </p>
+              <ul class="points">
+                <li>Phone and Desktop show the page at both sizes.</li>
+                <li>Click After to leave Avos a note.</li>
+                <li>Apply copies the change to your files.</li>
+              </ul>
+            </div>
+            <div class="shot" data-pan="end">
+              <div class="shot-pan">
+                <img
+                  src="assets/review-close.webp"
+                  width="1658"
+                  height="1160"
+                  loading="lazy"
+                  alt="The Review panel, close up: what changed, then the page before and after as two phone screens. The new sign-up button is marked 1."
+                />
+              </div>
+            </div>
+          </div>
+
+          <h3>Three more ways to put agents together</h3>
+          <ul class="tiles">
+            <li>
+              <b>Discuss</b>
+              <span>Two chats talk a question through.</span>
+            </li>
+            <li>
+              <b>Race</b>
+              <span
+                >Several agents get the same task. You keep the best
+                result.</span
+              >
+            </li>
+            <li>
+              <b>Orchestrator</b>
+              <span>A lead agent shares the work out to other agents.</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="band" id="schedule">
+        <div class="wrap">
+          <header class="band-head">
+            <p class="band-name">Schedule</p>
+            <div class="band-say">
+              <h2>Run agents while you do something else.</h2>
+              <p class="lead">
+                An agent starts at a set time while Aven is open. You hear from
+                it only when it needs you.
+              </p>
+            </div>
+          </header>
+
+          <ul class="tiles plans">
+            <li>
+              <b>Morning briefing</b>
+              <span
+                >What changed since yesterday and what needs attention
+                first.</span
+              >
+              <p class="when">
+                <span class="pill">Weekdays at 08:30</span>
+                <span class="next" data-next="1,2,3,4,5 08:30"></span>
+              </p>
+            </li>
+            <li>
+              <b>Nightly test run</b>
+              <span
+                >Runs the tests and proposes a fix on a branch if one
+                fails.</span
+              >
+              <p class="when">
+                <span class="pill">Every day at 02:00</span>
+                <span class="next" data-next="0,1,2,3,4,5,6 02:00"></span>
+              </p>
+            </li>
+            <li>
+              <b>Dependency check</b>
+              <span
+                >Finds outdated or vulnerable packages and prepares safe
+                updates.</span
+              >
+              <p class="when">
+                <span class="pill">Mon at 09:00</span>
+                <span class="next" data-next="1 09:00"></span>
+              </p>
+            </li>
+            <li>
+              <b>Issue triage</b>
+              <span>Suggests labels and priority for new GitHub issues.</span>
+              <p class="when">
+                <span class="pill">Weekdays at 09:00</span>
+                <span class="next" data-next="1,2,3,4,5 09:00"></span>
+              </p>
+            </li>
+            <li>
+              <b>Weekly changelog</b>
+              <span>Drafts release notes from the week's changes.</span>
+              <p class="when">
+                <span class="pill">Fri at 16:00</span>
+                <span class="next" data-next="5 16:00"></span>
+              </p>
+            </li>
+            <li>
+              <b>Stale TODOs and docs</b>
+              <span
+                >Spots recent TODOs and docs that no longer match the
+                code.</span
+              >
+              <p class="when">
+                <span class="pill">Every 24 hours</span>
+              </p>
+            </li>
+          </ul>
+          <p class="note">
+            These six come with Aven. Change them, or write your own.
+          </p>
+        </div>
+      </section>
+
+      <section class="band" id="install">
+        <div class="wrap">
+          <header class="band-head">
+            <p class="band-name">Install</p>
+            <div class="band-say">
+              <h2>Free, open source, and yours to build.</h2>
+              <p class="lead">
+                Download it, connect a provider and start a task. Updates never
+                interrupt a running agent.
+              </p>
+            </div>
+          </header>
+
+          <div class="platforms">
+            <div class="platform">
+              <h3>Mac</h3>
+              <p>
+                Apple Silicon, macOS 13 or later. Signed and notarised by Apple.
+              </p>
+              <a
+                class="button"
+                data-os="mac"
+                href="https://github.com/capi-git/aven/releases/latest/download/Aven-macos-arm64.zip"
+                >Download for Mac</a
+              >
+            </div>
+            <div class="platform">
+              <h3>Windows</h3>
+              <p>x64 installer. Windows can show a warning the first time.</p>
+              <a
+                class="button plain"
+                data-os="windows"
+                href="https://github.com/capi-git/aven/releases/latest/download/Aven-windows-x64-setup.exe"
+                >Download for Windows</a
+              >
+            </div>
+          </div>
+
+          <div class="duo top">
+            <div class="duo-say">
+              <h3>First run</h3>
+              <ol class="steps">
+                <li>Open Aven and choose the providers you want to connect.</li>
+                <li>Run the install or sign-in step for each one.</li>
+                <li>
+                  Pick a project folder, a model and an access mode, then start
+                  a task.
+                </li>
+              </ol>
+            </div>
+            <div class="duo-say">
+              <h3>Build from source</h3>
+              <p class="lead">
+                React and TypeScript on a Rust and Tauri shell. This opens a
+                separate Aven Dev beside your installed Aven.
+              </p>
+              <div class="code">
+                <button class="copy" type="button" data-copy>Copy</button>
+                <pre><code>git clone https://github.com/capi-git/aven.git
+cd aven
+npm ci
+npm run dev:doctor
+npm run dev:app</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot-row">
+        <p>
+          Aven is made by Capi and is MIT licensed. It began from the
+          MIT-licensed
+          <a href="https://github.com/hardbeat920/monocode">MonoCode</a> project
+          by Nick and contributors, and is maintained independently. Provider
+          names belong to their owners.
+        </p>
+        <nav aria-label="Project links">
+          <a href="https://github.com/capi-git/aven">Source</a>
+          <a href="https://github.com/capi-git/aven/releases">Releases</a>
+          <a href="https://github.com/capi-git/aven/blob/main/CHANGELOG.md"
+            >Changelog</a
+          >
+          <a href="https://github.com/capi-git/aven/blob/main/docs/WINDOWS.md"
+            >Aven for Windows</a
+          >
+        </nav>
+      </div>
+    </footer>
+
+    <script src="main.js" defer></script>
+  </body>
+</html>
