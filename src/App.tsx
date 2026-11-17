@@ -948,6 +948,7 @@ import {
   AVOS_MAY_NOT_READ,
   avosMayRead,
   crewForChat,
+  crewLead,
   crewMemberApp,
   crewMemberById,
   crewMemberName,
@@ -1140,6 +1141,12 @@ registerBuiltinHarnesses();
 
 /** How soon after a run finishes its agents are summed up (see teamResult). */
 const RUN_SUMMARY_WINDOW_MS = 10 * 60_000;
+
+/** The id of a project's Avos's own chat, once it has one. */
+function avosChatId(path: string): string | undefined {
+  const crew = getCrew(path);
+  return crew ? crewLead(crew)?.sessionId : undefined;
+}
 
 export default function App({
   resumed = null,
@@ -2346,6 +2353,15 @@ export default function App({
   const [searchFocusToken, setSearchFocusToken] = useState(0);
   const [inboxAskPortal, setInboxAskPortal] =
     useState<InboxSessionPortal | null>(null);
+  // Avos's own chat, drawn inside its screen: the place each project's
+  // screen gave for it (see `CrewWorkspace.showChat`). The chat is its
+  // Avos's own, by the id its team keeps.
+  const [avosHosts, setAvosHosts] = useState<
+    Readonly<Record<string, HTMLElement>>
+  >({});
+  const avosHostsRef = useRef(avosHosts);
+  avosHostsRef.current = avosHosts;
+  const [focusedAvosChat, setFocusedAvosChat] = useState<string | null>(null);
   const openingInboxSessions = useRef(new Map<string, Promise<string>>());
   const [inspectedWorkerId, setInspectedWorkerId] = useState<string | null>(
     null,
@@ -3888,6 +3904,8 @@ export default function App({
         // An automation run's chat has no tab: it stays loaded while the
         // run works, then is parked like any chat.
         ...runningAutomationChats,
+        // Avos's own chat, while its screen shows it.
+        ...Object.keys(avosHosts).flatMap((path) => avosChatId(path) ?? []),
       ],
     );
     const keepUnseen = liveAgentsEnabled;
@@ -3929,6 +3947,7 @@ export default function App({
     botWorkingChats,
     runningAutomationChats,
     crewWorkingChats,
+    avosHosts,
   ]);
 
   const activateTab = useCallback(
@@ -5230,6 +5249,15 @@ export default function App({
     (paneId: string) => {
       setProjectTerminalFocused(false);
       if (inboxAskPortal?.sessionId === paneId) {
+        setComposerFocused(true);
+        return;
+      }
+      // Avos's chat in its own screen: its message box takes the keys.
+      const inAvos = Object.keys(avosHostsRef.current).some(
+        (path) => avosChatId(path) === paneId,
+      );
+      setFocusedAvosChat(inAvos ? paneId : null);
+      if (inAvos) {
         setComposerFocused(true);
         return;
       }
@@ -11753,6 +11781,17 @@ export default function App({
           void gitSetupNeeded(path).then((need) => {
             if (need) setBotGitSetup({ path, state: need, for: "team" });
           }),
+        showChat: (path, host) => {
+          setAvosHosts((current) => {
+            if (current[path] === (host ?? undefined)) return current;
+            const { [path]: _gone, ...rest } = current;
+            return host ? { ...rest, [path]: host } : rest;
+          });
+          const crew = host ? getCrew(path) : undefined;
+          const lead = crew ? crewLead(crew) : undefined;
+          // Loaded here, kept loaded while its screen shows it.
+          if (crew && lead) void ensureCrewChat(crew, lead.id);
+        },
       }),
     [
       closeUtilityViews,
@@ -13234,6 +13273,30 @@ export default function App({
                         />
                       </LazyViewSlot>
                     ) : null}
+                    {/* Avos's own chat, in the place its screen gives it:
+                        drawn straight into that place, which is on screen
+                        already, so the chat measures itself where it is. */}
+                    {Object.entries(avosHosts).map(([path, host]) => {
+                      const id = avosChatId(path);
+                      const session = id
+                        ? sessions.find((entry) => entry.id === id)
+                        : undefined;
+                      return session
+                        ? createPortal(
+                            <SessionPane
+                              {...sessionPaneProps}
+                              session={session}
+                              visible
+                              focused={focusedAvosChat === session.id}
+                              inSplit={false}
+                              avosScreen
+                              composerFocused={composerFocused}
+                            />,
+                            host,
+                            path,
+                          )
+                        : null;
+                    })}
                     <div className="hidden" aria-hidden>
                       {sessions
                         .filter((session) => session.inboxAsk)

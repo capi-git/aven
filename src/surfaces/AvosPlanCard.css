@@ -1,0 +1,38 @@
+/* Avos's plan under its reply: each part of the work, who takes it, and
+   where it stands. It shares the crew card's frame and rows. */
+.avos-plan .avos-plan-steps li {
+  min-height: 34px;
+}
+
+.avos-plan .crew-fence-title {
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+}
+
+.avos-plan .crew-fence-detail {
+  font-size: var(--text-ui-label);
+}
+
+/* Two faces wide, so every step's words start on one line. */
+.avos-plan-faces {
+  flex: none;
+  width: 36px;
+}
+
+.avos-plan-faces .dot-mark.crew-critter {
+  width: 16px;
+  height: 16px;
+}
+
+.avos-plan-needs {
+  flex: none;
+  color: var(--aven-needs-you);
+  font-size: var(--text-ui-caption);
+}
+
+.avos-plan-done {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--aven-muted);
+}

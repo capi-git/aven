@@ -63,7 +63,9 @@ import { isUntitledChatTitle } from "../lib/untitledChat";
 import { AgentTranscript } from "./AgentTranscript";
 import { BotChatHeader, BotIntro } from "./BotChat";
 import { useBotChatProject } from "../lib/projectBots";
+import { tellTeam } from "../lib/crewActions";
 import { crewMemberName, useCrew, useCrewChat } from "../lib/crews";
+import { errorText, logError } from "../lib/errors";
 import { CrewChatHeader, CrewIntro } from "./CrewChat";
 import { useProjectBotName } from "../hooks/useProjectBotName";
 import { isBlockingQuestion } from "../lib/userQuestion";
@@ -127,6 +129,11 @@ type Props = {
   addToChatTarget?: boolean;
   /** Shares its tab with another pane, so it shows its own name strip. */
   inSplit: boolean;
+  /**
+   * Avos's own chat, drawn in Avos's screen: the panel beside it names
+   * Avos, so the chat shows no header of its own.
+   */
+  avosScreen?: boolean;
   composerFocused: boolean;
   recents: RecentProject[];
   hideProjectPicker?: boolean;
@@ -225,6 +232,7 @@ export const SessionPane = memo(function SessionPane({
   focused,
   addToChatTarget = focused,
   inSplit,
+  avosScreen = false,
   composerFocused,
   recents,
   hideProjectPicker,
@@ -594,13 +602,26 @@ export const SessionPane = memo(function SessionPane({
       onModelSettingsChange(sessionId, settings),
     [onModelSettingsChange, sessionId],
   );
+  // Avos's own chat: what you write goes to Avos through its team, which
+  // tells it what it may start this turn and reads its plan when it answers.
+  const avosPath = crewChat?.role === "lead" ? crewChat.path : undefined;
   const submit = useCallback(
     (
       text: Parameters<typeof onSubmit>[1],
       attachments: Parameters<typeof onSubmit>[2],
       options?: Parameters<typeof onSubmit>[3],
-    ) => onSubmit(sessionId, text, attachments, options),
-    [onSubmit, sessionId],
+    ) => {
+      if (avosPath && !attachments?.length && !options) {
+        void tellTeam(avosPath, text, "lead")
+          .catch((error) => errorText(error))
+          .then((why) => {
+            if (why) logError("Avos message", why);
+          });
+        return true;
+      }
+      return onSubmit(sessionId, text, attachments, options);
+    },
+    [avosPath, onSubmit, sessionId],
   );
   const deleteQueuedMessage = useCallback(
     (messageId: string) => onDeleteQueuedMessage(sessionId, messageId),
@@ -810,6 +831,7 @@ export const SessionPane = memo(function SessionPane({
     <div
       data-session-drop={session.id}
       data-session-empty={isEmpty}
+      data-avos-chat={avosScreen || undefined}
       data-project-chat-background={!!projectBackground}
       data-project-background-scope={projectBackground?.scope}
       style={projectBackgroundStyle}
@@ -846,7 +868,7 @@ export const SessionPane = memo(function SessionPane({
       ) : null}
       {projectBot ? (
         <BotChatHeader path={projectBot} working={busy} />
-      ) : crewChat ? (
+      ) : crewChat && !avosScreen ? (
         <CrewChatHeader
           path={crewChat.path}
           role={crewChat.role}

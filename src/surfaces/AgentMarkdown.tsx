@@ -69,10 +69,12 @@ import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../lib/inboxMedia";
 import { isNoteImagePath } from "../lib/noteImages";
 import { InboxMedia } from "./InboxMedia";
 import { LocalMarkdownImage } from "./LocalMarkdownImage";
+import { AvosPlanCard } from "./AvosPlanCard";
 import { CrewFenceCard } from "./CrewFenceCard";
 import { ChatDownloadLink } from "./ChatDownloadLink";
 import { isAgentMadeFile } from "../lib/chatDownloads";
 import { isCrewFence } from "../lib/crewFences";
+import { TALK_FENCE } from "../lib/crewTalk";
 import { AUTOMATION_FENCE } from "../lib/chatAutomation";
 import { ChatAutomationCard } from "./ChatAutomationCard";
 
@@ -478,6 +480,16 @@ function MarkdownCode({
   if (fence.language.toLowerCase() === "mermaid") {
     return (
       <MermaidBlock code={textContent(children)} incomplete={incomplete} />
+    );
+  }
+  // The block that ends Avos's reply: its plan, with who takes each part.
+  if (fence.language.toLowerCase() === TALK_FENCE) {
+    return (
+      <AvosPlanCard
+        code={textContent(children)}
+        incomplete={incomplete}
+        {...(cwd ? { cwd } : {})}
+      />
     );
   }
   // A crew's block (`aven-ideas`, a verdict, a handoff…) is Aven's to

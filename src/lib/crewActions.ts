@@ -3144,6 +3144,12 @@ export type CrewWorkspace = {
   setUpGit?: (path: string) => void;
   /** Show one of your chats, by its id (a message's link back to it). */
   openSession?: (sessionId: string) => void;
+  /**
+   * Draw Avos's own chat in this place, with everything a chat has (its
+   * transcript and its message box), or stop drawing it there (null). Only
+   * the window that runs chats has it.
+   */
+  showChat?: (path: string, host: HTMLElement | null) => void;
 };
 
 /**

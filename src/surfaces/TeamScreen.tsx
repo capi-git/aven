@@ -31,6 +31,7 @@ import {
 } from "../lib/crewActions";
 import { avosPickOverride, pickLabel } from "../lib/crewModels";
 import {
+  crewLead,
   crewMember,
   crewMemberById,
   stackedCards,
@@ -80,6 +81,36 @@ import "./TeamScreen.css";
  * Meeting Avos for the first time is the chat alone. The work stays in a
  * copy until you press Apply.
  */
+
+/**
+ * The place Avos's own chat is drawn in: Aven puts the chat there, with its
+ * transcript and its message box, as it draws any chat.
+ */
+function AvosChatHost({
+  project,
+  hidden,
+  show,
+}: {
+  project: string;
+  hidden: boolean;
+  show: (path: string, host: HTMLElement | null) => void;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = host.current;
+    if (!node) return;
+    show(project, node);
+    return () => show(project, null);
+  }, [project, show]);
+  return (
+    <div
+      ref={host}
+      className="avos-body avos-chat-host"
+      hidden={hidden}
+      data-avos-chat-host={project}
+    />
+  );
+}
 
 /** Below this width Avos's panel folds into a header over the chat. */
 const PROFILE_NARROW = 720;
@@ -209,6 +240,11 @@ export function TeamScreen({
     if (!narrow) setSheet(null);
   }, [narrow]);
   const shown = !meeting && saved === "board" ? "board" : "chat";
+  // Once you have met Avos, its chat is a chat like any other: Aven draws
+  // Avos's own conversation here, with its plans under its replies. Meeting
+  // it, and a window that can't run chats, keep the simple thread.
+  const ownChat =
+    !meeting && crew.on && !!crewLead(crew) && !!crewWorkspace?.showChat;
   const workspace = useTeamWorkspace();
   const open = (row: AvosWeekRow) => {
     const target = row.open;
@@ -406,7 +442,14 @@ export function TeamScreen({
         )}
         {/* The chat stays put under the Board, so its place and what you
             were writing are there when you come back. */}
-        <div className="avos-body" hidden={shown !== "chat"}>
+        {ownChat ? (
+          <AvosChatHost
+            project={project}
+            hidden={shown !== "chat"}
+            show={crewWorkspace.showChat!}
+          />
+        ) : null}
+        <div className="avos-body" hidden={ownChat || shown !== "chat"}>
           <TeamChat
             project={project}
             crew={crew}
