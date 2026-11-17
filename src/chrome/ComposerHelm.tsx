@@ -2,7 +2,6 @@ import {
   Fragment,
   memo,
   useCallback,
-  useContext,
   useEffect,
   useId,
   useMemo,
@@ -70,11 +69,6 @@ import { markUsageWarningSeen } from "../lib/usageHistory";
 import { AgentPanel, useAgentSummary, type AgentPanelFocus } from "./AgentPill";
 import { HarnessIcon } from "./HarnessIcon";
 import { AgentMark, type AgentState } from "./AgentMark";
-import { HelmRunContext } from "./HelmRun";
-import { sessionOrbActivity } from "../lib/orbLook";
-import { DotWorker } from "./DotWorker";
-import { useSetting } from "../hooks/useSetting";
-import { SETTINGS } from "../lib/settings";
 import {
   HelmBubble,
   helmOutcome,
@@ -192,7 +186,8 @@ const POSE_STATE: Record<HelmPose, AgentState> = {
   rest: "resting",
   typing: "watching",
   hover: "watching",
-  running: "working",
+  // The bubble's Stop and words say the turn works (ComposerHelm's mark).
+  running: "resting",
   needs: "needs",
   done: "still",
   error: "still",
@@ -201,20 +196,6 @@ const POSE_REACTION: Partial<Record<HelmPose, MascotReactionKind>> = {
   done: "cheer",
   error: "slump",
 };
-
-/**
- * The helm's mark. While its turn works it reads the chat's run (only
- * this small part re-renders as a reply streams) so its orb says what the
- * turn does: thinking, searching, using a browser, waiting on helpers.
- */
-function HelmMark(props: Parameters<typeof AgentMark>[0]) {
-  const run = useContext(HelmRunContext);
-  const activity =
-    props.state === "working" && run
-      ? sessionOrbActivity(run.session)
-      : undefined;
-  return <AgentMark {...props} activity={activity} />;
-}
 
 /** A row's label, in the system font. */
 function RowLabel({ text }: { text: string }) {
@@ -405,8 +386,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const say = runSay ?? usageSay?.say ?? null;
   const fixes = runSay ? runFixes : (usageSay?.fixes ?? []);
   const outcome = helmOutcome(say);
-  // Settings › Appearance › Working mark: the orb, or a quiet face of dots.
-  const workingMark = useSetting(SETTINGS.workingMark);
   const pose = helmPose({
     busy,
     hasValue,
@@ -1042,17 +1021,20 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             }
           }}
         >
-          {workingMark === "dots" && pose === "running" ? (
-            <DotWorker className="helm-critter" />
-          ) : (
-            <HelmMark
-              key={hop}
-              tone={tone}
-              state={POSE_STATE[pose]}
-              reaction={POSE_REACTION[pose] ?? null}
-              className={`helm-critter${hop ? " helm-critter-hop" : ""}`}
-            />
-          )}
+          {/* While its turn runs, the mark steps aside: the bubble's
+              Stop and words say the turn works, and the chat shows each
+              step, so one orb is enough. It keeps its place, at rest (so
+              it costs nothing), and fades, so the model's name never
+              moves. */}
+          <AgentMark
+            key={hop}
+            tone={tone}
+            state={POSE_STATE[pose]}
+            reaction={POSE_REACTION[pose] ?? null}
+            className={`helm-critter${hop ? " helm-critter-hop" : ""}${
+              pose === "running" ? " helm-critter-away" : ""
+            }`}
+          />
           {showAgent ? (
             <span className="helm-model">
               <span className="helm-model-name">

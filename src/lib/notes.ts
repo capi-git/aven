@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { fuzzyMatch } from "./fuzzy";
 import type { ProjectFile } from "./fs";
 import type { RankedFile } from "./fileIndex";
+import type { HarnessId } from "./session";
 import { projectName } from "./paths";
 import { looksLikeProject } from "./recents";
 
@@ -33,6 +34,12 @@ export type NoteCardMeta = {
   slug: string;
   title: string;
   sourceCwd?: string;
+  /**
+   * A reply forwarded from another chat rather than a note: `id` is that
+   * chat, `title` its name and `harness` its agent.
+   */
+  kind?: "forward";
+  harness?: HarnessId;
 };
 
 /** Composer chip: display fields plus the body injected into the harness prompt. */
@@ -46,6 +53,8 @@ export function noteCardMeta(card: NoteComposerCard): NoteCardMeta {
     slug: card.slug,
     title: card.title,
     ...(card.sourceCwd ? { sourceCwd: card.sourceCwd } : {}),
+    ...(card.kind ? { kind: card.kind } : {}),
+    ...(card.harness ? { harness: card.harness } : {}),
   };
 }
 
@@ -211,7 +220,7 @@ export function noteSourceProject(cwd?: string): string | null {
   return name || null;
 }
 
-export function notePreview(text: string, title: string): string {
+export function notePreview(text: string, title: string, limit = 120): string {
   const parts: string[] = [];
   let inFence = false;
   for (const line of text.split(/\r?\n/)) {
@@ -225,11 +234,11 @@ export function notePreview(text: string, title: string): string {
     const next = unwrapMarkdown(trimmed.replace(/^[-*+]\s+/, ""));
     if (!next || next === title) continue;
     parts.push(next);
-    if (parts.join(" ").length >= 120) break;
+    if (parts.join(" ").length >= limit) break;
   }
   const preview = parts.join(" ");
   if (!preview) return "";
-  return preview.length > 120 ? `${preview.slice(0, 119)}…` : preview;
+  return preview.length > limit ? `${preview.slice(0, limit - 1)}…` : preview;
 }
 
 export function appendNoteReference(
@@ -316,6 +325,7 @@ export function composeNoteMessage(
   text: string,
 ): string {
   if (!card) return text.trim();
+  if (card.kind === "forward") return composeForwardMessage(card, text);
   const lead = text.trim() || "Use this note.";
   return injectNotePrompt(lead, [
     {
@@ -327,6 +337,21 @@ export function composeNoteMessage(
       updatedAt: 0,
     },
   ]);
+}
+
+function composeForwardMessage(card: NoteComposerCard, text: string): string {
+  const lead = text.trim() || "Here is a reply from another chat.";
+  const title = card.title.trim() || "another chat";
+  return [
+    lead,
+    "",
+    "---",
+    `Forwarded from the chat "${title}":`,
+    "",
+    "<forwarded>",
+    card.body.trim(),
+    "</forwarded>",
+  ].join("\n");
 }
 
 function unwrapMarkdown(value: string): string {

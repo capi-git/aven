@@ -978,7 +978,24 @@ export function createBrowserPresentation({
     placementInvalidated = true;
     present();
   };
-  const resize = new ResizeObserver(schedule);
+  // A divider or sidebar drag publishes each frame's bounds as it paints them
+  // (the workspace's layout event); the resize that follows reaches this
+  // observer after layout. Measuring the same box again next frame cost
+  // every drag frame a second pass over the page's overlays for nothing.
+  const resize = new ResizeObserver(() => {
+    const last = lastBounds;
+    const now = last && shown() ? adapter.bounds(element) : null;
+    if (
+      last &&
+      now &&
+      now.x === last.x &&
+      now.y === last.y &&
+      now.width === last.width &&
+      now.height === last.height
+    )
+      return;
+    schedule();
+  });
   const overlayNode = (node: Node) =>
     node instanceof HTMLElement &&
     (node.matches(OVERLAYS) || node.querySelector(OVERLAYS));

@@ -77,7 +77,7 @@
   opacity: 0;
 }
 .personal-shell
-  .personal-profile-name:is(:hover, :focus-visible)
+  :is(.personal-profile-name:hover, .personal-profile-name:focus-visible)
   .personal-profile-chevron,
 .personal-shell
   .personal-profile-name[aria-expanded="true"]
@@ -325,19 +325,19 @@
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(:hover, :focus-within)
+  :is(.personal-project-row:hover, .personal-project-row:focus-within)
   .personal-project-files {
   display: inline;
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(:hover, :focus-within)
+  :is(.personal-project-row:hover, .personal-project-row:focus-within)
   .personal-project-files-count {
   display: inline;
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(:hover, :focus-within)
+  :is(.personal-project-row:hover, .personal-project-row:focus-within)
   .personal-project-memory {
   display: inline-block;
 }
@@ -370,10 +370,10 @@
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(
-    :hover,
-    :focus-within,
-    :has(.personal-project-more[aria-expanded="true"])
+  :is(
+    .personal-project-row:hover,
+    .personal-project-row:focus-within,
+    .personal-project-row:has(.personal-project-more[aria-expanded="true"])
   )
   .personal-project-row-action {
   width: 24px;
@@ -521,12 +521,12 @@
 }
 .personal-shell
   .personal-project-tasks
-  .personal-task-card:is(
-    :hover,
-    :focus-visible,
-    [data-session-selected="true"],
-    :has(.personal-task-agent),
-    :has(.personal-task-status:not([data-row-time]))
+  :is(
+    .personal-task-card:hover,
+    .personal-task-card:focus-visible,
+    .personal-task-card[data-session-selected="true"],
+    .personal-task-card:has(.personal-task-agent),
+    .personal-task-card:has(.personal-task-status:not([data-row-time]))
   )
   .personal-task-title {
   color: var(--color-content);
@@ -536,13 +536,13 @@
 }
 .personal-shell
   .personal-navigation
-  .personal-other-task:is(:hover, :focus-visible)
+  :is(.personal-other-task:hover, .personal-other-task:focus-visible)
   > .personal-task-status[data-row-time] {
   display: inline;
 }
 .personal-shell
   .personal-navigation
-  .personal-task-row:is(:hover, :has(:focus-visible))
+  :is(.personal-task-row:hover, .personal-task-row:has(:focus-visible))
   .personal-task-status[data-row-time] {
   display: flex;
   opacity: 1;
@@ -550,7 +550,10 @@
 /* The archive button sits where the time would end. */
 .personal-shell
   .personal-navigation
-  .personal-task-row[data-has-archive="true"]:is(:hover, :has(:focus-visible))
+  :is(
+    .personal-task-row[data-has-archive="true"]:hover,
+    .personal-task-row[data-has-archive="true"]:has(:focus-visible)
+  )
   .personal-task-status[data-row-time] {
   padding-right: 24px;
 }
@@ -628,7 +631,10 @@
 }
 .personal-shell
   .personal-navigation
-  .personal-workspace-switcher:is(:hover, :focus-within)
+  :is(
+    .personal-workspace-switcher:hover,
+    .personal-workspace-switcher:focus-within
+  )
   .personal-workspace-add,
 .personal-shell
   .personal-navigation

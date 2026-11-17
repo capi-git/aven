@@ -244,7 +244,7 @@ describe("the agent at the helm", () => {
   const css = (file: string) =>
     readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("is its orb, still at rest and running while it works", async () => {
+  it("is its orb, still at rest, stepping aside in place while its turn runs", async () => {
     await render();
     expect(mark().classList.contains("agent-mark")).toBe(true);
     // Resting, its orb is idle.
@@ -255,10 +255,25 @@ describe("the agent at the helm", () => {
     expect(mark().querySelector(".dot-mark-lit")).toBeNull();
     props.busy = true;
     await render();
-    expect(mark().dataset.agent).toBe("working");
+    // One orb is enough: the bubble's Stop and words say the turn works.
+    // The mark keeps its place, at rest and faded, so nothing moves.
+    expect(mark().classList.contains("helm-critter-away")).toBe(true);
+    expect(mark().dataset.agent).toBe("resting");
     expect(mark().querySelector<SVGElement>(".thinking-orb")?.dataset.orb).toBe(
-      "working",
+      "idle",
     );
+    props.busy = false;
+    await render();
+    expect(mark().classList.contains("helm-critter-away")).toBe(false);
+  });
+
+  it("fades its mark out of the way without changing its size", () => {
+    const helm = css("src/chrome/ComposerHelm.css");
+    const rule =
+      /\.composer-helm \.dot-mark\.helm-critter\.helm-critter-away \{([^}]*)\}/.exec(
+        helm,
+      )?.[1];
+    expect(rule?.trim()).toBe("opacity: 0;");
   });
 
   it("is 25px, past the small marks' bigger dots", () => {
@@ -347,7 +362,7 @@ describe("the mark's states", () => {
     expect(dialog()).toBeNull();
   });
 
-  it("sweeps a light while the agent works, saying what and how long, with the one Stop", async () => {
+  it("says the agent works and for how long, with the one Stop, leaving the step to the chat", async () => {
     run = {
       session: session({
         busy: true,
@@ -384,19 +399,43 @@ describe("the mark's states", () => {
     props.busy = true;
     await render();
     expect(helm().dataset.pose).toBe("running");
-    expect(mark().dataset.agent).toBe("working");
-    // Reading a file is plain work: the running ring.
-    expect(
-      mark().querySelector<SVGElement>(".agent-bob .thinking-orb")?.dataset.orb,
-    ).toBe("working");
+    // Only one orb works: the model pill's mark steps aside.
+    expect(mark().classList.contains("helm-critter-away")).toBe(true);
     const bubble = host.querySelector<HTMLElement>(
       '[data-helm-say="running"]',
     )!;
-    expect(bubble.textContent).toContain("Composer.tsx");
+    // The chat shows the file read; the bubble does not repeat it.
+    expect(bubble.textContent).not.toContain("Composer.tsx");
+    expect(bubble.textContent).toContain("Working");
     expect(bubble.querySelector('[role="timer"]')?.textContent).toBe("0:42");
     expect(stops()).toHaveLength(1);
     await act(async () => (stops()[0] as HTMLButtonElement).click());
     expect(run.onStop).toHaveBeenCalledWith("chat-1");
+  });
+
+  it("keeps its orb, needing you, while the turn waits on an approval", async () => {
+    run = {
+      session: session({
+        busy: true,
+        blocks: [
+          { id: "u1", role: "user", text: "Go", startedAt: Date.now() },
+          {
+            id: "a1",
+            role: "tool",
+            text: "Command",
+            approval: { requestId: 1 },
+          },
+        ] as Session["blocks"],
+      }),
+      visible: true,
+      placement: "row",
+      onStop: vi.fn(),
+    };
+    props.busy = true;
+    await render();
+    expect(helm().dataset.pose).toBe("needs");
+    expect(mark().classList.contains("helm-critter-away")).toBe(false);
+    expect(mark().dataset.agent).toBe("needs");
   });
 
   it("leaves Stop to the team bar where both would stop the same run", async () => {

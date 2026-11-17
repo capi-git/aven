@@ -8,6 +8,7 @@ import {
 } from "../lib/devSmoke";
 import {
   analyzeRestyle,
+  timeStyleAndLayout,
   heapMB,
   measureRefresh,
   nextPaint,
@@ -853,6 +854,33 @@ export async function runDevPerf(
       await report("show sidebar", () => pressShortcut("b"));
       await report("switch chat tab", () => pressShortcut("2"));
       await report("switch chat tab back", () => pressShortcut("1"));
+      // Focus is no attribute: time the message box losing and taking it.
+      const box = visibleComposer();
+      if (box) {
+        const costs = [
+          {
+            element: "textarea",
+            attribute: "(blur)",
+            ms: timeStyleAndLayout(() => box.blur(), box),
+          },
+          {
+            element: "textarea",
+            attribute: "(focus)",
+            ms: timeStyleAndLayout(
+              () => box.focus({ preventScroll: true }),
+              box,
+            ),
+          },
+        ];
+        restyle.push({
+          name: "message box focus",
+          changes: 0,
+          nodesAdded: 0,
+          nodesRemoved: 0,
+          costs,
+          subtrees: [],
+        });
+      }
       const slots = stripSlots();
       if (slots.length > 1) {
         const from = pressPoint(slots[0]);
@@ -1073,6 +1101,39 @@ export async function runDevPerf(
       await measure.time(() => smokeMouse("up", end, { settle: false }));
       await pause(600);
     };
+    // A workspace divider dragged left and right, a frame at a time as a
+    // hand does: both panes follow it, and a native page beside it too.
+    const dragPaneDivider = async (measure: Measure, rounds = 3) => {
+      // Each tab keeps a stage; the one on screen has the divider with a box.
+      const sash = [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-workspace-stage]:not([hidden]) [role="separator"][data-direction="right"]',
+        ),
+      ].find((element) => element.getBoundingClientRect().height > 0);
+      if (!sash) throw new Error("No workspace divider");
+      for (let round_ = 0; round_ < rounds; round_ += 1) {
+        const box = sash.getBoundingClientRect();
+        const from = { x: box.left + box.width / 2, y: box.top + 200 };
+        measure.mark("lift");
+        await smokeMouse("down", from, { settle: false });
+        await nextPaint();
+        measure.mark("motion");
+        const steps = 90;
+        for (let step = 1; step <= steps; step += 1) {
+          // Out by 120 px to the left and back again.
+          const share = 1 - Math.abs((step / steps) * 2 - 1);
+          await smokeMouse(
+            "drag",
+            { x: from.x - share * 120, y: from.y },
+            { settle: false },
+          );
+          await pause(refreshMs);
+        }
+        measure.mark("drop");
+        await measure.time(() => smokeMouse("up", from, { settle: false }));
+        await pause(300);
+      }
+    };
     await scenario("dropping a tab to make a split", async (measure) => {
       for (let round_ = 0; round_ < 2; round_ += 1) {
         pressShortcut(String(round_ + 1));
@@ -1083,6 +1144,9 @@ export async function runDevPerf(
         await dropOnRightEdge(measure, slot);
       }
     });
+    await scenario("dragging the pane divider between chats", (measure) =>
+      dragPaneDivider(measure),
+    );
     if (settings.pageUrl && openWebLink) {
       await scenario("dropping a tab beside a web page", async (measure) => {
         pressShortcut("9");
@@ -1095,6 +1159,14 @@ export async function runDevPerf(
         await dropOnRightEdge(measure, slot);
         await pause(1_000);
       });
+      await scenario(
+        "dragging the pane divider beside a web page",
+        async (measure) => {
+          if (!document.querySelector("[data-browser-pane]"))
+            throw new Error("No web page in front");
+          await dragPaneDivider(measure);
+        },
+      );
     }
     // Two workspaces, each with a project and chats: a two-finger swipe on
     // the pinned sidebar's workspace pages moves to the other, as people do

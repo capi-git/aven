@@ -318,7 +318,7 @@ describe("the work dots", () => {
     );
   });
 
-  it("says a few words, keeping the whole line for the tooltip", () => {
+  it("says a short general state, never the step the chat already shows", () => {
     const status = {
       kind: "working",
       label: "Working",
@@ -327,16 +327,45 @@ describe("the work dots", () => {
     } as const;
     expect(helmWorkWords(status, "write", "row")).toEqual({
       text: "Writing",
-      hint: "Writing a reply",
       loud: false,
     });
+    expect(helmWorkWords(status, "think", "row")).toEqual({
+      text: "Thinking",
+      loud: false,
+    });
+    expect(
+      helmWorkWords({ ...status, doing: "Planning" }, "write", "row").text,
+    ).toBe("Planning");
+    // A file edit or a command is in the chat: the bubble only says it works.
     expect(
       helmWorkWords(
         { ...status, doing: "Edit app.js", detail: "Edit app.js" },
         "tool",
         "row",
       ),
-    ).toEqual({ text: "Edit app.js", loud: false });
+    ).toEqual({ text: "Working", loud: false });
+    const command = 'for i in 1 2 3; do curl -s -w "%{http_code}"; done';
+    expect(
+      helmWorkWords(
+        { ...status, doing: command, detail: command },
+        "tool",
+        "row",
+      ),
+    ).toEqual({ text: "Working", loud: false });
+    // A long command says how long it has run, without the command.
+    expect(
+      helmWorkWords(
+        {
+          kind: "working",
+          label: "Running a command",
+          detail: `${command} · 45s`,
+          doing: command,
+          holdUp: "command",
+        },
+        "tool",
+        "row",
+      ),
+    ).toEqual({ text: "Running a command · 45s", loud: false });
     expect(helmWorkWords(status, "write", "attention").text).toBe("Working");
     expect(
       helmWorkWords(

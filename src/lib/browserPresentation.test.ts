@@ -414,6 +414,26 @@ describe("browser presentation", () => {
     expect(frames.size).toBe(0);
   });
 
+  it("measures once per drag frame: a resize already published asks for no second pass", async () => {
+    // A drag frame: the workspace paints the pane and announces it.
+    native.measured = { ...native.measured, width: 640 };
+    window.dispatchEvent(new Event("supermono:workspace-layout"));
+    expect(native.layouts).toHaveLength(2);
+    // Its resize reaches the observer after layout, at the same box: no
+    // frame measures it again, now or once that layout has landed.
+    resize();
+    await settle();
+    expect(frames.size).toBe(0);
+    expect(native.layouts).toHaveLength(2);
+    // A resize nobody announced is still followed.
+    native.measured = { ...native.measured, width: 600 };
+    resize();
+    expect(frames.size).toBe(1);
+    await paint();
+    expect(native.page.bounds.width).toBe(600);
+    expect(native.layouts).toHaveLength(3);
+  });
+
   it("disconnects hidden panes and rechecks overlays before returning", async () => {
     state.visible = false;
     state.paused = true;

@@ -84,7 +84,7 @@ afterEach(async () => {
 });
 
 describe("the critter's speech bubble", () => {
-  it("says what the agent is doing, for how long, with the one Stop", async () => {
+  it("says it works, for how long, with the one Stop, leaving the step to the chat", async () => {
     session.blocks.push({
       id: "read",
       role: "tool",
@@ -94,7 +94,10 @@ describe("the critter's speech bubble", () => {
     });
     await render();
     expect(bubble()?.dataset.helmSay).toBe("running");
-    expect(bubble()?.textContent).toContain("Composer.tsx");
+    expect(bubble()?.textContent).not.toContain("Composer.tsx");
+    const words = host.querySelector<HTMLElement>('[role="status"]')!;
+    expect(words.textContent).toBe("Working");
+    expect(words.title).toBe("Working");
     expect(host.querySelector('[role="timer"]')?.textContent).toBe("0:09");
     await act(async () => vi.advanceTimersByTime(2_000));
     expect(host.querySelector('[role="timer"]')?.textContent).toBe("0:11");
@@ -107,17 +110,17 @@ describe("the critter's speech bubble", () => {
   });
 
   it.each([
-    ["reasoning", "think", "Thinking", "Thinking"],
-    ["assistant", "write", "Writing", "Writing a reply"],
+    ["reasoning", "think", "Thinking"],
+    ["assistant", "write", "Writing"],
   ] as const)(
     "says a %s block's work in a few words",
-    async (role, work, text, hint) => {
+    async (role, work, text) => {
       session.blocks.push({ id: "b", role, text: "…", streaming: true });
       await render();
       expect(bubble()?.dataset.work).toBe(work);
       const words = host.querySelector<HTMLElement>('[role="status"]')!;
       expect(words.textContent).toBe(text);
-      expect(words.title).toBe(hint);
+      expect(words.title).toBe(text);
       expect(words.hasAttribute("data-loud")).toBe(false);
     },
   );
@@ -202,7 +205,7 @@ describe("the critter's speech bubble", () => {
     expect(bubble()?.dataset.helmSay).toBe("running");
   });
 
-  it("counts a retry down and names a long command, without new events", async () => {
+  it("counts a retry down and times a long command, without new events", async () => {
     session = {
       ...session,
       waitingOn: {
@@ -230,10 +233,12 @@ describe("the critter's speech bubble", () => {
       ],
     };
     await render();
-    expect(bubble()?.textContent).toContain("npm test");
+    // The chat shows the command; the bubble only says how long it runs.
+    expect(bubble()?.textContent).not.toContain("npm test");
     await act(async () => vi.advanceTimersByTime(1_000));
-    expect(bubble()?.textContent).toContain("Running a command");
-    expect(bubble()?.textContent).toContain("npm test · 10s");
+    const words = host.querySelector<HTMLElement>('[role="status"]')!;
+    expect(words.textContent).toBe("Running a command · 10s");
+    expect(words.title).not.toContain("npm test");
   });
 
   it("lists the chat's agents on request", async () => {

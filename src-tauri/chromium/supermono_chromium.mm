@@ -2875,6 +2875,7 @@ extern "C" int sm_chromium_create(const char *id,void *parent,const char *url,co
     else { CefRequestContextSettings settings; CefString(&settings.cache_path)=path; settings.persist_session_cookies=true; request_context=CefRequestContext::CreateContext(settings,nullptr); profiles[path]=request_context; }
     CefRefPtr<Page> page=new Page(id); page->parent_=(__bridge NSView*)parent; page->x_=x; page->y_=y; page->w_=w; page->h_=h;
     page->parent_.wantsLayer=YES;
+    supermono::InstallWorkspaceCursorUpdate(WorkspaceWebView(page->parent_));
     page->clip_view_=[[SMBrowserClipView alloc] initWithFrame:WorkspaceFrame(page->parent_,x,y,w,h)];
     {
       const std::string page_id=page->id_;

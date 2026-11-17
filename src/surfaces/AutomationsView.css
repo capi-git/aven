@@ -308,13 +308,19 @@
 .automation-run-delete:focus-visible {
   opacity: 1;
 }
-.automation-run-item:is(:hover, :has(.automation-run-delete:focus-visible))
+:is(
+    .automation-run-item:hover,
+    .automation-run-item:has(.automation-run-delete:focus-visible)
+  )
   .automation-run-row:has(+ .automation-run-delete)
   > :is(.aven-menu-detail, .automation-unread) {
   visibility: hidden;
 }
 /* A run with no length has nothing holding the button's place. */
-.automation-run-item:is(:hover, :has(.automation-run-delete:focus-visible))
+:is(
+    .automation-run-item:hover,
+    .automation-run-item:has(.automation-run-delete:focus-visible)
+  )
   .automation-run-row:not(:has(.aven-menu-detail)):has(
     + .automation-run-delete
   ) {

@@ -53,33 +53,26 @@ export function helmStopProblem(
   return null;
 }
 
-/** A working agent's orb at the helm, whose frames are read. */
-export const HELM_WORKING_SELECTOR =
-  '.helm-critter[data-agent="working"] .thinking-orb';
-
 /**
- * Why the helm is not showing a working agent, or null: its mark in the
- * running pose, its Thinking Orb drawing work (not idle), moving between two
- * looks at it (`moved`) unless reduced motion keeps it still, and the bubble
- * saying what it does with a clock.
+ * Why the helm is not showing a working turn, or null: its mark in the
+ * running pose but stepped aside (resting, faded, since the chat's own orb
+ * shows the work), and the bubble saying the turn works with a clock.
  */
-export function helmWorkingProblem(
-  helm: Element | null,
-  moved: boolean,
-  reducedMotion: boolean,
-): string | null {
+export function helmWorkingProblem(helm: Element | null): string | null {
   if (!helm) return "the message box has no helm";
   if ((helm as HTMLElement).dataset.pose !== "running")
     return `the mark is ${(helm as HTMLElement).dataset.pose ?? "unposed"}, not running`;
-  const orb = helm.querySelector<SVGElement>(HELM_WORKING_SELECTOR);
-  if (!orb) return "the mark is not working";
-  const look = orb.dataset.orb ?? "idle";
-  if (look.startsWith("idle")) return `the mark's orb is ${look}`;
+  const mark = helm.querySelector<HTMLElement>(".helm-critter");
+  if (!mark) return "the helm has no mark";
+  if (!mark.classList.contains("helm-critter-away"))
+    return "the mark did not step aside, so two orbs show";
+  if (mark.dataset.agent !== "resting")
+    return `the stepped-aside mark is ${mark.dataset.agent ?? "unknown"}, not resting`;
   const bubble = helm.querySelector('[data-helm-say="running"]');
   if (!bubble) return "the mark's bubble says nothing";
   if (!bubble.querySelector('[role="timer"]'))
     return "the bubble shows no elapsed time";
-  return moved || reducedMotion ? null : `the mark's ${look} orb stands still`;
+  return null;
 }
 
 /**

@@ -1,5 +1,5 @@
 import "./Menu.css";
-import { StickyNote } from "./icons";
+import { MessageSquare, StickyNote } from "./icons";
 import {
   memo,
   useEffect,
@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import type { RankedFile } from "../lib/fileIndex";
+import { isChatMentionPath } from "../lib/chatMentions";
 import { isNoteMentionPath } from "../lib/notes";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { MatchText } from "./MatchText";
@@ -17,6 +18,7 @@ type Props = {
   active: number;
   loading?: boolean;
   includeNotes?: boolean;
+  includeChats?: boolean;
   onActive: (index: number) => void;
   onPick: (file: RankedFile) => void;
 };
@@ -28,6 +30,7 @@ export const FileMentionPicker = memo(function FileMentionPicker({
   active,
   loading,
   includeNotes = false,
+  includeChats = false,
   onActive,
   onPick,
 }: Props) {
@@ -61,6 +64,15 @@ export const FileMentionPicker = memo(function FileMentionPicker({
     onActive(index);
   };
 
+  const kinds =
+    includeNotes && includeChats
+      ? "files, chats or notes"
+      : includeChats
+        ? "files or chats"
+        : includeNotes
+          ? "files or notes"
+          : "files or folders";
+
   return (
     <div data-mention-picker className="aven-glass-overlay overflow-hidden">
       {files.length === 0 ? (
@@ -68,31 +80,33 @@ export const FileMentionPicker = memo(function FileMentionPicker({
           {loading
             ? "Indexing files…"
             : query.trim()
-              ? includeNotes
-                ? "No matching files or notes"
-                : "No matching files or folders"
-              : includeNotes
-                ? "No files or notes found"
-                : "No files or folders found"}
+              ? `No matching ${kinds}`
+              : `No ${kinds} found`}
         </p>
       ) : (
         <div
           role="listbox"
-          aria-label={includeNotes ? "Files and notes" : "Files and folders"}
+          aria-label={
+            includeNotes || includeChats
+              ? "Files, chats and notes"
+              : "Files and folders"
+          }
           onMouseMove={onListMouseMove}
           className="aven-menu max-h-[min(240px,40vh)] overflow-y-auto overscroll-none"
         >
           {files.map((file, index) => {
             const highlighted = index === active;
             const note = isNoteMentionPath(file.path);
+            const chat = isChatMentionPath(file.path);
+            const named = note || chat;
             const slash = file.relative.lastIndexOf("/");
-            const dir = note
+            const dir = named
               ? ""
               : slash === -1
                 ? ""
                 : file.relative.slice(0, slash);
             const nameOffset = slash === -1 ? 0 : slash + 1;
-            const namePositions = note
+            const namePositions = named
               ? file.positions
               : file.positions
                   .filter((pos) => pos >= nameOffset)
@@ -111,8 +125,10 @@ export const FileMentionPicker = memo(function FileMentionPicker({
                 className="aven-menu-item"
               >
                 <span aria-hidden="true" className="aven-menu-icon">
-                  {isNoteMentionPath(file.path) ? (
+                  {note ? (
                     <StickyNote className="size-3.5" strokeWidth={1.75} />
+                  ) : chat ? (
+                    <MessageSquare className="size-3.5" strokeWidth={1.75} />
                   ) : (
                     <FileTypeIcon
                       name={file.name}
@@ -133,8 +149,10 @@ export const FileMentionPicker = memo(function FileMentionPicker({
                   />
                   {file.isDir ? "/" : null}
                 </span>
-                {note ? (
-                  <span className="aven-menu-shortcut font-mono">Note</span>
+                {named ? (
+                  <span className="aven-menu-shortcut font-mono">
+                    {note ? "Note" : "Chat"}
+                  </span>
                 ) : dir ? (
                   <span className="aven-menu-detail max-w-[45%] font-mono">
                     <MatchText

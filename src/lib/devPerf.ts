@@ -542,11 +542,31 @@ function describe(element: Element): string {
   return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${classes ? `.${classes}` : ""}`;
 }
 
-function forceLayout(): number {
+/**
+ * Style and layout now. Reading `body` alone can leave a dirty subtree out
+ * of flow (a parked chat) unresolved in WebKit, so read the changed element
+ * and its last descendant too.
+ */
+function forceLayout(element?: Element): number {
   const begin = performance.now();
   void document.body.getBoundingClientRect().height;
   void document.documentElement.offsetHeight;
+  if (element?.isConnected) {
+    void element.getBoundingClientRect().height;
+    const last = element.querySelector("*:last-child:empty");
+    if (last) void last.getBoundingClientRect().height;
+  }
   return performance.now() - begin;
+}
+
+/** Style and layout that `change` costs, flushed through `element`. */
+export function timeStyleAndLayout(
+  change: () => unknown,
+  element?: Element,
+): number {
+  forceLayout(element);
+  change();
+  return round(forceLayout(element));
 }
 
 /**
@@ -634,9 +654,9 @@ export async function analyzeRestyle(
         ? element.removeAttribute(name)
         : element.setAttribute(name, value);
     set(old);
-    const back = forceLayout();
+    const back = forceLayout(element);
     set(now);
-    const forth = forceLayout();
+    const forth = forceLayout(element);
     costs.push({
       element: describe(element),
       attribute: name,

@@ -68,7 +68,7 @@ describe("one Stop", () => {
   });
 });
 
-describe("a working mark", () => {
+describe("a working turn", () => {
   const helm = (html: string, pose = "running") => {
     const element = document.createElement("div");
     element.dataset.pose = pose;
@@ -76,53 +76,30 @@ describe("a working mark", () => {
     return element;
   };
   const working =
-    '<span class="dot-mark agent-mark helm-critter" data-agent="working"><span class="agent-bob"><svg class="thinking-orb agent-orb" data-orb="working"></svg></span></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
+    '<span class="dot-mark agent-mark helm-critter helm-critter-away" data-agent="resting"><svg class="thinking-orb agent-orb" data-orb="idle"></svg></span><div data-helm-say="running"><span role="timer">0:04</span></div>';
 
-  it("moves its orb while it works and says for how long", () => {
-    expect(helmWorkingProblem(helm(working), true, false)).toBeNull();
-    // A finer activity is work too.
-    expect(
-      helmWorkingProblem(
-        helm(working.replace('data-orb="working"', 'data-orb="reasoning"')),
-        true,
-        false,
-      ),
-    ).toBeNull();
-    // Reduce motion draws a still frame.
-    expect(helmWorkingProblem(helm(working), false, true)).toBeNull();
+  it("steps the mark aside and says for how long", () => {
+    expect(helmWorkingProblem(helm(working))).toBeNull();
   });
 
   it("is named when it is not", () => {
-    expect(helmWorkingProblem(null, true, false)).toBe(
-      "the message box has no helm",
-    );
-    expect(helmWorkingProblem(helm(working, "rest"), true, false)).toBe(
+    expect(helmWorkingProblem(null)).toBe("the message box has no helm");
+    expect(helmWorkingProblem(helm(working, "rest"))).toBe(
       "the mark is rest, not running",
     );
     expect(
-      helmWorkingProblem(
-        helm(working.replace('"working"', '"still"')),
-        true,
-        false,
-      ),
-    ).toBe("the mark is not working");
+      helmWorkingProblem(helm(working.replace(" helm-critter-away", ""))),
+    ).toBe("the mark did not step aside, so two orbs show");
     expect(
       helmWorkingProblem(
-        helm(working.replace('data-orb="working"', 'data-orb="idle"')),
-        true,
-        false,
+        helm(working.replace('data-agent="resting"', 'data-agent="working"')),
       ),
-    ).toBe("the mark's orb is idle");
+    ).toBe("the stepped-aside mark is working, not resting");
     expect(
       helmWorkingProblem(
         helm(working.replace(/<span role="timer">0:04<\/span>/, "")),
-        true,
-        false,
       ),
     ).toBe("the bubble shows no elapsed time");
-    expect(helmWorkingProblem(helm(working), false, false)).toBe(
-      "the mark's working orb stands still",
-    );
   });
 });
 

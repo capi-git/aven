@@ -59,6 +59,29 @@ static int destroyed_probes = 0;
 }
 @end
 
+// Stands in for the view a webview inherits its cursor answer from.
+@interface SMCursorProbeBase : NSView
+@property(nonatomic) int cursor_updates;
+@end
+@implementation SMCursorProbeBase
+- (void)cursorUpdate:(NSEvent*)event {
+  ++_cursor_updates;
+}
+@end
+// The workspace webview's class: no answer of its own.
+@interface SMCursorProbeWebView : SMCursorProbeBase
+@end
+@implementation SMCursorProbeWebView
+@end
+// A class with its own answer is left alone.
+@interface SMCursorProbeAnswering : SMCursorProbeBase
+@end
+@implementation SMCursorProbeAnswering
+- (void)cursorUpdate:(NSEvent*)event {
+  [super cursorUpdate:event];
+}
+@end
+
 #define CHECK(condition) do { \
   if (!(condition)) { \
     std::fprintf(stderr, "Browser host check failed at line %d: %s\n", \
@@ -730,6 +753,54 @@ static void CheckFloatingSidebarStaysOnTop() {
   std::puts("Floating sidebar ordering checks passed");
 }
 
+static bool probe_pointer_held = false;
+static bool ProbePointerHeld() { return probe_pointer_held; }
+
+static void CheckCursorUpdatesWhileHeld() {
+  supermono::WorkspacePointerHeld() = ProbePointerHeld;
+  SMCursorProbeAnswering* answering =
+      [[SMCursorProbeAnswering alloc] initWithFrame:NSZeroRect];
+  CHECK(!supermono::InstallWorkspaceCursorUpdate(answering));
+  CHECK(!supermono::InstallWorkspaceCursorUpdate(nil));
+
+  SMCursorProbeWebView* webview =
+      [[SMCursorProbeWebView alloc] initWithFrame:NSZeroRect];
+  CHECK(supermono::InstallWorkspaceCursorUpdate(webview));
+  NSEvent* event = [NSEvent enterExitEventWithType:NSEventTypeCursorUpdate
+                                          location:NSZeroPoint
+                                     modifierFlags:0
+                                         timestamp:0
+                                      windowNumber:0
+                                           context:nil
+                                       eventNumber:0
+                                    trackingNumber:0
+                                          userData:nullptr];
+  // Installing again for the same class changes nothing; another refuses.
+  CHECK(supermono::InstallWorkspaceCursorUpdate(webview));
+  CHECK(!supermono::InstallWorkspaceCursorUpdate(answering));
+
+  // At rest the request goes on as before (AppKit's arrow, here a count).
+  probe_pointer_held = false;
+  [webview cursorUpdate:event];
+  CHECK(webview.cursor_updates == 1);
+  // Mid-drag the press owns the cursor: nothing is set.
+  probe_pointer_held = true;
+  [webview cursorUpdate:event];
+  [webview cursorUpdate:event];
+  CHECK(webview.cursor_updates == 1);
+  // Other classes are untouched.
+  [answering cursorUpdate:event];
+  CHECK(answering.cursor_updates == 1);
+  SMCursorProbeBase* base = [[SMCursorProbeBase alloc] initWithFrame:NSZeroRect];
+  [base cursorUpdate:event];
+  CHECK(base.cursor_updates == 1);
+  probe_pointer_held = false;
+  [webview cursorUpdate:event];
+  CHECK(webview.cursor_updates == 2);
+  supermono::WorkspacePointerHeld() = supermono::MouseButtonHeld;
+  std::puts("Workspace cursor update checks passed");
+}
+
 int main() {
   @autoreleasepool {
     [NSApplication sharedApplication];
@@ -742,6 +813,7 @@ int main() {
     CheckRepeatedBrowserLayout();
     CheckHiddenBrowserFocus();
     CheckFloatingSidebarStaysOnTop();
+    CheckCursorUpdatesWhileHeld();
     destroyed_probes = 0;
     NSWindow* owner = [[NSWindow alloc]
         initWithContentRect:NSMakeRect(0, 0, 640, 480)

@@ -109,18 +109,15 @@ export function helmWork(
   return "think";
 }
 
-/** The bubble's shorter words for the run status's common ones. */
-const SHORT_WORDS: Readonly<Record<string, string>> = {
-  "Writing a reply": "Writing",
-};
-
 /**
- * What a running turn's bubble says beside its dots: a few words for the
- * work ("Thinking", "Writing", "Edit app.js"), "Needs you" when it waits,
- * or what holds it up. `hint` is the whole line, for the tooltip, when the
- * words leave some out. `loud` words stay in a narrow box, where the dots
- * otherwise say it alone: waiting for you, and a hold-up that stops the
- * work (a retry, the usage limit, a slow start).
+ * What a running turn's bubble says beside its Stop: a short, general
+ * state ("Thinking", "Writing", "Working"), "Needs you" when it waits, or
+ * what holds it up ("Running a command · 45s"). The chat already shows each
+ * step, so the bubble never repeats a command, a file or a tool's title.
+ * `hint` is the whole line, for the tooltip, when the words leave some out.
+ * `loud` words stay in a narrow box, where the Stop square otherwise
+ * stands alone: waiting for you, and a hold-up that stops the work (a
+ * retry, the usage limit, a slow start).
  */
 export function helmWorkWords(
   status: Pick<
@@ -137,6 +134,14 @@ export function helmWorkWords(
       ...(status.detail ? { hint: `Needs you · ${status.detail}` } : {}),
       loud: true,
     };
+  // A long command says how long it has run; the chat shows the command.
+  if (status.holdUp === "command") {
+    const time = status.detail?.split(" · ").at(-1);
+    return {
+      text: [status.label, time].filter(Boolean).join(" · "),
+      loud: false,
+    };
+  }
   // What holds the turn up, or the helpers it waits on, says it all.
   if (status.holdUp || status.kind === "waiting")
     return {
@@ -144,11 +149,13 @@ export function helmWorkWords(
       loud: work === "held",
     };
   if (placement === "attention") return { text: status.label, loud: false };
-  const doing = status.doing ?? status.label;
-  const short = SHORT_WORDS[doing];
-  return short
-    ? { text: short, hint: doing, loud: false }
-    : { text: doing, loud: false };
+  if (work === "think") return { text: "Thinking", loud: false };
+  if (work === "write")
+    return {
+      text: status.doing === "Planning" ? "Planning" : "Writing",
+      loud: false,
+    };
+  return { text: "Working", loud: false };
 }
 
 /**
