@@ -236,19 +236,13 @@ describe("the real-app check's motion steps", () => {
   });
 
   it("fail when the Stack sweeps while its agent works", async () => {
-    const mark = named(
-      await check({ stackSweeps: true }),
-      "the project's row",
-    );
+    const mark = named(await check({ stackSweeps: true }), "the project's row");
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe("While the agent worked, the mark swept");
   });
 
   it("fail when the Stack reacts as the turn ends", async () => {
-    const mark = named(
-      await check({ stackReacts: true }),
-      "the project's row",
-    );
+    const mark = named(await check({ stackReacts: true }), "the project's row");
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe("The mark reacted (cheer) as the turn ended");
   });
