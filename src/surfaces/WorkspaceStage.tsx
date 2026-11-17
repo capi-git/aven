@@ -99,7 +99,8 @@ export type WorkspaceStageProps = {
   layout: LayoutNode | null;
   focusedId: string;
   visible: boolean;
-  surfaces: Array<{ id: string; content: ReactNode }>;
+  /** `split`: the tab is split, so its panes are cards of their own. */
+  surfaces: Array<{ id: string; content: ReactNode; split?: boolean }>;
   headers?: Array<{ id: string; key?: string; content: ReactNode }>;
   onFocus: (id: string) => void;
   onLayoutChange: (layout: LayoutNode) => void;
@@ -436,16 +437,99 @@ const GUTTER = PANE_GUTTER;
  * on that edge. */
 export const WORKSPACE_EDGE = 0;
 const EDGE = WORKSPACE_EDGE;
+/** Sides of a closed pane's rail that meet another rail. */
+export type RailJoin = {
+  left?: boolean;
+  right?: boolean;
+  top?: boolean;
+  bottom?: boolean;
+};
+
+const touches = (a: number, b: number) => Math.abs(a - b) < 0.000001;
+const overlaps = (a0: number, a1: number, b0: number, b1: number) =>
+  Math.min(a1, b1) - Math.max(a0, b0) > 0.000001;
+
+/**
+ * Closed panes side by side read as one strip: where two rails meet there
+ * is no gap and no line between them, only between a rail and an open pane.
+ */
+export function railJoins(
+  rails: readonly { id: string; rect: LayoutRect }[],
+): Map<string, RailJoin> {
+  const joins = new Map<string, RailJoin>();
+  for (const { id, rect: a } of rails) {
+    const join: RailJoin = {};
+    for (const { id: other, rect: b } of rails) {
+      if (other === id) continue;
+      const across = overlaps(a.y, a.y + a.h, b.y, b.y + b.h);
+      const along = overlaps(a.x, a.x + a.w, b.x, b.x + b.w);
+      if (across && touches(a.x + a.w, b.x)) join.right = true;
+      if (across && touches(b.x + b.w, a.x)) join.left = true;
+      if (along && touches(a.y + a.h, b.y)) join.bottom = true;
+      if (along && touches(b.y + b.h, a.y)) join.top = true;
+    }
+    if (join.left || join.right || join.top || join.bottom) joins.set(id, join);
+  }
+  return joins;
+}
+
+/** Whether a divider sits between two rails, where there is nothing to resize. */
+export function sashBetweenRails(
+  sash: { dir: SplitDir; at: number; group: LayoutRect },
+  rails: readonly { rect: LayoutRect }[],
+): boolean {
+  const row = sash.dir === "right";
+  const before = rails.some(({ rect }) =>
+    row
+      ? touches(rect.x + rect.w, sash.at) &&
+        overlaps(
+          rect.y,
+          rect.y + rect.h,
+          sash.group.y,
+          sash.group.y + sash.group.h,
+        )
+      : touches(rect.y + rect.h, sash.at) &&
+        overlaps(
+          rect.x,
+          rect.x + rect.w,
+          sash.group.x,
+          sash.group.x + sash.group.w,
+        ),
+  );
+  const after = rails.some(({ rect }) =>
+    row
+      ? touches(rect.x, sash.at) &&
+        overlaps(
+          rect.y,
+          rect.y + rect.h,
+          sash.group.y,
+          sash.group.y + sash.group.h,
+        )
+      : touches(rect.y, sash.at) &&
+        overlaps(
+          rect.x,
+          rect.x + rect.w,
+          sash.group.x,
+          sash.group.x + sash.group.w,
+        ),
+  );
+  return before && after;
+}
+
 function surfaceStyle(
   rect: LayoutRect,
   inset = 0,
   frozenStage?: { width: number; height: number },
+  flush?: RailJoin,
 ): CSSProperties {
   const epsilon = 0.000001;
-  const left = (rect.x > epsilon ? GUTTER : EDGE) + inset;
-  const top = (rect.y > epsilon ? GUTTER : EDGE) + inset;
-  const right = (rect.x + rect.w < 1 - epsilon ? GUTTER : EDGE) + inset;
-  const bottom = (rect.y + rect.h < 1 - epsilon ? GUTTER : EDGE) + inset;
+  const gap = (joined: boolean | undefined) => (joined ? 0 : GUTTER);
+  const left = (rect.x > epsilon ? gap(flush?.left) : EDGE) + inset;
+  const top = (rect.y > epsilon ? gap(flush?.top) : EDGE) + inset;
+  const right =
+    (rect.x + rect.w < 1 - epsilon ? gap(flush?.right) : EDGE) + inset;
+  const bottom =
+    (rect.y + rect.h < 1 - epsilon ? gap(flush?.bottom) : EDGE) + inset;
   // Percentages to a millionth of a percent: enough for any screen, and no
   // float noise ("2.8000000000000003%") in the style.
   const percent = (fraction: number) => Math.round(fraction * 1e8) / 1e6;
@@ -804,7 +888,10 @@ export function WorkspaceStage({
   const rails = [...places]
     .filter(([id]) => railed.has(id))
     .map(([id, rect]) => ({ id, rect, axis: axes.get(id) ?? "x" }));
-  const sashes = stageSashes(layout, fit);
+  const joins = railJoins(rails);
+  const sashes = stageSashes(layout, fit).filter(
+    (sash) => !sashBetweenRails(sash, rails),
+  );
   function minimizePane(sash: LayoutSash, side: "before" | "after") {
     if (!current.current.onMinimizeSide) return;
     lastMinimizedSash.current = sashKey(sash);
@@ -1884,96 +1971,99 @@ export function WorkspaceStage({
       aria-hidden={!visible || undefined}
       inert={!visible || undefined}
     >
-      {stableOrder(surfaceOrder.current, surfaces).map(({ id, content }) => {
-        const currentRect = positions.get(id);
-        const shown = visible && !!currentRect;
-        const retained = retainedGeometry.current.get(id);
-        const handoff = !shown && held.has(id) && !!retained;
-        // Hidden but laid out, out of sight (see WorkspaceStage.css): not
-        // inert, as toggling inert restyles the whole chat.
-        const parked = !shown && !handoff && !!retained && !demoted.has(id);
-        const rect = shown ? currentRect : (retained?.rect ?? currentRect);
-        const hasHeader = shown
-          ? headerContents.has(id)
-          : (retained?.hasHeader ?? headerContents.has(id));
-        return (
-          <div
-            key={id}
-            ref={(element) => {
-              if (element) surfaceNodes.current.set(id, element);
-              else surfaceNodes.current.delete(id);
-            }}
-            className="workspace-stage-surface"
-            data-workspace-surface={id}
-            data-focused={shown && focusedId === id}
-            data-retained={shown || !!retained}
-            data-demoted={!shown && demoted.has(id) ? "true" : undefined}
-            data-has-header={hasHeader}
-            data-handoff={handoff ? "out" : undefined}
-            hidden={!shown && !handoff}
-            aria-hidden={!shown || undefined}
-            inert={(!shown && !parked) || undefined}
-            style={
-              rect
-                ? {
-                    ...surfaceStyle(
-                      rect,
-                      0,
-                      // A hidden pane keeps its size: resizing the window or
-                      // the sidebar lays out the panes on screen, not every
-                      // chat you have open. It catches up when it comes back.
-                      !shown && !handoff && retained?.stage.width
-                        ? retained.stage
-                        : undefined,
-                    ),
-                    ...surfaceBackgroundStyle(rect),
-                  }
-                : undefined
-            }
-            onPointerEnter={() => {
-              const header = headerNodes.current.get(id);
-              if (header) header.dataset.pointed = "true";
-            }}
-            onPointerLeave={() => {
-              const header = headerNodes.current.get(id);
-              if (header) delete header.dataset.pointed;
-            }}
-            onPointerDownCapture={() => {
-              if (shown && focusedId !== id) current.current.onFocus(id);
-            }}
-            onFocusCapture={(event) => {
-              if (parked) {
-                refuseParkedFocus(event.target, event.relatedTarget);
-                return;
-              }
-              if (shown && focusedId !== id) current.current.onFocus(id);
-            }}
-          >
+      {stableOrder(surfaceOrder.current, surfaces).map(
+        ({ id, content, split }) => {
+          const currentRect = positions.get(id);
+          const shown = visible && !!currentRect;
+          const retained = retainedGeometry.current.get(id);
+          const handoff = !shown && held.has(id) && !!retained;
+          // Hidden but laid out, out of sight (see WorkspaceStage.css): not
+          // inert, as toggling inert restyles the whole chat.
+          const parked = !shown && !handoff && !!retained && !demoted.has(id);
+          const rect = shown ? currentRect : (retained?.rect ?? currentRect);
+          const hasHeader = shown
+            ? headerContents.has(id)
+            : (retained?.hasHeader ?? headerContents.has(id));
+          return (
             <div
-              key="body"
-              className="workspace-stage-body"
-              data-workspace-body={id}
+              key={id}
+              ref={(element) => {
+                if (element) surfaceNodes.current.set(id, element);
+                else surfaceNodes.current.delete(id);
+              }}
+              className="workspace-stage-surface"
+              data-workspace-surface={id}
+              data-focused={shown && focusedId === id}
+              data-retained={shown || !!retained}
+              data-demoted={!shown && demoted.has(id) ? "true" : undefined}
+              data-has-header={hasHeader}
+              data-split={split || undefined}
+              data-handoff={handoff ? "out" : undefined}
+              hidden={!shown && !handoff}
+              aria-hidden={!shown || undefined}
+              inert={(!shown && !parked) || undefined}
+              style={
+                rect
+                  ? {
+                      ...surfaceStyle(
+                        rect,
+                        0,
+                        // A hidden pane keeps its size: resizing the window or
+                        // the sidebar lays out the panes on screen, not every
+                        // chat you have open. It catches up when it comes back.
+                        !shown && !handoff && retained?.stage.width
+                          ? retained.stage
+                          : undefined,
+                      ),
+                      ...surfaceBackgroundStyle(rect),
+                    }
+                  : undefined
+              }
+              onPointerEnter={() => {
+                const header = headerNodes.current.get(id);
+                if (header) header.dataset.pointed = "true";
+              }}
+              onPointerLeave={() => {
+                const header = headerNodes.current.get(id);
+                if (header) delete header.dataset.pointed;
+              }}
+              onPointerDownCapture={() => {
+                if (shown && focusedId !== id) current.current.onFocus(id);
+              }}
+              onFocusCapture={(event) => {
+                if (parked) {
+                  refuseParkedFocus(event.target, event.relatedTarget);
+                  return;
+                }
+                if (shown && focusedId !== id) current.current.onFocus(id);
+              }}
             >
-              <SurfaceContent content={content} />
-              {/* Always here: adding the hint to the pane's own column would
+              <div
+                key="body"
+                className="workspace-stage-body"
+                data-workspace-body={id}
+              >
+                <SurfaceContent content={content} />
+                {/* Always here: adding the hint to the pane's own column would
                   lay out the whole chat each time the target changes. */}
-              <div className="workspace-stage-hint-layer" aria-hidden="true">
-                {shown && dragging && hint && dragTarget?.id === id ? (
-                  <div
-                    className="workspace-stage-drop-hint"
-                    data-workspace-drop-hint
-                    data-drop-edge={dragTarget.edge}
-                    data-drop-kind={dragKind}
-                    data-drop-title={dragLabel ?? ""}
-                    style={previewStyle(hint)}
-                    aria-hidden="true"
-                  />
-                ) : null}
+                <div className="workspace-stage-hint-layer" aria-hidden="true">
+                  {shown && dragging && hint && dragTarget?.id === id ? (
+                    <div
+                      className="workspace-stage-drop-hint"
+                      data-workspace-drop-hint
+                      data-drop-edge={dragTarget.edge}
+                      data-drop-kind={dragKind}
+                      data-drop-title={dragLabel ?? ""}
+                      style={previewStyle(hint)}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        },
+      )}
       {displayHeaders.map(({ id, key, content }) => {
         const rect = positions.get(id);
         if (!rect) return null;
@@ -2126,6 +2216,7 @@ export function WorkspaceStage({
       })}
       {rails.map(({ id, rect, axis }) => {
         const rail = railContent?.(id);
+        const join = joins.get(id);
         const label = rail?.label ?? "pane";
         return (
           <button
@@ -2138,9 +2229,13 @@ export function WorkspaceStage({
             className="workspace-pane-rail"
             data-pane-rail={id}
             data-axis={axis}
+            data-join-left={join?.left || undefined}
+            data-join-right={join?.right || undefined}
+            data-join-top={join?.top || undefined}
+            data-join-bottom={join?.bottom || undefined}
             aria-label={`Open ${label}`}
             title={`${label}. Click to open`}
-            style={surfaceStyle(rect)}
+            style={surfaceStyle(rect, 0, undefined, join)}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => {
               // The rail goes as its pane opens: the keyboard goes into it.

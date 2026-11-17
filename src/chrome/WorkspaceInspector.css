@@ -45,6 +45,14 @@
   color: var(--aven-label-secondary);
 }
 
+.workspace-inspector-count {
+  margin-left: 5px;
+  font-size: var(--text-ui-caption);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--aven-muted);
+}
+
 .workspace-inspector-tab[aria-selected="true"] {
   color: var(--color-content);
   font-weight: 550;

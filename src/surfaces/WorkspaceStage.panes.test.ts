@@ -64,18 +64,12 @@ describe("panes as cards", () => {
     );
   });
 
-  it("divides panes by their gap: no line in a 9px target, unchanged while used", () => {
+  it("divides panes by their gap: no line, and a grip while pointed at or dragged", () => {
     const line = rule(
       "src/surfaces/WorkspaceStage.css",
       ".workspace-stage-sash::after",
     );
     expect(line).toContain("background: transparent;");
-    expect(
-      rule(
-        "src/surfaces/WorkspaceStage.css",
-        '.workspace-stage-sash[data-direction="right"]::after',
-      ),
-    ).toContain("width: var(--aven-hairline);");
     expect(
       rule(
         "src/surfaces/WorkspaceStage.css",
@@ -89,17 +83,22 @@ describe("panes as cards", () => {
       ),
     ).toContain("height: 9px;");
     const css = readFileSync("src/surfaces/WorkspaceStage.css", "utf8");
-    // Pointing at it or dragging changes only the cursor.
-    expect(css).not.toMatch(/\.workspace-stage-sash[^{]*:hover/);
-    expect(css).not.toMatch(/\.aven-pane-seam[^{]*:hover/);
+    // The grip is hidden at rest and shows only while pointed at or used.
+    expect(
+      rule("src/surfaces/WorkspaceStage.css", ".workspace-stage-sash::before"),
+    ).toContain("opacity: 0;");
+    expect(css).toMatch(/\.workspace-stage-sash:hover::before/);
+    expect(css).toMatch(/\.aven-pane-seam:active::before/);
+    // Pointing at it never draws the keyboard's line.
+    expect(css).not.toMatch(/\.workspace-stage-sash[^{,]*:hover::after/);
     // Grabbing one focuses it, which must not draw the keyboard's line.
     expect(css).toMatch(
       /\.workspace-stage:not\(\[data-resizing="true"\]\)\s*\.workspace-stage-sash:focus-visible:not\(:active\)::after/,
     );
-    // A split inside a tab uses the same line.
-    expect(readFileSync("src/surfaces/PaneTree.tsx", "utf8")).toContain(
-      "w-(--aven-hairline) bg-(--aven-separator)",
-    );
+    // A split inside a tab draws no line: its panes are cards with a gap.
+    const tree = readFileSync("src/surfaces/PaneTree.tsx", "utf8");
+    expect(tree).not.toContain("bg-(--aven-separator)");
+    expect(css).not.toMatch(/\.aven-pane-seam\s*\{[^}]*background/);
   });
 
   it("draws no line beside a docked sidebar or side panel until you go to resize", () => {

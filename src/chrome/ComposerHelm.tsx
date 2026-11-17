@@ -68,6 +68,9 @@ import { markUsageWarningSeen } from "../lib/usageHistory";
 import { AgentPanel, useAgentSummary, type AgentPanelFocus } from "./AgentPill";
 import { HarnessIcon } from "./HarnessIcon";
 import { AgentMark, type AgentState } from "./AgentMark";
+import { DotWorker } from "./DotWorker";
+import { useSetting } from "../hooks/useSetting";
+import { SETTINGS } from "../lib/settings";
 import {
   HelmBubble,
   helmOutcome,
@@ -378,6 +381,8 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
   const say = runSay ?? usageSay?.say ?? null;
   const fixes = runSay ? runFixes : (usageSay?.fixes ?? []);
   const outcome = helmOutcome(say);
+  // Settings › Appearance › Working mark: Bot, or a quiet face of dots.
+  const workingMark = useSetting(SETTINGS.workingMark);
   const pose = helmPose({
     busy,
     hasValue,
@@ -1013,13 +1018,17 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             }
           }}
         >
-          <AgentMark
-            key={hop}
-            tone={tone}
-            state={POSE_STATE[pose]}
-            reaction={POSE_REACTION[pose] ?? null}
-            className={`helm-critter${hop ? " helm-critter-hop" : ""}`}
-          />
+          {workingMark === "dots" && pose === "running" ? (
+            <DotWorker className="helm-critter" />
+          ) : (
+            <AgentMark
+              key={hop}
+              tone={tone}
+              state={POSE_STATE[pose]}
+              reaction={POSE_REACTION[pose] ?? null}
+              className={`helm-critter${hop ? " helm-critter-hop" : ""}`}
+            />
+          )}
           {showAgent ? (
             <span className="helm-model">
               <span className="helm-model-name">

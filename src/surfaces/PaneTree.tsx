@@ -382,12 +382,9 @@ function PaneTreeComponent({
           <div
             key={leaf.id}
             data-pane-id={leaf.id}
-            className={`absolute flex min-h-0 min-w-0 flex-col overflow-hidden ${dragging ? "opacity-40" : ""}`}
+            className={`absolute flex min-h-0 min-w-0 flex-col overflow-hidden ${inSplit ? "aven-split-pane" : ""} ${dragging ? "opacity-40" : ""}`}
             style={{
-              left: `${leaf.rect.x * 100}%`,
-              top: `${leaf.rect.y * 100}%`,
-              width: `${leaf.rect.w * 100}%`,
-              height: `${leaf.rect.h * 100}%`,
+              ...splitPaneBox(leaf.rect, inSplit),
               ...backgroundStyle,
             }}
           >
@@ -503,6 +500,39 @@ export const PaneTree = memo(
   (previous, next) => !previous.visible && !next.visible,
 );
 
+/** Half the gap between two panes of a split, as between two tabs' cards. */
+export const SPLIT_HALF_GAP_PX = 3;
+
+/**
+ * Where a pane sits. In a split each pane is a card of its own, so a side
+ * that meets another pane steps in by half the gap; a side on the tab's own
+ * edge stays flush.
+ */
+export function splitPaneBox(
+  rect: { x: number; y: number; w: number; h: number },
+  inSplit: boolean,
+): { left: string; top: string; width: string; height: string } {
+  const pct = (value: number) => `${value * 100}%`;
+  if (!inSplit)
+    return {
+      left: pct(rect.x),
+      top: pct(rect.y),
+      width: pct(rect.w),
+      height: pct(rect.h),
+    };
+  const near = (value: number) => Math.abs(value) < 1e-6;
+  const left = near(rect.x) ? 0 : SPLIT_HALF_GAP_PX;
+  const right = near(rect.x + rect.w - 1) ? 0 : SPLIT_HALF_GAP_PX;
+  const top = near(rect.y) ? 0 : SPLIT_HALF_GAP_PX;
+  const bottom = near(rect.y + rect.h - 1) ? 0 : SPLIT_HALF_GAP_PX;
+  return {
+    left: `calc(${pct(rect.x)} + ${left}px)`,
+    top: `calc(${pct(rect.y)} + ${top}px)`,
+    width: `calc(${pct(rect.w)} - ${left + right}px)`,
+    height: `calc(${pct(rect.h)} - ${top + bottom}px)`,
+  };
+}
+
 function PaneDropHint({ edge }: { edge: PaneEdge }) {
   const wash =
     edge === "left"
@@ -558,11 +588,8 @@ function Sash({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(boundary * 100)}
-      className={
-        row
-          ? "aven-pane-seam absolute z-10 w-(--aven-hairline) bg-(--aven-separator)"
-          : "aven-pane-seam absolute z-10 h-(--aven-hairline) bg-(--aven-separator)"
-      }
+      className="aven-pane-seam absolute z-10"
+      data-direction={sash.dir}
       style={
         row
           ? {

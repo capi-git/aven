@@ -233,6 +233,23 @@ html.has-chat-background:not(.chat-background-empty-only)
   transition: background-color var(--aven-motion-fast) ease;
   animation: aven-fade var(--aven-motion-base) var(--aven-ease-out) backwards;
 }
+/* Rails side by side are one strip: square where they meet. */
+.workspace-pane-rail[data-join-left] {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.workspace-pane-rail[data-join-right] {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.workspace-pane-rail[data-join-top] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.workspace-pane-rail[data-join-bottom] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
 .workspace-pane-rail:hover {
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
   color: var(--color-content);
@@ -349,7 +366,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   outline: none;
 }
 /* The gap between two cards, in a 9px target: pointing at it or dragging
-   changes only the cursor. Beside a native page the target is kept clear of the page
+   shows a small grip in it. Beside a native page the target is kept clear of the page
    (data-native-hit-margin, browserHitMargins.ts). */
 .workspace-stage-sash[data-direction="right"] {
   width: 9px;
@@ -384,7 +401,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: calc(50% - var(--aven-hairline) / 2);
   height: var(--aven-hairline);
 }
-/* Pointed at or dragged, only the cursor changes. Keyboard focus shows a line
+/* Pointed at or dragged, the grip shows (below). Keyboard focus shows a line
    in the focus ring's colour, as nothing else shows where the focus is. A drag
    focuses the divider too, so it is left out. */
 .workspace-stage:not([data-resizing="true"])
@@ -474,8 +491,66 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: calc(50% - 0.5px);
   height: 1px;
 }
-.aven-pane-seam {
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+/* A split tab draws no card of its own: each of its panes is a card, as
+   two tabs side by side are, with the same 6px gap between them. */
+.workspace-stage-surface[data-split="true"] {
+  border-color: transparent;
+  background: transparent;
+}
+.aven-split-pane {
+  box-sizing: border-box;
+  border: 1px solid var(--aven-pane-edge, transparent);
+  border-radius: var(--aven-radius-pane-card, 10px);
+  background: var(--aven-pane-fill, transparent);
+}
+
+/* The gap between two panes is the divider: nothing is drawn in it at rest.
+   Pointed at or dragged, a small grip shows in the middle of the gap, as in
+   Super Engineering. */
+.aven-pane-seam::before,
+.workspace-stage-sash::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--color-content) 40%, transparent);
+  border-radius: 3px;
+  background: var(--aven-control-bg);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--aven-motion-fast) ease;
+}
+.aven-pane-seam[data-direction="right"]::before,
+.workspace-stage-sash[data-direction="right"]::before {
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+}
+.aven-pane-seam[data-direction="down"]::before,
+.workspace-stage-sash[data-direction="down"]::before {
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 5px;
+  transform: translate(-50%, -50%);
+}
+.aven-pane-seam:hover::before,
+.workspace-stage-sash:hover::before {
+  opacity: 1;
+}
+.aven-pane-seam:active::before,
+.workspace-stage-sash:active::before,
+.workspace-stage[data-resizing="true"] .workspace-stage-sash:focus::before {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .aven-pane-seam::before,
+  .workspace-stage-sash::before {
+    transition: none;
+  }
 }
 
 /* Folding or opening a pane during a drag: panes glide to their new places. */

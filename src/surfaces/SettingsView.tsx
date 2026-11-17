@@ -1328,6 +1328,7 @@ function AppearancePage({
             onChange={appearance.onFrameTone}
           />
         </Row>
+        <WorkingMarkRow />
         <ReduceMotionRow />
       </SettingsGroup>
       <SettingsGroup
@@ -1375,6 +1376,23 @@ function NewChatInkRow() {
 }
 
 /** A device preference, like the system's; Restore defaults leaves it. */
+function WorkingMarkRow() {
+  const mark = useSetting(SETTINGS.workingMark);
+  return (
+    <Row {...SETTINGS.workingMark.row}>
+      <Segmented
+        label={SETTINGS.workingMark.label}
+        value={mark}
+        options={[
+          { value: "bot", label: "Bot" },
+          { value: "dots", label: "Dots" },
+        ]}
+        onChange={SETTINGS.workingMark.save}
+      />
+    </Row>
+  );
+}
+
 function ReduceMotionRow() {
   const reduceMotion = useSetting(SETTINGS.reduceMotion);
   return (

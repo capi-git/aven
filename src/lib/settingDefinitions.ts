@@ -371,6 +371,21 @@ export const SETTINGS = {
     rowDescription: "How dark the sidebar and the rows around your work are.",
     disabledDescription: "Applies in dark mode.",
   }),
+  workingMark: defineSetting({
+    ...defineStoredSetting<"bot" | "dots">({
+      key: "aven.workingMark",
+      defaultValue: "bot",
+      parse: (raw) => (raw === "dots" ? "dots" : "bot"),
+      serialize: (value) => value,
+      changeEvent: "aven:working-mark-change",
+      storageChanges: true,
+    }),
+    section: "appearance",
+    label: "Working mark",
+    description: "What the message box shows while an agent works.",
+    keywords: "bot face dots spinner working busy mascot indicator",
+    rowDescription: "What the message box shows while an agent works.",
+  }),
   reduceMotion: defineSetting({
     ...defineStoredSetting<boolean>({
       key: "aven.reduceMotion",

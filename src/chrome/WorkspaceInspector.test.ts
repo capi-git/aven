@@ -164,7 +164,7 @@ describe("WorkspaceInspector lifecycle", () => {
       [...container.querySelectorAll('[role="tab"]')].map(
         (tab) => tab.textContent,
       ),
-    ).toEqual(["Files", "Changes"]);
+    ).toEqual(["Files", "Changes", "Checks"]);
   });
 
   it("mounts only the visible tree and replaces its Git subscription with search", async () => {

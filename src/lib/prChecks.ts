@@ -6,6 +6,9 @@ export type PrCheck = {
   name: string;
   state: PrCheckState | string;
   url: string;
+  /** ISO times from GitHub, for how long a check ran. */
+  startedAt?: string;
+  completedAt?: string;
 };
 
 export type PrChecks = {

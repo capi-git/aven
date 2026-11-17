@@ -1,0 +1,37 @@
+/* A small grey ball of dots, drawn about 13px across in Bot's 25px place.
+   Each dot fades in a wave; opacity only. Still, at a middle grey, under
+   Reduce motion and while the window is hidden. */
+.dot-worker {
+  display: block;
+  box-sizing: border-box;
+  width: 25px;
+  height: 25px;
+  padding: 6px;
+  fill: var(--color-content);
+}
+.dot-worker circle {
+  opacity: 0.22;
+  animation: dot-worker-wave 1.2s ease-in-out infinite;
+}
+html[data-hidden] .dot-worker circle {
+  animation-play-state: paused;
+}
+@keyframes dot-worker-wave {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  40% {
+    opacity: 0.7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot-worker circle {
+    animation: none;
+    opacity: 0.4;
+  }
+}
+html[data-motion="reduce"] .dot-worker circle {
+  animation: none;
+  opacity: 0.4;
+}
