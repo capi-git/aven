@@ -130,12 +130,12 @@ describe("project rows at rest and on hover", () => {
     ).toBe("none");
     expect(
       body(
-        `${ROW} .personal-other-task:is(:hover, :focus-visible) > .personal-task-status[data-row-time]`,
+        `${ROW} :is(.personal-other-task:hover, .personal-other-task:focus-visible) > .personal-task-status[data-row-time]`,
       )?.get("display"),
     ).toBe("inline");
     expect(
       body(
-        `${ROW} .personal-task-row:is(:hover, :has(:focus-visible)) .personal-task-status[data-row-time]`,
+        `${ROW} :is(.personal-task-row:hover, .personal-task-row:has(:focus-visible)) .personal-task-status[data-row-time]`,
       )?.get("display"),
     ).toBe("flex");
   });
@@ -175,7 +175,11 @@ describe("project rows at rest and on hover", () => {
       ".personal-project-files",
       ".personal-project-memory",
     ]) {
-      const shown = rulesNaming(nav, target, ":is(:hover, :focus-within)");
+      const shown = rulesNaming(
+        nav,
+        target,
+        ":is(.personal-project-row:hover, .personal-project-row:focus-within)",
+      );
       expect(shown.length, target).toBeGreaterThan(0);
       expect(shown.some((rule) => rule.body.get("display") !== "none")).toBe(
         true,
@@ -361,7 +365,7 @@ describe("the footer", () => {
       rule.selectors.some(
         (selector) =>
           selector.includes(
-            ".personal-workspace-switcher:is(:hover, :focus-within)",
+            ":is( .personal-workspace-switcher:hover, .personal-workspace-switcher:focus-within )",
           ) && selector.endsWith(".personal-workspace-add"),
       ),
     );
@@ -384,7 +388,7 @@ describe("the toolbar's strip", () => {
     );
     const shown = ruleFor(
       bar,
-      `.workspace-status-bar:is(:hover, :focus-within) ${extras}`,
+      `:is(.workspace-status-bar:hover, .workspace-status-bar:focus-within) ${extras}`,
     );
     expect(shown.get("opacity")).toBe("1");
     expect(

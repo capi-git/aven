@@ -400,7 +400,7 @@ it("keeps changed files out of the row at rest: in the tooltip, and counted on h
   const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
   expect(css).toMatch(/\.personal-project-files \{\s*display: none;/);
   expect(css).toMatch(
-    /\.personal-project-row:is\(:hover, :focus-within\)\s+\.personal-project-files-count \{\s*display: inline;/,
+    /:is\(\.personal-project-row:hover, \.personal-project-row:focus-within\)\s+\.personal-project-files-count \{\s*display: inline;/,
   );
 });
 

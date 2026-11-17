@@ -368,7 +368,8 @@
   opacity: 0;
   transition: opacity 120ms ease;
 }
-.workspace-status-bar:is(:hover, :focus-within)
+/* Each state names the bar's class, so WebKit keys the rule on it. */
+:is(.workspace-status-bar:hover, .workspace-status-bar:focus-within)
   :is(.personal-title-browser-new, .personal-title-board-open),
 html:has(.aven-tour)
   .workspace-status-bar

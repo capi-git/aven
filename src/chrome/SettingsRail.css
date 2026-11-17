@@ -140,7 +140,11 @@
 }
 
 /* Use the same unboxed outline glyphs and states as the workspace controls. */
-.settings-nav__item:is(:hover, :focus-visible, [aria-current="page"])
+:is(
+    .settings-nav__item:hover,
+    .settings-nav__item:focus-visible,
+    .settings-nav__item[aria-current="page"]
+  )
   .settings-nav__icon-tile {
   color: var(--color-content);
 }

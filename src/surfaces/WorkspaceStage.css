@@ -157,11 +157,14 @@ html.has-chat-background:not(.chat-background-empty-only)
   opacity: 0;
   transition: opacity var(--aven-motion-fast) ease;
 }
-.workspace-stage-header:is(
-    :hover,
-    :focus-within,
-    [data-focused="true"],
-    [data-pointed="true"]
+/* Each state names the header's class, so WebKit keys the rule on it: a
+   bare :hover or :focus-within in :is() is checked against the whole page
+   on every pointer or focus move. */
+:is(
+    .workspace-stage-header:hover,
+    .workspace-stage-header:focus-within,
+    .workspace-stage-header[data-focused="true"],
+    .workspace-stage-header[data-pointed="true"]
   )
   .workspace-pane-minimize-controls {
   opacity: 1;

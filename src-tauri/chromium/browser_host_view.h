@@ -1,6 +1,7 @@
 #pragma once
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -717,6 +718,53 @@ inline void EnsureBrowserHost(NSView* parent, NSView* clip, NSView* browser,
       [parent.subviews indexOfObjectIdenticalTo:clip] >
           [parent.subviews indexOfObjectIdenticalTo:sidebar])
     [parent addSubview:clip positioned:NSWindowBelow relativeTo:sidebar];
+}
+
+// AppKit asks the view under the pointer for a cursor whenever cursor areas
+// in the window change: every frame a page moves, as in a divider drag beside
+// it. The workspace webview has no answer of its own, so AppKit set the arrow
+// and WebKit set the drag's cursor back on the next move; each set draws the
+// cursor's image afresh, milliseconds on the main thread that also commits
+// the workspace's frames. While a button is held the press owns the cursor
+// (WebKit keeps a drag's cursor as the pointer moves), so the request is left
+// unanswered then.
+using PointerHeld = bool (*)();
+inline bool MouseButtonHeld() { return NSEvent.pressedMouseButtons != 0; }
+// Tests replace it; the app reads the mouse's buttons.
+inline PointerHeld& WorkspacePointerHeld() {
+  static PointerHeld held = MouseButtonHeld;
+  return held;
+}
+inline Class& WorkspaceCursorClass() {
+  static Class installed = Nil;
+  return installed;
+}
+inline IMP& WorkspaceInheritedCursorUpdate() {
+  static IMP inherited = nullptr;
+  return inherited;
+}
+inline void WorkspaceCursorUpdate(id view, SEL selector, NSEvent* event) {
+  if (WorkspacePointerHeld()()) return;
+  reinterpret_cast<void (*)(id, SEL, NSEvent*)>(
+      WorkspaceInheritedCursorUpdate())(view, selector, event);
+}
+// Answers cursor requests for `webview`'s class as above. Only a class with
+// no answer of its own, and only one class: the workspace webview's.
+inline bool InstallWorkspaceCursorUpdate(NSView* webview) {
+  if (!webview) return false;
+  Class cls = [webview class];
+  if (WorkspaceCursorClass()) return WorkspaceCursorClass() == cls;
+  SEL selector = @selector(cursorUpdate:);
+  IMP inherited =
+      class_getMethodImplementation(class_getSuperclass(cls), selector);
+  Method method = class_getInstanceMethod([NSView class], selector);
+  if (!inherited || !method ||
+      !class_addMethod(cls, selector, (IMP)WorkspaceCursorUpdate,
+                       method_getTypeEncoding(method)))
+    return false;
+  WorkspaceInheritedCursorUpdate() = inherited;
+  WorkspaceCursorClass() = cls;
+  return true;
 }
 
 }  // namespace supermono

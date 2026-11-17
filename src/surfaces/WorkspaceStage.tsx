@@ -563,6 +563,19 @@ function surfaceBackgroundStyle(rect: LayoutRect) {
     "--workspace-background-top": `calc(${-rect.y * 100}cqh - ${top}px - var(--workspace-background-header-offset))`,
   };
 }
+/**
+ * Whether a pane in `stage` draws its own crop of a wallpaper: a project's
+ * background, or the app's when it shows on empty chats only. Otherwise the
+ * stage paints the one wallpaper behind every pane, or there is none.
+ */
+function paneWallpaperShown(stage: HTMLElement): boolean {
+  const root = stage.ownerDocument.documentElement.classList;
+  return (
+    (root.contains("has-chat-background") &&
+      root.contains("chat-background-empty-only")) ||
+    !!stage.querySelector('[data-project-chat-background="true"]')
+  );
+}
 const headerStyle = (rect: LayoutRect): CSSProperties => ({
   ...surfaceStyle(rect),
   height: "32px",
@@ -1220,6 +1233,11 @@ export function WorkspaceStage({
     .map(({ id }) => id)
     .join("\0");
 
+  /**
+   * Mid-drag, whether a pane draws its own wallpaper, so its crop must
+   * follow the pane each frame; null when no divider is being dragged.
+   */
+  const dragPaneWallpaper = useRef<boolean | null>(null);
   function paintSurface(
     id: string,
     rect: LayoutRect,
@@ -1228,6 +1246,10 @@ export function WorkspaceStage({
     const element = surfaceNodes.current.get(id);
     if (!element) return;
     applyGeometry(element, surfaceStyle(rect, 0, frozenStage));
+    // The crop is an inherited custom property: changing it restyles every
+    // element in the pane. With no pane wallpaper showing it draws nothing,
+    // so a drag leaves it until the drop.
+    if (dragPaneWallpaper.current === false) return;
     for (const [name, value] of Object.entries(surfaceBackgroundStyle(rect)))
       if (element.style.getPropertyValue(name) !== value)
         element.style.setProperty(name, value);
@@ -1786,6 +1808,7 @@ export function WorkspaceStage({
     const restoreSelection = suppressTextSelection();
     setDragCursor(horizontal ? "col-resize" : "row-resize");
     container.dataset.resizing = "true";
+    dragPaneWallpaper.current = paneWallpaperShown(container);
     let offset = startOffset;
     let drawnRails = railedLeafIds(tree).join("\0");
     let drawnTree = tree;
@@ -1887,6 +1910,7 @@ export function WorkspaceStage({
       restoreSelection();
       setDragCursor(null);
       delete container.dataset.resizing;
+      dragPaneWallpaper.current = null;
       dragDraft.current = null;
       setDraftRails(null);
       // A mouse drag leaves no focus ring behind; Tab still reaches the divider.

@@ -9,6 +9,26 @@
    WebKit's invalidation, so every focus move rechecks the whole page. With
    the whole group inside `:where()` WebKit keys the rule on `.group`. */
 @custom-variant group-focus-within (&:where(.group:focus-within *));
+/* The same for the pointer: Tailwind's `group-hover` made every pointer move
+   across a group's edge recheck everything under it. */
+@custom-variant group-hover {
+  @media (hover: hover) {
+    &:where(.group:hover *) {
+      @slot;
+    }
+  }
+}
+@custom-variant group-focus-visible (&:where(.group:focus-visible *));
+/* A named `group/agent` row: Tailwind's own `group-hover/agent` has the
+   same flaw, and the variants above replace the ones it builds on. */
+@custom-variant agent-row-hover {
+  @media (hover: hover) {
+    &:where(.group\/agent:hover *) {
+      @slot;
+    }
+  }
+}
+@custom-variant agent-row-focus-visible (&:where(.group\/agent:focus-visible *));
 
 @theme {
   /* Shared UI sizes only. Line heights remain owned by each surface and its
