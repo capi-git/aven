@@ -155,7 +155,13 @@ elif [[ ! -x node_modules/.bin/tauri || ! -x node_modules/.bin/vitest ]]; then
 fi
 
 ./scripts/build-chromium.sh
-npm run check:web
+# The release workflow runs the same web checks in their own job at the same
+# time as this build, and publishes only when they pass. Local builds keep them.
+if [[ "${AVEN_SKIP_WEB_CHECKS:-0}" == 1 ]]; then
+  echo 'Web checks skipped here: the release workflow runs them in its web-checks job.'
+else
+  npm run check:web
+fi
 cargo test --locked -p aven --lib
 
 # Tauri creates an intermediate host bundle; the packager signs the complete

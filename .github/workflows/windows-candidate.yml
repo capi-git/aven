@@ -11,6 +11,10 @@ on:
         description: Sign the final installer with the Aven updater key
         type: boolean
         default: false
+      skip_web_checks:
+        description: The caller already runs the web checks for this commit
+        type: boolean
+        default: false
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
         required: false
@@ -27,6 +31,7 @@ concurrency:
 
 jobs:
   frontend:
+    if: ${{ !inputs.skip_web_checks }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -37,6 +42,41 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:web
+
+  # The release-mode native tests run beside the installer build, not before
+  # it: each took about 5 to 10 minutes. A caller that publishes waits for
+  # every job here, so a failed test still stops the release.
+  windows-tests:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      PYTHONUTF8: 1
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: windows-candidate-tests
+          cache-on-failure: true
+      - run: npm ci
+      - run: cargo fmt --all --check
+      - run: cargo fetch --locked --target x86_64-pc-windows-msvc
+      # The app embeds the built web files, so the tests need them too.
+      - run: npm run build
+      - name: Run native Windows tests
+        run: cargo test --locked --workspace --release --target x86_64-pc-windows-msvc --no-default-features --features tauri/custom-protocol
 
   windows:
     runs-on: windows-2022
@@ -55,17 +95,13 @@ jobs:
         with:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
-          components: rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: windows-candidate-compiled-v2
           cache-on-failure: true
       - run: npm ci
-      - run: cargo fmt --all --check
       - run: cargo fetch --locked --target x86_64-pc-windows-msvc
-      - run: npm run build
-      - name: Run native Windows tests
-        run: cargo test --locked --workspace --release --target x86_64-pc-windows-msvc --no-default-features --features tauri/custom-protocol
+      # The installer build runs `npm run build` itself (beforeBuildCommand).
       - name: Generate Windows dependency notices
         run: python scripts/generate-third-party-notices.py --target x86_64-pc-windows-msvc --npm-os win32 --npm-cpu x64
       - name: Build NSIS installer

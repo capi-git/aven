@@ -63,6 +63,24 @@ jobs:
           print('Release source verified: ' + actual_sha + ', version ' + actual_version)
           PY
 
+  # Format, lint, web tests and type check. They took about 7 minutes inside
+  # the macOS build, which is the slowest job, so they run here at the same
+  # time. Publishing still waits for them.
+  web-checks:
+    needs: validate-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check:web
+
   macos-arm64:
     needs: validate-source
     runs-on: macos-15
@@ -117,6 +135,9 @@ jobs:
       # Dependency installs, tests and compiling run other people's code, so
       # they finish before any signing key reaches this runner.
       - name: Test and build candidate before any signing key is on the runner
+        env:
+          # The web-checks job runs them at the same time.
+          AVEN_SKIP_WEB_CHECKS: '1'
         run: ./scripts/build-release.sh --stage build
       - name: Import Developer ID into an isolated signing keychain
         env:
@@ -252,6 +273,8 @@ jobs:
     uses: ./.github/workflows/windows-candidate.yml
     with:
       sign_updates: ${{ inputs.publish }}
+      # The web-checks job above already runs them for this commit.
+      skip_web_checks: true
     secrets:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -262,10 +285,11 @@ jobs:
     if: >-
       ${{ !cancelled() && inputs.publish &&
       needs.validate-source.result == 'success' &&
+      needs.web-checks.result == 'success' &&
       needs.macos-arm64.result == 'success' &&
       needs.real-app-check.result == 'success' &&
       (needs.windows.result == 'success' || (!inputs.windows && needs.windows.result == 'skipped')) }}
-    needs: [validate-source, macos-arm64, real-app-check, windows]
+    needs: [validate-source, web-checks, macos-arm64, real-app-check, windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
