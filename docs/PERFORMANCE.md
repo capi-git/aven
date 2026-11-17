@@ -163,3 +163,15 @@ Measured on October 17 with `npm run perf:app -- --perf-only "switching chat tab
 | Chat and browser | 33, 32 → 34, 32 | 34, 33 → 35, 35 | 56.7, 65.5 → 56.3, 65.1 |
 
 Medians and CPU are within run-to-run noise. The work compared also contains everything else on `next`, which renders App more often while switching (101 → 121 React commits over the run); the motion code adds no React state, so that, and the remaining 1–2 ms at p95, were not attributed to motion. Idle wakeups during these active scenarios varied between runs of the same build (10–20 per second on main, 16–32 here) as they did before. Source checks: the frontend suite and type check pass, lint stays at 152 warnings, and tests cover reduced motion starting nothing and zeroing every token, a sent message being in the transcript in the same render, a switch with unchanged rows reading no layout, FLIP keeping React's order and focus, and switches showing panes at once.
+
+## Restyles that followed a chat's size, November 3, 2026
+
+Most of what was left over the 33 ms limit was WebKit working out style again for every element of a chat. A long chat in the speed test holds 4,000–7,000 elements. Measured with `npm run perf:app`, `--perf-only restyle` and macOS `sample`:
+
+- **Hover and focus rules.** WebKit files a rule under the class, id or tag written beside the pseudo-class. Written alone in `:is()` or `:not()`, or in Tailwind's `:is(:where(.group):hover *)`, it files under any element, so each change walks the subtree of every element it touches, once per ancestor. The one focus move in a tab switch spent 10 ms there: 229 of 256 samples in `focus()`. `src/lib/cssInvalidation.test.ts` holds every stylesheet to the keyed form.
+- **Query containers.** WebKit restyles everything inside a query container each time its size changes, whatever its queries answer. The stage, each transcript and a Tailwind `@container` around each chat (which no rule asked about) were containers. A transcript's narrow rules now follow an attribute set when a limit is crossed (`useWidthBands`), and the stage is a container only under a wallpaper.
+- **Inherited properties that change with size.** The transcript's height, a pane's wallpaper position and the pinned sidebar's width. Each is now read only where it is needed.
+
+Opening a web page now shows the pane before creating the native page, since creating one (above all the first, which starts Chromium) holds the main thread. A live page's watchers were measured and left alone: 82 ms over 11 s of dragging and streaming beside a page.
+
+Still over the limit, because flipping a surface's `visibility` re-resolves everything in it (about 5 µs an element) with or without `inert` and `pointer-events`: switching to a long chat, and closing Settings over one.

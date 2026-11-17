@@ -76,6 +76,8 @@ Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`
 - Honour Reduce motion.
 - Native browser pages can't be animated. Move a picture of the page instead, and hold only the pages that really move.
 - Never restyle the whole window: no rule on `html *`, and no inherited property set on `body` or `html` during an interaction.
+- Never restyle a whole chat when its size changes: no query container around a transcript, and no inherited property that changes with a pane's size.
+- Write `.row:hover .tools`, not `.row:is(:hover, :focus-within) .tools`: WebKit rechecks the whole page for a pseudo-class it can't file under a class.
 
 An input's first visible response and any frame in motion stay within 33 ms. The speed test reports what goes over.
 

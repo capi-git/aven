@@ -797,7 +797,10 @@ export const SessionPane = memo(function SessionPane({
           working={busy}
         />
       ) : null}
-      <div ref={transcriptScope} className="relative min-h-0 flex-1 [contain:inline-size]">
+      <div
+        ref={transcriptScope}
+        className="relative min-h-0 flex-1"
+      >
         {isEmpty ? (
           botProject ? (
             <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
