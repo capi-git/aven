@@ -4,7 +4,6 @@ import {
   GIT_SETUP_WORDS,
   botGitNote,
   gitSetupError,
-  teamGitNote,
   setUpProjectGit,
   type GitSetupNeed,
 } from "../lib/projectGitSetup";
@@ -34,8 +33,6 @@ type ListProps = {
   onAdd: (path: string) => void;
   /** A row started or finished setting up Git. */
   onBusyChange?: (busy: boolean) => void;
-  /** What it's for: a bot (the default) or Avos, for its words. */
-  kind?: "bot" | "team";
 };
 
 /** Up and down move between the picker's buttons. */
@@ -72,7 +69,6 @@ export function BotPickerList({
   empty,
   onAdd,
   onBusyChange,
-  kind = "bot",
 }: ListProps) {
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const ready = projects.filter((project) => project.state === "ready");
@@ -116,9 +112,7 @@ export function BotPickerList({
         ) : null}
       </div>
       {needGit.length ? (
-        <p className="bot-picker-note">
-          {kind === "team" ? teamGitNote() : botGitNote()}
-        </p>
+        <p className="bot-picker-note">{botGitNote()}</p>
       ) : null}
     </>
   );
@@ -212,13 +206,10 @@ function BotGitSetupRow({
  */
 export function BotGitSetupSheet({
   project,
-  kind = "bot",
   onAdd,
   onClose,
 }: {
   project: BotPickerProject;
-  /** Asked for a bot, or by Avos's Set up Git. */
-  kind?: "bot" | "team";
   onAdd: (path: string) => void;
   onClose: () => void;
 }) {
@@ -228,7 +219,7 @@ export function BotGitSetupSheet({
       onClose={() => {
         if (!busy.current) onClose();
       }}
-      title={kind === "team" ? "Set up Git for Avos" : "Add a bot"}
+      title="Add a bot"
       size="sm"
       className="bot-git-sheet"
     >
@@ -236,7 +227,6 @@ export function BotGitSetupSheet({
         <BotPickerList
           projects={[project]}
           empty=""
-          kind={kind}
           onAdd={onAdd}
           onBusyChange={(on) => {
             busy.current = on;

@@ -106,8 +106,8 @@ type BindArgs = {
    */
   web: boolean;
   /**
-   * A teammate's chat is sandboxed wherever it runs (Avos reads your own
-   * folder until the project has a copy). The host only ever adds this.
+   * A teammate's chat is sandboxed wherever it runs. The host only ever
+   * adds this.
    */
   restricted?: true;
   /** A teammate that only reads: Aven saves no page for it (`export`). */

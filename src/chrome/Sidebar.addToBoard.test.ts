@@ -77,19 +77,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("Give to Avos in a chat's menu", () => {
-  it("gives the right-clicked chat to its project's Avos", () => {
+describe("Add to board in a chat's menu", () => {
+  it("puts the right-clicked chat on its project's board", () => {
     const onAddToBoard = vi.fn();
     props = { ...props, onAddToBoard };
     act(() => root.render(createElement(Sidebar, props)));
-    const item = openMenu("two")("Give to Avos");
+    const item = openMenu("two")("Add to board");
     expect(item).toBeDefined();
     act(() => item!.click());
     expect(onAddToBoard).toHaveBeenCalledExactlyOnceWith(["two"]);
   });
 
-  it("is not offered where there is no Avos to give it to", () => {
+  it("is not offered where there is no board to add it to", () => {
     act(() => root.render(createElement(Sidebar, props)));
-    expect(openMenu("one")("Give to Avos")).toBeUndefined();
+    expect(openMenu("one")("Add to board")).toBeUndefined();
   });
 });

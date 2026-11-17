@@ -15,6 +15,7 @@ import {
   botPermissionRules,
   botSandbox,
   crewChatPermissions,
+  CREW_CHAT_REFUSAL,
   NEVER_READ_PATHS,
   PUBLISH_CREDENTIALS,
   WEB_TOOLS,
@@ -345,9 +346,10 @@ describe("crew chats launch with their rules from any window", () => {
     expect(permissionRulesKey(checker)).not.toBe(permissionRulesKey(builder));
     expect(sessionPermissions("s-chat")?.readOnly).toBe(true);
     expect(sessionPermissions("someone-else")).toBeUndefined();
-    // Off: still its rules, and refused outright.
+    // Never started, on or off: still its rules, and refused outright.
+    expect(sessionPermissions("b-chat")?.refuse).toBe(CREW_CHAT_REFUSAL);
     updateCrew(PROJECT, (current) => ({ ...current, on: false }));
-    expect(sessionPermissions("c-chat")?.refuse).toMatch(/Avos is off/);
+    expect(sessionPermissions("c-chat")?.refuse).toBe(CREW_CHAT_REFUSAL);
     expect(sessionPermissions("c-chat")?.readOnly).toBe(true);
     stop();
   });
@@ -547,24 +549,30 @@ describe("a team's or bot's chat stays on its own app", () => {
       cwd: PROJECT,
       worktreeCwd,
     });
-    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBeNull();
-    expect(teammateChatRefusal(chat("c-chat", "codex"))).toBeNull();
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBe(
+      CREW_CHAT_REFUSAL,
+    );
+    expect(teammateChatRefusal(chat("c-chat", "codex"))).toBe(
+      CREW_CHAT_REFUSAL,
+    );
     for (const other of ["grok", "cursor", "opencode", "pi"])
       expect(teammateChatRefusal(chat("b-chat", other))).toMatch(/own app/);
     expect(teammateChatRefusal(chat("c-chat", "claude"))).toMatch(/own app/);
-    expect(teammateChatRefusal(chat("b-chat", "claude", PROJECT))).toMatch(
-      /only in its own copy/,
+    expect(teammateChatRefusal(chat("b-chat", "claude", PROJECT))).toBe(
+      CREW_CHAT_REFUSAL,
     );
-    // Once you've said Avos may not read the project, nothing runs in it.
+    // Read access allowed or declined, nothing runs.
     updateCrew(PROJECT, (current) => ({ ...current, readAccess: "declined" }));
-    expect(teammateChatRefusal(chat("b-chat", "claude"))).toMatch(
-      /needs your OK to read this project/,
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBe(
+      CREW_CHAT_REFUSAL,
     );
     updateCrew(PROJECT, (current) => ({ ...current, readAccess: "allowed" }));
-    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBeNull();
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBe(
+      CREW_CHAT_REFUSAL,
+    );
     updateCrew(PROJECT, (current) => ({ ...current, on: false }));
-    expect(teammateChatRefusal(chat("b-chat", "claude"))).toMatch(
-      /Avos is off/,
+    expect(teammateChatRefusal(chat("b-chat", "claude"))).toBe(
+      CREW_CHAT_REFUSAL,
     );
     // An ordinary chat is never held back.
     expect(
@@ -598,13 +606,10 @@ describe("a member that writes runs only on Claude Code", () => {
       ],
     }));
     expect(teammateHarness("t-chat")).toBe("claude");
-    // Codex's own guard refuses a crew chat that writes; one that only
-    // reads runs, locked down.
-    expect(launchRefusal("t-chat", COPY, "codex")).toMatch(
-      /only on Claude Code/,
-    );
-    expect(launchRefusal("t-chat", COPY, "claude")).toBeNull();
-    expect(launchRefusal("c-chat", COPY, "codex")).toBeNull();
+    // A crew chat never starts now, whatever app starts it.
+    expect(launchRefusal("t-chat", COPY, "codex")).toBe(CREW_CHAT_REFUSAL);
+    expect(launchRefusal("t-chat", COPY, "claude")).toBe(CREW_CHAT_REFUSAL);
+    expect(launchRefusal("c-chat", COPY, "codex")).toBe(CREW_CHAT_REFUSAL);
     stop();
   });
 });

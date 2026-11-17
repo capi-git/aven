@@ -16,13 +16,12 @@ const viewport = { width: 1200, height: 800 };
 const popover = { width: 300, height: 140 };
 
 describe("tour stops", () => {
-  it("has six stops in order, each anchored by data-tour", () => {
+  it("has five stops in order, each anchored by data-tour", () => {
     expect(TOUR_STOPS.map((stop) => stop.id)).toEqual([
       "composer",
       "sidebar",
       "browser",
       "changes",
-      "avos",
       "memory",
     ]);
     for (const stop of TOUR_STOPS) {

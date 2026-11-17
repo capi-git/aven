@@ -71,10 +71,21 @@ async function bound(sessionId: string, cwd: string) {
   )![1] as { web?: boolean; restricted?: boolean; readOnly?: boolean };
 }
 
+/** The crew's Access, as its settings once saved it. */
+async function setCrewAccess(
+  path: string,
+  patch: Partial<import("./crews").CrewAccess>,
+) {
+  const { updateCrew } = await import("./crews");
+  updateCrew(path, (crew) => ({
+    ...crew,
+    access: { ...crew.access, ...patch },
+  }));
+}
+
 describe("which chats bind with the web", () => {
   it("binds a Researcher's chat with web: true while Access allows it, a Scout's without, and a chat of your own unchanged", async () => {
     const { resetCrewsCache, updateCrew } = await import("./crews");
-    const { setCrewAccess } = await import("./crewActions");
     resetCrewsCache();
     updateCrew(PROJECT, (crew) => ({
       ...crew,
@@ -87,13 +98,13 @@ describe("which chats bind with the web", () => {
         { id: "scout", role: "scout", sessionId: "s-chat" },
       ],
     }));
-    setCrewAccess(PROJECT, { web: "builders" });
+    await setCrewAccess(PROJECT, { web: "builders" });
     expect(await boundWeb("r-chat", COPY)).toBe(true);
     dispose?.();
     expect(await boundWeb("s-chat", COPY)).toBe(false);
     dispose?.();
     // Turned off in the Team sheet: the next bind carries it.
-    setCrewAccess(PROJECT, { web: "none" });
+    await setCrewAccess(PROJECT, { web: "none" });
     expect(await boundWeb("r-chat", COPY)).toBe(false);
     dispose?.();
     // A chat of your own: never a grant of its own (the host leaves it as it is).
@@ -101,7 +112,7 @@ describe("which chats bind with the web", () => {
   });
 });
 
-describe("Avos's and its helpers' pages", () => {
+describe("a leader's and its helpers' pages", () => {
   const team = async (copy: boolean) => {
     const { resetCrewsCache, updateCrew } = await import("./crews");
     resetCrewsCache();
@@ -127,7 +138,7 @@ describe("Avos's and its helpers' pages", () => {
     }));
   };
 
-  it("binds them sandboxed and with the web, as Access allows Avos", async () => {
+  it("binds them sandboxed and with the web, as Access allows", async () => {
     await team(true);
     // They only read, so Aven saves no page for them.
     expect(await bound("avos-chat", COPY)).toMatchObject({
@@ -147,8 +158,7 @@ describe("Avos's and its helpers' pages", () => {
     expect(builder).toMatchObject({ restricted: true });
     expect(builder).not.toHaveProperty("readOnly");
     dispose?.();
-    const { setCrewAccess } = await import("./crewActions");
-    setCrewAccess(PROJECT, { web: "none" });
+    await setCrewAccess(PROJECT, { web: "none" });
     // Off: Avos's turn offers no browser, so nothing binds for it.
     const { crewChatBrowserOff } = await import("./projectBotPermissions");
     expect(crewChatBrowserOff("avos-chat")).toBe(true);

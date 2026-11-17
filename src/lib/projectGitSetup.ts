@@ -45,11 +45,6 @@ export function botGitNote(mac = IS_MAC): string {
   return `Bots need Git to keep their own copy of your project. Set up Git turns it on for that project on ${mac ? "this Mac" : "this computer"}. Nothing is uploaded.`;
 }
 
-/** The same line, for Avos and its helpers. */
-export function teamGitNote(mac = IS_MAC): string {
-  return `Avos needs Git to keep its own copy of your project. Set up Git turns it on for that project on ${mac ? "this Mac" : "this computer"}. Nothing is uploaded.`;
-}
-
 /** The host's reason, as one plain sentence. */
 export function gitSetupError(error: unknown): string {
   const text = String(error instanceof Error ? error.message : error).trim();

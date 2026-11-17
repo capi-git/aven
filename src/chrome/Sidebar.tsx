@@ -158,14 +158,12 @@ import { AgentMark } from "./AgentMark";
 import { CrewCritter } from "./CrewCritter";
 import { ChatStatusPill } from "./ChatStatusPill";
 import { BotCritter, BotStatusPill } from "./BotCritter";
-import { type SidebarCrew } from "./SidebarCrews";
-import { SidebarAvosRow } from "./SidebarAvos";
-import type { AvosGlance } from "../lib/avos";
 import {
   botsAvailable,
   DEFAULT_BOT_NAME,
   type BotStatus,
 } from "../lib/projectBots";
+import { crewChatIds, useCrewsStore } from "../lib/crews";
 import { useAutomationChatIds } from "../hooks/useAutomationChats";
 import "./PersonalNavigation.css";
 
@@ -219,10 +217,7 @@ export type SidebarProps = {
     archived: boolean,
   ) => void;
   onPinSession?: (sessionId: string, pinned: boolean) => void;
-  /**
-   * Give the chats to their project's Avos (Give to Avos); where Avos
-   * doesn't run, put each on the project's board as its own card.
-   */
+  /** Put each chat on its project's board as its own card. */
   onAddToBoard?: (sessionIds: string[]) => void;
   onPinSessions?: (sessionIds: readonly string[], pinned: boolean) => void;
   onDeleteSession?: (sessionId: string) => void;
@@ -269,20 +264,6 @@ export type SidebarProps = {
   onOpenBot?: (path: string) => void;
   /** Turn a project's bot on, or change its settings. */
   onBotSettings?: (path: string) => void;
-  /**
-   * Crews that are on: their helpers' chats aren't the project's chats, and
-   * a project's bot that is its Avos's Fixer has no row of its own.
-   */
-  crews?: readonly SidebarCrew[];
-  /**
-   * Each project's Avos, shown as the first row under the project: its Bot,
-   * and a note when it needs you or is working.
-   */
-  avos?: readonly AvosGlance[];
-  /** Open a project's Avos (the first time, meeting it). */
-  onOpenAvos?: (path: string) => void;
-  /** The project whose Avos screen is in front. */
-  activeAvosPath?: string | null;
   /** Chats editing another working chat's files or running a second dev server. */
   workConflicts?: WorkConflictMap;
   onSelectAgent?: (sessionId: string) => void;
@@ -336,8 +317,6 @@ export type SidebarBot = {
 };
 
 const NO_BOTS: readonly SidebarBot[] = [];
-const NO_CREWS: readonly SidebarCrew[] = [];
-const NO_AVOS: readonly AvosGlance[] = [];
 const NO_DISCUSSIONS: readonly SidebarDiscussion[] = [];
 const NO_TEAM_NEEDS: ReadonlySet<string> = new Set();
 const NO_TEAMS: readonly SidebarTeam[] = [];
@@ -432,10 +411,6 @@ function SidebarComponent({
   bots = NO_BOTS,
   onOpenBot,
   onBotSettings,
-  crews = NO_CREWS,
-  avos = NO_AVOS,
-  onOpenAvos,
-  activeAvosPath,
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
   chatStatus = NO_CHAT_STATUS,
@@ -700,20 +675,18 @@ function SidebarComponent({
   // wherever that chat's row is listed. Several races can start from one.
   const teamByOrigin = useMemo(() => teamsByOrigin(teams), [teams]);
   // A bot's chat is its pinned row, and an automation run's chat stays in
-  // Automations: neither is one of the project's chats.
+  // Automations: neither is one of the project's chats. Nor are the chats
+  // of the per-project agents Aven no longer has, kept only in storage.
   const automationChats = useAutomationChatIds();
+  const crewStore = useCrewsStore();
   const hiddenChats = useMemo(
     () =>
       new Set([
         ...bots.flatMap((bot) => (bot.sessionId ? [bot.sessionId] : [])),
-        ...crews.flatMap((crew) =>
-          crew.members.flatMap((member) =>
-            member.sessionId ? [member.sessionId] : [],
-          ),
-        ),
+        ...(crewStore ? crewChatIds() : []),
         ...automationChats,
       ]),
-    [bots, crews, automationChats],
+    [bots, crewStore, automationChats],
   );
   const listedSessions = mergeFolderSessionSummaries(
     sessions,
@@ -1083,14 +1056,12 @@ function SidebarComponent({
           },
         ]
       : []),
-    // Where Avos runs, a chat is given to its project's Avos; elsewhere it
-    // goes on the project's board.
     ...(onAddToBoard
       ? [
           {
             kind: "item" as const,
             id: "add-to-board",
-            label: botsAvailable() ? "Give to Avos" : "Add to board",
+            label: "Add to board",
           },
         ]
       : []),
@@ -1508,14 +1479,9 @@ function SidebarComponent({
   };
 
   // Bots of this profile's projects, in their own section below the
-  // projects. A project with its Avos on shows its Fixer inside its Avos.
-  const profileCrews = crews.filter((crew) =>
-    projects.some((project) => sameProjectPath(project.path, crew.path)),
-  );
-  const profileBots = bots.filter(
-    (bot) =>
-      projects.some((project) => sameProjectPath(project.path, bot.path)) &&
-      !profileCrews.some((crew) => sameProjectPath(crew.path, bot.path)),
+  // projects.
+  const profileBots = bots.filter((bot) =>
+    projects.some((project) => sameProjectPath(project.path, bot.path)),
   );
   const sessionSearchInput = (
     <input
@@ -1543,18 +1509,6 @@ function SidebarComponent({
     />
   );
 
-  /** A project's Avos row: the first row under it, before its chats. */
-  const avosRow = (path: string) => {
-    if (!onOpenAvos) return null;
-    const glance = avos.find((item) => sameProjectPath(item.path, path));
-    return glance ? (
-      <SidebarAvosRow
-        avos={glance}
-        active={!!activeAvosPath && sameProjectPath(activeAvosPath, path)}
-        onOpen={onOpenAvos}
-      />
-    ) : null;
-  };
   const currentProjectTasks = (
     <div id="personal-project-tasks" className="personal-project-tasks">
       {inProject && tasksExpanded && taskSearchOpen ? (
@@ -1567,7 +1521,6 @@ function SidebarComponent({
       ) : null}
       {tasksExpanded ? (
         <>
-          {inProject && !standaloneActive ? avosRow(cwd) : null}
           {!cwd || cwd === "~" ? (
             <p className="personal-tasks-empty">
               Open a project to see its chats.
@@ -2214,7 +2167,6 @@ function SidebarComponent({
                         currentProjectTasks
                       ) : expanded ? (
                         <div className="personal-project-tasks">
-                          {avosRow(project.path)}
                           {!historyLoaded ? (
                             historyError ? (
                               <button
@@ -2505,7 +2457,6 @@ const SIDEBAR_DATA: readonly (keyof SidebarProps)[] = [
   "liveAgents",
   "discussions",
   "bots",
-  "avos",
   "teams",
   "workConflicts",
   "standaloneSessions",

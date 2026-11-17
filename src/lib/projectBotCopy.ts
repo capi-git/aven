@@ -31,29 +31,19 @@ export type BotSyncResult = {
 export const botCopyHost = {
   /** Resolves when the folder can have a bot (a git repository with a commit). */
   ready: (cwd: string) => invoke<void>("bot_project_ready", { cwd }),
-  /**
-   * Make the copy when missing; an existing copy is left as it is. A
-   * crew's copy made again starts `at` its stack, so the cards there stay.
-   */
-  prepare: (cwd: string, key: string, branch: string, at?: string) =>
+  /** Make the copy when missing; an existing copy is left as it is. */
+  prepare: (cwd: string, key: string, branch: string) =>
     invoke<BotCopyInfo>("bot_copy_prepare", {
       cwd,
       key,
       branch,
-      at: at ?? null,
+      at: null,
     }),
   /** Match the copy to the user's files: HEAD plus uncommitted changes. */
   sync: (cwd: string, copy: string, branch: string) =>
     invoke<BotSyncResult>("bot_copy_sync", { cwd, copy, branch }),
   diff: (copy: string, base: string) =>
     invoke<BotDiff>("bot_copy_diff", { copy, base }),
-  /**
-   * Settings files an agent left in the copy that an app would run as the
-   * user (Claude's project and local settings, MCP servers); with `remove`,
-   * they are removed.
-   */
-  planted: (copy: string, remove: boolean) =>
-    invoke<string[]>("bot_copy_planted", { copy, remove }),
   fileDiff: (copy: string, base: string, path: string) =>
     invoke<RaceFileDiff>("bot_copy_file_diff", { copy, base, path }),
   /**
@@ -75,120 +65,7 @@ export const botCopyHost = {
     }),
   remove: (cwd: string, copy: string, branch: string) =>
     invoke<void>("bot_copy_remove", { cwd, copy, branch }),
-  /**
-   * A crew's stack: what the copy holds now becomes a commit on the crew's
-   * branch on top of `parent` (the card's starting point, the branch's
-   * commit), only while it is exactly the change its checks passed (`hash`).
-   * Resolves with the card's commit.
-   */
-  stack: (
-    copy: string,
-    branch: string,
-    parent: string,
-    message: string,
-    hash: string,
-  ) =>
-    invoke<string>("bot_copy_stack", { copy, branch, parent, message, hash }),
-  /** Take a card's commit back off the branch, keeping its files in the copy. */
-  unstack: (copy: string, branch: string, commit: string, parent: string) =>
-    invoke<void>("bot_copy_unstack", { copy, branch, commit, parent }),
-  /** What changed between two of the stack's commits, with its fingerprint. */
-  range: (copy: string, from: string, to: string) =>
-    invoke<BotDiff>("bot_copy_range", { copy, from, to }),
-  rangeFileDiff: (copy: string, from: string, to: string, path: string) =>
-    invoke<RaceFileDiff>("bot_copy_range_file_diff", { copy, from, to, path }),
-  /**
-   * Apply the stacked range onto the user's files, only while it is the
-   * change with this fingerprint (the one the user reviewed) and each of
-   * its cards (`cards`, in order, the last at `to`) is the change its checks
-   * passed. Protected paths are refused; a conflict changes nothing.
-   */
-  applyRange: (
-    cwd: string,
-    copy: string,
-    from: string,
-    to: string,
-    hash: string,
-    cards: readonly { commit: string; hash: string }[],
-  ) =>
-    invoke<RaceDiff>("bot_copy_apply_range", {
-      cwd,
-      copy,
-      from,
-      to,
-      hash,
-      cards,
-    }),
-  /**
-   * Open a pull request with exactly the reviewed range: Aven puts its patch
-   * on the remote's main branch as one commit, pushes that to `branch` (an
-   * `avos/` name) and opens the pull request. Resolves with its URL.
-   */
-  publishRange: (
-    cwd: string,
-    copy: string,
-    from: string,
-    to: string,
-    hash: string,
-    cards: readonly { commit: string; hash: string }[],
-    pr: { branch: string; title: string; body: string },
-  ) =>
-    invoke<string>("bot_copy_publish_range", {
-      cwd,
-      copy,
-      from,
-      to,
-      hash,
-      cards,
-      ...pr,
-    }),
-  /**
-   * Try it: run the copy, holding exactly the reviewed range, on its own
-   * port. Resolves with its address once it answers.
-   */
-  serve: (
-    copy: string,
-    from: string,
-    to: string,
-    hash: string,
-    cards: readonly { commit: string; hash: string }[],
-  ) =>
-    invoke<{ url: string }>("bot_copy_serve", { copy, from, to, hash, cards }),
-  /** Stop the copy's Try it server, if one runs. */
-  serveStop: (copy: string) => invoke<void>("bot_copy_serve_stop", { copy }),
-  /**
-   * Replay the stacked cards onto the user's files now, each its own commit
-   * again. A card that no longer fits leaves the stack exactly as it was.
-   */
-  restack: (
-    cwd: string,
-    copy: string,
-    branch: string,
-    from: string,
-    commits: readonly string[],
-  ) =>
-    invoke<{ base: string; commits: string[]; hashes: string[] }>(
-      "bot_copy_restack",
-      {
-        cwd,
-        copy,
-        branch,
-        from,
-        commits,
-      },
-    ),
 };
-
-/**
- * The host refused a restack: the user's files changed where the team
- * worked (`RESTACK_CONFLICT` in project_bots.rs; a host from before teams
- * said "crew").
- */
-export function isRestackConflict(error: unknown): boolean {
-  return /^Your files changed where (?:the crew|the team|Avos) worked/.test(
-    String(error instanceof Error ? error.message : error),
-  );
-}
 
 /**
  * The file whose name reads as a settings folder on a Mac, when that's why
@@ -268,8 +145,6 @@ export function botCopyError(error: unknown): string {
     return "The fix changed since you looked. Review it again, then apply.";
   const lookAlike = lookAlikePath(text);
   if (lookAlike) return lookAlikeText(lookAlike);
-  if (/isn't the change its checks passed/i.test(text))
-    return "A card on Avos's branch isn't the change its checks passed, so nothing was applied. Take it off the branch, or update the branch and review it again.";
   if (/name has characters Aven can't read safely/i.test(text))
     return "A changed file's name has characters Aven can't read safely, so Aven won't use this change. Take it over in a chat.";
   if (/conflict with edits in your project/i.test(text))

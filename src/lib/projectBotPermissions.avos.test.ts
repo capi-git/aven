@@ -12,6 +12,7 @@ import {
   agentBrowserWeb,
   crewChatBrowserOff,
   crewChatPermissions,
+  CREW_CHAT_REFUSAL,
   installBotPermissions,
   NEVER_READ_PATHS,
 } from "./projectBotPermissions";
@@ -48,9 +49,9 @@ afterEach(() => {
   resetCrewsCache();
 });
 
-it("lets Avos read your folder before there's a copy, and change nothing in it", () => {
+it("never starts a leader's chat, and keeps its folder rules if it did", () => {
   const avos = crewChatPermissions("avos-chat")!;
-  expect(avos.refuse).toBeUndefined();
+  expect(avos.refuse).toBe(CREW_CHAT_REFUSAL);
   expect(avos).toMatchObject({
     readOnly: true,
     noMcp: true,
@@ -67,11 +68,11 @@ it("lets Avos read your folder before there's a copy, and change nothing in it",
     expect.arrayContaining(NEVER_READ_PATHS),
   );
   expect(avos.rules.deny?.some((rule) => rule.startsWith("Edit("))).toBe(true);
-  expect(launchRefusal("avos-chat", PROJECT)).toBeNull();
-  expect(launchRefusal("avos-chat", "/Users/me")).toMatch(/only in its own/);
+  expect(launchRefusal("avos-chat", PROJECT)).toBe(CREW_CHAT_REFUSAL);
+  expect(launchRefusal("avos-chat", "/Users/me")).toBe(CREW_CHAT_REFUSAL);
 });
 
-it("lets a helper Avos started read your folder too, as Avos does", () => {
+it("never starts a helper's chat either, with the same folder rules", () => {
   updateCrew(PROJECT, (crew) => ({
     ...crew,
     helpers: [
@@ -85,20 +86,20 @@ it("lets a helper Avos started read your folder too, as Avos does", () => {
     ],
   }));
   const helper = crewChatPermissions("helper-chat")!;
-  expect(helper.refuse).toBeUndefined();
+  expect(helper.refuse).toBe(CREW_CHAT_REFUSAL);
   expect(helper).toMatchObject({ readOnly: true, workFolder: PROJECT });
   expect(helper.sandbox?.filesystem?.denyWrite).toContain(PROJECT);
   expect(helper.sandbox?.network?.allowedDomains).toEqual([]);
-  expect(launchRefusal("helper-chat", PROJECT)).toBeNull();
+  expect(launchRefusal("helper-chat", PROJECT)).toBe(CREW_CHAT_REFUSAL);
 });
 
-it("still keeps every teammate that changes files out until the copy exists", () => {
-  expect(launchRefusal("builder-chat", PROJECT)).toMatch(/copy isn't ready/);
+it("never starts a teammate that changes files", () => {
+  expect(launchRefusal("builder-chat", PROJECT)).toBe(CREW_CHAT_REFUSAL);
 });
 
-it("refuses Avos's chat while Avos is off", () => {
+it("refuses a leader's chat while it is off too", () => {
   updateCrew(PROJECT, (crew) => ({ ...crew, on: false }));
-  expect(launchRefusal("avos-chat", PROJECT)).toMatch(/Avos is off/);
+  expect(launchRefusal("avos-chat", PROJECT)).toBe(CREW_CHAT_REFUSAL);
 });
 
 const SOCKET = "/tmp/aven-browser.sock";

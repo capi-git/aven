@@ -16,7 +16,7 @@ type Notice = PendingApprovalNotice & { session: Session };
 
 type Props = {
   notices: Notice[];
-  /** Other notices in the same column, below these (Avos needing you). */
+  /** Other notices in the same column, below these. */
   extra?: ReactNode;
   onFocusSession: (sessionId: string) => void;
   onApproval: (

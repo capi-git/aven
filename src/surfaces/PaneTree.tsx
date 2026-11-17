@@ -80,9 +80,6 @@ type Shared = {
   ) => void;
   /** Race a message across several agents; absent hides Race. */
   onRace?: ComponentProps<typeof SessionPane>["onRace"];
-  /** @Avos from a chat's box (see `SessionPane`). */
-  onTellAvos?: ComponentProps<typeof SessionPane>["onTellAvos"];
-  onOpenAvos?: ComponentProps<typeof SessionPane>["onOpenAvos"];
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
@@ -192,8 +189,6 @@ function PaneTreeComponent({
   onRuntimeModeChange,
   onSubmit,
   onRace,
-  onTellAvos,
-  onOpenAvos,
   onStop,
   onCompactContext,
   onDeleteQueuedMessage,
@@ -446,8 +441,6 @@ function PaneTreeComponent({
                 onRuntimeModeChange={onRuntimeModeChange}
                 onSubmit={onSubmit}
                 onRace={onRace}
-                {...(onTellAvos ? { onTellAvos } : {})}
-                {...(onOpenAvos ? { onOpenAvos } : {})}
                 onStop={onStop}
                 onCompactContext={onCompactContext}
                 onDeleteQueuedMessage={onDeleteQueuedMessage}

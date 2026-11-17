@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  setDockAvosNeeds,
   setDockLeadDecided,
   setDockTeamNeeds,
   syncDockBadge,
@@ -37,16 +36,13 @@ describe("the Dock badge", () => {
     vi.mocked(invoke).mockClear();
     setDockTeamNeeds(new Set());
     setDockLeadDecided(NO_LEAD_DECIDED);
-    setDockAvosNeeds(0);
   });
 
-  it("counts what each Avos needs you for with the chats asking you", () => {
+  it("counts the chats asking you, each once", () => {
     syncDockBadge([asking("one")]);
     expect(lastCount()).toBe(1);
-    setDockAvosNeeds(2);
-    syncDockBadge([asking("one")]);
-    expect(lastCount()).toBe(3);
-    setDockAvosNeeds(0);
+    syncDockBadge([asking("one"), asking("two")]);
+    expect(lastCount()).toBe(2);
     syncDockBadge([]);
     expect(lastCount()).toBe(0);
   });

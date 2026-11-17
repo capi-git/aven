@@ -18,14 +18,6 @@ export function setDockTeamNeeds(ids: ReadonlySet<string>) {
   teamNeeds = ids;
 }
 
-/** Things each project's Avos waits on you for (see `avosNeeds`). */
-let avosNeeds = 0;
-
-/** How many things the projects' Avos wait on you for, each counted once. */
-export function setDockAvosNeeds(count: number) {
-  avosNeeds = count;
-}
-
 /** Workers whose requests their lead decides, so they are not counted. */
 let leadDecided: LeadDecided = NO_LEAD_DECIDED;
 
@@ -35,7 +27,7 @@ export function setDockLeadDecided(ids: LeadDecided) {
 
 /**
  * Push the count of what waits on the user to the macOS Dock badge: chats
- * asking, chats a team needs you in, and what each Avos needs you for.
+ * asking and chats a team needs you in.
  */
 export function syncDockBadge(sessions: readonly Session[]): void {
   // Each request once: a worker asking you is counted, not also its lead.
@@ -43,7 +35,7 @@ export function syncDockBadge(sessions: readonly Session[]): void {
     withLeads: false,
   });
   for (const id of teamNeeds) ids.add(id);
-  const count = ids.size + avosNeeds;
+  const count = ids.size;
   if (count === lastCount) return;
   lastCount = count;
   void invoke("set_dock_badge", { count }).catch(() => {});

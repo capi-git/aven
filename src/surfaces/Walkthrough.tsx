@@ -7,7 +7,6 @@ import { failureText } from "../lib/errors";
 import { LAYER } from "../lib/layers";
 import { agentOutfit, agentPhase } from "../lib/agentMark";
 import { crewMemberTone } from "../lib/markTones";
-import { botsAvailable } from "../lib/projectBots";
 import type { HarnessId } from "../lib/session";
 import {
   WALKTHROUGH_STEPS,
@@ -306,9 +305,7 @@ function ProjectStep({
         Pick something to work on
       </h2>
       <p className="walkthrough-lead">
-        {botsAvailable()
-          ? "A project is a folder your agents work in, and its Avos looks after it. You can add more any time."
-          : "A project is a folder your agents work in. You can add more any time."}
+        A project is a folder your agents work in. You can add more any time.
       </p>
       <div
         className="walkthrough-cards walkthrough-choices"

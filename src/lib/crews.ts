@@ -32,11 +32,11 @@ import type { AutomationReview } from "./automationReview";
 import { registerGuardedChats } from "./harness/sessionPermissions";
 
 /**
- * Crews: a project's bots working as one. Each member has a role (Builder,
- * Checker, Scout, and the project bot as Fixer). Aven passes a Board card
- * from the Builder to the Checker and back, counts the rounds and keeps the
- * limits (see `crewLoop`, `crewLimits` and `crewRunner`); the bots never
- * message each other.
+ * Crews: a project's bots working as one (each project's leader agent and
+ * its helpers). Aven no longer runs them or shows them: this module only
+ * reads what earlier builds stored, so their chats stay hidden from the
+ * chat lists and never start (see `crewChatPermissions`), and nothing a
+ * user had is lost.
  *
  * This module keeps each project's crew, keyed by `projectKey`, in one
  * store every window shares. The project bot keeps its own store, untouched:
@@ -3234,6 +3234,14 @@ export function crewForChat(
 
 export function isCrewChat(sessionId: string | undefined): boolean {
   return !!sessionId && chats().has(sessionId);
+}
+
+/**
+ * Every chat a stored crew ever had. Crews no longer run, so these chats
+ * stay out of the project's chat list.
+ */
+export function crewChatIds(): string[] {
+  return [...chats().keys()];
 }
 
 export function isCrewCopyPath(path: string | undefined): boolean {

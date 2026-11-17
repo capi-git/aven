@@ -6,9 +6,6 @@ import {
   Terminal,
   X,
 } from "./icons";
-import { AVOS, avosMet } from "../lib/avos";
-import { getCrew } from "../lib/crews";
-import { botsAvailable } from "../lib/projectBots";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { copyText } from "../lib/clipboard";
@@ -124,14 +121,11 @@ export function surfaceTabPresentation(
   }
 
   if (isBoardTab(file)) {
-    // Once you've met the project's Avos, its Board is its Avos.
-    const avos = botsAvailable() && avosMet(getCrew(file.board.project));
-    const name = avos ? AVOS : BOARD_TAB_TITLE;
     return {
-      name,
-      label: name,
+      name: BOARD_TAB_TITLE,
+      label: BOARD_TAB_TITLE,
       iconName: "BOARD",
-      tooltip: `${name} · ${file.board.project}`,
+      tooltip: `${BOARD_TAB_TITLE} · ${file.board.project}`,
     };
   }
 

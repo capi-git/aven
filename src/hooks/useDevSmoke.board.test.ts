@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ensureAvos, getCrew, resetCrewsCache } from "../lib/crews";
 import { memoryStorage } from "../lib/devSmoke";
 
 vi.mock("../lib/harness/child", () => ({ resolveClaudeBinary: vi.fn() }));
@@ -13,10 +12,8 @@ import { checkBoard } from "./useDevSmoke";
 const PROJECT = "/tmp/check/project";
 
 type Flaws = {
-  /** Open Avos shows the old Board's columns. */
-  board?: boolean;
-  /** The line about chats outside the board shows above it. */
-  outside?: boolean;
+  /** Open board shows no columns. */
+  empty?: boolean;
   /** Cmd+W leaves it open. */
   kept?: boolean;
 };
@@ -27,16 +24,15 @@ let listening = new AbortController();
 function app(flaws: Flaws = {}) {
   listening = new AbortController();
   const button = document.createElement("button");
-  button.setAttribute("aria-label", "Open Avos");
+  button.setAttribute("aria-label", "Open board");
   document.body.append(button);
   let screen: HTMLElement | null = null;
   button.addEventListener("click", () => {
-    ensureAvos(PROJECT);
     screen = document.createElement("div");
     screen.dataset.workBoard = PROJECT;
-    screen.innerHTML = `<div data-avos-meet>Hi, I'm Avos.</div>${
-      flaws.board ? '<section data-board-column="idea">Ideas</section>' : ""
-    }${flaws.outside ? "<div data-board-outside>1 chat</div>" : ""}`;
+    screen.innerHTML = flaws.empty
+      ? ""
+      : '<section data-board-column="idea">Ideas</section>';
     document.body.append(screen);
   });
   window.addEventListener(
@@ -50,11 +46,10 @@ function app(flaws: Flaws = {}) {
   return { motion: { showWorkspace: vi.fn() } };
 }
 
-describe("Open Avos in the real-app check", () => {
+describe("Open board in the real-app check", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("localStorage", memoryStorage());
-    resetCrewsCache();
     // happy-dom lays nothing out: anything in the document is on screen.
     vi.spyOn(Element.prototype, "getClientRects").mockImplementation(function (
       this: Element,
@@ -82,30 +77,22 @@ describe("Open Avos in the real-app check", () => {
     return result;
   };
 
-  it("passes when it meets the project's Avos, with no Board, and Cmd+W closes it", async () => {
+  it("passes when the board opens with its columns and Cmd+W closes it", async () => {
     expect(await run()).toEqual({
       detail:
-        "Open Avos opened the project's Avos on meeting it, with no Board columns and no line about chats outside the board; Cmd+W closed it",
-    });
-    // What it saved is forgotten, for the crew steps after.
-    expect(getCrew(PROJECT)).toBeUndefined();
-  });
-
-  it("fails when the old Board's columns show", async () => {
-    expect(await run({ board: true })).toEqual({
-      error: "The old Board's columns showed",
+        "Open board opened the project's board with its columns; Cmd+W closed it",
     });
   });
 
-  it("fails when the line about chats outside the board shows", async () => {
-    expect(await run({ outside: true })).toEqual({
-      error: "The line about chats outside the board showed",
+  it("fails when the board shows no columns", async () => {
+    expect(await run({ empty: true })).toEqual({
+      error: "Timed out waiting for the board's columns",
     });
   });
 
   it("fails when Cmd+W leaves it open", async () => {
     expect(await run({ kept: true })).toEqual({
-      error: "Timed out waiting for Cmd+W to close Avos",
+      error: "Timed out waiting for Cmd+W to close the board",
     });
   });
 });

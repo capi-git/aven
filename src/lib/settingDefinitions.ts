@@ -383,7 +383,8 @@ export const SETTINGS = {
     section: "appearance",
     label: "Working mark",
     description: "What the message box shows while an agent works.",
-    keywords: "bot face dots spinner working busy mascot indicator",
+    keywords:
+      "orb bot face dots spinner working busy mascot indicator thinking",
     rowDescription: "What the message box shows while an agent works.",
   }),
   reduceMotion: defineSetting({

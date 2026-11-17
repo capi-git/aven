@@ -20,7 +20,6 @@
  * needs you is hidden.
  */
 import { appName } from "./agentNames";
-import type { CrewBoardInfo } from "./crewView";
 import { chatStage, type ChatStatusWord } from "./chatStatus";
 import type { ChatReview } from "./chatReview";
 import type { DevPreview } from "./devPreviews";
@@ -186,8 +185,6 @@ export type BoardCard = {
   at: number;
   /** Its chats' state now, saved with a move by hand. */
   basis: string;
-  /** How it looks while the project's crew has it, or offers to (see `crewBoardColumns`). */
-  crew?: CrewBoardInfo;
 };
 
 /** Work in the project that no card links to. */
