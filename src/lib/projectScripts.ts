@@ -89,7 +89,45 @@ export function suggestSetupCommand(entries: readonly FsEntry[]): string {
   if (names.has("uv.lock")) return "uv sync";
   if (names.has("requirements.txt")) return "pip install -r requirements.txt";
   if (names.has("Gemfile")) return "bundle install";
+  if (names.has("Package.swift")) return "swift package resolve";
   return "";
+}
+
+/**
+ * Likely Run commands from the files at a project's root, for projects that
+ * are not run through package.json: a build script, a Swift package, a Mac
+ * app's Xcode project, a Makefile or a Rust crate. A folder with its own
+ * build script and an Info.plist builds a Mac app, so "Build and open" builds
+ * it and opens the newest app it made.
+ */
+export function suggestRunCommands(
+  entries: readonly FsEntry[],
+  windows = IS_WIN,
+): { name: string; command: string }[] {
+  const files = new Set(entries.filter((e) => !e.isDir).map((e) => e.name));
+  const xcode = entries.find((e) => e.isDir && e.name.endsWith(".xcodeproj"));
+  const hints: { name: string; command: string }[] = [];
+  if (!windows && files.has("build.sh")) {
+    if (files.has("Info.plist"))
+      hints.push({
+        name: "Build and open",
+        command: './build.sh && open "$(ls -td build/*.app | head -n 1)"',
+      });
+    hints.push({ name: "Build", command: "./build.sh" });
+  }
+  if (xcode && !/["$`\\]/.test(xcode.name))
+    hints.push({
+      name: "Xcode build",
+      command: `xcodebuild -project "${xcode.name}" build`,
+    });
+  if (files.has("Package.swift")) {
+    hints.push({ name: "swift run", command: "swift run" });
+    hints.push({ name: "swift test", command: "swift test" });
+  }
+  if (files.has("Makefile")) hints.push({ name: "make", command: "make" });
+  if (files.has("Cargo.toml"))
+    hints.push({ name: "cargo run", command: "cargo run" });
+  return hints;
 }
 
 /**
