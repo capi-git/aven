@@ -152,7 +152,7 @@ describe("workspace pane minimization and visible tab headers", () => {
         container.querySelector<HTMLElement>(
           `[data-workspace-surface="${collapsed}"]`,
         )!.style.width,
-      ).toBe(`calc(${width} - 0.5px)`);
+      ).toBe(`calc(${width} - 3px)`);
     },
   );
 

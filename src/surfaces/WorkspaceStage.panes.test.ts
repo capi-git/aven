@@ -15,28 +15,37 @@ function rule(file: string, selector: string) {
 const hairlineBelow =
   "box-shadow: inset 0 calc(-1 * var(--aven-hairline)) 0 var(--aven-separator);";
 
-describe("flush panes", () => {
-  it("lays panes against the workspace's edges, one pixel apart", () => {
+describe("panes as cards", () => {
+  it("lays panes against the workspace's edges, 6px apart", () => {
     expect(WORKSPACE_EDGE).toBe(0);
-    // Native browser pages cannot be drawn over, so the divider needs a real
-    // gap of its own between two panes.
-    expect(PANE_GUTTER * 2).toBe(1);
+    // Native browser pages cannot be drawn over, so the gap between two
+    // cards is real space, not a painted line.
+    expect(PANE_GUTTER * 2).toBe(6);
   });
 
-  it("draws each pane square, with no edge, fill or glass of its own", () => {
+  it("draws each pane as its own rounded card, with no glass of its own", () => {
     const pane = rule(
       "src/surfaces/WorkspaceStage.css",
       ".workspace-stage-surface",
     );
-    expect(pane).toContain("border: 0;");
-    expect(pane).toContain("border-radius: 0;");
+    expect(pane).toContain(
+      "border: 1px solid var(--aven-pane-edge, transparent);",
+    );
+    expect(pane).toContain(
+      "border-radius: var(--aven-radius-pane-card, 10px);",
+    );
+    expect(pane).toContain("background: var(--aven-pane-fill, transparent);");
     // The window already provides the glass; a filter per pane is a new
     // compositing layer for every pane.
-    expect(pane).not.toMatch(/backdrop-filter|background:|box-shadow:/);
-    // Nothing rounds the panes again in the shell.
+    expect(pane).not.toMatch(/backdrop-filter|box-shadow:/);
+    // The card around the panes steps back only while panes show.
     const shell = readFileSync("src/personal-shell.css", "utf8");
-    expect(shell).not.toMatch(
-      /\.workspace-stage-surface[^{]*\{[^}]*border-radius: (?!0;)/,
+    expect(shell).toMatch(
+      /\.personal-main\.body-glass\[data-panes\] \{[^}]*--aven-pane-fill: var\(--aven-inset-panel\);[^}]*background: transparent;/,
+    );
+    // A chat background shows through the panes.
+    expect(shell).toMatch(
+      /html\.has-chat-background:not\(\.chat-background-empty-only\)[^{]*\[data-panes\] \{\s*--aven-pane-fill: transparent;/,
     );
   });
 
@@ -49,12 +58,12 @@ describe("flush panes", () => {
     );
   });
 
-  it("divides panes with a seam: a hairline in a 9px target, unchanged while used", () => {
+  it("divides panes by their gap: no line in a 9px target, unchanged while used", () => {
     const line = rule(
       "src/surfaces/WorkspaceStage.css",
       ".workspace-stage-sash::after",
     );
-    expect(line).toContain("background: var(--aven-separator);");
+    expect(line).toContain("background: transparent;");
     expect(
       rule(
         "src/surfaces/WorkspaceStage.css",

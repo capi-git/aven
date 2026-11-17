@@ -2021,11 +2021,14 @@ export function hasHairlineBelow(element: HTMLElement) {
   });
 }
 
+/** A workspace pane's corners: a card's (DESIGN.md). */
+const PANE_CARD_RADIUS = 10;
+
 /**
  * Why a tab holding a chat beside a file pane does not give each pane one
  * strip laid out above its content (the file's tab row is its strip), lay
- * the panes out flush as an IDE does (square, against the workspace's edges,
- * hairlines under the tab rows and between the panes) and use one tab
+ * the tab out as its own card (10px corners, against the workspace's edges,
+ * hairlines under the tab rows and between the panes inside it) and use one tab
  * style, or null with what it measured. `file` is any element in the file's
  * pane.
  */
@@ -2075,14 +2078,16 @@ export function paneLayoutProblem(file: HTMLElement): {
     strips.push(strip);
   }
   const [chatStrip, fileStrip] = strips;
-  // Flush, as in an IDE: square, with no edge of its own, against the
-  // workspace's edges (the window's corner and the regions around the
-  // workspace draw what is beyond them).
+  // Its own card: 10px corners and a faint 1px edge, against the
+  // workspace's edges (the gap to the next pane is the divider).
   const style = getComputedStyle(tab);
   const radius = parseFloat(style.borderTopLeftRadius) || 0;
-  if (radius > 0) return fail(`the pane's corners are ${radius}px`);
+  if (Math.abs(radius - PANE_CARD_RADIUS) > 0.5)
+    return fail(
+      `the pane's corners are ${radius}px, not ${PANE_CARD_RADIUS}px`,
+    );
   const edge = parseFloat(style.borderTopWidth) || 0;
-  if (edge > 0) return fail(`the pane has a ${edge}px edge of its own`);
+  if (edge > 1) return fail(`the pane has a ${edge}px edge`);
   const tabRect = tab.getBoundingClientRect();
   const stageRect = stage.getBoundingClientRect();
   const inset = Math.max(
@@ -2134,7 +2139,7 @@ export function paneLayoutProblem(file: HTMLElement): {
     );
   return {
     problem: null,
-    summary: `one ${height(chatStrip)}px strip per pane above its content, with no line under it, and no title row naming the tab again; square panes flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
+    summary: `one ${height(chatStrip)}px strip per pane above its content, with no line under it, and no title row naming the tab again; ${PANE_CARD_RADIUS}px cards flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
   };
 }
 

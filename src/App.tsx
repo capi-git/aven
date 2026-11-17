@@ -12805,7 +12805,12 @@ export default function App({
                 data-settings-open={settingsOpen}
               >
                 <div className="personal-workspace-body">
-                  <div className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col">
+                  <div
+                    className="personal-main body-glass flex min-h-0 min-w-0 flex-1 flex-col"
+                    // Panes are cards of their own; Home and Settings sit in
+                    // the one card.
+                    data-panes={(workspaceVisible && !homeShown) || undefined}
+                  >
                     {homeShown ? (
                       <WorkspaceHome
                         profile={profiles.activeProfile.name}

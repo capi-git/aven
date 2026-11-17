@@ -202,6 +202,7 @@ export function PersonalProjectRow({
           <ProjectMark
             path={path}
             open={expanded}
+            folder
             className="personal-project-symbol"
           />
           <span ref={labelRef} className="personal-project-label">

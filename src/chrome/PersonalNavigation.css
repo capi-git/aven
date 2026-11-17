@@ -386,6 +386,44 @@
   opacity: 1;
   pointer-events: auto;
 }
+/* A project is a folder: its open-or-closed arrow stands before it at all
+   times, and its chats sit in under it, along a faint line. */
+.personal-shell .personal-navigation .personal-project-disclosure {
+  order: -1;
+  width: 16px;
+  height: 24px;
+  margin-right: -2px;
+  opacity: 1;
+  pointer-events: auto;
+  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+}
+.personal-shell
+  .personal-navigation
+  .personal-project-row:is(
+    :hover,
+    :focus-within,
+    :has(.personal-project-more[aria-expanded="true"])
+  )
+  .personal-project-disclosure {
+  width: 16px;
+}
+.personal-shell .personal-navigation .personal-project-open {
+  padding-left: 4px;
+}
+.personal-shell .personal-navigation .personal-project-tasks {
+  position: relative;
+  padding-left: 16px;
+}
+.personal-shell .personal-navigation .personal-project-tasks::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 6px;
+  left: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  pointer-events: none;
+}
 .personal-shell .personal-navigation .personal-project-open:hover,
 .personal-shell .personal-navigation .personal-project-row-action:hover,
 .personal-shell .personal-navigation .personal-workspace-tool:hover {
