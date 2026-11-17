@@ -59,6 +59,34 @@ export function smokeScroll(at: { x: number; y: number }, step: SwipeStep) {
   });
 }
 
+/**
+ * Plays `swipeSteps` up or down over a web page at `at` (client pixels),
+ * one step per `frameMs`: AppKit hands each event to the page's own view, as
+ * it does a person's two-finger scroll. Positive moves further down.
+ */
+export async function smokePageScroll(
+  at: { x: number; y: number },
+  distance: number,
+  frameMs: number,
+) {
+  const started = performance.now();
+  const steps = swipeSteps(distance);
+  for (let index = 0; index < steps.length; index += 1) {
+    const due = started + index * frameMs;
+    const wait = due - performance.now();
+    if (wait > 1) await new Promise((resolve) => setTimeout(resolve, wait));
+    await invoke("dev_smoke_scroll", {
+      x: at.x,
+      y: at.y,
+      zoom: loadUiScale(),
+      dx: 0,
+      dy: steps[index].dx,
+      native: true,
+      phase: steps[index].phase,
+    });
+  }
+}
+
 /** The middle of `element`, where a swipe over it starts. */
 export function swipePoint(element: HTMLElement) {
   const box = viewportRect(element, element.getBoundingClientRect());
