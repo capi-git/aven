@@ -81,27 +81,17 @@ export function titleRowTabs(
 export type TrackEntry = { id: string; tab: boolean };
 
 /**
- * The tabs that draw a line before them: every tab but the first, unless the
- * tab in front is on either side of the line. A group's label is not a tab,
- * so no line stands beside it.
+ * The tabs that draw a line before them: every tab but the first, the tab in
+ * front included (it has no fill to stand in for the line). A group's label
+ * is not a tab, so no line stands beside it.
  *
  * Adapted from bezel's `tabs::reorder` (`parted`).
  */
-export function trackSeparators(
-  entries: readonly TrackEntry[],
-  frontId: string | null | undefined,
-): Set<string> {
+export function trackSeparators(entries: readonly TrackEntry[]): Set<string> {
   const parted = new Set<string>();
   entries.forEach((entry, index) => {
     const before = entries[index - 1];
-    if (
-      index > 0 &&
-      entry.tab &&
-      before?.tab &&
-      entry.id !== frontId &&
-      before.id !== frontId
-    )
-      parted.add(entry.id);
+    if (index > 0 && entry.tab && before?.tab) parted.add(entry.id);
   });
   return parted;
 }

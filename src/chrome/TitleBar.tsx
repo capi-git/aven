@@ -2175,7 +2175,6 @@ function TitleBarComponent({
           id,
           tab: !chipGroupId(id) && !splitEntries.has(id) && !pinnedIds.has(id),
         })),
-        focusedId,
       )
     : NO_SEPARATORS;
   const tabStopId = displayedTabIds.includes(focusedId)

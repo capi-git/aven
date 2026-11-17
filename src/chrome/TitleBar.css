@@ -153,8 +153,8 @@ html.theme-light .personal-shell {
     background-color 120ms var(--aven-tab-ease),
     color 120ms var(--aven-tab-ease);
 }
-/* Tabs read like the sidebar's rows: a name with no plate, the front one
-   filled. Close (and a browser tab's menu) show only while the tab is
+/* Tabs are names with a short line between them, and no plate: the front
+   one is told by its brighter name alone. Close (and a browser tab's menu) show only while the tab is
    pointed at, over the end of its name, so a tab is as wide as its name and
    never changes width. Each state names the tab's class (here and below)
    so WebKit keys the rule on it: a bare :hover or :focus-within in :is()
@@ -171,18 +171,14 @@ html.theme-light .personal-shell {
   mask-image: linear-gradient(to left, transparent 34px, #000 46px);
 }
 .aven-tab-button:hover {
-  background: var(--aven-hover);
   color: var(--color-content);
 }
 .aven-tab[data-active="true"] .aven-tab-button {
-  background: var(--aven-tab-selected);
-  box-shadow: var(--aven-tab-selected-edge);
   color: var(--color-content);
 }
-/* The active tab of a pane that does not have focus keeps a quieter fill. */
+/* The front tab of a pane that does not have focus reads a little quieter. */
 [data-pane-focused="false"] .aven-tab[data-active="true"] .aven-tab-button {
-  background: var(--aven-fill-quaternary);
-  box-shadow: none;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
 }
 .aven-tab[data-draggable="true"],
 .aven-tab[data-draggable="true"] .aven-tab-button {
@@ -200,8 +196,7 @@ html.theme-light .personal-shell {
   font-weight: 400;
   line-height: 1.25;
 }
-/* The front tab is told by its fill and brighter name, not a heavier
-   weight, which would widen it and move its neighbours. */
+/* The front tab is told by its brighter name, not a heavier weight, which would widen it and move its neighbours. */
 .aven-tab[data-active="true"] .aven-tab-label {
   font-weight: 400;
 }
@@ -323,7 +318,11 @@ html.theme-light .personal-shell {
   pointer-events: none;
   opacity: 0;
 }
-.aven-tab-strip[data-tab-highlight="on"] > .aven-tab-highlight {
+/* A tab has no fill, so the highlight shows only as a split's outline. */
+.aven-tab-strip[data-tab-highlight="on"]:has(
+    .aven-split-entry[data-active="true"]
+  )
+  > .aven-tab-highlight {
   opacity: 1;
 }
 [data-pane-focused="false"] .aven-tab-highlight {
@@ -344,9 +343,17 @@ html.theme-light .personal-shell {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--aven-selected);
 }
-/* No lines between tabs: names with air between them, as in the sidebar. */
+/* A short line between tabs, the front one included. */
 .aven-tab-strip[data-tab-track] [data-tab-separator]::before {
-  content: none;
+  content: "";
+  position: absolute;
+  /* The middle of the 2px gap before the tab. */
+  left: -1.5px;
+  top: calc(50% - 7px);
+  width: 1px;
+  height: 14px;
+  background: var(--aven-separator);
+  pointer-events: none;
 }
 /* A tab being dragged moves its own fill; lines would stay behind. */
 .aven-tab-strip[data-tab-track]:has([data-sortable-dragging="true"])
@@ -535,8 +542,7 @@ html.theme-light .personal-shell {
 }
 
 @media (prefers-contrast: more) {
-  .aven-tab-highlight,
-  .aven-tab[data-active="true"] .aven-tab-button {
+  .aven-tab-highlight {
     background: color-mix(
       in srgb,
       var(--color-content) 17%,
@@ -769,19 +775,6 @@ html.theme-light .personal-shell {
   padding: 0 10px 0 6px;
   background: transparent;
   box-shadow: none;
-}
-.personal-titlebar[data-title-layout="lone"]
-  .personal-tab-strip
-  .aven-tab:hover
-  > .aven-tab-motion {
-  background: var(--aven-fill-quaternary);
-}
-.personal-titlebar[data-title-layout="lone"][data-pane-focused="true"]
-  .personal-tab-strip
-  .aven-tab[data-active="true"]
-  > .aven-tab-motion {
-  background: var(--aven-tab-selected);
-  box-shadow: var(--aven-tab-selected-edge);
 }
 .personal-titlebar[data-title-layout="lone"]
   .personal-tab-strip
@@ -1430,9 +1423,4 @@ html.theme-light .personal-shell {
   .aven-tab-button:not(.aven-tab-button:hover)
   .personal-title-tab-identity {
   opacity: 0.65;
-}
-.workspace-status-strip
-  .aven-tab-strip[data-tab-track]
-  [data-tab-separator]::before {
-  content: none;
 }

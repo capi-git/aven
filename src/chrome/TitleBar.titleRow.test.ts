@@ -106,7 +106,7 @@ describe("a strip on a track", () => {
     expect(strip().firstElementChild?.className).toBe("aven-tab-highlight");
   });
 
-  it("parts resting tabs with a line, but not beside the front tab", async () => {
+  it("parts every tab with a line, the front tab included", async () => {
     await render({
       tabs: [tab("a", "A"), tab("b", "B"), tab("c", "C"), tab("d", "D")],
       activeId: "b",
@@ -114,7 +114,7 @@ describe("a strip on a track", () => {
     const parted = [
       ...strip().querySelectorAll<HTMLElement>("[data-tab-separator]"),
     ].map((node) => node.dataset.tabTrackId);
-    expect(parted).toEqual(["d"]);
+    expect(parted).toEqual(["b", "c", "d"]);
   });
 
   it("shows no lone tab on the window's strip, but keeps its buttons", async () => {
@@ -150,9 +150,13 @@ describe("a strip on a track", () => {
     expect(css).toMatch(
       /\.aven-tab-highlight \{[^}]*height: 26px;[^}]*border-radius: var\(--aven-radius-sm\);[^}]*background: var\(--aven-tab-selected\);/,
     );
-    // No lines between tabs, as in the sidebar.
+    // A short line between tabs; the front tab has no fill, so the
+    // highlight shows only as a split's outline.
     expect(css).toMatch(
-      /\.aven-tab-strip\[data-tab-track\] \[data-tab-separator\]::before \{\s*content: none;/,
+      /\.aven-tab-strip\[data-tab-track\] \[data-tab-separator\]::before \{\s*content: "";[^}]*height: 14px;[^}]*background: var\(--aven-separator\);/,
+    );
+    expect(css).not.toMatch(
+      /\.aven-tab-strip\[data-tab-highlight="on"\] > \.aven-tab-highlight \{/,
     );
   });
 });
@@ -535,8 +539,8 @@ describe("a pane's title row", () => {
     expect(css).toMatch(
       /\.personal-titlebar\[data-variant="title"\]:hover \.aven-pane-tools,\s*\.personal-titlebar\[data-variant="title"\]\[data-pane-focused="true"\]\s*\.aven-pane-tools,\s*\.aven-pane-tools:focus-within,\s*\.aven-pane-tools\[data-open\] \{\s*opacity: 1;/,
     );
-    // A lone title sits on the lit chip only on the focused pane.
-    expect(css).toMatch(
+    // A lone title has no chip: like any tab, it is its name.
+    expect(css).not.toMatch(
       /\.personal-titlebar\[data-title-layout="lone"\]\[data-pane-focused="true"\]\s*\.personal-tab-strip\s*\.aven-tab\[data-active="true"\]\s*> \.aven-tab-motion \{\s*background: var\(--aven-tab-selected\);/,
     );
     // A row of tabs lights its highlight on the focused pane; elsewhere the

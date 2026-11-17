@@ -2410,10 +2410,11 @@ describe("shared tab style", () => {
     expect(block(".aven-tab-button")).toMatch(
       /height: 26px;[\s\S]*padding-inline: 8px 10px;[\s\S]*border-radius: var\(--aven-radius-sm\);/,
     );
-    // Close shows only while the tab is pointed at; at rest a tab is its name.
-    expect(block('.aven-tab[data-active="true"] .aven-tab-button')).toContain(
-      "background: var(--aven-tab-selected);",
-    );
+    // Close shows only while the tab is pointed at; at rest a tab is its
+    // name. The front tab has no fill: its name is brighter.
+    const front = block('.aven-tab[data-active="true"] .aven-tab-button');
+    expect(front).toContain("color: var(--color-content);");
+    expect(front).not.toContain("background");
     expect(block(".aven-tab-close")).toContain("opacity: 0;");
     expect(block(".aven-tab-slot")).toContain("flex: 0 1 224px;");
     // The active tab is the same grey as every selected control; a project's

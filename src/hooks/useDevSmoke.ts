@@ -2872,7 +2872,7 @@ export async function runDevSmoke(
   const motion = get().motion;
   if (safe && typedTask && motion)
     await step(
-      "the project's folder stays still while its agent works, and opens while the project is open",
+      "the project's row stays still while its agent works, and folds open and closed",
       async () => {
         if (!get().sidebarOpen) {
           pressShortcut("b");
@@ -2885,7 +2885,8 @@ export async function runDevSmoke(
         const row = () => sidebarProjectRow(config.projectPath);
         const mark = () =>
           row()?.querySelector<HTMLElement>(".project-mark") ?? null;
-        await waitFor(mark, 10_000, "the project's mark in the sidebar");
+        // A project without a logo is its name alone, with no mark.
+        await waitFor(row, 10_000, "the project's row in the sidebar");
         // macOS stops drawing a covered window, and a covered window's
         // transitions may not run.
         await waitFor(
@@ -2911,9 +2912,10 @@ export async function runDevSmoke(
             : row()?.querySelector(".personal-project-running")
           )?.getClientRects().length ?? 0) > 0;
         const logo = mark()?.dataset.kind === "logo";
+        const markless = !mark();
         let seen: string | null = null;
         const settle = async (open: boolean, when: string) => {
-          if (logo) return;
+          if (logo || markless) return;
           await waitFor(
             () => {
               seen = stackProblem(readStack(mark()), {
@@ -2975,6 +2977,7 @@ export async function runDevSmoke(
           "its working screen to go once the turn ended",
         );
         if (logo) return "a logo: still, with its working screen";
+        if (markless) return "its name alone: folds, with its working screen";
         return reduced
           ? "still while working; fanned and folded without motion (reduced motion)"
           : "still while working; fanned and folded";
