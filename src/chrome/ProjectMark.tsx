@@ -50,6 +50,7 @@ export function ProjectMark({
     <span
       className={`project-mark ${className}`}
       data-kind={logo ? "logo" : folder ? "folder" : "stack"}
+      data-open={(folder && !logo && open) || undefined}
       aria-hidden
     >
       {logo ? (

@@ -2087,7 +2087,8 @@ export function paneLayoutProblem(file: HTMLElement): {
       `the pane's corners are ${radius}px, not ${PANE_CARD_RADIUS}px`,
     );
   const edge = parseFloat(style.borderTopWidth) || 0;
-  if (edge > 1) return fail(`the pane has a ${edge}px edge`);
+  // 1px, which a scaled screen can draw a little wider.
+  if (edge > 1.5) return fail(`the pane has a ${edge}px edge`);
   const tabRect = tab.getBoundingClientRect();
   const stageRect = stage.getBoundingClientRect();
   const inset = Math.max(
@@ -2796,16 +2797,16 @@ export async function runDevSmoke(
       },
     );
 
-  // What moves. The project's Stack in the sidebar stays still while its
+  // What moves. The project's folder in the sidebar stays still while its
   // agent works (its working screen says so, on the project's row while
   // folded, on the chat's row while open) and when the turn ends,
-  // and fans exactly while the project is open, folding back when it
-  // closes. The pinned sidebar is the one drawn in this window (the
+  // and is drawn open exactly while the project is open, closing when it
+  // closes (a Stack elsewhere fans the same way). The pinned sidebar is the one drawn in this window (the
   // floating one draws in its own).
   const motion = get().motion;
   if (safe && typedTask && motion)
     await step(
-      "the project's Stack stays still while its agent works, and fans while the project is open",
+      "the project's folder stays still while its agent works, and opens while the project is open",
       async () => {
         if (!get().sidebarOpen) {
           pressShortcut("b");
@@ -2856,9 +2857,9 @@ export async function runDevSmoke(
               return seen === null;
             },
             3_000,
-            `the Stack to settle ${when}`,
+            `the project's mark to settle ${when}`,
           ).catch(() => {
-            throw new Error(`${when}, the project's Stack ${seen}`);
+            throw new Error(`${when}, the project's mark ${seen}`);
           });
         };
         const opened = isOpen();

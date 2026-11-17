@@ -233,7 +233,7 @@ describe("the real-app check's motion steps", () => {
       ["window stayed hidden until the workspace drew", true],
       ["agent turn through the normal send path", true],
       [
-        "the project's Stack stays still while its agent works, and fans while the project is open",
+        "the project's folder stays still while its agent works, and opens while the project is open",
         true,
       ],
       [
@@ -242,7 +242,7 @@ describe("the real-app check's motion steps", () => {
       ],
       ["Parallel work starts folded to one line", true],
     ]);
-    expect(named(steps, "the project's Stack").detail).toBe(
+    expect(named(steps, "the project's folder").detail).toBe(
       "still while working; fanned and folded",
     );
     expect(named(steps, "Home shows").detail).toBe(
@@ -266,17 +266,17 @@ describe("the real-app check's motion steps", () => {
   });
 
   it("fail when the Stack stays closed as the project opens", async () => {
-    const mark = named(await check({ fanStuck: true }), "the project's Stack");
+    const mark = named(await check({ fanStuck: true }), "the project's folder");
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe(
-      "Once the project opened, the project's Stack has its back page at 0.0°, expected -14° while the project is open",
+      "Once the project opened, the project's mark has its back page at 0.0°, expected -14° while the project is open",
     );
   });
 
   it("fail when the Stack sweeps while its agent works", async () => {
     const mark = named(
       await check({ stackSweeps: true }),
-      "the project's Stack",
+      "the project's folder",
     );
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe("While the agent worked, the mark swept");
@@ -285,7 +285,7 @@ describe("the real-app check's motion steps", () => {
   it("fail when the Stack reacts as the turn ends", async () => {
     const mark = named(
       await check({ stackReacts: true }),
-      "the project's Stack",
+      "the project's folder",
     );
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe("The mark reacted (cheer) as the turn ended");
@@ -294,7 +294,7 @@ describe("the real-app check's motion steps", () => {
   it("fail when the sidebar never says its agent is working", async () => {
     const mark = named(
       await check({ noRunningDot: true }),
-      "the project's Stack",
+      "the project's folder",
     );
     expect(mark.passed).toBe(false);
     expect(mark.detail).toContain("the sidebar to show its agent working");

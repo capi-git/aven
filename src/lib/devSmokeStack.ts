@@ -6,8 +6,10 @@ import { STACK_FAN_DEGREES, rotationDegrees } from "./stackMark";
  * back pages are turned and timed.
  */
 export type StackReading = {
-  /** The mark's `data-kind`: `stack`, `logo`, or `mark` (dots). */
+  /** The mark's `data-kind`: `folder`, `stack`, `logo`, or `mark` (dots). */
   kind: string | null;
+  /** A folder drawn open (`data-open` on the mark). */
+  open?: boolean;
   /** CSS animations running in it; a Stack never has one. */
   animations: readonly string[];
   /** The back and middle pages' computed transforms. */
@@ -34,6 +36,7 @@ export function readStack(mark: Element | null): StackReading | null {
       : [];
   return {
     kind: mark.getAttribute("data-kind"),
+    open: mark.hasAttribute("data-open"),
     animations,
     back: back ? getComputedStyle(back).transform : "",
     middle: middle ? getComputedStyle(middle).transform : "",
@@ -72,6 +75,15 @@ export function stackProblem(
   { open, reducedMotion }: { open: boolean; reducedMotion: boolean },
 ): string | null {
   if (!reading) return "is missing";
+  // The sidebar draws a project as a folder: still, and open exactly while
+  // the project is.
+  if (reading.kind === "folder") {
+    if (reading.animations.length)
+      return `moves (${reading.animations.join(", ")})`;
+    if (Boolean(reading.open) !== open)
+      return `shows ${reading.open ? "an open" : "a closed"} folder while the project is ${open ? "open" : "closed"}`;
+    return null;
+  }
   if (reading.kind !== "stack")
     return `is not a Stack (it is ${reading.kind ?? "unmarked"})`;
   if (reading.animations.length)

@@ -37,6 +37,25 @@ describe("reading the Stack in the real app", () => {
     );
   });
 
+  it("reads the sidebar's folder: still, and open exactly while the project is", () => {
+    const folder = (open: boolean) =>
+      reading({ kind: "folder", open, back: "", middle: "" });
+    expect(stackProblem(folder(false), motion)).toBeNull();
+    expect(stackProblem(folder(true), { ...motion, open: true })).toBeNull();
+    expect(stackProblem(folder(false), { ...motion, open: true })).toBe(
+      "shows a closed folder while the project is open",
+    );
+    expect(stackProblem(folder(true), motion)).toBe(
+      "shows an open folder while the project is closed",
+    );
+    expect(
+      stackProblem(
+        reading({ kind: "folder", animations: ["dot-mark-sweep"] }),
+        motion,
+      ),
+    ).toBe("moves (dot-mark-sweep)");
+  });
+
   it("says when it moves on its own", () => {
     expect(
       stackProblem(reading({ animations: ["dot-mark-sweep"] }), motion),
