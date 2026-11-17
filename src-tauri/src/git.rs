@@ -3666,8 +3666,11 @@ mod tests {
         let first = create_chat_copy_for(&repo, &copies).unwrap();
         assert_eq!(first.branch, "aven/copy-1");
         assert!(Path::new(&first.path).ends_with(Path::new("my-repo").join("copy-1")));
+        // Git on Windows may check text out with CRLF line endings.
         assert_eq!(
-            std::fs::read_to_string(Path::new(&first.path).join("a.txt")).unwrap(),
+            std::fs::read_to_string(Path::new(&first.path).join("a.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
             "one\n"
         );
         // From inside a copy, the next one still sits beside it.
