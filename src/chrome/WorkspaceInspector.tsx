@@ -1,5 +1,6 @@
 import { memo, Suspense, useId, useRef, type KeyboardEvent } from "react";
 import type { GitFileDiffKind, GitHistoryCommit } from "../lib/fs";
+import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { retryableLazy } from "../lib/retryableLazy";
 import type { OpenFileFn } from "../lib/search";
 import type { HarnessId } from "../lib/session";
@@ -86,6 +87,9 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
 ) {
   const id = useId();
   const active = props.active;
+  // How many files wait in Changes, shown on its tab while there are any.
+  const changedFiles =
+    useProjectDiffStats(props.gitCwd || props.cwd, active)?.files ?? 0;
   const lastVisible = useRef<WorkspaceInspectorProps | null>(null);
   if (active) lastVisible.current = props;
   // Keep the warmed view and scroll position, as the left sidebar does. Hidden
@@ -148,6 +152,11 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
               onClick={() => props.onTabChange(tab)}
             >
               {LABELS[tab]}
+              {tab === "changes" && changedFiles > 0 ? (
+                <span className="workspace-inspector-count">
+                  {changedFiles}
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -210,7 +219,12 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
                   onOpenBranchPicker={props.onOpenBranchPicker}
                 />
               ) : props.tab === "checks" ? (
-                <InspectorChecks key={root} cwd={root} enabled={active} />
+                <InspectorChecks
+                  key={root}
+                  cwd={root}
+                  enabled={active}
+                  textHarness={props.textHarness}
+                />
               ) : props.filesSearchOpen ? (
                 <InspectorSearch
                   key={root}

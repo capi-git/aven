@@ -6,10 +6,23 @@ export type MergeStepState = "done" | "active" | "todo" | "failed" | "waiting";
 
 export type MergeStepId = "commit" | "push" | "pr" | "checks";
 
+/** The one thing a step offers to do now, beside its label. */
+export type MergeAction = "commit-push" | "push" | "publish" | "create-pr";
+
 export type MergeStep = {
   id: MergeStepId;
   state: MergeStepState;
   label: string;
+  /** A short muted line under the label, such as "3 checks". */
+  detail?: string;
+  action?: MergeAction;
+};
+
+export const MERGE_ACTION_LABEL: Record<MergeAction, string> = {
+  "commit-push": "Commit and push",
+  push: "Push",
+  publish: "Publish",
+  "create-pr": "Create",
 };
 
 function plural(count: number, word: string): string {
@@ -38,21 +51,29 @@ export function mergeSteps(
     : {
         id: "commit",
         state: "todo",
-        label: `${plural(uncommitted, "file")} not committed`,
+        label: `${plural(uncommitted, "uncommitted change")}`,
+        // Pushing needs a remote; without one, Commit is in Changes.
+        action: index.remote && index.behind === 0 ? "commit-push" : undefined,
       };
 
   const push: MergeStep = !committed
-    ? { id: "push", state: "waiting", label: "Pushed" }
+    ? { id: "push", state: "waiting", label: "Push" }
     : pushed
       ? { id: "push", state: "done", label: "Pushed" }
       : !index.remote
         ? { id: "push", state: "todo", label: "No remote to push to" }
         : !index.upstream
-          ? { id: "push", state: "todo", label: "Branch not published" }
+          ? {
+              id: "push",
+              state: "todo",
+              label: "Branch not published",
+              action: "publish",
+            }
           : {
               id: "push",
               state: "todo",
               label: `${plural(index.ahead, "commit")} not pushed`,
+              action: index.behind === 0 ? "push" : undefined,
             };
 
   const prStep: MergeStep = openPr
@@ -68,6 +89,14 @@ export function mergeSteps(
         id: "pr",
         state: pushed ? "todo" : "waiting",
         label: "No PR open",
+        // A pull request needs a branch other than the default one.
+        action:
+          pushed &&
+          !!index.branch &&
+          index.branch !== index.defaultBranch &&
+          index.aheadOfDefault > 0
+            ? "create-pr"
+            : undefined,
       };
 
   let checksStep: MergeStep;
@@ -95,10 +124,36 @@ export function mergeSteps(
           : checks.state === "failing"
             ? "failed"
             : "active",
-      label: checks.label,
+      label:
+        checks.state === "passing"
+          ? "All checks passing"
+          : checks.state === "failing"
+            ? `${plural(checks.failed, "check")} failing`
+            : `${plural(checks.pending, "check")} running`,
+      detail: plural(checks.total, "check"),
     };
 
   return [commit, push, prStep, checksStep];
+}
+
+/** How long a check ran, or has run so far: "4m 37s", "52s". */
+export function checkDuration(
+  startedAt: string | undefined,
+  completedAt: string | undefined,
+  now = Date.now(),
+): string {
+  const start = startedAt ? Date.parse(startedAt) : NaN;
+  if (!Number.isFinite(start)) return "";
+  const end = completedAt ? Date.parse(completedAt) : now;
+  const seconds = Math.max(
+    0,
+    Math.round(((Number.isFinite(end) ? end : now) - start) / 1000),
+  );
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60)
+    return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 /** Seconds between refreshes while the Checks tab is in view. */

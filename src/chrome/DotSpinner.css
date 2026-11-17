@@ -1,12 +1,13 @@
-/* Turns in eight steps, so each dot lands where the next one was. Only
+/* Turns smoothly, the bright dot leading the faint ones. Only
    transform moves; it ends when the spinner leaves. */
 .dot-spinner {
   flex-shrink: 0;
   color: color-mix(in srgb, var(--color-content) 85%, transparent);
-  animation: dot-spinner-turn 0.8s steps(8) infinite;
+  animation: dot-spinner-turn 0.9s linear infinite;
 }
 
-html[data-hidden] .dot-spinner {
+html[data-hidden] .dot-spinner,
+html[data-motion="reduce"] .dot-spinner {
   animation-play-state: paused;
 }
 

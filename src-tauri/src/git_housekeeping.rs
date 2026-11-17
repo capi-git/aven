@@ -103,6 +103,11 @@ pub struct PrCheck {
     /// `pass`, `fail`, `pending` or `skipped`.
     pub state: String,
     pub url: String,
+    /// When a check run started and finished (ISO 8601), for its duration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -648,6 +653,10 @@ struct RollupItem {
     details_url: Option<String>,
     #[serde(rename = "targetUrl", default)]
     target_url: Option<String>,
+    #[serde(rename = "startedAt", default)]
+    started_at: Option<String>,
+    #[serde(rename = "completedAt", default)]
+    completed_at: Option<String>,
 }
 
 fn rollup_state(item: &RollupItem) -> &'static str {
@@ -670,6 +679,12 @@ fn rollup_state(item: &RollupItem) -> &'static str {
         "" => "pending",
         _ => "fail",
     }
+}
+
+/// GitHub reports a check that never ran with the zero time; leave it out.
+fn real_time(value: &Option<String>) -> Option<String> {
+    let value = value.as_deref()?.trim();
+    (!value.is_empty() && !value.starts_with("0001-")).then(|| value.to_string())
 }
 
 fn parse_pr_checks(json: &str) -> Result<PrChecks, String> {
@@ -702,6 +717,8 @@ fn parse_pr_checks(json: &str) -> Result<PrChecks, String> {
                     .unwrap_or("")
                     .trim()
                     .to_string(),
+                started_at: real_time(&item.started_at),
+                completed_at: real_time(&item.completed_at),
             }
         })
         .collect();
@@ -1528,8 +1545,8 @@ mod tests {
             "url": "https://github.com/o/r/pull/42",
             "state": "OPEN",
             "statusCheckRollup": [
-                {"__typename":"CheckRun","name":"build","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://ci/1"},
-                {"__typename":"CheckRun","name":"test","workflowName":"CI","status":"IN_PROGRESS","conclusion":"","detailsUrl":"https://ci/2"},
+                {"__typename":"CheckRun","name":"build","workflowName":"CI","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://ci/1","startedAt":"2026-11-16T10:00:00Z","completedAt":"2026-11-16T10:04:37Z"},
+                {"__typename":"CheckRun","name":"test","workflowName":"CI","status":"IN_PROGRESS","conclusion":"","detailsUrl":"https://ci/2","startedAt":"2026-11-16T10:00:00Z","completedAt":"0001-01-01T00:00:00Z"},
                 {"__typename":"CheckRun","name":"lint","workflowName":"","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":""},
                 {"__typename":"CheckRun","name":"docs","status":"COMPLETED","conclusion":"SKIPPED"},
                 {"__typename":"StatusContext","context":"vercel","state":"PENDING","targetUrl":"https://vercel/x"},
@@ -1558,6 +1575,14 @@ mod tests {
         );
         assert_eq!(checks.checks[0].url, "https://ci/1");
         assert_eq!(checks.checks[4].url, "https://vercel/x");
+        assert_eq!(
+            checks.checks[0].completed_at.as_deref(),
+            Some("2026-11-16T10:04:37Z")
+        );
+        // A check still running has GitHub's zero time as its end.
+        assert_eq!(checks.checks[1].completed_at, None);
+        assert!(checks.checks[1].started_at.is_some());
+        assert_eq!(checks.checks[4].started_at, None);
     }
 
     #[test]

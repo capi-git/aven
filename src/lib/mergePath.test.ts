@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GitDiffIndex, GitPr } from "./fs";
-import { mergeSteps } from "./mergePath";
+import { checkDuration, mergeSteps } from "./mergePath";
 import { summarizePrChecks } from "./prChecks";
 
 function index(patch: Partial<GitDiffIndex> = {}): GitDiffIndex {
@@ -40,7 +40,10 @@ describe("mergeSteps", () => {
       "waiting",
       "waiting",
     ]);
-    expect(steps[0].label).toBe("2 files not committed");
+    expect(steps[0]).toMatchObject({
+      label: "2 uncommitted changes",
+      action: "commit-push",
+    });
   });
 
   it("asks for a push when commits are ahead or the branch is new", () => {
@@ -48,9 +51,14 @@ describe("mergeSteps", () => {
       state: "todo",
       label: "1 commit not pushed",
     });
-    expect(mergeSteps(index({ upstream: null }), null, null)[1].label).toBe(
-      "Branch not published",
-    );
+    expect(mergeSteps(index({ upstream: null }), null, null)[1]).toMatchObject({
+      label: "Branch not published",
+      action: "publish",
+    });
+    // Behind its upstream: pull first, so no push is offered.
+    expect(
+      mergeSteps(index({ ahead: 1, behind: 2 }), null, null)[1].action,
+    ).toBeUndefined();
   });
 
   it("shows No PR open as the next step once pushed", () => {
@@ -61,7 +69,15 @@ describe("mergeSteps", () => {
       "todo",
       "waiting",
     ]);
-    expect(steps[2].label).toBe("No PR open");
+    expect(steps[2]).toMatchObject({
+      label: "No PR open",
+      action: "create-pr",
+    });
+    // Nothing to open a pull request for on the default branch.
+    expect(
+      mergeSteps(index({ branch: "main", aheadOfDefault: 0 }), null, null)[2]
+        .action,
+    ).toBeUndefined();
   });
 
   it("follows the checks of an open pull request", () => {
@@ -75,7 +91,11 @@ describe("mergeSteps", () => {
     const passing = summarizePrChecks([{ name: "a", state: "pass", url: "" }]);
     const steps = mergeSteps(index(), pr, passing);
     expect(steps[2].label).toBe("PR #7 open");
-    expect(steps[3].state).toBe("done");
+    expect(steps[3]).toMatchObject({
+      state: "done",
+      label: "All checks passing",
+      detail: "1 check",
+    });
     expect(mergeSteps(index(), pr, null)[3]).toMatchObject({
       state: "active",
       label: "Looking for checks",
@@ -86,5 +106,15 @@ describe("mergeSteps", () => {
     const steps = mergeSteps(index(), { ...pr, state: "merged" }, null);
     expect(steps[2].label).toBe("PR #7 merged");
     expect(steps[3]).toMatchObject({ state: "done", label: "Merged" });
+  });
+
+  it("says how long a check ran", () => {
+    const start = "2026-11-16T10:00:00Z";
+    expect(checkDuration(start, "2026-11-16T10:04:37Z")).toBe("4m 37s");
+    expect(checkDuration(start, "2026-11-16T10:00:52Z")).toBe("52s");
+    expect(checkDuration(start, undefined, Date.parse(start) + 65_000)).toBe(
+      "1m 05s",
+    );
+    expect(checkDuration(undefined, undefined)).toBe("");
   });
 });
