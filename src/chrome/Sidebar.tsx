@@ -511,8 +511,10 @@ function SidebarComponent({
     profileIds: profiles.map((profile) => profile.id),
   });
   const [, refreshProjects] = useState(0);
+  // Projects other than the open one that the user unfolded with the arrow.
+  // Opening a project does not add it: the project you leave folds again.
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
-    () => new Set([cwd]),
+    () => new Set(),
   );
   const [requestedProjectPaths, setRequestedProjectPaths] = useState<
     Set<string>
@@ -829,10 +831,6 @@ function SidebarComponent({
     if (renamingFolderId !== null) setRenamingFolderId(null);
     if (folderMenu !== null) setFolderMenu(null);
     if (sessionDrop !== null) setSessionDrop(null);
-    if (looksLikeProject(cwd) && !expandedProjects.has(cwd))
-      setExpandedProjects((current) =>
-        current.has(cwd) ? current : new Set([...current, cwd]),
-      );
     pendingFolderSessionIds.current.clear();
   }, [cwd]);
 
@@ -2108,12 +2106,7 @@ function SidebarComponent({
                         status={projectStatusFor(projectStatus, project.path)}
                         profiles={profiles}
                         activeProfileId={activeProfileId}
-                        onSelect={() => {
-                          setExpandedProjects(
-                            (current) => new Set([...current, project.path]),
-                          );
-                          onSelectProject?.(project.path);
-                        }}
+                        onSelect={() => onSelectProject?.(project.path)}
                         onToggle={() => {
                           if (active) setTasksExpanded((shown) => !shown);
                           else {
