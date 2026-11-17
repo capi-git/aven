@@ -98,7 +98,8 @@ export type WorkspaceStageProps = {
   layout: LayoutNode | null;
   focusedId: string;
   visible: boolean;
-  surfaces: Array<{ id: string; content: ReactNode }>;
+  /** `split`: the tab is split, so its panes are cards of their own. */
+  surfaces: Array<{ id: string; content: ReactNode; split?: boolean }>;
   headers?: Array<{ id: string; key?: string; content: ReactNode }>;
   onFocus: (id: string) => void;
   onLayoutChange: (layout: LayoutNode) => void;
@@ -1868,89 +1869,92 @@ export function WorkspaceStage({
       aria-hidden={!visible || undefined}
       inert={!visible || undefined}
     >
-      {stableOrder(surfaceOrder.current, surfaces).map(({ id, content }) => {
-        const currentRect = positions.get(id);
-        const shown = visible && !!currentRect;
-        const retained = retainedGeometry.current.get(id);
-        const handoff = !shown && held.has(id) && !!retained;
-        const rect = shown ? currentRect : (retained?.rect ?? currentRect);
-        const hasHeader = shown
-          ? headerContents.has(id)
-          : (retained?.hasHeader ?? headerContents.has(id));
-        return (
-          <div
-            key={id}
-            ref={(element) => {
-              if (element) surfaceNodes.current.set(id, element);
-              else surfaceNodes.current.delete(id);
-            }}
-            className="workspace-stage-surface"
-            data-workspace-surface={id}
-            data-focused={shown && focusedId === id}
-            data-retained={shown || !!retained}
-            data-demoted={!shown && demoted.has(id) ? "true" : undefined}
-            data-has-header={hasHeader}
-            data-handoff={handoff ? "out" : undefined}
-            hidden={!shown && !handoff}
-            aria-hidden={!shown || undefined}
-            inert={!shown || undefined}
-            style={
-              rect
-                ? {
-                    ...surfaceStyle(
-                      rect,
-                      0,
-                      // A hidden pane keeps its size: resizing the window or
-                      // the sidebar lays out the panes on screen, not every
-                      // chat you have open. It catches up when it comes back.
-                      !shown && !handoff && retained?.stage.width
-                        ? retained.stage
-                        : undefined,
-                    ),
-                    ...surfaceBackgroundStyle(rect),
-                  }
-                : undefined
-            }
-            onPointerEnter={() => {
-              const header = headerNodes.current.get(id);
-              if (header) header.dataset.pointed = "true";
-            }}
-            onPointerLeave={() => {
-              const header = headerNodes.current.get(id);
-              if (header) delete header.dataset.pointed;
-            }}
-            onPointerDownCapture={() => {
-              if (shown && focusedId !== id) current.current.onFocus(id);
-            }}
-            onFocusCapture={() => {
-              if (shown && focusedId !== id) current.current.onFocus(id);
-            }}
-          >
+      {stableOrder(surfaceOrder.current, surfaces).map(
+        ({ id, content, split }) => {
+          const currentRect = positions.get(id);
+          const shown = visible && !!currentRect;
+          const retained = retainedGeometry.current.get(id);
+          const handoff = !shown && held.has(id) && !!retained;
+          const rect = shown ? currentRect : (retained?.rect ?? currentRect);
+          const hasHeader = shown
+            ? headerContents.has(id)
+            : (retained?.hasHeader ?? headerContents.has(id));
+          return (
             <div
-              key="body"
-              className="workspace-stage-body"
-              data-workspace-body={id}
+              key={id}
+              ref={(element) => {
+                if (element) surfaceNodes.current.set(id, element);
+                else surfaceNodes.current.delete(id);
+              }}
+              className="workspace-stage-surface"
+              data-workspace-surface={id}
+              data-focused={shown && focusedId === id}
+              data-retained={shown || !!retained}
+              data-demoted={!shown && demoted.has(id) ? "true" : undefined}
+              data-has-header={hasHeader}
+              data-split={split || undefined}
+              data-handoff={handoff ? "out" : undefined}
+              hidden={!shown && !handoff}
+              aria-hidden={!shown || undefined}
+              inert={!shown || undefined}
+              style={
+                rect
+                  ? {
+                      ...surfaceStyle(
+                        rect,
+                        0,
+                        // A hidden pane keeps its size: resizing the window or
+                        // the sidebar lays out the panes on screen, not every
+                        // chat you have open. It catches up when it comes back.
+                        !shown && !handoff && retained?.stage.width
+                          ? retained.stage
+                          : undefined,
+                      ),
+                      ...surfaceBackgroundStyle(rect),
+                    }
+                  : undefined
+              }
+              onPointerEnter={() => {
+                const header = headerNodes.current.get(id);
+                if (header) header.dataset.pointed = "true";
+              }}
+              onPointerLeave={() => {
+                const header = headerNodes.current.get(id);
+                if (header) delete header.dataset.pointed;
+              }}
+              onPointerDownCapture={() => {
+                if (shown && focusedId !== id) current.current.onFocus(id);
+              }}
+              onFocusCapture={() => {
+                if (shown && focusedId !== id) current.current.onFocus(id);
+              }}
             >
-              <SurfaceContent content={content} />
-              {/* Always here: adding the hint to the pane's own column would
+              <div
+                key="body"
+                className="workspace-stage-body"
+                data-workspace-body={id}
+              >
+                <SurfaceContent content={content} />
+                {/* Always here: adding the hint to the pane's own column would
                   lay out the whole chat each time the target changes. */}
-              <div className="workspace-stage-hint-layer" aria-hidden="true">
-                {shown && dragging && hint && dragTarget?.id === id ? (
-                  <div
-                    className="workspace-stage-drop-hint"
-                    data-workspace-drop-hint
-                    data-drop-edge={dragTarget.edge}
-                    data-drop-kind={dragKind}
-                    data-drop-title={dragLabel ?? ""}
-                    style={previewStyle(hint)}
-                    aria-hidden="true"
-                  />
-                ) : null}
+                <div className="workspace-stage-hint-layer" aria-hidden="true">
+                  {shown && dragging && hint && dragTarget?.id === id ? (
+                    <div
+                      className="workspace-stage-drop-hint"
+                      data-workspace-drop-hint
+                      data-drop-edge={dragTarget.edge}
+                      data-drop-kind={dragKind}
+                      data-drop-title={dragLabel ?? ""}
+                      style={previewStyle(hint)}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        },
+      )}
       {displayHeaders.map(({ id, key, content }) => {
         const rect = positions.get(id);
         if (!rect) return null;

@@ -1,0 +1,123 @@
+/* The Checks tab: four steps joined by a thin line, as in a stepper. Grey
+   throughout; colour only for a failed step and the check dots. */
+.merge-path {
+  --ship-add: var(--aven-git-add);
+  --ship-del: var(--aven-git-del);
+  --ship-ok: var(--aven-git-add);
+  --ship-warn: var(--color-warning, #d99c45);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+html.theme-light .merge-path {
+  --ship-warn: #a8620c;
+}
+
+.merge-path-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  padding: 14px 12px 12px;
+}
+
+.merge-path-heading {
+  margin: 0 0 10px;
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  color: var(--aven-label-secondary);
+}
+
+.merge-path-steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.merge-path-steps li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+  color: var(--color-content);
+}
+
+/* The line between one mark and the next. */
+.merge-path-steps li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: calc(50% + 11px);
+  height: calc(100% - 22px);
+  width: 1px;
+  background: var(--aven-line);
+}
+
+.merge-path-steps li[data-state="waiting"] {
+  color: var(--aven-muted);
+  font-weight: 400;
+}
+
+.merge-path-mark {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--color-content) 55%, transparent);
+  color: var(--color-content);
+}
+.merge-path-mark[data-state="done"] {
+  border-color: var(--color-content);
+  background: var(--color-content);
+  color: var(--color-surface, #111);
+}
+.merge-path-mark[data-state="failed"] {
+  border-color: var(--aven-git-del);
+  background: var(--aven-git-del);
+  color: var(--color-surface, #111);
+}
+.merge-path-mark[data-state="active"] {
+  border-color: transparent;
+}
+.merge-path-mark[data-state="waiting"] {
+  border-color: var(--aven-line);
+}
+
+.merge-path-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-path-link {
+  text-align: left;
+}
+.merge-path-link:hover {
+  text-decoration: underline;
+}
+
+.merge-path-checks {
+  margin: 2px 0 0 25px;
+  padding: 0;
+}
+
+.merge-path-footer {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--aven-line));
+  text-align: left;
+  font-size: var(--text-ui-caption);
+  color: var(--aven-muted);
+}
+.merge-path-footer:hover:enabled {
+  color: var(--color-content);
+}

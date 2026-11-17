@@ -4,10 +4,11 @@ import { retryableLazy } from "../lib/retryableLazy";
 import type { OpenFileFn } from "../lib/search";
 import type { HarnessId } from "../lib/session";
 import { PanelRight, X } from "./icons";
+import { ProjectScripts } from "./ProjectScripts";
 import { SurfaceBoundary } from "./SurfaceBoundary";
 import "./WorkspaceInspector.css";
 
-export type WorkspaceInspectorTab = "files" | "changes";
+export type WorkspaceInspectorTab = "files" | "changes" | "checks";
 
 export type WorkspaceInspectorProps = {
   /** False pauses work while retaining the last visible view for instant peeks. */
@@ -65,14 +66,19 @@ const InspectorChanges = retryableLazy(() =>
   import("./SourceControl").then(({ SourceControl }) => SourceControl),
 );
 
+const InspectorChecks = retryableLazy(() =>
+  import("./MergePath").then(({ MergePath }) => MergePath),
+);
+
 const InspectorSearch = retryableLazy(() =>
   import("./ProjectSearch").then(({ ProjectSearch }) => ProjectSearch),
 );
 
-const TABS = ["files", "changes"] as const;
+const TABS = ["files", "changes", "checks"] as const;
 const LABELS: Record<WorkspaceInspectorTab, string> = {
   files: "Files",
   changes: "Changes",
+  checks: "Checks",
 };
 
 export const WorkspaceInspector = memo(function WorkspaceInspector(
@@ -96,9 +102,11 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
         ? TABS[0]
         : event.key === "End"
           ? TABS[TABS.length - 1]
-          : event.key === "ArrowLeft" || event.key === "ArrowRight"
+          : event.key === "ArrowRight"
             ? TABS[(current + 1) % TABS.length]
-            : undefined;
+            : event.key === "ArrowLeft"
+              ? TABS[(current + TABS.length - 1) % TABS.length]
+              : undefined;
     if (!next) return;
     event.preventDefault();
     props.onTabChange(next);
@@ -177,12 +185,12 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
         ) : (
           <SurfaceBoundary
             key={`${root}:${props.tab}:${props.filesSearchOpen && props.tab === "files" ? "search" : "default"}`}
-            label={props.tab === "changes" ? "changes" : "files"}
+            label={props.tab}
           >
             <Suspense
               fallback={
                 <p className="workspace-inspector-placeholder" role="status">
-                  Loading {props.tab === "changes" ? "changes" : "files"}…
+                  Loading {props.tab}…
                 </p>
               }
             >
@@ -201,6 +209,8 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
                   onOpenCommit={props.onOpenCommit}
                   onOpenBranchPicker={props.onOpenBranchPicker}
                 />
+              ) : props.tab === "checks" ? (
+                <InspectorChecks key={root} cwd={root} enabled={active} />
               ) : props.filesSearchOpen ? (
                 <InspectorSearch
                   key={root}
@@ -226,6 +236,14 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
           </SurfaceBoundary>
         )}
       </div>
+      {hasProject ? (
+        <ProjectScripts
+          project={props.cwd && props.cwd !== "~" ? props.cwd : root}
+          cwd={root}
+          active={active}
+          onOpenTerminal={props.onOpenTerminal}
+        />
+      ) : null}
     </section>
   );
 });

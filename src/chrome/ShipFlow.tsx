@@ -734,7 +734,7 @@ const CHECK_STATE_LABEL: Record<string, string> = {
   skipped: "Skipped",
 };
 
-function CheckRow({ check }: { check: PrCheck }) {
+export function CheckRow({ check }: { check: PrCheck }) {
   return (
     <li data-state={check.state}>
       <span className="ship-flow-checks-dot" aria-hidden />

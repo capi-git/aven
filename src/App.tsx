@@ -92,6 +92,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
+import type { WorkspaceInspectorTab } from "./chrome/WorkspaceInspector";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useProjectStatus } from "./hooks/useProjectStatus";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
@@ -2329,7 +2330,7 @@ export default function App({
   const showInspectorTab = useCallback((tab: "files" | "changes") => {
     setInspector((previous) => ({ ...previous, open: true, tab }));
   }, []);
-  const onInspectorTab = useCallback((tab: "files" | "changes") => {
+  const onInspectorTab = useCallback((tab: WorkspaceInspectorTab) => {
     setInspector((previous) => ({ ...previous, tab }));
   }, []);
   const onInspectorWidth = useCallback((width: number) => {
@@ -13034,6 +13035,7 @@ export default function App({
                                     .filter((tab) => !detachedIds.has(tab.id))
                                     .map((tab) => ({
                                       id: tab.id,
+                                      split: tab.layout.type !== "leaf",
                                       content: (
                                         <PaneTree
                                           {...sessionPaneProps}

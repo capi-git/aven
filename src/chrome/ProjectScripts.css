@@ -1,0 +1,209 @@
+/* Setup, Run and Terminal at the foot of the side panel: one row of quiet
+   tabs over the selected script's output. Grey; a spinner while it works. */
+.project-scripts {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  min-height: 0;
+  border-top: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--aven-line));
+}
+.project-scripts[data-open] {
+  height: min(240px, 42%);
+}
+
+.project-scripts-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 36px;
+  padding: 4px 6px 4px 8px;
+}
+
+.project-scripts-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.project-scripts-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-sm);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  color: var(--aven-label-secondary);
+  white-space: nowrap;
+}
+.project-scripts-tab[aria-selected="true"] {
+  color: var(--color-content);
+  background: var(--aven-control-bg);
+}
+.project-scripts-tab:hover:not([aria-selected="true"]),
+.project-scripts-icon:hover:enabled {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+
+.project-scripts-icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-label-secondary);
+}
+
+.project-scripts-tab:focus-visible,
+.project-scripts-icon:focus-visible,
+.project-scripts-chip:focus-visible {
+  outline: 2px solid
+    var(--aven-focus-ring, var(--personal-accent, var(--color-accent)));
+  outline-offset: 1px;
+}
+
+.project-scripts-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 0 8px 8px;
+}
+
+.project-scripts-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-scripts-command,
+.project-scripts-mono,
+.project-scripts-output {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-ui-caption);
+}
+
+.project-scripts-command {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--aven-muted);
+}
+
+.project-scripts-chips {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.project-scripts-chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--aven-radius-sm);
+  font-size: var(--text-ui-caption);
+  color: var(--aven-label-secondary);
+}
+.project-scripts-chip[aria-pressed="true"] {
+  color: var(--color-content);
+  background: var(--aven-fill-quaternary);
+}
+.project-scripts-chip:hover:not([aria-pressed="true"]) {
+  color: var(--color-content);
+}
+
+.project-scripts-output {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: none;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+.project-scripts-end {
+  color: var(--aven-muted);
+}
+.project-scripts-output[data-state="failed"] .project-scripts-end {
+  color: var(--aven-git-del);
+}
+
+.project-scripts-note {
+  margin: 4px 0 0;
+  font-size: var(--text-ui-label);
+  color: var(--aven-muted);
+}
+
+.project-scripts-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.project-scripts-form input {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-control-bg);
+  font-size: var(--text-ui-label);
+  color: var(--color-content);
+  outline: none;
+}
+.project-scripts-form input:focus-visible {
+  box-shadow: 0 0 0 1px var(--aven-line);
+}
+.project-scripts-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.project-scripts-suggestions button {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-fill-quaternary);
+  font-size: var(--text-ui-caption);
+  color: var(--aven-label-secondary);
+}
+.project-scripts-suggestions button:hover {
+  color: var(--color-content);
+}
+.project-scripts-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.project-scripts-form-actions button {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--aven-radius-sm);
+  font-size: var(--text-ui-label);
+  color: var(--aven-label-secondary);
+}
+.project-scripts-form-actions button:hover:enabled {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+.project-scripts-form-actions button[data-primary] {
+  color: var(--color-content);
+  background: var(--aven-control-bg);
+}
+.project-scripts-form-actions button:disabled {
+  opacity: 0.5;
+}
