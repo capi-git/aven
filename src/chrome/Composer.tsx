@@ -11,6 +11,7 @@ import {
   Race,
   Share,
   StickyNote,
+  MessageSquare,
   Trash2,
   X,
 } from "./icons";
@@ -21,6 +22,7 @@ import {
   startTransition,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -148,6 +150,18 @@ import {
   type Note,
   type NoteComposerCard,
 } from "../lib/notes";
+import {
+  CHAT_PATH_PREFIX,
+  chatIdForLabel,
+  chatRefFromSession,
+  chatRefsFromSummaries,
+  isChatMentionPath,
+  otherChats,
+  rankChatFiles,
+  type ChatRef,
+} from "../lib/chatMentions";
+import { LiveSessionsContext } from "../lib/liveSessions";
+import { listSessionsByProject } from "../lib/sessionStore";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
 import { useComposerSkills } from "./useComposerSkills";
 import { RaceChip } from "./RaceChip";
@@ -824,6 +838,8 @@ function ComposerComponent({
       : followUpBehavior,
   );
   const [notes, setNotes] = useState<Note[]>(() => peekNotes() ?? []);
+  const liveSessions = useContext(LiveSessionsContext);
+  const [chats, setChats] = useState<ChatRef[]>([]);
   const [mention, setMention] = useState<MentionToken | null>(null);
   const [mentionActive, setMentionActive] = useState(0);
   const [runnerEnabled, setRunnerEnabled] = useState(loadComposerRunner);
@@ -847,9 +863,25 @@ function ComposerComponent({
     () => (followOpenFiles ? openFilesSnapshot() : NO_OPEN_FILES),
     () => NO_OPEN_FILES,
   );
+  // Other chats `@` can name, from the chats in memory, read as `@` opens.
+  const typingMention = mention !== null;
+  const chatsAvailable = useMemo(
+    () =>
+      typingMention &&
+      !!liveSessions
+        ?.list()
+        .some(
+          (session) =>
+            session.id !== sessionId && !!chatRefFromSession(session, 0),
+        ),
+    [liveSessions, sessionId, typingMention],
+  );
   const mentionOpen =
     mention !== null &&
-    (looksLikeProject(cwd) || notesEnabled || knownFiles.open.length > 0);
+    (looksLikeProject(cwd) ||
+      notesEnabled ||
+      chatsAvailable ||
+      knownFiles.open.length > 0);
   const navigationEmpty =
     draft.length === 0 &&
     attachments.length === 0 &&
@@ -969,7 +1001,7 @@ function ComposerComponent({
     [cwd, files, knownFiles],
   );
   const mentionIndex = useMemo(
-    () => withMentionExtras(projectMentionIndex, mentionExtras),
+    () => withChatLabels(withMentionExtras(projectMentionIndex, mentionExtras)),
     [mentionExtras, projectMentionIndex],
   );
   const mentionIndexRef = useRef<MentionIndex>(mentionIndex);
@@ -985,14 +1017,16 @@ function ComposerComponent({
       ? rankMentionFiles(files, query, recentOpenedFiles(cwd))
       : [];
     const noteHits = notesEnabled ? rankNoteFiles(notes, query) : [];
+    const chatHits = rankChatFiles(chats, query);
     const seen = new Set(openHits.map((file) => file.path));
-    const rest = [...noteHits, ...fileHits].filter((file) => {
+    const rest = [...chatHits, ...noteHits, ...fileHits].filter((file) => {
       if (seen.has(file.path)) return false;
       seen.add(file.path);
       return true;
     });
     return [...openHits, ...rest];
   }, [
+    chats,
     cwd,
     files,
     mention?.query,
@@ -1185,6 +1219,27 @@ function ComposerComponent({
       unsub();
     };
   }, [cwd, mentionOpen]);
+
+  useEffect(() => {
+    if (!mentionOpen || !liveSessions) return;
+    const inMemory = () => liveSessions.list();
+    setChats(otherChats(inMemory(), sessionId, cwd));
+    if (!looksLikeProject(cwd)) return;
+    let cancelled = false;
+    // This project's saved chats too, behind the ones in memory.
+    void listSessionsByProject(cwd)
+      .then((rows) => {
+        if (cancelled) return;
+        setChats(
+          otherChats(inMemory(), sessionId, cwd, chatRefsFromSummaries(rows)),
+        );
+      })
+      // Suggestions are optional; the chats in memory still show.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd, liveSessions, mentionOpen, sessionId]);
 
   useEffect(() => {
     if (!mentionOpen || !notesEnabled) return;
@@ -1439,9 +1494,10 @@ function ComposerComponent({
       }
       // Its tab may close before sending; the label must still find it.
       if (file.open || file.unlisted) rememberMentionedFile(file.path);
-      const label = isNoteMentionPath(file.path)
-        ? file.relative
-        : mentionLabel(file, mentionIndexRef.current);
+      const label =
+        isNoteMentionPath(file.path) || isChatMentionPath(file.path)
+          ? file.relative
+          : mentionLabel(file, mentionIndexRef.current);
       const next = replaceMentionToken(el.value, token, label);
       el.value = next;
       resizeComposer(el);
@@ -2319,6 +2375,7 @@ function ComposerComponent({
                 looksLikeProject(cwd) && peekLastProjectFiles(cwd) == null
               }
               includeNotes={notesEnabled}
+              includeChats={chatsAvailable}
               onActive={setMentionActive}
               onPick={pickMention}
             />
@@ -2621,6 +2678,28 @@ function ComposerHighlight({
   );
 }
 
+/**
+ * `index` with the `chat/…` labels given this run, so a named chat is drawn
+ * as a mention even before `@` lists the chats again.
+ */
+function withChatLabels(index: MentionIndex): MentionIndex {
+  return {
+    labels: {
+      get: (label) => {
+        const found = index.labels.get(label);
+        if (found) return found;
+        const id = chatIdForLabel(label);
+        return id
+          ? { name: label, path: `${CHAT_PATH_PREFIX}${id}`, relative: label }
+          : undefined;
+      },
+      // At least one, so a chat label is looked for in an empty project.
+      size: index.labels.size + 1,
+    },
+    labelOf: index.labelOf,
+  };
+}
+
 function MentionRuns({
   text,
   mentions,
@@ -2634,15 +2713,31 @@ function MentionRuns({
   return (
     <>
       {parts.map((part, index) =>
-        part.file ? (
+        part.file && isChatMentionPath(part.file.path) ? (
+          // Another chat: a quiet pill, with the same letters as the
+          // textarea underneath so the two stay in lockstep.
+          <span key={index} className="chat-mention-draft">
+            <span className="relative text-transparent">
+              {"@"}
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-content/60">
+                <MessageSquare className="size-3.5" strokeWidth={1.75} />
+              </span>
+            </span>
+            <span className="text-content/45">chat/</span>
+            {part.text.slice(6)}
+          </span>
+        ) : part.file ? (
           <span key={index} className="chat-reference">
             {/* The `@` keeps its width so the textarea underneath stays in
                 lockstep; the file icon sits on top of it. */}
             <span className="relative text-transparent">
               {"@"}
               <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-                {part.file && isNoteMentionPath(part.file.path) ? (
-                  <StickyNote className="size-3.5" strokeWidth={1.75} />
+                {isNoteMentionPath(part.file.path) ? (
+                  <StickyNote
+                    className="size-3.5 text-content/60"
+                    strokeWidth={1.75}
+                  />
                 ) : (
                   <FileTypeIcon
                     name={part.file.name}

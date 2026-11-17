@@ -1,10 +1,13 @@
 import { fileLinkHref, resolveFileLink } from "./inAppLinks";
 import { normalizeBrowserUrl } from "./browser";
+import { resolveChatLabel, type MentionedChat } from "./chatMentions";
 
 export type ChatReferencePart = {
   text: string;
   href?: string;
   file?: ReturnType<typeof resolveFileLink>;
+  /** An `@chat/…` mention of another chat. */
+  chat?: MentionedChat;
 };
 
 type Reference = ChatReferencePart & { start: number; end: number };
@@ -13,6 +16,8 @@ type Reference = ChatReferencePart & { start: number; end: number };
 // scheme, an email address, or a larger word.
 const URL_REFERENCE =
   /(^|[\s([{"'`<])((?:https?:\/\/|www\.|localhost\b)[^\s<>"'`]*)/gi;
+const CHAT_MENTION = /(^|\s)@(chat\/[^\s@]+)/g;
+const CHAT_TRAILING = /[,;:!?)\]}"'.]+$/;
 const DOCUMENT_REFERENCE = /\[[^\]\r\n]+\]\((<[^<>\r\n]+>|[^()\s]+)\)/g;
 
 function trimUrlEnd(value: string): string {
@@ -89,6 +94,19 @@ export function chatReferenceParts(
       href: fileLinkHref(file.path, file.navigation),
       file,
     });
+  }
+  for (const match of text.matchAll(CHAT_MENTION)) {
+    const start = match.index! + match[1]!.length;
+    let label = match[2]!;
+    let chat = resolveChatLabel(label);
+    if (!chat) {
+      label = label.replace(CHAT_TRAILING, "");
+      chat = resolveChatLabel(label);
+    }
+    if (!chat) continue;
+    const end = start + 1 + label.length;
+    if (references.some((ref) => start < ref.end && end > ref.start)) continue;
+    references.push({ text: text.slice(start, end), start, end, chat });
   }
   references.sort((a, b) => a.start - b.start);
   const parts: ChatReferencePart[] = [];

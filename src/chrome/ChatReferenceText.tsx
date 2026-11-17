@@ -1,6 +1,8 @@
 import { memo, useMemo } from "react";
 import { chatReferenceParts } from "../lib/chatReferences";
 import { openInAppFile } from "../lib/inAppLinks";
+import { requestOpenChat } from "../lib/shipRequest";
+import { MessageSquare } from "./icons";
 
 export const ChatReferenceText = memo(function ChatReferenceText({
   text,
@@ -15,7 +17,22 @@ export const ChatReferenceText = memo(function ChatReferenceText({
   return (
     <>
       {parts.map((part, index) =>
-        !part.href ? (
+        part.chat && interactive ? (
+          <button
+            key={index}
+            type="button"
+            title={`Open ${part.chat.title}`}
+            onClick={() => requestOpenChat(part.chat!.id)}
+            className="chat-mention"
+          >
+            <MessageSquare
+              aria-hidden
+              className="size-3 shrink-0"
+              strokeWidth={1.75}
+            />
+            {part.chat.title}
+          </button>
+        ) : !part.href ? (
           part.text
         ) : interactive ? (
           <a
