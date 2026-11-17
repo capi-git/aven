@@ -527,11 +527,6 @@ function PreferencesPage({
     loadDefaultRuntimeMode,
     loadDefaultRuntimeMode,
   );
-  const [transcriptLayout, setTranscriptLayout] =
-    useState<TranscriptLayout>(loadTranscriptLayout);
-  const [transcriptAnchor, setTranscriptAnchor] =
-    useState(loadTranscriptAnchor);
-  const [diffViewer, setDiffViewer] = useState<DiffViewer>(loadDiffViewer);
   const [followUpBehavior, setFollowUpBehavior] =
     useState<FollowUpBehavior>(loadFollowUpBehavior);
   const [composerRunner, setComposerRunner] = useState(loadComposerRunner);
@@ -589,31 +584,6 @@ function PreferencesPage({
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [notificationsEnabled, page]);
-
-  useEffect(() => {
-    const onAnchor = (event: Event) => {
-      setTranscriptAnchor((event as CustomEvent<boolean>).detail === true);
-    };
-    window.addEventListener(TRANSCRIPT_ANCHOR_CHANGE_EVENT, onAnchor);
-    return () => {
-      window.removeEventListener(TRANSCRIPT_ANCHOR_CHANGE_EVENT, onAnchor);
-    };
-  }, []);
-
-  const onTranscriptLayout = (next: TranscriptLayout) => {
-    saveTranscriptLayout(next);
-    setTranscriptLayout(next);
-  };
-
-  const onTranscriptAnchor = (next: boolean) => {
-    saveTranscriptAnchor(next);
-    setTranscriptAnchor(next);
-  };
-
-  const onDiffViewer = (next: DiffViewer) => {
-    saveDiffViewer(next);
-    setDiffViewer(next);
-  };
 
   const onFollowUpBehavior = (next: FollowUpBehavior) => {
     saveFollowUpBehavior(next);
@@ -852,40 +822,11 @@ function PreferencesPage({
           />
         </Row>
       </SettingsGroup>
+      {/* How chats and diffs look moved to Appearance, as in Super. */}
       <SettingsGroup
-        title="Reading &amp; review"
-        description="Read and review in the way that works for you."
+        title="While agents work"
+        description="What your Mac does while agents work."
       >
-        <Row {...SETTINGS.transcriptLayout.row}>
-          <Segmented
-            label={SETTINGS.transcriptLayout.label}
-            value={transcriptLayout}
-            options={[
-              { value: "full", label: "Full width" },
-              { value: "chat", label: "Chat" },
-            ]}
-            onChange={onTranscriptLayout}
-          />
-        </Row>
-        <Row {...SETTINGS.transcriptAnchor.row}>
-          <Toggle
-            label={SETTINGS.transcriptAnchor.label}
-            on={transcriptAnchor}
-            onChange={onTranscriptAnchor}
-          />
-        </Row>
-        <Row {...SETTINGS.diffViewer.row}>
-          <Segmented
-            label={SETTINGS.diffViewer.label}
-            value={diffViewer}
-            options={[
-              { value: "editor", label: "Editor" },
-              { value: "unified", label: "Unified" },
-            ]}
-            onChange={onDiffViewer}
-          />
-        </Row>
-        <AutosaveRow />
         <AgentKeepAwakeRow />
       </SettingsGroup>
       <SettingsGroup
@@ -914,6 +855,109 @@ function AgentKeepAwakeRow() {
         onChange={saveAgentKeepAwake}
       />
     </Row>
+  );
+}
+
+function TranscriptLayoutRow() {
+  const [value, setValue] = useState<TranscriptLayout>(loadTranscriptLayout);
+  return (
+    <Row {...SETTINGS.transcriptLayout.row}>
+      <Segmented
+        label={SETTINGS.transcriptLayout.label}
+        value={value}
+        options={[
+          { value: "full", label: "Full width" },
+          { value: "chat", label: "Chat" },
+        ]}
+        onChange={(next) => {
+          saveTranscriptLayout(next);
+          setValue(next);
+        }}
+      />
+    </Row>
+  );
+}
+
+function TranscriptAnchorRow() {
+  const [on, setOn] = useState(loadTranscriptAnchor);
+  // The chat's own switch can change it while Settings is open.
+  useEffect(() => {
+    const onAnchor = (event: Event) =>
+      setOn((event as CustomEvent<boolean>).detail === true);
+    window.addEventListener(TRANSCRIPT_ANCHOR_CHANGE_EVENT, onAnchor);
+    return () =>
+      window.removeEventListener(TRANSCRIPT_ANCHOR_CHANGE_EVENT, onAnchor);
+  }, []);
+  return (
+    <Row {...SETTINGS.transcriptAnchor.row}>
+      <Toggle
+        label={SETTINGS.transcriptAnchor.label}
+        on={on}
+        onChange={(next) => {
+          saveTranscriptAnchor(next);
+          setOn(next);
+        }}
+      />
+    </Row>
+  );
+}
+
+function DiffViewerRow() {
+  const [value, setValue] = useState<DiffViewer>(loadDiffViewer);
+  return (
+    <Row {...SETTINGS.diffViewer.row}>
+      <Segmented
+        label={SETTINGS.diffViewer.label}
+        value={value}
+        options={[
+          { value: "editor", label: "Editor" },
+          { value: "unified", label: "Unified" },
+        ]}
+        onChange={(next) => {
+          saveDiffViewer(next);
+          setValue(next);
+        }}
+      />
+    </Row>
+  );
+}
+
+const CODE_FONTS = [
+  { value: "", label: "System" },
+  { value: "SF Mono", label: "SF Mono" },
+  { value: "Menlo", label: "Menlo" },
+  { value: "Monaco", label: "Monaco" },
+  { value: "JetBrains Mono", label: "JetBrains Mono" },
+  { value: "Fira Code", label: "Fira Code" },
+  { value: "Cascadia Code", label: "Cascadia Code" },
+  { value: "Consolas", label: "Consolas" },
+];
+
+function TypographyGroup() {
+  const size = useSetting(SETTINGS.chatTextSize);
+  const font = useSetting(SETTINGS.codeFont);
+  return (
+    <SettingsGroup title="Typography">
+      <Row {...SETTINGS.chatTextSize.row}>
+        <Select
+          label={SETTINGS.chatTextSize.label}
+          value={String(size)}
+          options={[12, 13, 14, 15, 16, 17, 18].map((value) => ({
+            value: String(value),
+            label: value === 14 ? "14 pt (default)" : `${value} pt`,
+          }))}
+          onChange={(value) => SETTINGS.chatTextSize.save(Number(value))}
+        />
+      </Row>
+      <Row {...SETTINGS.codeFont.row}>
+        <Select
+          label={SETTINGS.codeFont.label}
+          value={font}
+          options={CODE_FONTS}
+          onChange={SETTINGS.codeFont.save}
+        />
+      </Row>
+    </SettingsGroup>
   );
 }
 
@@ -1246,7 +1290,7 @@ function AppearancePage({
   return (
     <>
       <SettingsGroup
-        title="Theme &amp; colour"
+        title="Theme"
         description={
           workspaceName
             ? `Set the mood for your ${workspaceName} workspace.`
@@ -1276,7 +1320,7 @@ function AppearancePage({
         />
       </SettingsGroup>
       <SettingsGroup
-        title="Window"
+        title="Layout"
         description="Comfortable reading and how much of the desktop shows."
       >
         <Row {...SETTINGS.uiScale.row}>
@@ -1356,15 +1400,19 @@ function AppearancePage({
             onChange={appearance.onFrameTone}
           />
         </Row>
-        <WorkingMarkRow />
         <ReduceMotionRow />
       </SettingsGroup>
-      <SettingsGroup
-        title="Chat background"
-        description="Personalize your chats."
-      >
+      <SettingsGroup title="Chat" description="How chats look.">
+        <TranscriptLayoutRow />
+        <TranscriptAnchorRow />
+        <WorkingMarkRow />
         <ChatBackgroundCard appearance={appearance} />
       </SettingsGroup>
+      <SettingsGroup title="Files &amp; diffs">
+        <DiffViewerRow />
+        <AutosaveRow />
+      </SettingsGroup>
+      <TypographyGroup />
       <SettingsGroup
         title="Workspaces"
         description="Each workspace keeps its own look."

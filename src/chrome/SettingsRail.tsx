@@ -63,7 +63,7 @@ export const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
 
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   general: "Updates & extras",
-  appearance: "Colour & transparency",
+  appearance: "Theme, layout & type",
   notifications: "Alerts & sound",
   keybindings: "Find a command or key",
   providers: "Agents & models",

@@ -45,7 +45,7 @@ export const SETTINGS_SECTIONS: {
     id: "appearance",
     group: "App",
     label: "Appearance",
-    description: "Theme, accent colour, glass and chat background.",
+    description: "Theme, layout, chats, files and diffs, and type.",
   },
   {
     id: "terminal",

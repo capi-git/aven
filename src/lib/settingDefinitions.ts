@@ -66,7 +66,7 @@ export const SETTINGS = {
       "Applies to new chats. Existing chats keep their own access.",
   }),
   transcriptLayout: defineSetting({
-    section: "tasks",
+    section: "appearance",
     label: "Transcript layout",
     description: "Choose full-width prompts or chat-style messages.",
     keywords: "conversation chat alignment bubbles",
@@ -83,7 +83,7 @@ export const SETTINGS = {
       changeEvent: "monocode:diff-viewer-change",
       eventDetail: true,
     }),
-    section: "tasks",
+    section: "appearance",
     label: "Diff view",
     description: "Review changes in the editor or a unified view.",
     keywords: "code review files inline patch",
@@ -104,7 +104,7 @@ export const SETTINGS = {
       changeEvent: "aven:file-editor-autosave-change",
       storageChanges: true,
     }),
-    section: "tasks",
+    section: "appearance",
     label: "Autosave files",
     description: "Save edited files shortly after you stop typing.",
     keywords: "editor auto save automatic write disk",
@@ -128,7 +128,7 @@ export const SETTINGS = {
       "Wait their turn: sent once the agent finishes. Send right away: the agent reads it while it works.",
   }),
   transcriptAnchor: defineSetting({
-    section: "tasks",
+    section: "appearance",
     label: "Anchor prompts to top",
     description: "Position new prompts at the top of the chat.",
     keywords: "chat scrolling reply bottom",
@@ -593,5 +593,40 @@ export const SETTINGS = {
     description: "Let the terminal's cursor blink.",
     keywords: "terminal cursor blink flash",
     rowDescription: "Let the cursor blink while the terminal has focus.",
+  }),
+  chatTextSize: defineSetting({
+    ...defineStoredSetting<number>({
+      key: "aven.chatTextSize",
+      defaultValue: 14,
+      parse: (raw) => {
+        const size = Number(raw);
+        return Number.isInteger(size) && size >= 12 && size <= 18 ? size : 14;
+      },
+      serialize: (value) => String(value),
+      changeEvent: "aven:typography-change",
+      storageChanges: true,
+    }),
+    section: "appearance",
+    label: "Chat text size",
+    description: "The size of messages and replies in chats.",
+    keywords: "font size text bigger smaller reading chat messages typography",
+    rowDescription:
+      "The size of messages and replies. Interface scale changes everything else.",
+  }),
+  codeFont: defineSetting({
+    ...defineStoredSetting<string>({
+      key: "aven.codeFont",
+      defaultValue: "",
+      parse: (raw) => (raw && /^[\w .-]{1,40}$/.test(raw) ? raw : ""),
+      serialize: (value) => value,
+      changeEvent: "aven:typography-change",
+      storageChanges: true,
+    }),
+    section: "appearance",
+    label: "Code font",
+    description: "The font for code, diffs and file contents.",
+    keywords: "font monospace code editor diff typeface typography",
+    rowDescription:
+      "Used for code, diffs and files. The terminal has its own font in Terminal.",
   }),
 };
