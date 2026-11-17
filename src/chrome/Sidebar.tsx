@@ -1923,6 +1923,7 @@ function SidebarComponent({
             section={settingsSection}
             onSelect={onSelectSettingsSection}
             onClose={onCloseSettings}
+            projects={recents.map((project) => project.path)}
           />
         </div>
       ) : (

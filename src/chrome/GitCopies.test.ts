@@ -322,6 +322,7 @@ describe("other copies", () => {
     expect(invoke).toHaveBeenLastCalledWith("git_worktree_remove", {
       cwd: "/repo",
       path: "/copies/done",
+      removeBuildFolders: true,
     });
 
     const finished = raceRecord("discarded");
@@ -490,8 +491,14 @@ describe("other copies", () => {
           bases: { "/races/race-1/0": "abc", "/races/race-1/1": "abc" },
         },
       ],
-      ["git_worktree_remove", { cwd: "/repo", path: "/c/a" }],
-      ["git_worktree_remove", { cwd: "/repo", path: "/c/b" }],
+      [
+        "git_worktree_remove",
+        { cwd: "/repo", path: "/c/a", removeBuildFolders: true },
+      ],
+      [
+        "git_worktree_remove",
+        { cwd: "/repo", path: "/c/b", removeBuildFolders: true },
+      ],
       ["race_cleanup", { root: "/repo", lanes: [kept.lanes[0]] }],
     ]);
     expect(finishRace).not.toHaveBeenCalled();

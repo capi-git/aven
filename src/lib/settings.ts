@@ -15,9 +15,12 @@ export type SettingsSectionId =
   | "git"
   | "connections"
   | "browser"
+  | "worktrees"
+  | "terminal"
+  | "project"
   | "archive";
 
-export type SettingsSectionGroup = "App" | "Agents" | "Workspace";
+export type SettingsSectionGroup = "App" | "Agents" | "Workspace" | "Projects";
 
 /** Navigation order. Each group starts where its first section appears. */
 export const SETTINGS_SECTIONS: {
@@ -42,7 +45,13 @@ export const SETTINGS_SECTIONS: {
     id: "appearance",
     group: "App",
     label: "Appearance",
-    description: "Theme, accent colour, glass and chat background.",
+    description: "Theme, layout, chats, files and diffs, and type.",
+  },
+  {
+    id: "terminal",
+    group: "App",
+    label: "Terminal",
+    description: "Font, text size and cursor for every terminal.",
   },
   {
     id: "keybindings",
@@ -96,6 +105,13 @@ export const SETTINGS_SECTIONS: {
     description: "What agents do with their changes when they finish.",
   },
   {
+    id: "worktrees",
+    group: "Workspace",
+    label: "Worktrees",
+    description:
+      "Copies of a project, each on its own branch, so chats work side by side.",
+  },
+  {
     id: "archive",
     group: "Workspace",
     label: "Archive",
@@ -108,10 +124,15 @@ export const SETTINGS_SECTION_DEFAULT: SettingsSectionId = "general";
 export function isSettingsSectionId(
   value: unknown,
 ): value is SettingsSectionId {
-  return SETTINGS_SECTIONS.some((section) => section.id === value);
+  // A project's own page is reached from the Projects list, not the sections.
+  return (
+    value === "project" ||
+    SETTINGS_SECTIONS.some((section) => section.id === value)
+  );
 }
 
 export function settingsSectionLabel(id: SettingsSectionId): string {
+  if (id === "project") return "Projects";
   return (
     SETTINGS_SECTIONS.find((section) => section.id === id)?.label ?? "General"
   );

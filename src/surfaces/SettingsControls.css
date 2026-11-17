@@ -544,3 +544,23 @@
   color: color-mix(in srgb, var(--color-content) 55%, transparent);
   font-size: var(--text-ui-label);
 }
+
+/* A project's Setup and Run commands: a text field (with Remove or Add). */
+.settings-command-line {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 6px;
+}
+.settings-command-field {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-label);
+}
+.settings-command-name {
+  flex: 0 0 96px;
+  font-family: var(--font-sans);
+}

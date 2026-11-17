@@ -28,7 +28,7 @@ export function PageHeader({
   description,
   icon,
 }: {
-  title: string;
+  title: ReactNode;
   description: string;
   icon?: ReactNode;
 }) {

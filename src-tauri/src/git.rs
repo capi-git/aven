@@ -313,9 +313,17 @@ fn git_patch_ids(dir: &Path, input: &[u8]) -> Vec<String> {
 /// uncommitted files are discarded; a branch that still holds commits the
 /// default branch lacks is kept so that work stays reachable.
 #[tauri::command]
-pub async fn git_worktree_remove(cwd: String, path: String) -> Result<(), String> {
+pub async fn git_worktree_remove(
+    cwd: String,
+    path: String,
+    remove_build_folders: Option<bool>,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        remove_worktree_for(&expand_home(&cwd), &expand_home(&path))
+        remove_worktree_with(
+            &expand_home(&cwd),
+            &expand_home(&path),
+            remove_build_folders.unwrap_or(false),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -330,16 +338,36 @@ pub struct ChatCopy {
 }
 
 #[tauri::command]
-pub async fn git_chat_copy_create(app: tauri::AppHandle, cwd: String) -> Result<ChatCopy, String> {
+pub async fn git_chat_copy_create(
+    app: tauri::AppHandle,
+    cwd: String,
+    from: Option<String>,
+) -> Result<ChatCopy, String> {
     use tauri::Manager;
     let copies = app
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("copies");
-    tauri::async_runtime::spawn_blocking(move || create_chat_copy_for(&expand_home(&cwd), &copies))
-        .await
+    let from_default = from.as_deref() == Some("default");
+    tauri::async_runtime::spawn_blocking(move || {
+        create_chat_copy_from(&expand_home(&cwd), &copies, from_default)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Where chat copies are kept, made if missing, for Settings › Worktrees.
+#[tauri::command]
+pub fn chat_copies_dir(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e| e.to_string())?
+        .join("copies");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not make the copy folder: {e}"))?;
+    Ok(dir.to_string_lossy().to_string())
 }
 
 /// Letters, digits, dots and dashes only, so a folder name is never a path.
@@ -362,12 +390,50 @@ fn copy_folder_name(name: &str) -> String {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn create_chat_copy_for(root: &Path, copies: &Path) -> Result<ChatCopy, String> {
+    create_chat_copy_from(root, copies, false)
+}
+
+/// The commit a new copy starts from: the project's current commit, or with
+/// `from_default` its default branch (origin's, else main or master), as last
+/// fetched. Nothing is fetched here.
+fn copy_base(root: &Path, from_default: bool) -> Option<String> {
+    let commit = |spec: &str| {
+        git_stdout(
+            root,
+            &[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{spec}^{{commit}}"),
+            ],
+        )
+        .filter(|sha| !sha.is_empty())
+    };
+    if from_default {
+        for spec in [
+            "refs/remotes/origin/HEAD",
+            "refs/heads/main",
+            "refs/heads/master",
+        ] {
+            if let Some(sha) = commit(spec) {
+                return Some(sha);
+            }
+        }
+    }
+    commit("HEAD")
+}
+
+pub(crate) fn create_chat_copy_from(
+    root: &Path,
+    copies: &Path,
+    from_default: bool,
+) -> Result<ChatCopy, String> {
     if !git_is_work_tree(root) {
         return Err("This project is not a Git repository, so it can't have copies.".into());
     }
-    let base = git_stdout(root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
-        .filter(|sha| !sha.is_empty())
+    let base = copy_base(root, from_default)
         .ok_or("This project has no commits yet. Make a first commit, then try again.")?;
     let primary = git_worktrees_for(root)
         .into_iter()
@@ -400,7 +466,47 @@ pub(crate) fn create_chat_copy_for(root: &Path, copies: &Path) -> Result<ChatCop
     })
 }
 
+/// Folders that hold only what a build or an install made again, so a copy
+/// holding nothing else ignored can go with them.
+const BUILD_FOLDERS: &[&str] = &[
+    "node_modules",
+    ".build",
+    "build",
+    "dist",
+    "target",
+    ".next",
+    ".turbo",
+    ".svelte-kit",
+    "DerivedData",
+    ".swiftpm",
+    "__pycache__",
+    ".venv",
+];
+
+/// Every ignored entry (`ls-files --directory -z` output) is a build folder
+/// or a Finder `.DS_Store`.
+fn only_build_folders(ignored: &str) -> bool {
+    ignored
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .all(|entry| {
+            let trimmed = entry.trim_end_matches('/');
+            let name = trimmed.rsplit('/').next().unwrap_or(trimmed);
+            (entry.ends_with('/') && BUILD_FOLDERS.contains(&name)) || name == ".DS_Store"
+        })
+}
+
+/// `remove_worktree_with`, keeping build folders: what the tests call.
+#[cfg(test)]
 pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String> {
+    remove_worktree_with(root, path, false)
+}
+
+pub(crate) fn remove_worktree_with(
+    root: &Path,
+    path: &Path,
+    remove_build_folders: bool,
+) -> Result<(), String> {
     let copies = git_worktrees_for(root);
     let copy = copies
         .iter()
@@ -450,7 +556,7 @@ pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String
         ],
     )
     .ok_or("Could not check this copy for ignored files. Nothing was removed.")?;
-    if !ignored.is_empty() {
+    if !ignored.is_empty() && !(remove_build_folders && only_build_folders(&ignored)) {
         return Err(
             "This copy contains ignored files or folders. Back up anything you need and remove those files before removing the copy. Nothing was removed."
                 .into(),
@@ -3649,6 +3755,44 @@ mod tests {
     }
 
     #[test]
+    fn knows_build_folders_from_other_ignored_files() {
+        assert!(only_build_folders(
+            "node_modules/\0.build/\0web/dist/\0.DS_Store\0"
+        ));
+        assert!(only_build_folders(""));
+        assert!(!only_build_folders("node_modules/\0.env\0"));
+        // A file named like a folder is not one.
+        assert!(!only_build_folders("build\0"));
+        assert!(!only_build_folders("data/\0"));
+    }
+
+    #[test]
+    fn starts_a_copy_from_the_default_branch_when_asked() {
+        let dir = tmp("git-chat-copy-base");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "first"]));
+        assert!(git(&repo, &["checkout", "-q", "-b", "work"]));
+        std::fs::write(repo.join("a.txt"), "two\n").unwrap();
+        assert!(git(&repo, &["commit", "-q", "-am", "second"]));
+        let copies = dir.0.join("copies");
+        let here = create_chat_copy_from(&repo, &copies, false).unwrap();
+        let main = create_chat_copy_from(&repo, &copies, true).unwrap();
+        let read =
+            // Git on Windows may check text out with CRLF line endings.
+            |copy: &ChatCopy| {
+                std::fs::read_to_string(Path::new(&copy.path).join("a.txt"))
+                    .unwrap()
+                    .replace("\r\n", "\n")
+            };
+        assert_eq!(read(&here), "two\n");
+        assert_eq!(read(&main), "one\n");
+    }
+
+    #[test]
     fn makes_a_chat_copy_on_its_own_branch() {
         let dir = tmp("git-chat-copy");
         let repo = dir.0.join("my repo");
@@ -3986,6 +4130,40 @@ mod tests {
         assert!(copy.join("local-data/draft.txt").is_file());
         std::fs::remove_dir_all(copy.join("local-data")).unwrap();
         remove_worktree_for(&repo, &copy).unwrap();
+        assert!(!copy.exists());
+    }
+
+    #[test]
+    fn worktree_removal_takes_build_folders_only_when_asked() {
+        let dir = tmp("git-worktree-remove-build");
+        let repo = dir.0.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(init_git_commit(
+            &repo,
+            &[(".gitignore", ".build/\nnode_modules/\n.env\n")]
+        ));
+        let copy = dir.0.join("copy");
+        assert!(git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "copy",
+                copy.to_str().unwrap()
+            ]
+        ));
+        std::fs::create_dir_all(copy.join(".build/debug")).unwrap();
+        std::fs::write(copy.join(".build/debug/app"), "binary\n").unwrap();
+        std::fs::create_dir_all(copy.join("node_modules/x")).unwrap();
+        std::fs::write(copy.join(".env"), "secret\n").unwrap();
+
+        // A private file still stops it, even when build folders may go.
+        assert!(remove_worktree_with(&repo, &copy, true).is_err());
+        std::fs::remove_file(copy.join(".env")).unwrap();
+        assert!(remove_worktree_with(&repo, &copy, false).is_err());
+        remove_worktree_with(&repo, &copy, true).unwrap();
         assert!(!copy.exists());
     }
 

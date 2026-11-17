@@ -27,6 +27,7 @@ import {
   type GitWorktree,
 } from "../lib/fs";
 import { useActivity } from "../lib/activity";
+import { SETTINGS } from "../lib/settings";
 import { useProjectTone } from "../hooks/useProjectTone";
 import { errorText, logError } from "../lib/errors";
 import { loadShowStaging, shortTimeAgo } from "../lib/gitChangesView";
@@ -509,7 +510,11 @@ export async function removeCopy(cwd: string, copy: CopySummary) {
     return raceHost.cleanup(cwd, [
       { path: worktree.path, branch: worktree.branch },
     ]);
-  return removeGitWorktree(cwd, worktree.path);
+  return removeGitWorktree(
+    cwd,
+    worktree.path,
+    SETTINGS.removeBuildFolders.load(),
+  );
 }
 
 function firstLine(text: string): string {

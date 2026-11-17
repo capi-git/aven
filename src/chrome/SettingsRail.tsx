@@ -1,8 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  projectDisplayName,
+  useProjectLabels,
+} from "../hooks/useProjectLabels";
+import { sameProjectPath } from "../lib/recents";
+import {
+  loadSettingsProject,
+  saveSettingsProject,
+  subscribeSettingsProject,
+} from "../lib/settingsProject";
 import { pageHeadings, type PageHeading } from "../lib/settingsHeadings";
 import {
   AppWindow,
   Archive,
+  Copy,
+  Folder,
   ArrowLeft,
   Bot,
   GitBranch,
@@ -13,6 +31,7 @@ import {
   Palette,
   Search,
   Settings,
+  Terminal,
   Wrench,
   type IconComponent,
 } from "./icons";
@@ -36,12 +55,15 @@ export const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   git: GitBranch,
   connections: Globe,
   browser: AppWindow,
+  worktrees: Copy,
+  terminal: Terminal,
+  project: Folder,
   archive: Archive,
 };
 
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   general: "Updates & extras",
-  appearance: "Colour & transparency",
+  appearance: "Theme, layout & type",
   notifications: "Alerts & sound",
   keybindings: "Find a command or key",
   providers: "Agents & models",
@@ -51,6 +73,9 @@ const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   git: "Commits & pull requests",
   connections: "Linked services",
   browser: "Tab memory",
+  worktrees: "Copies & branches",
+  terminal: "Font & cursor",
+  project: "Name, scripts & memory",
   archive: "Saved history",
 };
 
@@ -59,6 +84,8 @@ type Props = {
   onSelect: (section: SettingsSectionId) => void;
   onClose: () => void;
   embedded?: boolean;
+  /** The workspace's projects, each with its own page under Projects. */
+  projects?: readonly string[];
 };
 
 /** The same navigation can live in the project rail or beside settings content. */
@@ -67,6 +94,7 @@ export function SettingsNav({
   onSelect,
   onClose,
   embedded = false,
+  projects = [],
 }: Props) {
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -220,9 +248,52 @@ export function SettingsNav({
                 ]
               : []),
           ])}
+          {projects.length > 0 ? (
+            <ProjectRows
+              projects={projects}
+              current={section === "project"}
+              onSelect={() => onSelect("project")}
+            />
+          ) : null}
         </nav>
       )}
     </div>
+  );
+}
+
+/** Settings › Projects: one row per project, each opening its own page. */
+function ProjectRows({
+  projects,
+  current,
+  onSelect,
+}: {
+  projects: readonly string[];
+  current: boolean;
+  onSelect: () => void;
+}) {
+  const labels = useProjectLabels();
+  const openProject = useSyncExternalStore(
+    subscribeSettingsProject,
+    loadSettingsProject,
+    loadSettingsProject,
+  );
+  return (
+    <>
+      <div className="settings-nav__group">Projects</div>
+      {projects.map((path) => (
+        <NavRow
+          key={path}
+          label={projectDisplayName(path, labels)}
+          description={path}
+          icon={Folder}
+          active={current && sameProjectPath(openProject, path)}
+          onClick={() => {
+            saveSettingsProject(path);
+            onSelect();
+          }}
+        />
+      ))}
+    </>
   );
 }
 
