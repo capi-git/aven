@@ -30,7 +30,6 @@ import {
 } from "../lib/devSmokeReveal";
 import { agentRole, roleBrief, type AgentRoleId } from "../lib/agentRoles";
 import { errorText } from "../lib/errors";
-import { forgetCrew, getCrew } from "../lib/crews";
 import { getKeeperProject } from "../lib/memoryKeeper";
 import { formatLineDiff } from "../lib/memoryKeeperFormat";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
@@ -56,22 +55,11 @@ import {
   checkPageDragCutOut,
   type PageDragProgress,
 } from "../lib/devSmokePageDrag";
-import { checkCrew } from "../lib/devSmokeCrew";
 import {
   describeOrchestrationRun,
   runHoldsProject,
   type OrchestrationWakeState,
 } from "../lib/devSmokeOrchestration";
-import {
-  checkDesigner,
-  checkReviewLook,
-  checkResearcher,
-  checkTeamAccess,
-  checkMeetAvos,
-  checkTeamJob,
-  checkTeamTalk,
-  type SmokeTeam,
-} from "../lib/devSmokeTeam";
 import { checkDividerRail } from "../lib/devSmokeRail";
 import {
   agentOpensProblem,
@@ -91,7 +79,6 @@ import { teamWorkspace } from "../lib/teamWorkspace";
 import { possessive } from "../lib/words";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
-import { takePagePicture } from "../lib/pagePictures";
 import type { OrchestrationRun } from "../lib/orchestration";
 
 type Options = DevPerfOptions & {
@@ -154,8 +141,6 @@ type Options = DevPerfOptions & {
   race?: SmokeRace;
   /** The title bar opens the project's board, which the check watches. */
   board?: boolean;
-  /** Crews: the check turns one on in its project and has it build a card. */
-  crew?: SmokeTeam;
   /** Moves tabs between panes and the strip, for the lone tab's header. */
   loneTab?: SmokeLoneTab;
   /** A project's browser pages, with the chat whose agent builds on each. */
@@ -1648,69 +1633,53 @@ function boardOnScreen(project: string): HTMLElement | null {
 }
 
 /**
- * The title bar's Open Avos button opens the project's Avos, never the old
- * Board: meeting it the first time (its introduction), no Board columns and
- * no line about chats outside the board, and its Avos saved. Cmd+W closes
- * it. What it saved is forgotten again, so the crew steps after start from
- * a team of their own.
+ * The title bar's Open board button opens the project's board, with its
+ * columns. Cmd+W closes it.
  */
 export async function checkBoard(
   get: () => Options,
   project: string,
 ): Promise<string> {
   get().motion?.showWorkspace?.();
-  const hadCrew = !!getCrew(project);
   const open = await waitFor(
     () =>
       [
         ...document.querySelectorAll<HTMLButtonElement>(
-          'button[aria-label="Open Avos"]',
+          'button[aria-label="Open board"]',
         ),
       ].find((button) => button.getClientRects().length > 0),
     5_000,
-    "the title bar's Open Avos button",
+    "the title bar's Open board button",
   );
   open.click();
-  try {
-    const screen = await waitFor(
-      () => {
-        const board = boardOnScreen(project);
-        return board?.querySelector("[data-avos-meet], [data-crew-header]")
-          ? board
-          : null;
-      },
-      5_000,
-      "the project's Avos",
-    );
-    const shown = (selector: string) =>
-      [...screen.querySelectorAll(selector)].some(
+  const screen = await waitFor(
+    () => boardOnScreen(project),
+    5_000,
+    "the project's board",
+  );
+  await waitFor(
+    () =>
+      [...screen.querySelectorAll("[data-board-column]")].some(
         (element) => element.getClientRects().length > 0,
-      );
-    if (shown("[data-board-column]"))
-      throw new Error("The old Board's columns showed");
-    if (shown("[data-board-outside]"))
-      throw new Error("The line about chats outside the board showed");
-    const meeting = shown("[data-avos-meet]");
-    if (!getCrew(project)?.members.some((member) => member.role === "lead"))
-      throw new Error("Opening it didn't save the project's Avos");
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "w",
-        metaKey: IS_MAC,
-        ctrlKey: !IS_MAC,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-    await waitFor(
-      () => !boardOnScreen(project) || null,
-      5_000,
-      "Cmd+W to close Avos",
-    );
-    return `Open Avos opened the project's Avos${meeting ? " on meeting it" : ""}, with no Board columns and no line about chats outside the board; Cmd+W closed it`;
-  } finally {
-    if (!hadCrew) forgetCrew(project);
-  }
+      ) || null,
+    5_000,
+    "the board's columns",
+  );
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "w",
+      metaKey: IS_MAC,
+      ctrlKey: !IS_MAC,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  await waitFor(
+    () => !boardOnScreen(project) || null,
+    5_000,
+    "Cmd+W to close the board",
+  );
+  return "Open board opened the project's board with its columns; Cmd+W closed it";
 }
 
 /** A chat's pane on screen. */
@@ -3722,51 +3691,6 @@ export async function runDevSmoke(
       }
     });
 
-  // Avos's Review pictures a page of an app running on this Mac, off
-  // screen, at a phone's and a desktop's size (the Look tab's pictures).
-  if (IS_MAC && pageUrl)
-    await step(
-      "Avos's Review pictures a page at phone and desktop size, with its spots",
-      async () => {
-        const sizes: string[] = [];
-        for (const size of ["phone", "desktop"] as const) {
-          // The check page's heading as a spot, and one it doesn't have.
-          const shot = await takePagePicture(pageUrl, size, [
-            "h1",
-            ".aven-check-missing",
-          ]);
-          const [heading, missing] = shot.spots ?? [];
-          if (!heading || missing !== null)
-            throw new Error(
-              `The ${size} picture's spots are ${JSON.stringify(shot.spots)}: the heading should be found and the missing one not`,
-            );
-          const named = shot.parts?.find(
-            (part) => part.what === "heading “Aven check page”",
-          );
-          if (!named || named.element !== "h1")
-            throw new Error(
-              `The ${size} picture doesn't name its heading: ${JSON.stringify(shot.parts?.slice(0, 4))}`,
-            );
-          if (
-            !shot.src.startsWith("data:image/png;base64,") ||
-            shot.width < 100
-          )
-            throw new Error(
-              `The ${size} picture is empty (${shot.width}×${shot.height})`,
-            );
-          const wide = shot.width / shot.height;
-          if (size === "phone" ? wide > 0.7 : wide < 1.2)
-            throw new Error(
-              `The ${size} picture is ${shot.width}×${shot.height}`,
-            );
-          sizes.push(
-            `${size} ${shot.width}×${shot.height}, heading at ${heading.map((n) => n.toFixed(2)).join(",")}`,
-          );
-        }
-        return sizes.join(", ");
-      },
-    );
-
   // An orchestration, asked for from a chat's + menu. The stand-in lead
   // plans two tasks; one worker asks its lead a question, which the lead
   // answers while nothing asks you; the lead accepts both and finishes. The
@@ -4082,63 +4006,10 @@ export async function runDevSmoke(
       () => checkRaceResult(get, config, race),
     );
 
-  // The title bar's Open Avos opens the project's Avos, never the old Board.
+  // The title bar's Open board opens the project's board.
   if (safe && get().board)
-    await step("Open Avos opens the project's Avos, never the old Board", () =>
+    await step("Open board opens the project's board", () =>
       checkBoard(get, config.projectPath),
-    );
-
-  // A crew in the project, with the stand-in as each member: the Builder
-  // works in the crew's copy with its rules, the Checker says not yet once,
-  // Security passes, the card is Ready after round 2 and stacked on the
-  // crew's branch, Apply all lands exactly the reviewed change, and a turn
-  // prepared when the crew is turned off never goes.
-  const crew = get().crew;
-  if (safe && crew)
-    await step(
-      "a crew builds, checks and secures a card, stacks it on its branch, applies it as reviewed, and stops when off",
-      () => checkCrew(get, config.projectPath, crew),
-    );
-
-  // The Avos family, each step in a project of its own beside the check's,
-  // with the stand-in as Avos and every helper: meeting Avos in a folder
-  // without Git, the Researcher's findings put ideas on the Board and its
-  // notes are kept between turns, the Designer's mock-up is kept (and a
-  // stray one refused), and the settings' Access choices stay.
-  if (safe && crew)
-    await step(
-      "meeting Avos in a folder without Git: its introduction, a job from your answer, and Set up Git when asked to build",
-      () => checkMeetAvos(config, crew),
-    );
-  if (safe && crew)
-    await step(
-      "the Researcher hands back findings whose ideas go on the Board once, keeps its notes for the next turn, and is told when it has no web",
-      () => checkResearcher(get, config, crew),
-    );
-  if (safe && crew)
-    await step(
-      "the Designer's mock-up is kept and built from, and a turn that writes outside its folder is refused",
-      () => checkDesigner(get, config, crew),
-    );
-  if (safe && crew && IS_MAC)
-    await step(
-      "Avos changes a page, and its Review runs Avos's version, pictures it with the spot it named, and sends a note left on it",
-      () => checkReviewLook(config, crew),
-    );
-  if (safe && crew)
-    await step(
-      "a message to Avos reaches a helper and that helper's own helper, and comes back",
-      () => checkTeamTalk(config, crew),
-    );
-  if (safe && crew)
-    await step(
-      "a watch request in Avos's chat becomes its job, whose run's Publish card shows in the chat",
-      () => checkTeamJob(config, crew, () => get().motion?.showWorkspace?.()),
-    );
-  if (safe && crew)
-    await step(
-      "Avos's settings keep their Access choices across closing and reopening them",
-      () => checkTeamAccess(get, config),
     );
 
   if (get().loneTab)

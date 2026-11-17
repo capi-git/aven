@@ -8,9 +8,7 @@ import { mockupStoreRoot } from "./crewMockups";
 import { slash } from "./paths";
 import { botForAnyChat, botForChat, type ProjectBot } from "./projectBots";
 import {
-  AVOS_MAY_NOT_READ,
   CREW_ROLE_INFO,
-  avosMayRead,
   crewAccess,
   crewMemberPagesReachWeb,
   crewMemberSeesPages,
@@ -168,24 +166,6 @@ export function absolutePathRule(folder: string): string {
     : `/${normal}`;
   return `${absolute}/**`;
 }
-
-/** What a team's Access never changes. */
-export const TEAM_ALWAYS_LINE =
-  "Everything stays in Avos's copy until you press Apply. Pushing, publishing, deploying and your keys stay off limits, even with Full access. Helpers don't use connections.";
-
-/** Who Access reaches, in one line; the roles it doesn't follow. */
-export const TEAM_ACCESS_SCOPE_LINE =
-  "These are for teammates on Claude. A few keep their own rules:";
-
-/** The teammates and turns Access doesn't change, one line each. */
-export const TEAM_ACCESS_ROLE_LINES = [
-  "Teammates on Codex have no network and never stop to ask.",
-  "The Fixer keeps its own rules.",
-  "Planning a goal never uses the web or the browser.",
-  "Avos and the helpers it starts look at pages in Aven's browser with none of your sign-ins, and never change a file.",
-  "The Researcher reads the web whenever Builders may, never changes a file, and its ideas always wait for you.",
-  "The Designer never uses the web or the browser, and writes only its mock-up.",
-];
 
 /** The one line the settings sheet shows for what a bot never does. */
 export const ALWAYS_ASKS_LINE =
@@ -705,11 +685,15 @@ export function crewSandbox(
   };
 }
 
+/** Why a crew member's chat never starts now. */
+export const CREW_CHAT_REFUSAL =
+  "This chat's agent is no longer part of Aven, so it didn't start.";
+
 /**
- * What a crew member's chat launches with, whether its crew is on or off,
- * or undefined for any other chat. It fails closed: always the role's
- * rules, sandbox and no MCP servers, only ever in the crew's copy; and while
- * the crew is off (or has no copy yet) the launch is refused outright.
+ * What a crew member's chat launches with, or undefined for any other chat.
+ * Crews (each project's leader agent and its helpers) no longer run, so the
+ * launch is always refused; the role's rules, sandbox and no MCP servers stay
+ * as well, so it fails closed whatever starts it.
  */
 export function crewChatPermissions(
   sessionId: string,
@@ -727,16 +711,7 @@ export function crewChatPermissions(
   // (one without Git never does): read-only, offline, and kept from writing
   // anything there by their sandbox as well as their rules.
   const inYourFolder = !crew.copy && (role === "lead" || role === "helper");
-  const refuse = found.retired
-    ? "This chat's teammate was removed, so it didn't start."
-    : !crew.on
-      ? "Avos is off, so this chat didn't start. Open Avos to wake it."
-      : // Nothing reads the project until you've said Avos may.
-        !avosMayRead(crew)
-        ? AVOS_MAY_NOT_READ
-        : !crew.copy && !inYourFolder
-          ? "The project's copy isn't ready yet, so this chat didn't start. Wait a moment, then send again."
-          : undefined;
+  const refuse = CREW_CHAT_REFUSAL;
   const offline = crew.planning === found.member.id;
   // Aven's browser, for a teammate that may use it now: never a removed
   // one, a helper Avos didn't start, or one on Codex (no network at all).
@@ -757,7 +732,7 @@ export function crewChatPermissions(
         ? { workFolder: crew.path }
         : {}),
     ...(readOnly || inYourFolder ? { readOnly: true } : {}),
-    ...(refuse ? { refuse } : {}),
+    refuse,
   };
 }
 

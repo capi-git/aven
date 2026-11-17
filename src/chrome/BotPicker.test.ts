@@ -142,28 +142,3 @@ it("a sheet closed while Git is being set up adds no bot afterwards", async () =
   );
   expect(onAdd).not.toHaveBeenCalled();
 });
-
-it("asked by Avos, says Avos, and goes on to Avos once Git is set up", async () => {
-  const onAdd = vi.fn();
-  const setup = pending();
-  await act(async () =>
-    root.render(
-      createElement(BotGitSetupSheet, {
-        project: { path: "/work/notes", label: "notes", state: "no-git" },
-        kind: "team",
-        onAdd,
-        onClose: vi.fn(),
-      }),
-    ),
-  );
-  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
-  expect(dialog.querySelector("h2")?.textContent).toBe("Set up Git for Avos");
-  expect(dialog.querySelector(".bot-picker-note")?.textContent).toMatch(
-    /^Avos needs Git/,
-  );
-  await act(async () => button("Set up Git for notes")!.click());
-  await act(async () =>
-    setup.finish({ started: true, wroteIgnore: false, files: 3 }),
-  );
-  expect(onAdd).toHaveBeenCalledWith("/work/notes");
-});

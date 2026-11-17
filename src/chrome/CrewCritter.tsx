@@ -3,11 +3,6 @@ import { useProjectTone } from "../hooks/useProjectTone";
 import { useCrew, type CrewRole } from "../lib/crews";
 import type { MarkTone } from "../lib/markTones";
 import {
-  CREW_STATUS_LABEL,
-  CREW_STATUS_STAGE,
-  type CrewStatus,
-} from "../lib/crewView";
-import {
   agentMemberTone,
   agentOutfit,
   agentPhase,
@@ -68,66 +63,3 @@ export const CrewCritter = memo(function CrewCritter({
     </span>
   );
 });
-
-/** One mark in a row: a role, or a member with its own id and mark. */
-export type CrewFace =
-  CrewRole | { id: string; role: CrewRole; critter?: string };
-
-/** A crew's marks side by side, the most a row shows, then "+2". */
-export function CrewCritters({
-  path,
-  roles,
-  active,
-  max = 3,
-  className,
-}: {
-  /** The team's project (the Lead's and the Fixer's marks take its colour). */
-  path?: string;
-  roles: readonly CrewFace[];
-  /** The one that works: its role, or its member id. */
-  active?: string | boolean;
-  max?: number;
-  className?: string;
-}) {
-  const faces = roles.map((face) =>
-    typeof face === "string" ? { id: face, role: face } : face,
-  );
-  const shown = faces.slice(0, max);
-  const more = faces.length - shown.length;
-  const taken = helperTones(
-    faces.map((face) => ({
-      role: face.role,
-      ...("critter" in face && face.critter ? { critter: face.critter } : {}),
-    })),
-  );
-  return (
-    <span className={`crew-critters ${className ?? ""}`} aria-hidden="true">
-      {shown.map((face) => (
-        <CrewCritter
-          key={face.id}
-          path={path}
-          role={face.role}
-          {...("critter" in face && face.critter
-            ? { critter: face.critter }
-            : {})}
-          active={active === true || active === face.id || active === face.role}
-          taken={taken}
-        />
-      ))}
-      {more > 0 ? <span className="crew-critters-more">+{more}</span> : null}
-    </span>
-  );
-}
-
-/** A crew's or a bot's one word, in the chat status pill's tones. */
-export function CrewStatusPill({ status }: { status: CrewStatus }) {
-  return (
-    <span
-      className="aven-chat-status"
-      data-crew-status={status}
-      data-stage={CREW_STATUS_STAGE[status]}
-    >
-      {CREW_STATUS_LABEL[status]}
-    </span>
-  );
-}

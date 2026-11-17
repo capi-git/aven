@@ -1,4 +1,15 @@
 import { pauseBrowsersForUpdate } from "./browserUpdateState";
+import { mountOrb } from "@yogesharc/thinking-orbs/vanilla";
+
+/** The orb, where the page can draw one (a test page may not). */
+function drawOrb(svg: SVGSVGElement) {
+  if (
+    typeof IntersectionObserver === "undefined" ||
+    typeof matchMedia === "undefined"
+  )
+    return null;
+  return mountOrb(svg, { state: "working", size: 20 });
+}
 
 const DEFAULT_DETAIL =
   "Aven is saving your workspace and browser tabs. Your tabs will reopen after the update.";
@@ -34,9 +45,11 @@ export function lockUpdateInput(
   dialog.setAttribute("aria-modal", "true");
   dialog.setAttribute("aria-label", "Saving and restarting…");
   dialog.setAttribute("aria-describedby", "aven-update-restart-detail");
-  const spinner = document.createElement("span");
-  spinner.className =
-    "size-6 animate-spin rounded-full border-2 border-content/20 border-t-accent motion-reduce:animate-none";
+  // A Thinking Orb (thinkingorbs.com), as everywhere else Aven works.
+  const spinner = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  spinner.setAttribute("class", "size-6 text-content/80");
+  spinner.setAttribute("viewBox", "0 0 20 20");
+  spinner.setAttribute("fill", "currentColor");
   spinner.setAttribute("aria-hidden", "true");
   const title = document.createElement("p");
   title.className = "text-sm font-medium";
@@ -88,6 +101,7 @@ export function lockUpdateInput(
   window.addEventListener("focusin", keepFocus, true);
   root?.setAttribute("inert", "");
   document.body.append(overlay);
+  const orb = drawOrb(spinner);
   dialog.focus();
   const show = (text: string) => {
     detail.textContent = text;
@@ -101,6 +115,7 @@ export function lockUpdateInput(
     resumeBrowsers();
     for (const event of events) window.removeEventListener(event, block, true);
     window.removeEventListener("focusin", keepFocus, true);
+    orb?.destroy();
     overlay.remove();
     if (!wasInert) root?.removeAttribute("inert");
     if (previousFocus instanceof HTMLElement && previousFocus.isConnected)

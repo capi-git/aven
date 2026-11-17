@@ -28,6 +28,7 @@ import { useChatReviews } from "../lib/chatReview";
 import {
   addFeatureCards,
   addFeatureIdea,
+  deleteFeatureCard,
   editFeatureCard,
   featureBrief,
   linkFeatureChat,
@@ -58,56 +59,6 @@ import {
 } from "../lib/workBoardFeed";
 import { homeElapsed } from "../lib/workspaceHome";
 import { BoardIssueImport } from "./BoardIssueImport";
-import { CrewCritters } from "../chrome/CrewCritter";
-import { TeamScreen } from "./TeamScreen";
-import {
-  addResearchIdeas,
-  applyCrewCard,
-  addQuestionCard,
-  askDesigner,
-  askResearcher,
-  buildMockup,
-  designQuestion,
-  dismissMockup,
-  crewDeleteNote,
-  crewWorkspace,
-  deleteBoardCard,
-  discardCrewCard,
-  giveCardToCrew,
-  notNowIdea,
-  requestCrewReview,
-  researchQuestion,
-  resumeCrewCard,
-  setCrewCardPaused,
-  stopCrewCard,
-} from "../lib/crewActions";
-import {
-  cardDesigner,
-  cardResearcher,
-  crewCard,
-  crewMemberName,
-  ensureAvos,
-  getCrew,
-  stackedCards,
-  useCrew,
-  type Crew,
-} from "../lib/crews";
-import {
-  crewBoardColumns,
-  crewCardMenu,
-  type CrewBoardActionId,
-} from "../lib/crewView";
-import {
-  botName,
-  localDay,
-  botStatus,
-  botsAvailable,
-  runsToday,
-  useProjectBot,
-} from "../lib/projectBots";
-import { CrewAnswerBox, CrewCardFace, CrewReadySheet } from "./CrewBoard";
-import { CrewFindingsSheet } from "./TeamFindings";
-import { CrewMockupSheet } from "./TeamMockup";
 // The frame brings the board's styles, loaded with the workspace.
 import { WorkBoardHeading } from "./WorkBoardFrame";
 
@@ -193,62 +144,10 @@ export function WorkBoard({
     void settleFeatureCards(project, settles);
   }, [visible, board.loaded, project, settles]);
   const loading = !live || !board.loaded;
-  // The project's crew, on its Board: its cards show who holds them and
-  // where they stand, and Ideas offer Give to crew.
-  const crew = useCrew(project);
-  const bot = useProjectBot(project);
-  // Every project's Board is its Avos: opening it the first time saves its
-  // Avos and is meeting it. Only where Avos can't run at all (no sandbox
-  // for its helpers) is it the plain Board.
-  const avosHere = botsAvailable();
-  useEffect(() => {
-    if (avosHere && !crew) ensureAvos(project);
-  }, [avosHere, crew, project]);
-  const crewOn = avosHere && !!crew;
-  const fixerName = bot ? botName(bot) : undefined;
-  // The time only matters here to the Scout's daily cap: it moves once a
-  // day, so the minute's tick doesn't draw every card again.
-  const [today, setToday] = useState(now);
-  if (localDay(today) !== localDay(now)) setToday(now);
-  const columns = useMemo(
-    () =>
-      crewOn && crew
-        ? crewBoardColumns(
-            shown.columns,
-            crew,
-            {
-              builder: crewMemberName(crew, "builder"),
-              checker: crewMemberName(crew, "checker"),
-              scout: crewMemberName(crew, "scout"),
-              security: crewMemberName(crew, "security"),
-              researcher: crewMemberName(crew, "researcher"),
-              designer: crewMemberName(crew, "designer"),
-            },
-            (who) => crewMemberName(crew, who),
-            today,
-          )
-        : shown.columns,
-    [crewOn, crew, shown.columns, today],
-  );
-  // Its Avos is being saved: the screen follows in a moment, never the
-  // plain Board in between.
-  if (avosHere && !crew) return null;
   return (
     <WorkBoardView
       project={project}
-      crew={crewOn ? crew : undefined}
-      fixer={
-        crewOn && bot?.on && fixerName
-          ? {
-              name: fixerName,
-              status: botStatus(bot, undefined, now),
-              runs: runsToday(bot, now),
-              ...(bot.sessionId ? { sessionId: bot.sessionId } : {}),
-            }
-          : undefined
-      }
-      now={now}
-      columns={columns}
+      columns={shown.columns}
       olderShipped={shown.olderShipped}
       today={loading ? "Loading…" : boardTodayText(shown.today)}
       outside={shown.outside}
@@ -271,9 +170,6 @@ const STAGE_LABEL: Record<OutsideWork["stage"], string> = {
 /** The board as drawn, from its model; memoized so equal lines skip work. */
 export const WorkBoardView = memo(function WorkBoardView({
   project,
-  crew,
-  fixer,
-  now = 0,
   columns,
   olderShipped,
   today,
@@ -286,16 +182,6 @@ export const WorkBoardView = memo(function WorkBoardView({
   onShowOlder,
 }: {
   project: string;
-  /** The project's crew, while it is on: the board becomes the crew view. */
-  crew?: Crew;
-  /** The crew's Fixer (the project bot), while it is on. */
-  fixer?: {
-    name: string;
-    status: ReturnType<typeof botStatus>;
-    runs: number;
-    sessionId?: string;
-  };
-  now?: number;
   columns: Readonly<Record<BoardColumnId, BoardCard[]>>;
   olderShipped: number;
   today: string;
@@ -311,169 +197,19 @@ export const WorkBoardView = memo(function WorkBoardView({
   onShowOlder: () => void;
 }) {
   const labels = useProjectLabels();
-  // The crew as stored, on or off: Delete throws its work away either way.
-  const storedCrew = useCrew(project);
   const scroller = useRef<HTMLDivElement>(null);
   const layoutKey = BOARD_COLUMNS.map(
     (column) =>
       `${column.id}:${columns[column.id].map((card) => card.id).join(",")}`,
   ).join("|");
   const { remember } = useCardGlide(scroller, layoutKey);
-  /** Give to crew ▾: who builds and checks a card, and how. */
+  /** A card's ⋯ menu. */
   const [menu, setMenu] = useState<{
     cardId: string;
     anchor: HTMLElement;
   } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<BoardCard | null>(null);
-  const [throwing, setThrowing] = useState<BoardCard | null>(null);
-  const [readyCard, setReadyCard] = useState<string | null>(null);
-  /** The research card whose Findings are open. */
-  const [reading, setReading] = useState<string | null>(null);
-  /** The mock-up card whose Mock-up is open. */
-  const [looking, setLooking] = useState<string | null>(null);
-  const [answering, setAnswering] = useState<string | null>(null);
-  const [crewProblems, setCrewProblems] = useState<
-    Readonly<Record<string, string>>
-  >({});
-  const noteProblem = useCallback(
-    (cardId: string, problem: string | null) =>
-      setCrewProblems((current) => {
-        if (!problem && !current[cardId]) return current;
-        const next = { ...current };
-        if (problem) next[cardId] = problem;
-        else delete next[cardId];
-        return next;
-      }),
-    [],
-  );
-  const crewName = useCallback(
-    (who: string) => (crew ? crewMemberName(crew, who, fixer?.name) : who),
-    [crew, fixer?.name],
-  );
-  /** What a crew button on a card does: Aven's action, never a bot's words. */
-  const crewAction = useCallback(
-    (card: BoardCard, id: CrewBoardActionId) => {
-      const info = card.crew;
-      const workspace = crewWorkspace();
-      noteProblem(card.id, null);
-      switch (id) {
-        case "give":
-          void giveCardToCrew(project, {
-            id: card.id,
-            title: card.title,
-            ...(card.note ? { note: card.note } : {}),
-            ...(card.source ? { sourceUrl: card.source.url } : {}),
-          }).then((problem) => noteProblem(card.id, problem));
-          return;
-        case "not-now":
-          notNowIdea(project, card.id);
-          return;
-        case "research":
-          void askResearcher(project, {
-            id: card.id,
-            title: card.title,
-            ...(card.note ? { note: card.note } : {}),
-            ...(card.source ? { sourceUrl: card.source.url } : {}),
-          }).then((problem) => noteProblem(card.id, problem));
-          return;
-        case "read":
-          setReading(card.id);
-          return;
-        case "add-ideas":
-          void addResearchIdeas(project, card.id).then((problem) =>
-            noteProblem(card.id, problem),
-          );
-          return;
-        case "design":
-          void askDesigner(project, {
-            id: card.id,
-            title: card.title,
-            ...(card.note ? { note: card.note } : {}),
-            ...(card.source ? { sourceUrl: card.source.url } : {}),
-          }).then((problem) => noteProblem(card.id, problem));
-          return;
-        case "look":
-          setLooking(card.id);
-          return;
-        case "build-mockup":
-          void buildMockup(project, card.id).then((problem) =>
-            noteProblem(card.id, problem),
-          );
-          return;
-        case "dismiss-mockup":
-          void dismissMockup(project, card.id).then((problem) =>
-            noteProblem(card.id, problem),
-          );
-          return;
-        case "watch":
-        case "open":
-          workspace?.openChat(
-            project,
-            info?.holderId ?? info?.holder ?? "builder",
-          );
-          return;
-        case "review":
-        case "apply": {
-          // A card on Avos's branch is reviewed, and lands, with the
-          // batch's Review: Apply lands exactly what you saw there.
-          const known = getCrew(project);
-          if (
-            known &&
-            stackedCards(known).some((item) => item.id === card.id)
-          ) {
-            requestCrewReview(project);
-            return;
-          }
-          if (id === "review") {
-            setReadyCard(card.id);
-            return;
-          }
-          void applyCrewCard(project, card.id).then((problem) =>
-            noteProblem(card.id, problem),
-          );
-          return;
-        }
-        case "more":
-          resumeCrewCard(project, card.id);
-          return;
-        case "answer":
-          // A turn waiting on a question or an approval: answer it in its chat.
-          if (info?.sessionId)
-            workspace?.openChat(
-              project,
-              info.holderId ?? info.holder ?? "builder",
-            );
-          else setAnswering(card.id);
-          return;
-        case "take-over":
-          workspace?.openChat(
-            project,
-            info?.members?.find((member) => member.role === "builder")?.id ??
-              "builder",
-          );
-          return;
-        case "back-to-ideas":
-          void discardCrewCard(project, card.id, "ideas").then((problem) =>
-            noteProblem(card.id, problem),
-          );
-          return;
-        case "throw-away":
-          setThrowing(card);
-          return;
-        case "resume":
-          setCrewCardPaused(project, card.id, false);
-          return;
-        case "pause":
-          setCrewCardPaused(project, card.id, true);
-          return;
-        case "stop":
-          void stopCrewCard(project, card.id);
-          return;
-      }
-    },
-    [project, noteProblem],
-  );
   const latest = useRef(columns);
   latest.current = columns;
   const cardById = useCallback(
@@ -512,26 +248,19 @@ export const WorkBoardView = memo(function WorkBoardView({
     const card = menuCard;
     setMenu(null);
     if (!card) return;
-    if (id.startsWith("crew:"))
-      crewAction(card, id.slice("crew:".length) as CrewBoardActionId);
-    else if (id === "draft") void openDraft(project, card);
+    if (id === "draft") void openDraft(project, card);
     else if (id === "edit") setEditing(card.id);
     else if (id === "delete") setDeleting(card);
     else if (id.startsWith("move:"))
       move(card.id, id.slice("move:".length) as FeatureColumn);
   };
-  // The four columns. A team's Board puts its batch on top of Ready for
-  // you, as one card for the cards on its branch.
-  const sections = (top: BoardTop = {}) =>
+  // The four columns.
+  const sections = () =>
     BOARD_COLUMNS.map((column) => {
-      const placed = top[column.id];
-      const cards = placed
-        ? columns[column.id].filter((card) => !placed.covers.has(card.id))
-        : columns[column.id];
+      const cards = columns[column.id];
       const older = column.id === "shipped" ? olderShipped : 0;
       const ideas = column.id === "idea";
-      // A team's Board names what waits for you, and what's done, plainly.
-      const title = (crew && TEAM_COLUMN_TITLES[column.id]) || column.title;
+      const title = column.title;
       return (
         <section
           key={column.id}
@@ -541,41 +270,24 @@ export const WorkBoardView = memo(function WorkBoardView({
         >
           <h2 className="work-board-column-title">
             <span>{title}</span>
-            <span className="work-board-count">
-              {cards.length + (placed?.count ?? 0)}
-            </span>
+            <span className="work-board-count">{cards.length}</span>
             {ideas && !loading ? (
               <BoardIssueImport project={project} visible={live} />
             ) : null}
           </h2>
-          {ideas && crew && cards.length ? (
-            <p className="work-board-column-hint">
-              {crew.paused
-                ? "Avos is paused: ideas wait"
-                : "Built one by one, top first, while you're away"}
-            </p>
-          ) : null}
-          {cards.length || placed ? (
+          {cards.length ? (
             <ul className="work-board-list" role="list">
-              {placed ? (
-                <li className="work-board-item">{placed.node}</li>
-              ) : null}
               {cards.map((card) => (
                 <li key={card.id} className="work-board-item">
                   <BoardCardView
                     project={project}
                     card={card}
                     live={live}
-                    now={now}
                     editing={editing === card.id}
                     menuOpen={menu?.cardId === card.id}
-                    answering={answering === card.id}
-                    crewProblem={crewProblems[card.id]}
                     onMenu={openMenu}
                     onEdit={setEditing}
                     onEditDone={stopEditing}
-                    onAnswerDone={() => setAnswering(null)}
-                    onCrewAction={crew ? crewAction : undefined}
                     onPointerDown={startDrag}
                   />
                 </li>
@@ -602,18 +314,7 @@ export const WorkBoardView = memo(function WorkBoardView({
               {showOlder ? "Show this week only" : `${older} older`}
             </button>
           ) : null}
-          {ideas && !loading ? (
-            <AddIdea
-              project={project}
-              researcher={
-                crew && cardResearcher(crew) ? crewName("researcher") : null
-              }
-              designer={
-                crew && cardDesigner(crew) ? crewName("designer") : null
-              }
-              onProblem={noteProblem}
-            />
-          ) : null}
+          {ideas && !loading ? <AddIdea project={project} /> : null}
         </section>
       );
     });
@@ -622,45 +323,19 @@ export const WorkBoardView = memo(function WorkBoardView({
       ref={scroller}
       className="work-board"
       data-work-board={project}
-      data-crew={crew ? "" : undefined}
       aria-busy={loading || undefined}
-      aria-label={`${projectDisplayName(project, labels)}${crew ? "'s Avos" : " board"}`}
+      aria-label={`${projectDisplayName(project, labels)} board`}
     >
-      {crew ? null : <WorkBoardHeading project={project} line={today} />}
+      <WorkBoardHeading project={project} line={today} />
       {error ? (
         <p className="work-board-error" role="alert">
           {error}
         </p>
       ) : null}
-      {/* Chats at work outside the board belong to the plain Board. Avos
-          tracks its own work: your chats are in the sidebar, as ever. */}
-      {outside.length && !loading && !crew ? (
+      {outside.length && !loading ? (
         <OutsideLine project={project} outside={outside} />
       ) : null}
-      {crew ? (
-        <TeamScreen
-          project={project}
-          crew={crew}
-          {...(fixer
-            ? {
-                fixer: {
-                  status: fixer.status,
-                  runs: fixer.runs,
-                  ...(fixer.sessionId ? { sessionId: fixer.sessionId } : {}),
-                },
-              }
-            : {})}
-          columns={columns}
-          sections={sections}
-          now={now}
-          name={crewName}
-          problems={crewProblems}
-          onCrewAction={crewAction}
-          onDeleteCard={setDeleting}
-        />
-      ) : (
-        <div className="work-board-columns">{sections()}</div>
-      )}
+      <div className="work-board-columns">{sections()}</div>
       {menu && menuCard ? (
         <ExplorerMenu
           x={0}
@@ -669,82 +344,21 @@ export const WorkBoardView = memo(function WorkBoardView({
           align="end"
           gap={4}
           ariaLabel={`Actions for “${menuCard.title}”`}
-          items={cardMenuItems(
-            menuCard,
-            crew ? crewCard(crew, menuCard.id) : undefined,
-          )}
+          items={cardMenuItems(menuCard)}
           onPick={pick}
           onClose={() => setMenu(null)}
-        />
-      ) : null}
-      {crew && readyCard ? (
-        <CrewReadySheet
-          crew={crew}
-          cardId={readyCard}
-          names={(() => {
-            const held = crewCard(crew, readyCard);
-            return {
-              builder: crewName(held?.builderId ?? "builder"),
-              checker: crewName(held?.checkerId ?? "checker"),
-              security: crewName("security"),
-            };
-          })()}
-          onClose={() => setReadyCard(null)}
-        />
-      ) : null}
-      {crew && reading ? (
-        <CrewFindingsSheet
-          crew={crew}
-          cardId={reading}
-          name={crewName}
-          onClose={() => setReading(null)}
-        />
-      ) : null}
-      {crew && looking ? (
-        <CrewMockupSheet
-          crew={crew}
-          cardId={looking}
-          name={crewName}
-          onClose={() => setLooking(null)}
-        />
-      ) : null}
-      {throwing ? (
-        <ConfirmDialog
-          title="Throw this card away?"
-          body={`Avos's work on “${throwing.title}” is thrown away. Your files stay as they are.`}
-          confirmLabel="Throw away"
-          danger
-          onConfirm={() => {
-            const id = throwing.id;
-            setThrowing(null);
-            void discardCrewCard(project, id, "delete").then((problem) =>
-              noteProblem(id, problem),
-            );
-          }}
-          onCancel={() => setThrowing(null)}
         />
       ) : null}
       {deleting ? (
         <ConfirmDialog
           title="Delete this card?"
-          body={[
-            crew
-              ? `“${deleting.title}” is deleted.`
-              : `“${deleting.title}” leaves the board.`,
-            crewDeleteNote(storedCrew, deleting.id),
-            "Its chats stay in the sidebar.",
-          ]
-            .filter(Boolean)
-            .join(" ")}
+          body={`“${deleting.title}” leaves the board. Its chats stay in the sidebar.`}
           confirmLabel="Delete"
           danger
           onConfirm={() => {
             const id = deleting.id;
             setDeleting(null);
-            // A card the crew has is thrown away with its work, never left running.
-            void deleteBoardCard(project, id).then((problem) =>
-              noteProblem(id, problem),
-            );
+            void deleteFeatureCard(project, id);
           }}
           onCancel={() => setDeleting(null)}
         />
@@ -755,29 +369,9 @@ export const WorkBoardView = memo(function WorkBoardView({
 
 const NO_OUTSIDE: readonly OutsideWork[] = Object.freeze([]);
 
-/**
- * A card's ⋯ menu: a draft of it, its words, where it goes, and Delete;
- * while the crew works on it, Pause or Resume it and Stop now come first,
- * and the crew's stage says where it goes.
- */
-export function cardMenuItems(
-  card: BoardCard,
-  held?: Parameters<typeof crewCardMenu>[0],
-): ExplorerMenuItem[] {
-  // The team's own: a card it has, or an idea's Build it next and Not now.
-  const crewItems: ExplorerMenuItem[] = (
-    held && held.stage !== "applied" && held.stage !== "discarded"
-      ? crewCardMenu(held)
-      : (card.crew?.menu ?? [])
-  ).map((action) => ({
-    kind: "item",
-    id: `crew:${action.id}`,
-    label: action.label,
-  }));
-  const live = !!held && held.stage !== "applied" && held.stage !== "discarded";
+/** A card's ⋯ menu: a draft of it, its words, where it goes, and Delete. */
+export function cardMenuItems(card: BoardCard): ExplorerMenuItem[] {
   return [
-    ...crewItems,
-    ...(crewItems.length ? [{ kind: "sep" } as const] : []),
     {
       kind: "item",
       id: "draft",
@@ -786,18 +380,14 @@ export function cardMenuItems(
     },
     { kind: "item", id: "edit", label: "Edit" },
     { kind: "sep" },
-    // The crew's stage places a card it has: moving it by hand wouldn't stick.
-    ...(live
-      ? []
-      : BOARD_COLUMNS.filter((column) => column.id !== card.column).map(
-          (column): ExplorerMenuItem => ({
-            kind: "item",
-            id: `move:${column.id}`,
-            // A team's card names its columns as the team's Board does.
-            label: `Move to ${(card.crew && TEAM_COLUMN_TITLES[column.id]) || column.title}`,
-          }),
-        )),
-    ...(live ? [] : [{ kind: "sep" } as const]),
+    ...BOARD_COLUMNS.filter((column) => column.id !== card.column).map(
+      (column): ExplorerMenuItem => ({
+        kind: "item",
+        id: `move:${column.id}`,
+        label: `Move to ${column.title}`,
+      }),
+    ),
+    { kind: "sep" },
     { kind: "item", id: "delete", label: "Delete", danger: true },
   ];
 }
@@ -890,91 +480,38 @@ function runAction(project: string, card: BoardCard, action: BoardAction) {
   }
 }
 
-/**
- * What a team's Board puts on top of a column: the batch on its branch, as
- * one card standing for the cards it covers, which aren't drawn again.
- */
-export type BoardTop = Partial<
-  Record<
-    BoardColumnId,
-    { node: ReactNode; covers: ReadonlySet<string>; count: number }
-  >
->;
-
-/** A team's Board: Review and Shipped, as the team's work reads them. */
-const TEAM_COLUMN_TITLES: Partial<Record<BoardColumnId, string>> = {
-  review: "Ready for you",
-  shipped: "Done",
-};
-
 const BoardCardView = memo(function BoardCardView({
   project,
   card,
   live,
-  now = 0,
   editing,
   menuOpen,
-  answering = false,
-  crewProblem,
   onMenu,
   onEdit,
   onEditDone,
-  onAnswerDone,
-  onCrewAction,
   onPointerDown,
 }: {
   project: string;
   card: BoardCard;
   live: boolean;
-  now?: number;
   editing: boolean;
   menuOpen: boolean;
-  /** Writing an answer to the Builder's question, on the card. */
-  answering?: boolean;
-  /** Why the last crew action on it didn't go through. */
-  crewProblem?: string;
   onMenu: (cardId: string, anchor: HTMLElement) => void;
   onEdit: (cardId: string) => void;
   onEditDone: () => void;
-  onAnswerDone?: () => void;
-  onCrewAction?: (card: BoardCard, action: CrewBoardActionId) => void;
   onPointerDown: (
     event: ReactPointerEvent<HTMLElement>,
     cardId: string,
   ) => void;
 }) {
   const label = boardActionLabel;
-  const crew = onCrewAction ? card.crew : undefined;
-  // A crew card in the loop or Ready opens what it is: the holder's chat,
-  // the Ready card, or the Findings. Otherwise, as any card.
-  const crewOpen: CrewBoardActionId | null = !crew?.label
-    ? null
-    : crew.label === "Ready"
-      ? "review"
-      : crew.label === "Findings" ||
-          (crew.label === "Read" &&
-            crew.actions.some((action) => action.id === "read"))
-        ? "read"
-        : crew.label === "Mock-up" &&
-            crew.actions.some((action) => action.id === "look")
-          ? "look"
-          : crew.holder
-            ? "open"
-            : null;
   const open = () => {
-    if (crewOpen && onCrewAction) onCrewAction(card, crewOpen);
-    else if (card.sessionId) workBoardActions()?.openChat(card.sessionId);
+    if (card.sessionId) workBoardActions()?.openChat(card.sessionId);
     else onEdit(card.id);
   };
-  // A team card says where it stands in its own face.
-  const detail = crew
-    ? undefined
-    : (card.line ?? (card.column === "idea" ? card.note : undefined));
+  const detail = card.line ?? (card.column === "idea" ? card.note : undefined);
   const source = card.source;
-  // With a team on, it builds the ideas and owns its cards' buttons: no Build.
-  const boardActions = crew ? [] : card.actions;
-  // The crew's stage places a card it holds: it can't be dragged elsewhere.
-  const fixed = !!crew?.column;
+  const boardActions = card.actions;
   return (
     <article
       className="work-board-card"
@@ -983,12 +520,10 @@ const BoardCardView = memo(function BoardCardView({
       data-board-chats={card.chatIds.join(" ") || undefined}
       data-column={card.column}
       data-team={card.team}
-      data-crew-stage={crew?.label}
-      data-needs-you={card.needsYou || crew?.needsYou ? "" : undefined}
+      data-needs-you={card.needsYou ? "" : undefined}
       data-editing={editing || undefined}
-      data-fixed={fixed || undefined}
       onPointerDown={
-        editing || fixed ? undefined : (event) => onPointerDown(event, card.id)
+        editing ? undefined : (event) => onPointerDown(event, card.id)
       }
     >
       {editing ? (
@@ -1004,13 +539,7 @@ const BoardCardView = memo(function BoardCardView({
             onClick={open}
           >
             <span className="work-board-card-title">
-              {crew?.roles.length ? (
-                <CrewCritters
-                  path={project}
-                  roles={crew.members ?? crew.roles}
-                  active={live ? (crew.holderId ?? crew.holder) : undefined}
-                />
-              ) : card.faces.length ? (
+              {card.faces.length ? (
                 <TeamMiniFaces
                   members={card.faces}
                   active={card.working && live}
@@ -1026,7 +555,6 @@ const BoardCardView = memo(function BoardCardView({
                 ) : null}
               </span>
             ) : null}
-            {crew ? <CrewCardFace info={crew} now={now} /> : null}
           </button>
           <button
             type="button"
@@ -1046,19 +574,7 @@ const BoardCardView = memo(function BoardCardView({
               {` · ${card.needsYou}`}
             </p>
           ) : null}
-          {answering && onAnswerDone ? (
-            <CrewAnswerBox
-              path={project}
-              cardId={card.id}
-              onDone={onAnswerDone}
-            />
-          ) : null}
-          {crewProblem ? (
-            <p className="crew-card-problem" role="alert">
-              {crewProblem}
-            </p>
-          ) : null}
-          {boardActions.length || crew?.actions.length || source ? (
+          {boardActions.length || source ? (
             <div className="work-board-card-actions" data-no-drag>
               {boardActions.map((action) => (
                 <BoardButton
@@ -1069,17 +585,6 @@ const BoardCardView = memo(function BoardCardView({
                   {label(action)}
                 </BoardButton>
               ))}
-              {crew && !answering
-                ? crew.actions.map((action) => (
-                    <BoardButton
-                      key={`crew:${action.id}`}
-                      primary={!!action.primary}
-                      onClick={() => onCrewAction?.(card, action.id)}
-                    >
-                      {action.label}
-                    </BoardButton>
-                  ))
-                : null}
               {source ? (
                 <TeamCardButton
                   size="compact"
@@ -1171,32 +676,9 @@ function CardEditor({
   );
 }
 
-/**
- * Ideas' foot: write one down. Enter adds it, Escape clears it. With a
- * Researcher on the team, "Research: …" asks it the question instead; with
- * a Designer, "Design: …" or "Mock up: …" asks it for a mock-up.
- */
-function AddIdea({
-  project,
-  researcher,
-  designer,
-  onProblem,
-}: {
-  project: string;
-  /** The Researcher's name, while the team has one on. */
-  researcher?: string | null;
-  /** The Designer's name, while the team has one on. */
-  designer?: string | null;
-  onProblem?: (cardId: string, problem: string | null) => void;
-}) {
+/** Ideas' foot: write one down. Enter adds it, Escape clears it. */
+function AddIdea({ project }: { project: string }) {
   const [text, setText] = useState("");
-  const hints = [
-    ...(researcher ? [`“Research: …” to ask ${researcher}`] : []),
-    ...(designer ? [`“Design: …” to ask ${designer}`] : []),
-  ];
-  const placeholder = hints.length
-    ? `Add an idea, or ${hints.join(" or ")}`
-    : "Add an idea";
   return (
     <form
       className="work-board-add"
@@ -1205,33 +687,13 @@ function AddIdea({
         const title = text.trim();
         if (!title) return;
         setText("");
-        const question = researcher ? researchQuestion(title) : null;
-        const screen = designer && !question ? designQuestion(title) : null;
-        if (!question && !screen) {
-          void addFeatureIdea(project, { title });
-          return;
-        }
-        // The team's card first, then the Board's: never an idea a tick
-        // could hand to a Builder meanwhile.
-        void addQuestionCard(
-          project,
-          question ?? screen!,
-          question ? "research" : "mockup",
-        ).then(({ card, problem }) => {
-          if (card || !problem) return;
-          // It couldn't be asked: your words stay, as an idea that waits.
-          void addFeatureIdea(project, { title }).then((idea) => {
-            if (!idea) return;
-            notNowIdea(project, idea.id);
-            onProblem?.(idea.id, problem);
-          });
-        });
+        void addFeatureIdea(project, { title });
       }}
     >
       <input
         className="work-board-input work-board-add-input"
         type="text"
-        placeholder={placeholder}
+        placeholder="Add an idea"
         aria-label="Add an idea"
         value={text}
         maxLength={FEATURE_TITLE_MAX}

@@ -4,6 +4,7 @@ import { resetCrewsCache, updateCrew, type Crew } from "./crews";
 import {
   WEB_TOOLS,
   crewChatPermissions,
+  CREW_CHAT_REFUSAL,
   crewPermissionRules,
   crewSandbox,
 } from "./projectBotPermissions";
@@ -116,7 +117,7 @@ describe("the Researcher's rules", () => {
       noEscalation: true,
       workFolder: COPY,
     });
-    expect(permissions.refuse).toBeUndefined();
+    expect(permissions.refuse).toBe(CREW_CHAT_REFUSAL);
     expect(permissions.rules.deny).toContain(`Edit(/${COPY}/**)`);
     expect(permissions.rules.deny).not.toContain("WebFetch");
   });

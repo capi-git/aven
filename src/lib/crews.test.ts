@@ -5,7 +5,6 @@ import {
   CREWS_KEY,
   crewsStoreUnreadable,
   CREW_DEFAULT_RUNS_PER_DAY,
-  cardInCopy,
   crewForChat,
   crewFromBot,
   crewMembers,
@@ -14,17 +13,13 @@ import {
   isCrewChat,
   migrateBotsIntoCrews,
   newCrew,
-  queuedCards,
   readCrew,
   resetCrewsCache,
   updateCrew,
   withBotsAsFixers,
-  withCard,
   withNote,
   withoutNote,
-  type Crew,
 } from "./crews";
-import { queueCard, startCard } from "./crewLoop";
 import {
   FOREIGN_STORE_WHY,
   resetSaveProblems,
@@ -279,10 +274,20 @@ describe("migrating project bots into crews", () => {
           [PROJECT]: {
             ...newCrew(PROJECT, 1),
             cards: [
-              queueCard(
-                { id: "q", title: "Q", brief: "q", from: "you", maxRounds: 3 },
-                1,
-              ),
+              {
+                id: "q",
+                title: "Q",
+                brief: "q",
+                from: "you",
+                stage: "queued",
+                round: 0,
+                maxRounds: 3,
+                rounds: [],
+                later: [],
+                runs: 0,
+                queuedAt: 1,
+                updatedAt: 1,
+              },
               later,
               { id: "junk", stage: "reviewing" },
             ],
@@ -371,24 +376,6 @@ describe("crew chats are bot chats", () => {
 });
 
 describe("cards and notes", () => {
-  it("holds one card in the copy at a time and queues the rest in order", () => {
-    let crew: Crew = newCrew(PROJECT);
-    const first = queueCard(
-      { id: "a", title: "A", brief: "A", from: "you", maxRounds: 3 },
-      1,
-    );
-    const second = queueCard(
-      { id: "b", title: "B", brief: "B", from: "you", maxRounds: 3 },
-      2,
-    );
-    crew = withCard(withCard(crew, second), first);
-    expect(queuedCards(crew).map((card) => card.id)).toEqual(["a", "b"]);
-    expect(cardInCopy(crew)).toBeUndefined();
-    crew = withCard(crew, startCard(first, 3));
-    expect(cardInCopy(crew)?.id).toBe("a");
-    expect(queuedCards(crew).map((card) => card.id)).toEqual(["b"]);
-  });
-
   it("keeps your notes as standing guidance, and posts them to the feed", () => {
     let crew = withNote(newCrew(PROJECT), "  Use pnpm,\n not npm.  ", 5);
     expect(crew.notes).toHaveLength(1);

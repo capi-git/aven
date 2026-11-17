@@ -68,7 +68,7 @@ it("shows preloaded notes immediately while refreshing in the background", async
   await render();
   expect(title()).toBe("Plan");
   expect(container.textContent).toContain("Keep this text.");
-  expect(container.querySelector(".animate-spin")).toBeNull();
+  expect(container.querySelector(".orb-loader")).toBeNull();
 
   await act(async () =>
     finish([{ ...stored, title: "Updated plan", updatedAt: 2 }]),
@@ -79,7 +79,7 @@ it("shows preloaded notes immediately while refreshing in the background", async
 it("still shows a spinner when no notes have been loaded yet", async () => {
   invoke.mockReturnValue(new Promise<Note[]>(() => {}));
   await render();
-  expect(container.querySelector(".animate-spin")).not.toBeNull();
+  expect(container.querySelector(".orb-loader")).not.toBeNull();
   expect(title()).toBeUndefined();
 });
 

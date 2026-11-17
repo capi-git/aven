@@ -11,7 +11,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Composer, type ComposerAvos } from "../chrome/Composer";
+import { Composer } from "../chrome/Composer";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
 import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
@@ -64,8 +64,6 @@ import { isUntitledChatTitle } from "../lib/untitledChat";
 import { AgentTranscript } from "./AgentTranscript";
 import { BotChatHeader, BotIntro } from "./BotChat";
 import { useBotChatProject } from "../lib/projectBots";
-import { crewMemberName, useCrew, useCrewChat } from "../lib/crews";
-import { CrewChatHeader, CrewIntro } from "./CrewChat";
 import { useProjectBotName } from "../hooks/useProjectBotName";
 import { isBlockingQuestion } from "../lib/userQuestion";
 import { HelmRunContext, type HelmRun } from "../chrome/HelmRun";
@@ -158,13 +156,6 @@ type Props = {
     attachments: Attachment[],
     agents: PaletteAgent[],
   ) => Promise<boolean>;
-  /**
-   * @Avos from this chat: the message goes to its project's Avos with a link
-   * back here. Resolves with why it couldn't, or null.
-   */
-  onTellAvos?: (sessionId: string, text: string) => Promise<string | null>;
-  /** Show a project's Avos. */
-  onOpenAvos?: (path: string) => void;
   onStop: (sessionId: string) => void;
   onCompactContext: (sessionId: string) => boolean;
   onDeleteQueuedMessage: (sessionId: string, messageId: string) => void;
@@ -239,8 +230,6 @@ export const SessionPane = memo(function SessionPane({
   onRuntimeModeChange,
   onSubmit,
   onRace,
-  onTellAvos,
-  onOpenAvos,
   onStop,
   onCompactContext,
   onDeleteQueuedMessage,
@@ -287,20 +276,12 @@ export const SessionPane = memo(function SessionPane({
   // says what the team and this chat are doing, with the run's time.
   const teamRow = !session.inboxAsk && teamBarShows(team, session.id);
   const raceLane = raceLaneFor(session.id);
-  // A project's bot: its header, its tags and fix cards, its own name. A
-  // crew member is a teammate in its own copy too, with its own header.
+  // A project's bot: its header, its tags and fix cards, its own name.
   const projectBot = useBotChatProject(
     session.inboxAsk ? undefined : session.id,
   );
-  const crewChat = useCrewChat(session.inboxAsk ? undefined : session.id);
-  const botProject = projectBot ?? crewChat?.path;
-  const crewOfChat = useCrew(crewChat?.path);
-  const projectBotLabel = useProjectBotName(projectBot);
-  const botLabel =
-    projectBotLabel ??
-    (crewChat && crewOfChat
-      ? crewMemberName(crewOfChat, crewChat.memberId ?? crewChat.role)
-      : undefined);
+  const botProject = projectBot;
+  const botLabel = useProjectBotName(projectBot);
   // Never in a lane, partner, worker, bot or Inbox chat, nor during its own run.
   const offersMemoryKeeper =
     !botProject &&
@@ -717,28 +698,8 @@ export const SessionPane = memo(function SessionPane({
       onOpenDiff,
     ],
   );
-  // @Avos: a chat in a project can hand a message to its Avos. A bot's or
-  // a helper's own chat, and an Inbox ask, can't.
-  const avosProject =
-    onTellAvos &&
-    !botProject &&
-    !session.inboxAsk &&
-    looksLikeProject(session.cwd)
-      ? session.cwd
-      : null;
-  const avos = useMemo<ComposerAvos | undefined>(
-    () =>
-      avosProject && onTellAvos
-        ? {
-            send: (text) => onTellAvos(sessionId, text),
-            open: () => onOpenAvos?.(avosProject),
-          }
-        : undefined,
-    [avosProject, onTellAvos, onOpenAvos, sessionId],
-  );
   const composer = (
     <Composer
-      {...(avos ? { avos } : {})}
       key={session.id}
       enabled={visible}
       focused={focused && composerFocused}
@@ -846,16 +807,7 @@ export const SessionPane = memo(function SessionPane({
           onDragStart={onPaneDragStart}
         />
       ) : null}
-      {projectBot ? (
-        <BotChatHeader path={projectBot} working={busy} />
-      ) : crewChat ? (
-        <CrewChatHeader
-          path={crewChat.path}
-          role={crewChat.role}
-          {...(crewChat.memberId ? { memberId: crewChat.memberId } : {})}
-          working={busy}
-        />
-      ) : null}
+      {projectBot ? <BotChatHeader path={projectBot} working={busy} /> : null}
       <div ref={transcriptScope} className="relative min-h-0 flex-1">
         <NewChatInk
           host={transcriptScope}
@@ -865,17 +817,7 @@ export const SessionPane = memo(function SessionPane({
         {isEmpty ? (
           botProject ? (
             <div className="scrollbar-none h-full min-h-0 overflow-y-auto">
-              {projectBot ? (
-                <BotIntro path={projectBot} />
-              ) : crewChat ? (
-                <CrewIntro
-                  path={crewChat.path}
-                  role={crewChat.role}
-                  {...(crewChat.memberId
-                    ? { memberId: crewChat.memberId }
-                    : {})}
-                />
-              ) : null}
+              {projectBot ? <BotIntro path={projectBot} /> : null}
             </div>
           ) : session.inboxAsk ? (
             <div className="scrollbar-none h-full min-h-0 overflow-y-auto">

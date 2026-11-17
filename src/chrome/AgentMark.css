@@ -1,40 +1,35 @@
-/* Bot, every agent's mark (AgentMark.tsx): a face of lit dots that changes
-   with what it's doing (AGENT_STATE_FACES in src/lib/agentMark.ts), with
-   no box or outline round it. It is also a `.dot-mark`, so it takes the
-   marks' sizes (15px when not set), their container and their colour
-   tokens (`--dot-mark-tint`) from DotMark.css.
+/* Every agent's mark (AgentMark.tsx): a Thinking Orb (ThinkingOrb.tsx,
+   thinkingorbs.com) in the agent's colour, that moves for what it's doing.
+   It is also a `.dot-mark`, so it takes the marks' sizes (15px when not
+   set) and their colour tokens (`--dot-mark-tint`) from DotMark.css.
 
-   Its face is in the agent's colour; what needs you is amber and what's
-   ready green. A soft glow behind the face, in the same colour, says it is
-   working, watching, needs you or is ready; at rest there is none. What
-   moves are small layers, by transform and opacity only. */
+   Its orb is in the agent's colour; what needs you is amber and what's
+   ready green. At rest a plain chat's orb is grey and still. The orb's own
+   script moves it; the only CSS motion is a reaction's one hop, by
+   transform and opacity. */
 
 .agent-mark {
   --agent-body: var(--dot-mark-tint, currentColor);
   --agent-face: var(--agent-body);
   /* At rest, grey: the text colour, a little quieter, so it reads on light
      and dark surfaces alike. */
-  --agent-rest: color-mix(in srgb, var(--color-content) 78%, transparent);
+  --agent-rest: color-mix(in srgb, var(--color-content) 62%, transparent);
   --agent-ready: #5fd3a0;
   --agent-happy: #c4a0ff;
   --agent-failed: #ff6b6b;
-  /* Its own box, as every mark's: what's inside is placed in it and sized
-     by it. */
   position: relative;
-  container-type: inline-size;
+  color: var(--agent-face);
 }
 
-/* With no dark screen behind it, a face on a light surface needs darker
-   colours to read: green and the reaction colours, mixed with the text. */
 html.theme-light .agent-mark {
   --agent-ready: color-mix(in srgb, var(--color-content) 30%, #23a26a);
   --agent-happy: color-mix(in srgb, var(--color-content) 30%, #8a5cf0);
   --agent-failed: color-mix(in srgb, var(--color-content) 25%, #e5484d);
 }
 
-/* At rest a plain chat's prompt is grey; an agent with a colour keeps it,
-   so a Builder at rest still reads as the Builder. */
-.agent-mark[data-agent="resting"]:not([data-tone]) {
+/* At rest a plain chat's orb is grey; an agent with a colour keeps it, so
+   a Builder at rest still reads as the Builder. */
+.agent-mark:is([data-agent="resting"], [data-agent="still"]):not([data-tone]) {
   --agent-face: var(--agent-rest);
 }
 .agent-mark[data-agent="needs"] {
@@ -50,151 +45,24 @@ html.theme-light .agent-mark {
   --agent-face: var(--agent-failed);
 }
 
-.agent-bob,
-.agent-screen,
-.agent-eyes,
-.agent-glow,
-.agent-ring {
-  position: absolute;
-  inset: 0;
-  display: block;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-/* A screen wider than it is tall, in the middle of the mark's square, as a
-   little display: its 13 by 9 face fills it. */
 .agent-bob {
-  inset: 14% 0;
-  overflow: hidden;
-  border-radius: 20cqw;
-}
-
-/* No screen behind the face: it sits on whatever surface the mark is on. */
-.agent-screen {
-  overflow: visible;
-}
-
-.agent-body,
-.agent-eyes > svg {
   position: absolute;
   inset: 0;
   display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  fill: none;
-  stroke-linecap: round;
 }
 
-/* A faint honeycomb, only as a place for a teammate still to come. */
-.agent-glass {
-  display: none;
-  stroke: currentColor;
-  stroke-width: 2.1;
-  opacity: 0.18;
-}
-.agent-mark[data-vacant] .agent-glass {
-  display: inline;
-}
-
-.agent-eye,
-.agent-cursor {
-  stroke: var(--agent-face);
-}
-
-/* One face at every size, the same shapes: below 36px its dots grow
-   until they nearly touch, so a small mark reads as the big one, bolder. */
-.agent-face {
-  stroke-width: 6.1;
-}
-@container (min-width: 19.5px) {
-  .agent-face {
-    stroke-width: 5.6;
-  }
-}
-@container (min-width: 35.5px) {
-  .agent-face {
-    stroke-width: 4.4;
-  }
-  .agent-eye {
-    filter: drop-shadow(0 0 1.5px var(--agent-face));
-  }
-}
-
-/* Its glow: a soft light behind the face in its colour, while it works,
-   watches, needs you, is ready or reacts. Never at rest. */
-.agent-glow {
-  opacity: 0;
-  background: radial-gradient(
-    closest-side,
-    color-mix(in srgb, var(--agent-face) 55%, transparent),
-    transparent
-  );
-}
-.agent-mark:is([data-agent="watching"], [data-reaction]) .agent-glow {
-  opacity: 0.22;
-}
-.agent-mark[data-agent="working"] .agent-glow {
-  opacity: 0.32;
-}
-.agent-mark:is([data-agent="needs"], [data-agent="ready"]) .agent-glow {
-  opacity: 0.5;
-}
-
-/* A place for a teammate still to come: its honeycomb alone, faint. */
+/* A place for a teammate still to come: its orb, faint. */
 .agent-mark[data-vacant] .agent-bob {
-  opacity: 0.26;
+  opacity: 0.3;
 }
 
-/* Motion. Working and needing you repeat for as long as they last; resting
-   and watching are slow and small (DESIGN.md, Motion). Each agent starts
-   somewhere else in its loops (`--agent-phase`). A hidden window or a
-   resize holds them still, and Reduce motion shows a still frame. */
 @media (prefers-reduced-motion: no-preference) {
-  /* Resting: its cursor blinks. */
-  .agent-mark[data-agent="resting"] .agent-cursor {
-    animation: agent-blink 1.1s linear infinite;
-    animation-delay: var(--agent-phase, 0s);
-  }
-  /* A role's own face at rest breathes, slowly. */
-  .agent-mark[data-agent="resting"]:not([data-face="prompt"]) .agent-eyes {
-    animation: agent-rest 3.2s ease-in-out infinite alternate;
-    animation-delay: var(--agent-phase, 0s);
-  }
-  /* Watching: looks one way, blinks, looks the other way, blinks. */
-  .agent-mark[data-agent="watching"] .agent-eyes {
-    animation: agent-look 7.4s infinite;
-    animation-delay: var(--agent-phase, 0s);
-  }
-  /* Working: its eyes scan. */
-  .agent-mark[data-agent="working"] .agent-eyes {
-    animation: agent-scan 0.8s ease-in-out infinite alternate;
-    animation-delay: var(--agent-phase, 0s);
-  }
-  /* Needs you: its prompt nudges you, and its glow breathes. */
-  .agent-mark[data-agent="needs"] .agent-eyes {
-    animation: agent-nudge 1.2s ease-in-out infinite;
-  }
-  .agent-mark[data-agent="needs"] .agent-glow {
-    animation: agent-breathe 1.2s ease-in-out infinite alternate;
-  }
-  /* Ready: it winks now and then, and its glow breathes. */
-  .agent-mark[data-agent="ready"] .agent-eyes {
-    animation: agent-wink 4s ease-in-out infinite;
-    animation-delay: var(--agent-phase, 0s);
-  }
-  .agent-mark[data-agent="ready"] .agent-glow {
-    animation: agent-breathe 2.4s ease-in-out infinite alternate;
-  }
-  /* One-shot reactions, timed by MASCOT_REACTION_MS, over its state. */
+  /* One-shot reactions, timed by MASCOT_REACTION_MS. */
   .agent-mark[data-reaction] .agent-bob {
     transform-origin: 50% 85%;
-    animation-delay: 0s;
     animation-duration: var(--agent-reaction-ms, 900ms);
     animation-timing-function: ease-in-out;
     animation-iteration-count: 1;
-    animation-direction: normal;
     animation-fill-mode: both;
   }
   .agent-mark[data-reaction="cheer"] .agent-bob {
@@ -214,95 +82,6 @@ html.theme-light .agent-mark {
   }
 }
 
-@keyframes agent-rest {
-  from {
-    opacity: 0.7;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes agent-blink {
-  0%,
-  48% {
-    opacity: 1;
-  }
-  52%,
-  96% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-/* Its eyes drift 2.6 units each way, and it blinks at each turn. */
-@keyframes agent-look {
-  0% {
-    transform: translateX(-4.0625%) scaleY(1);
-    animation-timing-function: linear;
-  }
-  0.9% {
-    transform: translateX(-4.0625%) scaleY(0.12);
-    animation-timing-function: linear;
-  }
-  1.8% {
-    transform: translateX(-4.0625%) scaleY(1);
-    animation-timing-function: ease-in-out;
-  }
-  50% {
-    transform: translateX(4.0625%) scaleY(1);
-    animation-timing-function: linear;
-  }
-  50.9% {
-    transform: translateX(4.0625%) scaleY(0.12);
-    animation-timing-function: linear;
-  }
-  51.8% {
-    transform: translateX(4.0625%) scaleY(1);
-    animation-timing-function: ease-in-out;
-  }
-  100% {
-    transform: translateX(-4.0625%) scaleY(1);
-  }
-}
-
-@keyframes agent-scan {
-  from {
-    transform: translateX(-11%);
-  }
-  to {
-    transform: translateX(11%);
-  }
-}
-@keyframes agent-nudge {
-  0%,
-  100% {
-    transform: none;
-    opacity: 1;
-  }
-  50% {
-    transform: translateX(7%);
-    opacity: 0.55;
-  }
-}
-@keyframes agent-breathe {
-  from {
-    opacity: 0.45;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes agent-wink {
-  0%,
-  86%,
-  100% {
-    transform: none;
-  }
-  90% {
-    transform: scaleY(0.12);
-  }
-}
 /* Done: one happy hop. */
 @keyframes agent-cheer {
   0%,
@@ -367,20 +146,11 @@ html.theme-light .agent-mark {
   }
 }
 
-/* While Aven is hidden, or a window, pane or panel is being resized, it
-   holds still and picks up again where it was. */
+/* While Aven is hidden, or something is being resized, a reaction holds
+   still too (the orbs themselves hold in useOrbHold). */
 :root:is([data-hidden], .is-resizing, .is-window-resizing)
   .agent-mark
-  :is(.agent-bob, .agent-eyes, .agent-cursor, .agent-glow),
-[data-workspace-stage][data-resizing="true"]
-  .agent-mark
-  :is(.agent-bob, .agent-eyes, .agent-cursor, .agent-glow) {
-  animation-play-state: paused;
-}
-/* Left alone for a minute, Aven's resting and watching agents settle
-   (idleMotion.ts); working and needing you keep moving. */
-:root[data-still]
-  .agent-mark:is([data-agent="resting"], [data-agent="watching"])
-  :is(.agent-eyes, .agent-cursor) {
+  .agent-bob,
+[data-workspace-stage][data-resizing="true"] .agent-mark .agent-bob {
   animation-play-state: paused;
 }

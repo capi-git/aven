@@ -65,7 +65,6 @@ import {
 } from "../lib/githubTasks";
 import {
   applyInboxFilters,
-  inboxCrewItems,
   inboxReviewRuns,
   hasActiveInboxFilters,
   inboxFetchState,
@@ -96,15 +95,7 @@ import {
   type InboxSessionPortal,
 } from "./InboxDiscussionPanel";
 import { inboxAskKey } from "../lib/inboxAsk";
-import {
-  useAvosInboxNeeds,
-  useOpenCrewInboxItems,
-  useOpenReviewRuns,
-} from "../hooks/useAutomationChats";
-import { CrewInboxDetail, InboxCrewCard } from "./CrewInboxCard";
-import { CrewCritter } from "../chrome/CrewCritter";
-import { avosInboxLine, avosRowsCount } from "../lib/avos";
-import { useCrewWorkspace } from "../lib/crewActions";
+import { useOpenReviewRuns } from "../hooks/useAutomationChats";
 import type { ScheduledRun } from "../lib/scheduledAgents";
 import { AutomationReviewCard, InboxReviewCard } from "./AutomationReviewCard";
 
@@ -352,29 +343,6 @@ export function InboxView({
       ),
     [reviewRuns, activeFilters, projects, searchInput],
   );
-  // Crew cards (Ready, Needs you), above the automations' cards.
-  const crewItems = useOpenCrewInboxItems();
-  const visibleCrew = useMemo(
-    () =>
-      inboxCrewItems(
-        crewItems,
-        activeFilters,
-        projects.map((project) => project.path),
-        searchInput,
-      ),
-    [crewItems, activeFilters, projects, searchInput],
-  );
-  // Avos's own items live in Avos: one line per project points there.
-  const crewWorkspace = useCrewWorkspace();
-  const shownProjectPaths = useMemo(() => {
-    const hidden = new Set(
-      activeFilters.hiddenProjects.map((path) => projectKey(path)),
-    );
-    return projects
-      .map((project) => project.path)
-      .filter((path) => !hidden.has(projectKey(path)));
-  }, [activeFilters, projects]);
-  const avosNeeds = useAvosInboxNeeds(shownProjectPaths);
   const inboxSeenTick = useInboxSeenTick();
   const seenEntries = useMemo(
     () =>
@@ -390,10 +358,9 @@ export function InboxView({
   );
 
   const searchNarrowed = searchInput.trim().length > 0;
-  const listed =
-    visibleReviews.length || visibleCrew.length
-      ? "issues or pull requests"
-      : "reviews, issues or pull requests";
+  const listed = visibleReviews.length
+    ? "issues or pull requests"
+    : "reviews, issues or pull requests";
   const narrowedByUser = searchNarrowed || filtersActive;
   const fetchError = providerErrors.github ?? null;
 
@@ -403,30 +370,23 @@ export function InboxView({
   const chosenReview = visibleReviews.find(
     (run) => reviewKey(run) === selectedKey,
   );
-  const chosenCrew = visibleCrew.find((item) => item.key === selectedKey);
-  // A card is shown when chosen, and first when nothing else is: a crew's,
-  // then an automation's.
-  const selectedCrew =
-    chosenCrew ?? (!chosenItem && !chosenReview ? visibleCrew[0] : undefined);
-  const selectedReview =
-    chosenItem || selectedCrew
-      ? undefined
-      : (chosenReview ?? visibleReviews[0]);
-  const selected =
-    selectedReview || selectedCrew
-      ? null
-      : (chosenItem ?? visibleItems[0] ?? null);
+  // A card is shown when chosen, and first when nothing else is: an
+  // automation's.
+  const selectedReview = chosenItem
+    ? undefined
+    : (chosenReview ?? visibleReviews[0]);
+  const selected = selectedReview
+    ? null
+    : (chosenItem ?? visibleItems[0] ?? null);
 
   useEffect(() => {
-    const key = selectedCrew
-      ? selectedCrew.key
-      : selectedReview
-        ? reviewKey(selectedReview)
-        : selected
-          ? inboxItemKey(selected)
-          : null;
+    const key = selectedReview
+      ? reviewKey(selectedReview)
+      : selected
+        ? inboxItemKey(selected)
+        : null;
     if (key !== selectedKey) setSelectedKey(key);
-  }, [selected, selectedReview, selectedCrew, selectedKey]);
+  }, [selected, selectedReview, selectedKey]);
 
   const onFiltersChange = (next: InboxFilters) => {
     const pruned = pruneInboxFilters(
@@ -502,43 +462,6 @@ export function InboxView({
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-none">
-        {avosNeeds.length && crewWorkspace ? (
-          <ul className="flex flex-col gap-0.5 p-1.5 pb-0" aria-label="Avos">
-            {avosNeeds.map(({ path, rows }) => (
-              <li key={path}>
-                <button
-                  type="button"
-                  data-inbox-avos={path}
-                  title={`Open ${projectName(path)}'s Avos`}
-                  onClick={() => crewWorkspace.openCrew(path)}
-                  className="flex h-7 w-full items-center gap-2 rounded-md px-2.5 text-left text-ui-label text-content/70 hover:bg-(--aven-hover) hover:text-content"
-                >
-                  <CrewCritter path={path} role="lead" state="needs" />
-                  <span className="min-w-0 truncate">
-                    {avosNeeds.length > 1 ? `${projectName(path)} · ` : ""}
-                    {avosInboxLine(avosRowsCount(rows))}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {visibleCrew.length ? (
-          <ul
-            className="flex flex-col gap-0.5 p-1.5 pb-0"
-            aria-label="From helpers"
-          >
-            {visibleCrew.map((item) => (
-              <li key={item.key}>
-                <InboxCrewCard
-                  item={item}
-                  active={selectedCrew?.key === item.key}
-                  onSelect={() => setSelectedKey(item.key)}
-                />
-              </li>
-            ))}
-          </ul>
-        ) : null}
         {visibleReviews.length ? (
           <ul
             className="flex flex-col gap-0.5 p-1.5 pb-0"
@@ -652,11 +575,7 @@ export function InboxView({
         {list}
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-none">
-            {selectedCrew ? (
-              <div className="mx-auto w-full max-w-3xl px-8 py-8">
-                <CrewInboxDetail key={selectedCrew.key} item={selectedCrew} />
-              </div>
-            ) : selectedReview ? (
+            {selectedReview ? (
               <div className="mx-auto w-full max-w-3xl px-8 py-8">
                 <AutomationReviewCard
                   key={selectedReview.id}

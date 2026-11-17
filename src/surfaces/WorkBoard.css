@@ -124,13 +124,6 @@
   font-weight: 600;
 }
 
-/* A team's Ideas: how they get built. */
-.work-board-column-hint {
-  margin: -2px 2px 2px;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-micro);
-}
-
 .work-board-count {
   color: var(--aven-muted);
   font-weight: 400;
@@ -161,12 +154,6 @@
   border-radius: var(--aven-radius-lg);
   background: var(--aven-raised);
   touch-action: none;
-}
-
-/* A card the crew holds stays where its stage puts it: no drag, so touch
-   scrolls past it as usual. */
-.work-board-card[data-fixed] {
-  touch-action: auto;
 }
 
 /* A card one of whose chats waits on you keeps its place, marked in amber. */
@@ -279,18 +266,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* A team's Board reads its cards whole: a title wraps to three lines. */
-.work-board[data-crew] .work-board-card-title {
-  align-items: flex-start;
-}
-
-.work-board[data-crew] .work-board-card-name {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  white-space: normal;
 }
 
 .work-board-card-open:hover .work-board-card-name {

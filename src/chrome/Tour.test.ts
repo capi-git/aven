@@ -106,7 +106,7 @@ describe("the tour", () => {
   it("points at each stop on screen in turn, counting only those, then Done", async () => {
     anchor("composer");
     anchor("projects", { left: 0, top: 40, width: 240, height: 700 });
-    anchor("avos", { left: 12, top: 80, width: 200, height: 28 });
+    anchor("project", { left: 12, top: 80, width: 200, height: 28 });
     await render();
     expect(popover()?.textContent).toContain("Ask your agent");
     expect(popover()?.textContent).toContain("1 of 3");
@@ -121,8 +121,8 @@ describe("the tour", () => {
     expect(popover()?.textContent).toContain("Ask your agent");
     await press("Next");
     await press("Next");
-    // Open Avos isn't on screen; its stop points at Avos's row instead.
-    expect(popover()?.textContent).toContain("Every project has Avos.");
+    // The open project's row isn't on screen; its stop points at a project's.
+    expect(popover()?.textContent).toContain("Project memory");
     expect(popover()?.textContent).toContain("3 of 3");
     await press("Done");
     expect(onClose).toHaveBeenCalledExactlyOnceWith(true);
@@ -192,7 +192,7 @@ describe("the tour", () => {
 
   it("opens the side panel for its stop, and puts it back on moving on", async () => {
     anchor("composer");
-    anchor("avos", { left: 12, top: 80, width: 200, height: 28 });
+    anchor("project", { left: 12, top: 80, width: 200, height: 28 });
     let panel: HTMLElement | null = null;
     const undo = vi.fn(() => {
       panel?.remove();
@@ -216,18 +216,18 @@ describe("the tour", () => {
     expect(popover()?.textContent).toContain("2 of 3");
     await press("Next");
     expect(undo).toHaveBeenCalled();
-    expect(popover()?.textContent).toContain("Every project has Avos.");
+    expect(popover()?.textContent).toContain("Project memory");
   });
 
   it("skips a stop whose element still isn't there when reached", async () => {
     anchor("composer");
-    anchor("avos", { left: 12, top: 80, width: 200, height: 28 });
+    anchor("project", { left: 12, top: 80, width: 200, height: 28 });
     // Preparing it opens nothing that can be pointed at.
     await render({ changes: () => undefined });
     expect(popover()?.textContent).toContain("1 of 3");
     await press("Next");
     await settle(400);
-    expect(popover()?.textContent).toContain("Every project has Avos.");
+    expect(popover()?.textContent).toContain("Project memory");
     expect(popover()?.textContent).toContain("2 of 2");
   });
 

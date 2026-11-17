@@ -4,6 +4,7 @@ import {
   type HugeiconsIconProps,
   type IconSvgElement,
 } from "@hugeicons/react";
+import { ThinkingOrb } from "./ThinkingOrb";
 import Add01Icon from "@hugeicons/core-free-icons/Add01Icon";
 import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon";
 import AppWindowIcon from "@hugeicons/core-free-icons/AppWindowIcon";
@@ -76,7 +77,6 @@ import LayoutTwoColumnIcon from "@hugeicons/core-free-icons/LayoutTwoColumnIcon"
 import LeftToRightListBulletIcon from "@hugeicons/core-free-icons/LeftToRightListBulletIcon";
 import ListEndIcon from "@hugeicons/core-free-icons/ListEndIcon";
 import LinkSquare02Icon from "@hugeicons/core-free-icons/LinkSquare02Icon";
-import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
 import MagicWand01Icon from "@hugeicons/core-free-icons/MagicWand01Icon";
 import MessageMultiple01Icon from "@hugeicons/core-free-icons/MessageMultiple01Icon";
 import Mic01Icon from "@hugeicons/core-free-icons/Mic01Icon";
@@ -257,8 +257,34 @@ export const ListBullet = wrap(LeftToRightListBulletIcon, "ListBullet");
 export const ListEnd = wrap(ListEndIcon, "ListEnd");
 export const ListFilter = wrap(FilterIcon, "ListFilter");
 export const LineStraight = wrap(StraightLineIcon, "LineStraight");
-export const Loader = wrap(Loading03Icon, "Loader");
-export const LoaderCircle = wrap(Loading03Icon, "LoaderCircle");
+/**
+ * Something loading: a Thinking Orb (thinkingorbs.com) in the text colour,
+ * the size its class gives it. It moves by itself, so a caller's
+ * `animate-spin` is dropped.
+ */
+function OrbLoader({
+  className = "",
+  style,
+  "aria-hidden": hidden,
+}: IconProps) {
+  const own = className
+    .split(/\s+/)
+    .filter(
+      (name) => !/(^|:)animate-spin$/.test(name) && !name.startsWith("stroke"),
+    )
+    .join(" ");
+  return (
+    <span
+      className={`orb-loader inline-block ${own}`}
+      style={{ ...style, lineHeight: 0 }}
+      aria-hidden={hidden ?? true}
+    >
+      <ThinkingOrb look={{ state: "working" }} urgent />
+    </span>
+  );
+}
+export const Loader = OrbLoader;
+export const LoaderCircle = OrbLoader;
 export const Lock = wrap(SquareLock02Icon, "Lock");
 export const LockOpen = wrap(SquareUnlock01Icon, "LockOpen");
 export const Maximize2 = wrap(ArrowExpand01Icon, "Maximize2");

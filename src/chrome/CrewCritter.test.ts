@@ -6,7 +6,7 @@ import { projectKey } from "../lib/paths";
 import { crewMemberTone } from "../lib/markTones";
 import { saveTabGroupColor } from "../lib/tabGroups";
 import { BotCritter } from "./BotCritter";
-import { CrewCritter, CrewCritters } from "./CrewCritter";
+import { CrewCritter } from "./CrewCritter";
 
 vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (path: string) => `asset://localhost${path}`,
@@ -51,29 +51,6 @@ const tones = () =>
   );
 
 describe("crew marks", () => {
-  it("each take the helper's own colour, unless it's the project's", async () => {
-    saveTabGroupColor(projectKey(APP), 4);
-    await draw(
-      createElement(CrewCritters, {
-        path: APP,
-        roles: ["builder", "checker", "security", "scout"],
-        active: "builder",
-        max: 4,
-      }),
-    );
-    expect(tones()).toEqual(["blue", "purple", "pink", "teal"]);
-    // Every one is Bot; the working one types in its colour too.
-    expect(host.querySelectorAll(".agent-mark")).toHaveLength(4);
-    expect(
-      host.querySelector<HTMLElement>('.agent-mark[data-agent="working"]')
-        ?.dataset.tone,
-    ).toBe("blue");
-    // A purple project: the Checker would look like its Avos, so it takes
-    // the next colour no helper beside it wears.
-    await act(async () => saveTabGroupColor(projectKey(APP), 6));
-    expect(tones()).toEqual(["blue", "orange", "pink", "teal"]);
-  });
-
   it("never wears a colour that says what's happening", () => {
     for (const [role, mark] of [
       ["builder"],
@@ -113,7 +90,7 @@ describe("crew marks", () => {
     expect(tones()).toEqual(["purple"]);
   });
 
-  it("draws the Fixer and the Lead (Avos) in their project's colour", async () => {
+  it("draws the Fixer and the Lead in their project's colour", async () => {
     saveTabGroupColor(projectKey(APP), 4);
     await draw(createElement(CrewCritter, { path: APP, role: "fixer" }));
     expect(tones()).toEqual(["green"]);

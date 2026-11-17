@@ -63,6 +63,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@xterm/xterm": "^6.0.0",
+    "@yogesharc/thinking-orbs": "0.1.2",
     "codemirror": "^6.0.2",
     "cuelume": "^0.2.2",
     "mermaid": "11.16.1",

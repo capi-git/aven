@@ -1,11 +1,9 @@
-import { IS_WIN } from "./platform";
-
 /**
  * The short guided tour over the real app. Each stop points at an element
  * tagged `data-tour="…"`; a stop whose element is not on screen is skipped.
  */
 export type TourStopId =
-  "composer" | "sidebar" | "browser" | "changes" | "avos" | "memory";
+  "composer" | "sidebar" | "browser" | "changes" | "memory";
 
 export type TourStop = {
   id: TourStopId;
@@ -39,14 +37,6 @@ export const TOUR_STOPS: readonly TourStop[] = [
     anchors: ["changes"],
     title: "Review and ship",
     body: "The side panel's Changes shows what your agents changed. Ship it commits the change, with a message written for you.",
-  },
-  {
-    id: "avos",
-    // Avos's row under the project, or the top row's Open Avos. Windows has
-    // no Avos, so there this stop finds nothing and is skipped.
-    anchors: IS_WIN ? [] : ["avos", "board"],
-    title: "Avos",
-    body: "Every project has Avos. Tell it what you need and what to keep an eye on. Its helpers work in a copy until you apply their changes.",
   },
   {
     id: "memory",

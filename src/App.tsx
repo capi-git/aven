@@ -336,14 +336,12 @@ import {
   finalAssistantText,
   getScheduledAgent,
   getScheduledRun,
-  listScheduledAgents,
   listScheduledRuns,
   markRunOpenedAsChat,
   onScheduledRunsTrimmed,
   OPEN_AUTOMATIONS_EVENT,
   requestAutomationRun,
   requestScheduleEditor,
-  subscribeScheduledAgents,
   subscribeScheduledRuns,
   withoutAutomationChats,
   type ScheduledAgent,
@@ -610,7 +608,6 @@ import {
 import {
   displayPath,
   isEqualOrInside,
-  projectKey,
   projectName,
   rebasePath,
   resolveWorkspacePath,
@@ -687,7 +684,6 @@ import {
   type SessionSummary,
 } from "./lib/sessionStore";
 import {
-  setDockAvosNeeds,
   setDockLeadDecided,
   setDockTeamNeeds,
   syncDockBadge,
@@ -753,7 +749,6 @@ import {
 import { visibleActivitySessionIds } from "./lib/activityVisibility";
 import {
   loadNotificationsEnabled,
-  notifyAvosNeed,
   publishSessionActivity,
   pendingSessionActivityEvents,
   sessionTurnActivityId,
@@ -925,65 +920,11 @@ import {
   installWorkBoardActions,
   type WorkBoardActions,
 } from "./lib/workBoardFeed";
-import { addChatsToBoard, boardProjectFor } from "./lib/featureCards";
+import { addChatsToBoard } from "./lib/featureCards";
 import { useProjectBots } from "./hooks/useProjectBots";
-import { useCrews } from "./hooks/useCrews";
-import { CrewSettingsSheet } from "./chrome/CrewSettingsSheet";
-import type { SidebarCrew } from "./chrome/SidebarCrews";
+import { withAgentTitle } from "./lib/crews";
+import { agentDesktopFaces } from "./lib/agentMark";
 import {
-  firstCardChatText,
-  installCrewWorkspace,
-  pickCrewModels,
-  requestCrewReview,
-  stopTeamForProject,
-  teammateChatReady,
-  tellTeam,
-  turnOnCrew,
-} from "./lib/crewActions";
-import { crewRunsLine } from "./lib/crewLimits";
-import { crewMemberViews, crewStatus } from "./lib/crewView";
-import {
-  AVOS,
-  avosGlance,
-  avosMet,
-  avosNeeds,
-  avosNeedsCount,
-  avosNoticeCards,
-  avosNoticesFor,
-  avosNotificationId,
-  avosNotificationPath,
-  avosOwnsRun,
-  giveChatToAvosText,
-  withAvosNotices,
-  type AvosGlance,
-  type AvosNeeds,
-  type AvosNotice,
-} from "./lib/avos";
-import { AvosNoticeCard } from "./chrome/AvosNotices";
-import { crewChatPlace } from "./lib/crewChatPlace";
-import { launchRefusal } from "./lib/harness/sessionPermissions";
-import { crewChatModel, memberRunsOn } from "./lib/crewModels";
-import {
-  AVOS_MAY_NOT_READ,
-  avosMayRead,
-  crewForChat,
-  crewMemberApp,
-  crewMemberById,
-  crewMemberName,
-  ensureAvos,
-  getCrew,
-  isCrewChat,
-  updateCrew,
-  useCrewsStore,
-  withAgentTitle,
-  withMemberId,
-  type Crew,
-} from "./lib/crews";
-import { agentDesktopFaces, agentOutfit } from "./lib/agentMark";
-import { isHarnessAvailable } from "./lib/harness/availability";
-import { pickerModelsFor } from "./lib/models";
-import {
-  crewChatBrowserOff,
   installBotPermissions,
   teammateChatRefusal,
 } from "./lib/projectBotPermissions";
@@ -999,9 +940,7 @@ import type { SidebarBot } from "./chrome/Sidebar";
 import {
   botChatInCopy,
   botForChat,
-  runsToday,
   botsAvailable,
-  openAvosLabel,
   botHeadline,
   botName,
   botStatus,
@@ -1026,13 +965,8 @@ function chatTone(project: string) {
   return hasProjectAppearance(project) ? projectToneAt(project) : undefined;
 }
 
-/**
- * The faces a chat's Bot shows on the desktop bar and pointer: a teammate's
- * its role's, any other chat's a plain chat's.
- */
-function desktopFaces(sessionId: string) {
-  return agentDesktopFaces(agentOutfit(crewForChat(sessionId)?.member.role));
-}
+/** The faces a chat's Bot shows on the desktop bar and pointer. */
+const DESKTOP_FACES = agentDesktopFaces(undefined);
 
 function withPlanStatus(
   session: Session,
@@ -1063,9 +997,6 @@ function lastAssistantTextInTurn(session: Session): string {
 
 const NO_BOT_CHATS: ReadonlySet<string> = new Set();
 const NO_SIDEBAR_BOTS: readonly SidebarBot[] = [];
-const NO_SIDEBAR_CREWS: readonly SidebarCrew[] = [];
-const NO_AVOS_GLANCES: readonly AvosGlance[] = [];
-const NO_AVOS_NEEDS: readonly AvosNeeds[] = [];
 
 /** A chat started from a Race lane keeps the project but works in the lane. */
 function laneCheckout(source: Session): Pick<Session, "worktreeCwd"> {
@@ -1336,22 +1267,14 @@ export default function App({
   } | null>(null);
   // The project whose bot settings sheet is open.
   const [botSheet, setBotSheet] = useState<string | null>(null);
-  /** Add a bot or a team, asked of a project that needs Git first. */
+  /** Add a bot, asked of a project that needs Git first. */
   const [botGitSetup, setBotGitSetup] = useState<{
     path: string;
     state: GitSetupNeed;
-    /** What it adds once Git is set up. */
-    for: "bot" | "team";
   } | null>(null);
   // Chats project bots are working in: kept loaded without a tab.
   const [botWorkingChats, setBotWorkingChats] =
     useState<ReadonlySet<string>>(NO_BOT_CHATS);
-  // The same for crews, and the project whose crew settings are open.
-  const [crewWorkingChats, setCrewWorkingChats] =
-    useState<ReadonlySet<string>>(NO_BOT_CHATS);
-  const [crewSheet, setCrewSheet] = useState<string | null>(null);
-  /** The page the crew's settings open at: its member gallery, or its own. */
-  const [crewSheetPage, setCrewSheetPage] = useState<string | undefined>();
   const [addProjectAnchor, setAddProjectAnchor] =
     useState<HTMLButtonElement | null>(null);
   const [branchAnchor, setBranchAnchor] = useState<HTMLButtonElement | null>(
@@ -2920,13 +2843,8 @@ export default function App({
   useTurnShotTidy(busySessionIds, sessionsRef);
   // Working chats hold off idle sleep (Settings > Tasks), shared with
   // automations. Chats waiting for the user's answer or approval do not.
-  // Crews work only while you're around: their turns never hold the Mac
-  // awake (see crewRunner).
   const keepAwakeSessionIds = useMemo(
-    () =>
-      agentKeepAwakeSessionIds(
-        sessions.filter((session) => !isCrewChat(session.id)),
-      ),
+    () => agentKeepAwakeSessionIds(sessions),
     [sessions],
   );
   const keepAwakeProgress = useMemo(
@@ -3890,7 +3808,6 @@ export default function App({
       ],
       [
         ...botWorkingChats,
-        ...crewWorkingChats,
         // A bot's new chat has nothing to save until its first message, so
         // parking it would lose it on its way to a tab.
         ...sessions
@@ -3939,7 +3856,6 @@ export default function App({
     keptDiscussionKey,
     botWorkingChats,
     runningAutomationChats,
-    crewWorkingChats,
   ]);
 
   const activateTab = useCallback(
@@ -6751,8 +6667,6 @@ export default function App({
               );
             }
           };
-          // Its team stops first: its chats are among what goes.
-          await stopTeamForProject(normalized);
           await removeProjectData(normalized, {
             openSessionIds: sessionsRef.current
               .filter((session) => sameProjectPath(session.cwd, normalized))
@@ -6762,8 +6676,6 @@ export default function App({
           });
           assertWorkspaceReady();
         }
-        // An archived project's team stops too: it can't be reached.
-        if (!options.purgeData) await stopTeamForProject(normalized);
         // Read current state only after all saves, process stops, and deletes.
         const wasCurrent = sameProjectPath(projectCwdRef.current, normalized);
         const remaining = options.purgeData
@@ -7158,23 +7070,12 @@ export default function App({
   const botChatForTurn = useCallback(
     (session: Session): Session | string => {
       const bot = botForChat(session.id);
-      const crew = bot ? undefined : crewForChat(session.id);
-      if (!bot && !crew) return session;
-      // A helper works in Avos's copy; Avos reads your folder until there is
-      // one (see crewChatPlace). A crew's Checker may run on Codex.
-      const placed = crew
-        ? crewChatPlace(
-            session,
-            crew.crew,
-            crew.member,
-            () => preferredModelId("claude"),
-            (harness) => preferredModelId(harness as HarnessId),
+      if (!bot) return session;
+      const placed = bot.copy?.path
+        ? botChatInCopy(session, bot.copy.path, () =>
+            preferredModelId("claude"),
           )
-        : bot?.copy?.path
-          ? botChatInCopy(session, bot.copy.path, () =>
-              preferredModelId("claude"),
-            )
-          : "The bot's copy isn't ready yet. Try again in a moment.";
+        : "The bot's copy isn't ready yet. Try again in a moment.";
       if (typeof placed === "string") return placed;
       const fix = placed;
       if (!fix) return session;
@@ -7461,13 +7362,12 @@ export default function App({
                     sessionId,
                     cwd: workCwd,
                     tone: chatTone(current.cwd),
-                    faces: desktopFaces(sessionId),
+                    faces: DESKTOP_FACES,
                   },
                   // A bot never commits, so it gets no Git preference either.
                   {
                     worker:
                       !!current.orchestrationLeadId || isBotChat(sessionId),
-                    noBrowser: crewChatBrowserOff(sessionId),
                     typed: options?.typed === true,
                   },
                 );
@@ -7938,12 +7838,11 @@ export default function App({
                   sessionId,
                   cwd: workCwd,
                   tone: chatTone(current.cwd),
-                  faces: desktopFaces(sessionId),
+                  faces: DESKTOP_FACES,
                 },
                 // A bot never commits, so it gets no Git preference either.
                 {
                   worker: !!current.orchestrationLeadId || isBotChat(sessionId),
-                  noBrowser: crewChatBrowserOff(sessionId),
                   typed: options?.typed === true,
                 },
               );
@@ -8895,13 +8794,10 @@ export default function App({
         (session) => session.id === sessionId,
       );
       if (!current || current.busy) return false;
-      // A bot's or crew's chat compacts only where and as it works: in its
+      // A bot's chat compacts only where and as it works: in its
       // copy, on its own app, with its rules (other apps don't enforce them).
       const bot = botForChat(sessionId);
       if (bot && current.worktreeCwd !== bot.copy?.path) return false;
-      const crewChat = crewForChat(sessionId);
-      if (crewChat && current.worktreeCwd !== crewChat.crew.copy?.path)
-        return false;
       const refusal = teammateChatRefusal(current);
       if (refusal) {
         const refused = sessionsRef.current.map((session) =>
@@ -9309,29 +9205,12 @@ export default function App({
 
   showAutomationRunRef.current = showAutomationRun;
 
-  /** Opens a project's Avos; set once `onOpenAvos` exists, further down. */
-  const openAvosRef = useRef<((path: string) => void) | null>(null);
   const onOpenApprovalSession = useCallback(
     async (sessionId: string): Promise<boolean> => {
       // A run's chat stays in Automations until it is opened as a chat, and
       // a notice for a run that never started shows that run.
       const automationRun = automationRunTarget(sessionId);
       if (automationRun) return showAutomationRun(automationRun);
-      // A notification from a project's Avos opens that Avos.
-      const avosPath = avosNotificationPath(sessionId);
-      if (avosPath) {
-        if (!openAvosRef.current) return false;
-        openAvosRef.current(avosPath);
-        try {
-          const appWindow = getCurrentWindow();
-          await appWindow.unminimize();
-          await appWindow.show();
-          await appWindow.setFocus();
-        } catch {
-          // The Avos screen is open; the window comes forward when it can.
-        }
-        return true;
-      }
       const parentId =
         sessionsRef.current.find((session) => session.id === sessionId)
           ?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
@@ -9519,7 +9398,6 @@ export default function App({
           return accepted;
         }, done);
       },
-      asksFirst: (cwd) => !!getCrew(cwd)?.askBeforeBuilding,
       steer: async (id, text) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
         if (!session) throw new Error("This agent is no longer available");
@@ -10237,25 +10115,8 @@ export default function App({
     );
   }, [currentProjectDock, dockVisible]);
 
-  // @Avos from a chat's box, through refs: the handlers are made further down.
-  const avosFromPaneRef = useRef<{
-    tell: (sessionId: string, text: string) => Promise<string | null>;
-    open: (path: string) => void;
-  } | null>(null);
-  const onTellAvosFromPane = useCallback(
-    (sessionId: string, text: string) =>
-      avosFromPaneRef.current?.tell(sessionId, text) ??
-      Promise.resolve("Open Aven's main window to write to Avos."),
-    [],
-  );
-  const onOpenAvosFromPane = useCallback(
-    (path: string) => avosFromPaneRef.current?.open(path),
-    [],
-  );
   const sessionPaneProps = {
     onRace: onRaceFromChat,
-    onTellAvos: onTellAvosFromPane,
-    onOpenAvos: onOpenAvosFromPane,
     recents,
     hideProjectPicker: true,
     onFocus: onFocusPane,
@@ -10653,13 +10514,10 @@ export default function App({
         (command.id !== "open_board" || boardProject) &&
         (command.id !== "new_chat_in_copy" || boardProject),
     ).map((command) =>
-      command.id === "open_board"
+      command.id === "open_board" && boardProject && labelsForPalette
         ? {
             ...command,
-            label:
-              boardProject && labelsForPalette
-                ? `${openAvosLabel()} for ${projectDisplayName(boardProject, labelsForPalette)}`
-                : openAvosLabel(),
+            label: `${command.label} for ${projectDisplayName(boardProject, labelsForPalette)}`,
           }
         : command,
     ),
@@ -10876,10 +10734,6 @@ export default function App({
     run,
     session,
   }: AutomationRunNotice) => {
-    // A run of Avos's job lives in Avos: its This week, its chat and one
-    // notice (with a Mac notification while Aven is behind), never also here.
-    if (botsAvailable() && avosOwnsRun(run, listScheduledAgents(), getCrew))
-      return;
     // A run that could not start has no chat: its entry names the run, and
     // opening it shows the run (see `onOpenApprovalSession`).
     const agent = getScheduledAgent(run.scheduleId);
@@ -11094,39 +10948,10 @@ export default function App({
     draft: (project, text) => startProjectChat(project, text),
   };
   /**
-   * Give to Avos, from a chat's menu. Where Avos doesn't run it is Add to
-   * board: a card per chat on its project's board, in the column its state
-   * implies; then the board comes forward.
+   * Add to board, from a chat's menu: a card per chat on its project's
+   * board, in the column its state implies; then the board comes forward.
    */
   addToBoardRef.current = (sessionIds) => {
-    if (botsAvailable()) {
-      // Give to Avos: each chat goes to its project's Avos, as a message
-      // that links back to it, and the first project's Avos opens.
-      let first: string | null = null;
-      for (const id of sessionIds) {
-        const loaded = sessionsRef.current.find((session) => session.id === id);
-        const chat = loaded ?? historyRef.current.find((row) => row.id === id);
-        const project = chat ? boardProjectFor(chat.cwd) : null;
-        if (!chat || !project) continue;
-        const title = loaded
-          ? conversationTitle(loaded)
-          : sessionDisplayTitle(chat.title, chat.harness);
-        const ask = loaded?.blocks.findLast((block) => block.role === "user");
-        ensureAvos(project);
-        void tellTeam(
-          project,
-          giveChatToAvosText(title, ask?.text),
-          "lead",
-          Date.now(),
-          { sessionId: id, title },
-        ).then((problem) => {
-          if (problem) logError("Give to Avos", problem);
-        });
-        first ??= project;
-      }
-      if (first) openAvosRef.current?.(first);
-      return;
-    }
     const drafts = chatCardDrafts(
       sessionIds.flatMap((id) => {
         const chat =
@@ -11358,32 +11183,6 @@ export default function App({
     leadDecided,
     teams,
   });
-  const crewStore = useCrewsStore();
-  const avosAgents = useSyncExternalStore(
-    subscribeScheduledAgents,
-    listScheduledAgents,
-  );
-  // What each project's Avos waits on you for: its notices and the Dock badge
-  // count these (Avos's items live in Avos).
-  const avosNeedList = useMemo<readonly AvosNeeds[]>(
-    () =>
-      botsAvailable()
-        ? avosNeeds(
-            profiles.profileProjects.map(
-              (project) => crewStore[projectKey(project.path)],
-            ),
-            {
-              jobs: { agents: avosAgents, runs: scheduledRuns },
-              now: Date.now(),
-            },
-          )
-        : NO_AVOS_NEEDS,
-    [profiles.profileProjects, crewStore, avosAgents, scheduledRuns],
-  );
-  useEffect(() => {
-    setDockAvosNeeds(avosNeedsCount(avosNeedList));
-    syncDockBadge(sessionsRef.current);
-  }, [avosNeedList, sessionsRef]);
   // Nothing open (a workspace without projects, or a project whose tabs all
   // closed or moved to their own windows): open a new chat, as a new project
   // does. It waits a tick, so a workspace being restored lands first, and
@@ -11532,7 +11331,7 @@ export default function App({
       }
       void gitSetupNeeded(path).then(async (need) => {
         if (need) {
-          setBotGitSetup({ path, state: need, for: "bot" });
+          setBotGitSetup({ path, state: need });
           return;
         }
         const problem = await turnOnBotWithDefaults(path);
@@ -11559,556 +11358,6 @@ export default function App({
     for (const bot of Object.values(botStore))
       if (!bot.on && bot.sessionId) releaseBotChat(bot.path);
   }, [botStore, releaseBotChat]);
-
-  // Crews. A crew's Builder, Checker and Scout each keep one chat in the
-  // crew's copy; only the main window drives them (see useCrews), and every
-  // window launches their chats with a bot's rules (installBotPermissions).
-  /** A crew member's chat, loaded or made, without a tab, in the crew's copy. */
-  const ensureCrewChat = useCallback(
-    async (
-      crew: Crew,
-      memberId: string,
-      override?: { model?: string; effort?: string },
-    ) => {
-      const member = crewMemberById(crew, memberId);
-      if (!member || member.role === "fixer") return null;
-      // Avos and the helpers it starts only read: they read your folder
-      // until the project has a copy (one without Git never does). Everyone
-      // else works only in the copy.
-      const copy = crew.copy?.path;
-      if (!copy && member.role !== "lead" && member.role !== "helper")
-        return null;
-      // Its app now: a Checker that couldn't be locked down on Codex runs on
-      // Claude for this session.
-      const app = crewMemberApp(member);
-      const harness = app.harness;
-      const wanted = crewChatModel({
-        harness,
-        memberModel: app.model,
-        // A fallback's effort is Claude's own default.
-        memberEffort: member.fallback ? undefined : member.effort,
-        // A card's own pick, else what helpers run on (for one you haven't
-        // set yourself).
-        override: override ?? memberRunsOn(crew, member),
-        preferred: preferredModelId(harness),
-      });
-      const model = () => wanted.model;
-      /** The chat on the member's (or the card's) model and effort, unless it's busy. */
-      const withModel = (chat: Session): Session => {
-        if (chat.busy || chat.harness !== harness) return chat;
-        const effort = wanted.effort;
-        const sameEffort =
-          !effort || chat.modelSettings?.[effort.id] === effort.value;
-        if (chat.model === wanted.model && sameEffort) return chat;
-        return {
-          ...chat,
-          model: wanted.model,
-          modelSettings: {
-            ...chat.modelSettings,
-            ...(effort ? { [effort.id]: effort.value } : {}),
-          },
-        };
-      };
-      const save = (chat: Session) => {
-        const next = sessionsRef.current.map((session) =>
-          session.id === chat.id ? chat : session,
-        );
-        sessionsRef.current = next;
-        setSessions(next);
-        return chat;
-      };
-      let loaded = member.sessionId
-        ? sessionsRef.current.find((session) => session.id === member.sessionId)
-        : undefined;
-      if (member.sessionId && !loaded) {
-        let saved: Session | null;
-        try {
-          saved = await getSession(member.sessionId);
-        } catch (error) {
-          logError("Crew chat", error);
-          return null;
-        }
-        if (saved)
-          loaded = (await ensureOpenSession(member.sessionId)) ?? undefined;
-        if (saved && !loaded) return null;
-      }
-      if (loaded) {
-        const placed = crewChatPlace(
-          loaded,
-          { on: true, ...(crew.copy ? { copy: crew.copy } : {}) },
-          member,
-          () => preferredModelId("claude"),
-          () => model(),
-        );
-        const fix = typeof placed === "string" ? null : placed;
-        // A chat still titled with the critter's name it once had goes by
-        // the member's name now.
-        const name = crewMemberName(crew, member.id);
-        if (!fix || (fix.restart && loaded.busy)) {
-          const tuned = withAgentTitle(withModel(loaded), name);
-          return tuned === loaded ? loaded : save(tuned);
-        }
-        if (fix.restart) void forgetHarnessSession(loaded.harness, loaded.id);
-        return save(withAgentTitle(withModel(fix.chat), name));
-      }
-      const session: Session = withModel({
-        ...newSession(harness, crew.path, model(), "auto"),
-        ...(member.sessionId ? { id: member.sessionId } : {}),
-        title: crewMemberName(crew, member.id),
-        ...(copy ? { worktreeCwd: copy } : {}),
-      });
-      const next = [...sessionsRef.current, session];
-      sessionsRef.current = next;
-      setSessions(next);
-      if (member.sessionId !== session.id)
-        updateCrew(crew.path, (current) =>
-          withMemberId(current, member.id, (entry) => ({
-            ...entry,
-            sessionId: session.id,
-          })),
-        );
-      return session;
-    },
-    [ensureOpenSession, sessionsRef, setSessions],
-  );
-  /**
-   * Why a helper's chat refused a message, in words: its chat isn't open, it
-   * can't run where it is, or its rules say no now. None when it's unknown.
-   */
-  const crewSendProblem = useCallback(
-    (sessionId: string): string | undefined => {
-      const chat = sessionsRef.current.find(
-        (session) => session.id === sessionId,
-      );
-      if (!chat) return "Its chat isn't open yet. Try again in a moment.";
-      const found = crewForChat(sessionId);
-      if (found) {
-        const placed = crewChatPlace(chat, found.crew, found.member, () =>
-          preferredModelId("claude"),
-        );
-        if (typeof placed === "string") return placed;
-        if (placed?.restart && chat.busy)
-          return "Its chat is finishing something. Try again once it's done.";
-      }
-      return (
-        launchRefusal(sessionId, sessionWorkCwd(chat), chat.harness) ??
-        undefined
-      );
-    },
-    [sessionsRef],
-  );
-  const crewHost = useMemo(
-    () => ({
-      ensureChat: ensureCrewChat,
-      send: botHost.send,
-      whyNotSent: crewSendProblem,
-      stopChat: (sessionId: string) => onStop(sessionId),
-      freshConversation: (sessionId: string) => {
-        const chat = sessionsRef.current.find(
-          (session) => session.id === sessionId,
-        );
-        if (!chat || chat.busy || !chat.providerSessionId) return;
-        void forgetHarnessSession(chat.harness, chat.id);
-        const next = sessionsRef.current.map((session) =>
-          session.id === sessionId
-            ? { ...session, providerSessionId: undefined }
-            : session,
-        );
-        sessionsRef.current = next;
-        setSessions(next);
-      },
-      onWorking: setCrewWorkingChats,
-    }),
-    [
-      ensureCrewChat,
-      botHost,
-      onStop,
-      sessionsRef,
-      setSessions,
-      crewSendProblem,
-    ],
-  );
-  useCrews(
-    sessions,
-    sessionsRef,
-    crewHost,
-    !isDetachedWorkspace() && currentWindowLabel() === "main",
-  );
-  /** Show a crew member's chat; the Fixer's is the project bot's. */
-  const openCrewChat = useCallback(
-    async (path: string, who: string): Promise<string | null> => {
-      const crew = getCrew(path);
-      const member = crew
-        ? (crewMemberById(crew, who) ??
-          crew.members.find((entry) => entry.role === who))
-        : undefined;
-      if (who === "fixer" || member?.role === "fixer") {
-        if (!getProjectBot(path)?.on)
-          return "The Fixer is off. Turn the project's bot on first.";
-        await openBotChat(path);
-        return null;
-      }
-      if (!crew?.on || !member) return "Avos is off. Open Avos to wake it.";
-      const name = crewMemberName(crew, member.id);
-      // Its chat starts with Avos's copy, made at its first card.
-      if (!teammateChatReady(crew, member.id)) return firstCardChatText(name);
-      const chat = await ensureCrewChat(crew, member.id);
-      if (!chat) return `Couldn't open ${name}'s chat.`;
-      await onSelectHistorySession(chat.id);
-      return null;
-    },
-    [ensureCrewChat, onSelectHistorySession, openBotChat],
-  );
-  /**
-   * A helper's chat beside Avos: split the tab in front (Avos's) and put
-   * its chat on the right, or bring it forward if it is there already.
-   */
-  const openCrewChatBeside = useCallback(
-    async (path: string, who: string): Promise<string | null> => {
-      const crew = getCrew(path);
-      const member = crew
-        ? (crewMemberById(crew, who) ??
-          crew.members.find((entry) => entry.role === who))
-        : undefined;
-      if (!crew?.on || !member || member.role === "fixer")
-        return openCrewChat(path, who);
-      const name = crewMemberName(crew, member.id);
-      if (!teammateChatReady(crew, member.id)) return firstCardChatText(name);
-      const chat = await ensureCrewChat(crew, member.id);
-      if (!chat) return `Couldn't open ${name}'s chat.`;
-      const tabId = activeTabIdRef.current;
-      setTabs((prev) =>
-        prev.map((tab) => {
-          if (tab.id !== tabId) return tab;
-          if (leafIds(tab.layout).includes(chat.id))
-            return { ...tab, focusedId: chat.id };
-          return {
-            ...tab,
-            layout: splitPane(tab.layout, tab.focusedId, "right", chat.id),
-            focusedId: chat.id,
-          };
-        }),
-      );
-      return null;
-    },
-    [ensureCrewChat, openCrewChat],
-  );
-  /** Stop a crew chat's turn and wait, a few seconds at most, until it has. */
-  const stopCrewChat = useCallback(
-    async (sessionId: string) => {
-      const busy = () =>
-        !!sessionsRef.current.find((session) => session.id === sessionId)?.busy;
-      if (!busy()) return;
-      onStop(sessionId);
-      for (let waited = 0; waited < 10_000 && busy(); waited += 100)
-        await new Promise((resolve) => window.setTimeout(resolve, 100));
-    },
-    [onStop, sessionsRef],
-  );
-  /**
-   * Turn a crew on: Claude Code is needed (the sandbox); the Checker runs on
-   * Codex when it's installed, else on another Claude model. Its copy is
-   * made at its first card.
-   */
-  const turnOnCrewFor = useCallback(async (path: string) => {
-    await probeHarnessAvailability();
-    if (!isHarnessAvailable("claude"))
-      return "Avos uses Claude Code. Install it and sign in, then try again.";
-    // Avos reads the project, so it waits for your OK.
-    if (!avosMayRead(getCrew(path))) return AVOS_MAY_NOT_READ;
-    // No Git needed: Avos talks and keeps an eye on things in any folder.
-    // Building asks for Git when it's needed (see buildingProblem). Opening
-    // Avos saved it (ensureAvos); waking it keeps whoever it has.
-    const codex = isHarnessAvailable("codex");
-    turnOnCrew(
-      path,
-      pickCrewModels({
-        codex,
-        claudeModels: pickerModelsFor("claude").map((model) => model.id),
-        preferredClaude: preferredModelId("claude"),
-        ...(codex ? { preferredCodex: preferredModelId("codex") } : {}),
-      }),
-    );
-    return null;
-  }, []);
-  useEffect(
-    () =>
-      installCrewWorkspace({
-        openChat: async (path, role) => {
-          const why = await openCrewChat(path, role);
-          if (!why) closeUtilityViews();
-          return why;
-        },
-        openChatBeside: (path, role) => openCrewChatBeside(path, role),
-        openCrew: (path) => {
-          closeUtilityViews();
-          onOpenBoard(path);
-        },
-        openSettings: (path, page) => {
-          setCrewSheetPage(page);
-          setCrewSheet(path);
-        },
-        stop: stopCrewChat,
-        // A removed helper: its whole process ends, so a dev server it
-        // left running in the background stops with it.
-        end: async (sessionId, harness) => {
-          await stopCrewChat(sessionId);
-          const session = sessionsRef.current.find(
-            (entry) => entry.id === sessionId,
-          );
-          await Promise.all(
-            (session ? sessionChildHarnesses(session) : [harness]).map((id) =>
-              stopHarnessSession(id, sessionId),
-            ),
-          );
-        },
-        // The team chat's @teammate: your words go to its chat as if you
-        // typed them there (its own message box's path, marked typed).
-        sendToMember: async (path, who, text) => {
-          const crew = getCrew(path);
-          const member = crew
-            ? (crewMemberById(crew, who) ??
-              crew.members.find((entry) => entry.role === who))
-            : undefined;
-          if (!crew?.on || !member) return "Avos is off. Open Avos to wake it.";
-          const bot = member.role === "fixer" ? getProjectBot(path) : undefined;
-          const name = crewMemberName(
-            crew,
-            member.id,
-            bot ? botName(bot) : undefined,
-          );
-          if (member.role === "fixer" && !bot?.on)
-            return `${name} is off. Turn the project's bot on first.`;
-          const chat =
-            member.role === "fixer"
-              ? await ensureBotChat(bot!)
-              : await ensureCrewChat(crew, member.id);
-          if (!chat)
-            return `${firstCardChatText(name)} Write to everyone to give the team one.`;
-          return onChatSubmit(chat.id, text) === false
-            ? `Couldn't send it to ${name}.`
-            : null;
-        },
-        wake: turnOnCrewFor,
-        openSession: (sessionId) => {
-          closeUtilityViews();
-          void onSelectHistorySession(sessionId);
-        },
-        gitNeeded: gitSetupNeeded,
-        setUpGit: (path) =>
-          void gitSetupNeeded(path).then((need) => {
-            if (need) setBotGitSetup({ path, state: need, for: "team" });
-          }),
-      }),
-    [
-      closeUtilityViews,
-      onOpenBoard,
-      openCrewChat,
-      openCrewChatBeside,
-      stopCrewChat,
-      sessionsRef,
-      ensureBotChat,
-      ensureCrewChat,
-      onChatSubmit,
-      turnOnCrewFor,
-      onSelectHistorySession,
-    ],
-  );
-  const sidebarCrews = useMemo<readonly SidebarCrew[]>(() => {
-    if (!botsAvailable()) return NO_SIDEBAR_CREWS;
-    const on = Object.values(crewStore).filter((crew) => crew.on);
-    if (!on.length) return NO_SIDEBAR_CREWS;
-    const now = Date.now();
-    const busy = new Set(
-      sessions.filter((session) => session.busy).map((session) => session.id),
-    );
-    return on.map((crew) => {
-      const bot = botStore[projectKey(crew.path)];
-      const appearance = projectAppearance(crew.path);
-      const chat = bot?.sessionId ? sessionById.get(bot.sessionId) : undefined;
-      const fixerStatus = bot?.on
-        ? botStatus(
-            bot,
-            chat
-              ? { busy: !!chat.busy, needsInput: sessionNeedsInput(chat) }
-              : undefined,
-            now,
-          )
-        : undefined;
-      const fixerName = bot ? botName(bot) : undefined;
-      const fixerRuns = bot?.on ? runsToday(bot, now) : 0;
-      return {
-        path: crew.path,
-        project: appearance.label,
-        status: crewStatus(crew, {
-          ...(fixerStatus ? { fixer: fixerStatus } : {}),
-          busy,
-        }),
-        runsLine: crewRunsLine(crew, now, fixerRuns),
-        paused: !!crew.paused,
-        members: crewMemberViews(crew, {
-          name: (who) => crewMemberName(crew, who, fixerName),
-          ...(fixerStatus
-            ? {
-                fixer: {
-                  status: fixerStatus,
-                  line: bot ? botHeadline(bot, fixerStatus, now) : undefined,
-                  ...(bot?.sessionId ? { sessionId: bot.sessionId } : {}),
-                },
-              }
-            : {}),
-        }),
-      };
-    });
-  }, [crewStore, botStore, sessions, sessionById]);
-  const onOpenCrew = useCallback(
-    (path: string) => {
-      closeUtilityViews();
-      onOpenBoard(path);
-    },
-    [closeUtilityViews, onOpenBoard],
-  );
-  // Every project's Avos at a glance, for the sidebar's rows.
-  const avosGlances = useMemo<readonly AvosGlance[]>(() => {
-    if (!botsAvailable()) return NO_AVOS_GLANCES;
-    const busy = new Set(
-      sessions.filter((session) => session.busy).map((session) => session.id),
-    );
-    const jobs = { agents: avosAgents, runs: scheduledRuns };
-    const now = Date.now();
-    return profiles.profileProjects
-      .filter((project) => looksLikeProject(project.path))
-      .map((project) => {
-        const crew = crewStore[projectKey(project.path)];
-        const bot = botStore[projectKey(project.path)];
-        const chat = bot?.sessionId
-          ? sessionById.get(bot.sessionId)
-          : undefined;
-        const fixer = bot?.on
-          ? botStatus(
-              bot,
-              chat
-                ? { busy: !!chat.busy, needsInput: sessionNeedsInput(chat) }
-                : undefined,
-              now,
-            )
-          : undefined;
-        return avosGlance(project.path, crew, {
-          name: (who) =>
-            crew
-              ? crewMemberName(crew, who, bot ? botName(bot) : undefined)
-              : who,
-          busy,
-          ...(fixer ? { fixer } : {}),
-          jobs,
-        });
-      });
-  }, [
-    avosAgents,
-    scheduledRuns,
-    profiles.profileProjects,
-    crewStore,
-    botStore,
-    sessions,
-    sessionById,
-  ]);
-  // "Needs you" notices from each project's Avos, for what's new since you
-  // last looked and isn't on screen. Only the main window shows them.
-  const [avosNotices, setAvosNotices] = useState<AvosNotice[]>([]);
-  const avosSeen = useRef<Set<string> | null>(null);
-  const avosNoticeWindow =
-    !isDetachedWorkspace() && currentWindowLabel() === "main";
-  // The project whose Avos screen is in front, for its row's highlight.
-  const activeAvosPath = useMemo(() => {
-    const pane = activeTab?.editorPanes.find(
-      (entry) => entry.id === activeTab.focusedId,
-    );
-    const file = pane?.files.find((entry) => entry.id === pane.activeFileId);
-    return file && isBoardTab(file) ? file.board.project : null;
-  }, [activeTab]);
-  useEffect(() => {
-    if (!avosNoticeWindow || !botsAvailable()) return;
-    // An Avos screen counts as in front only while Aven is: with Aven in the
-    // background, what's new there is announced too.
-    const inFront = notificationWindowFocused ? activeAvosPath : null;
-    const { notices, seen } = avosNoticesFor(
-      avosNeedList,
-      avosSeen.current,
-      inFront,
-    );
-    avosSeen.current = seen;
-    // One Mac notification for each new thing while Aven isn't in front.
-    if (!notificationWindowFocusedRef.current)
-      for (const notice of notices)
-        void notifyAvosNeed({
-          id: avosNotificationId(notice.path),
-          project: projectDisplayName(notice.path, loadTabGroupLabels()),
-          text: notice.text,
-          presentationFocused: false,
-        });
-    setAvosNotices((current) => {
-      // Sorted elsewhere, or its Avos is in front: the notice goes.
-      const kept = current.filter(
-        (notice) =>
-          seen.has(notice.id) &&
-          !(inFront && sameProjectPath(inFront, notice.path)),
-      );
-      const next = withAvosNotices(kept, notices);
-      return next.length === current.length &&
-        next.every((notice, index) => notice === current[index])
-        ? current
-        : next;
-    });
-  }, [
-    avosNoticeWindow,
-    avosNeedList,
-    activeAvosPath,
-    notificationWindowFocused,
-  ]);
-  // The job runs the notices are about, for their Publish or Approve.
-  const avosNoticeRuns = useMemo(() => {
-    const ids = new Set(avosNotices.flatMap((notice) => notice.runId ?? []));
-    const runs = new Map<string, (typeof scheduledRuns)[number]>();
-    for (const run of scheduledRuns) if (ids.has(run.id)) runs.set(run.id, run);
-    return runs;
-  }, [avosNotices, scheduledRuns]);
-  /**
-   * Open a project's Avos: every project has one, saved the first time it's
-   * opened (never up front). The first open is meeting it, in its chat.
-   */
-  const onOpenAvos = useCallback(
-    (path: string) => {
-      if (!botsAvailable()) return;
-      ensureAvos(path);
-      onOpenCrew(path);
-    },
-    [onOpenCrew],
-  );
-  openAvosRef.current = onOpenAvos;
-  const onAddCrew = onOpenAvos;
-  /**
-   * @Avos from a chat: the message goes to that chat's project's Avos (saved
-   * and woken if need be), with a link back to the chat.
-   */
-  const onTellAvos = useCallback(
-    async (sessionId: string, text: string): Promise<string | null> => {
-      const chat = sessionsRef.current.find(
-        (session) => session.id === sessionId,
-      );
-      if (!chat || !botsAvailable() || !looksLikeProject(chat.cwd))
-        return "Avos looks after a project. Open this chat in one first.";
-      ensureAvos(chat.cwd);
-      return tellTeam(chat.cwd, text, "lead", Date.now(), {
-        sessionId,
-        title: conversationTitle(chat),
-      });
-    },
-    [sessionsRef],
-  );
-  avosFromPaneRef.current = { tell: onTellAvos, open: onOpenAvos };
-  // A crew's chats stay its chats when it is off: they never become
-  // ordinary chats in your folder, and they refuse to start until the crew
-  // is on again (see crewChatPermissions).
 
   const automationsUnread = useUnreadAutomationRuns();
   // The Inbox lists these projects' cards, with its own filters.
@@ -12172,10 +11421,6 @@ export default function App({
     bots: sidebarBots,
     onOpenBot,
     onBotSettings: onBotAction,
-    crews: sidebarCrews,
-    avos: avosGlances,
-    onOpenAvos,
-    activeAvosPath,
     teams: sidebarTeamRows,
     onOpenDiscussion: openDiscussionView,
     workConflicts,
@@ -12322,16 +11567,6 @@ export default function App({
     assignProject: profiles.assignProject,
     selectProfile: onSelectProfile,
     board: true,
-    ...(botsAvailable()
-      ? {
-          crew: {
-            turnOn: turnOnCrewFor,
-            readFile: readTextFile,
-            newTeam: onAddCrew,
-            listDir,
-          },
-        }
-      : {}),
     loneTab: {
       select: onSelectSurface,
       split: (id, edge, beside) =>
@@ -13517,39 +12752,16 @@ export default function App({
                   onClose={() => setBotSheet(null)}
                 />
               ) : null}
-              {crewSheet && botsAvailable() ? (
-                <CrewSettingsSheet
-                  path={crewSheet}
-                  {...(crewSheetPage ? { initialPage: crewSheetPage } : {})}
-                  fixerName={(() => {
-                    const bot = getProjectBot(crewSheet);
-                    return bot?.on ? botName(bot) : undefined;
-                  })()}
-                  onTurnOn={turnOnCrewFor}
-                  onAddFixer={(path) => {
-                    setCrewSheet(null);
-                    onAddBot(path);
-                  }}
-                  onFixerSettings={(path) => {
-                    setCrewSheet(null);
-                    setBotSheet(path);
-                  }}
-                  onClose={() => setCrewSheet(null)}
-                />
-              ) : null}
               {botGitSetup && botsAvailable() ? (
                 <BotGitSetupSheet
                   project={{
                     ...botGitSetup,
                     label: projectAppearance(botGitSetup.path).label,
                   }}
-                  kind={botGitSetup.for}
                   onAdd={(path) => {
-                    const forTeam = botGitSetup.for === "team";
                     setBotGitSetup(null);
-                    // Git is set up: on to what it was asked for.
-                    if (forTeam) onOpenAvos(path);
-                    else onAddBot(path);
+                    // Git is set up: on to the bot it was asked for.
+                    onAddBot(path);
                   }}
                   onClose={() => setBotGitSetup(null)}
                 />
@@ -13719,31 +12931,6 @@ export default function App({
                 pillsDocked={footerShown}
               />
               <ApprovalToasts
-                {...(avosNotices.length
-                  ? {
-                      extra: avosNoticeCards(avosNotices).map((card) => (
-                        <AvosNoticeCard
-                          key={card.path}
-                          path={card.path}
-                          notices={card.notices}
-                          runs={avosNoticeRuns}
-                          onOpen={(item) => {
-                            if (item.open?.kind === "review")
-                              requestCrewReview(item.path);
-                            onOpenAvos(item.path);
-                          }}
-                          onAnswer={(run) =>
-                            void automationReviewActionRef.current(run)
-                          }
-                          onDismiss={(ids) =>
-                            setAvosNotices((current) =>
-                              current.filter((item) => !ids.includes(item.id)),
-                            )
-                          }
-                        />
-                      )),
-                    }
-                  : {})}
                 notices={hiddenApprovalToasts}
                 onFocusSession={onOpenApprovalSession}
                 onApproval={onApproval}
@@ -13923,9 +13110,7 @@ function toTitleTab(
           ? releaseNotesTitle(file.releaseNotes.version)
           : file.terminal
             ? terminalTabLabel(file)
-            : file.board && avosBoard(file.board.project)
-              ? AVOS
-              : basename(file.path)),
+            : basename(file.path)),
     );
   };
   const focusedPane =
@@ -13997,15 +13182,7 @@ function toTitleTab(
     race: Boolean(race),
     botPath: focused ? botForChat(focused.id)?.path : undefined,
     board,
-    // A project's Board once you've met its Avos is its Avos: named so, and
-    // wearing its Bot, pinned or not.
-    avos: board && !!focusedFile?.board && avosBoard(focusedFile.board.project),
   };
-}
-
-/** Whether a project's Board tab is its Avos (see `WorkBoard`). */
-function avosBoard(project: string): boolean {
-  return botsAvailable() && avosMet(getCrew(project));
 }
 
 /** Offers a turn you typed the way to set up an automation, if it asks for one. */

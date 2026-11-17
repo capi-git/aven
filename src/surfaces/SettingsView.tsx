@@ -1460,7 +1460,7 @@ function WorkingMarkRow() {
         label={SETTINGS.workingMark.label}
         value={mark}
         options={[
-          { value: "bot", label: "Bot" },
+          { value: "bot", label: "Orb" },
           { value: "dots", label: "Dots" },
         ]}
         onChange={SETTINGS.workingMark.save}

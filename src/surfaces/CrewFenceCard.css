@@ -84,12 +84,6 @@ html:not(.theme-light) .crew-fence {
   background: var(--aven-hover);
 }
 
-.crew-fence-given {
-  flex: none;
-  color: var(--aven-muted);
-  font-size: var(--text-ui-micro);
-}
-
 .crew-fence-quiet {
   margin: 6px 0;
   color: var(--aven-muted);

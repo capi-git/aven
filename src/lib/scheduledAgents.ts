@@ -53,9 +53,9 @@ export type ScheduledAgent = {
   /** Epoch ms of the next due time; null when the rule never fires. */
   nextRunAt: number | null;
   /**
-   * The team (Avos) that keeps this job, by its project folder: the job
-   * shows in its chat and waits while it is paused. An older build ignores
-   * it and runs the job as an ordinary automation.
+   * The per-project agent that set this job up, by its project folder. Those
+   * agents no longer run, so the job waits until it is saved again as an
+   * ordinary automation. Kept so stored jobs read back unchanged.
    */
   owner?: { avos: string };
 };

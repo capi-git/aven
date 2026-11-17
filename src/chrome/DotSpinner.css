@@ -1,24 +1,8 @@
-/* Turns smoothly, the bright dot leading the faint ones. Only
-   transform moves; it ends when the spinner leaves. */
+/* A small grey orb (DotSpinner.tsx); the orb holds itself still while the
+   window is hidden or under Reduce motion. */
 .dot-spinner {
+  display: inline-block;
   flex-shrink: 0;
   color: color-mix(in srgb, var(--color-content) 85%, transparent);
-  animation: dot-spinner-turn 0.9s linear infinite;
-}
-
-html[data-hidden] .dot-spinner,
-html[data-motion="reduce"] .dot-spinner {
-  animation-play-state: paused;
-}
-
-@keyframes dot-spinner-turn {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dot-spinner {
-    animation: none;
-  }
+  line-height: 0;
 }

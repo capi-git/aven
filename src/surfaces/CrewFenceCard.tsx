@@ -1,26 +1,10 @@
-import { createContext, useContext, useState } from "react";
-import {
-  giveIdeasToCrew,
-  memberAskTaken,
-  queueMemberTasks,
-  setMemberGoal,
-} from "../lib/crewActions";
+import { createContext } from "react";
 import { crewFenceView } from "../lib/crewFences";
-import { TASKS_FENCE, parseTasks } from "../lib/crewHandoff";
-import {
-  crewForChat,
-  crewForFolder,
-  crewCardByTitle,
-  useCrewsStore,
-  yourGoal,
-} from "../lib/crews";
-import { errorText } from "../lib/errors";
 import "./CrewFenceCard.css";
 
 /**
- * Where a crew block was written: the chat, the reply it is in, and
- * whether that reply answers words you typed yourself. A member's block of
- * work offers Queue these only then.
+ * Where a fenced block was written: the chat, the reply it is in, and
+ * whether that reply answers words you typed yourself.
  */
 export const CrewFenceSource = createContext<{
   chatId?: string;
@@ -30,26 +14,21 @@ export const CrewFenceSource = createContext<{
 
 /**
  * A crew's fenced block in a chat, as a compact card instead of raw JSON:
- * "3 ideas" with their titles and Build it, "2 must-fix", "Handed
- * over", "Goal met". The bot's words show as quoted text; the buttons are
- * Aven's. While the block is still being written, one quiet line.
+ * "3 ideas" with their titles, "2 must-fix", "Handed over", "Goal met".
+ * The agent's words show as quoted text. While the block is still being
+ * written, one quiet line.
  */
 export function CrewFenceCard({
   language,
   code,
   incomplete,
-  cwd,
 }: {
   language: string;
   code: string;
   incomplete?: boolean;
-  /** The chat's folder: its project, or a crew's copy. */
+  /** The chat's folder. */
   cwd?: string;
 }) {
-  // Re-read when teams change, so Build it appears once the team is on.
-  useCrewsStore();
-  const [given, setGiven] = useState<ReadonlySet<string>>(() => new Set());
-  const [problem, setProblem] = useState<string | null>(null);
   if (incomplete)
     return (
       <p className="crew-fence-quiet" data-crew-fence={language}>
@@ -63,37 +42,13 @@ export function CrewFenceCard({
         A note for the team
       </p>
     );
-  // Its notes are its own, read on its teammate page: one quiet line here.
+  // Its notes are its own: one quiet line here.
   if (view.kind === "memory")
     return (
       <p className="crew-fence-quiet" data-crew-fence={language}>
         {view.label}
       </p>
     );
-  if (view.kind === "tasks")
-    return <MemberTasksCard view={view} code={code} language={language} />;
-  const crew = view.kind === "ideas" ? crewForFolder(cwd) : undefined;
-  const canGive = !!crew?.on;
-  const give = (titles: string[]) => {
-    if (!crew) return;
-    setProblem(null);
-    setGiven((current) => new Set([...current, ...titles]));
-    void giveIdeasToCrew(crew.path, titles)
-      .catch((error) => errorText(error))
-      .then((why) => {
-        if (!why) return;
-        setProblem(why);
-        setGiven((current) => {
-          const next = new Set(current);
-          for (const title of titles) next.delete(title);
-          return next;
-        });
-      });
-  };
-  // One the team already has (it started by itself, say) isn't given twice.
-  const has = (title: string) =>
-    given.has(title) || (!!crew && !!crewCardByTitle(crew, title));
-  const open = view.items.filter((item) => !has(item.title));
   return (
     <section
       className="crew-fence"
@@ -102,152 +57,6 @@ export function CrewFenceCard({
     >
       <header className="crew-fence-head">
         <strong>{view.label}</strong>
-        {canGive && open.length > 1 ? (
-          <button
-            type="button"
-            className="crew-fence-button"
-            onClick={() => give(open.map((item) => item.title))}
-          >
-            Build all
-          </button>
-        ) : null}
-      </header>
-      {view.line ? <p className="crew-fence-line">{view.line}</p> : null}
-      {view.items.length ? (
-        <ul className="crew-fence-items">
-          {view.items.map((item) => (
-            <li key={item.title}>
-              <span className="crew-fence-item">
-                <span className="crew-fence-title">{item.title}</span>
-                {item.detail ? (
-                  <span className="crew-fence-detail">{item.detail}</span>
-                ) : null}
-              </span>
-              {canGive ? (
-                has(item.title) ? (
-                  <span className="crew-fence-given">
-                    {crew &&
-                    crewCardByTitle(crew, item.title)?.stage === "applied"
-                      ? "Done"
-                      : "With the team"}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="crew-fence-button"
-                    onClick={() => give([item.title])}
-                  >
-                    Build it
-                  </button>
-                )
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {problem ? (
-        <p className="crew-fence-line" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-/**
- * Work a member took down from your words in its chat (`aven-tasks`): its
- * cards and goal, with Queue these and Set as goal. Nothing is queued or
- * started until you press one, and only when the reply answers a message
- * you typed yourself; a goal you set is replaced only when you say so.
- */
-function MemberTasksCard({
-  view,
-  code,
-  language,
-}: {
-  view: NonNullable<ReturnType<typeof crewFenceView>>;
-  code: string;
-  language: string;
-}) {
-  const source = useContext(CrewFenceSource);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [replacing, setReplacing] = useState(false);
-  const found = crewForChat(source.chatId);
-  const asked = parseTasks(`\`\`\`${TASKS_FENCE}\n${code}\n\`\`\``);
-  const replyId = source.replyId;
-  const offer =
-    !!found &&
-    !found.retired &&
-    found.crew.on &&
-    !!source.askedByYou &&
-    !!replyId &&
-    !!asked;
-  const taken = !!replyId && memberAskTaken(found?.crew, replyId);
-  const run = async (work: () => Promise<string | null> | string | null) => {
-    setBusy(true);
-    setProblem(null);
-    const why = await Promise.resolve()
-      .then(work)
-      .catch((error) => errorText(error));
-    setBusy(false);
-    setProblem(why);
-  };
-  const queue = () =>
-    run(() =>
-      queueMemberTasks(
-        found!.crew.path,
-        found!.member.id,
-        replyId!,
-        asked!.tasks,
-      ),
-    );
-  const goal = (replace: boolean) =>
-    run(() => {
-      setReplacing(false);
-      return setMemberGoal(
-        found!.crew.path,
-        found!.member.id,
-        replyId!,
-        asked!.goal!,
-        { replace },
-      );
-    });
-  const mine = !!found && yourGoal(found.crew);
-  return (
-    <section
-      className="crew-fence"
-      data-crew-fence={language}
-      aria-label={view.label}
-    >
-      <header className="crew-fence-head">
-        <strong>{view.label}</strong>
-        {offer && taken ? (
-          <span className="crew-fence-given">Taken</span>
-        ) : offer ? (
-          <>
-            {asked.tasks.length ? (
-              <button
-                type="button"
-                className="crew-fence-button"
-                disabled={busy}
-                onClick={() => void queue()}
-              >
-                Queue these
-              </button>
-            ) : null}
-            {asked.goal ? (
-              <button
-                type="button"
-                className="crew-fence-button"
-                disabled={busy}
-                onClick={() => (mine ? setReplacing(true) : void goal(false))}
-              >
-                {mine ? "Replace your goal" : "Set as goal"}
-              </button>
-            ) : null}
-          </>
-        ) : null}
       </header>
       {view.line ? <p className="crew-fence-line">{view.line}</p> : null}
       {view.items.length ? (
@@ -263,30 +72,6 @@ function MemberTasksCard({
             </li>
           ))}
         </ul>
-      ) : null}
-      {replacing && found?.crew.goal ? (
-        <p className="crew-fence-line" role="alert">
-          Replace your goal, “{found.crew.goal.text}”?{" "}
-          <button
-            type="button"
-            className="crew-fence-button"
-            onClick={() => void goal(true)}
-          >
-            Replace
-          </button>{" "}
-          <button
-            type="button"
-            className="crew-fence-button"
-            onClick={() => setReplacing(false)}
-          >
-            Keep mine
-          </button>
-        </p>
-      ) : null}
-      {problem ? (
-        <p className="crew-fence-line" role="alert">
-          {problem}
-        </p>
       ) : null}
     </section>
   );

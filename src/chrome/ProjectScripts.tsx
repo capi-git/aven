@@ -320,7 +320,7 @@ export function ProjectScripts({
             onClick={() => show("run")}
           >
             {runBusy ? (
-              <DotSpinner />
+              <DotSpinner state="background" />
             ) : (
               <Play className="size-3" strokeWidth={1.75} />
             )}
@@ -442,7 +442,9 @@ export function ProjectScripts({
                         title={script.command}
                         onClick={() => setSelected(script.id)}
                       >
-                        {run?.state === "running" ? <DotSpinner /> : null}
+                        {run?.state === "running" ? (
+                          <DotSpinner state="background" />
+                        ) : null}
                         {script.name}
                       </button>
                     );

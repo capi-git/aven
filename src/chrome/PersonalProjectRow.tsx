@@ -3,7 +3,6 @@ import { isTextTruncated } from "../lib/truncatedTitle";
 import { basename, revealPath } from "../lib/fs";
 import { projectName } from "../lib/paths";
 import { REVEAL_LABEL } from "../lib/platform";
-import { openAvosLabel } from "../lib/projectBots";
 import {
   loadPinnedProjects,
   sameProjectPath,
@@ -142,10 +141,9 @@ export function PersonalProjectRow({
       : []),
     { kind: "item", id: "customize", label: "Customise project…" },
     ...(onOpenBoard
-      ? [{ kind: "item" as const, id: "board", label: openAvosLabel() }]
+      ? [{ kind: "item" as const, id: "board", label: "Open board" }]
       : []),
-    // A bot already here keeps its settings; new work goes to Avos, so the
-    // menu offers no "Add a bot".
+    // A bot already here keeps its settings; the menu offers no "Add a bot".
     ...(onBotSettings && botOn
       ? [{ kind: "item" as const, id: "bot", label: "Bot settings…" }]
       : []),
