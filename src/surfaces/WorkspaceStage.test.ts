@@ -270,6 +270,7 @@ describe("workspace stage", () => {
     scroller.scrollLeft = 23;
     const chatGeometry = chat.style.cssText;
     const browserGeometry = browser.style.cssText;
+    draft.focus();
 
     await render({
       layout: leaf("personal"),
@@ -278,7 +279,13 @@ describe("workspace stage", () => {
     });
     expect(chat.hidden).toBe(true);
     expect(chat.getAttribute("aria-hidden")).toBe("true");
-    expect(chat.hasAttribute("inert")).toBe(true);
+    // Parked out of sight, not inert: toggling inert restyles the whole chat.
+    expect(chat.hasAttribute("inert")).toBe(false);
+    // Focus leaves it as inert would make it, and cannot come back in.
+    expect(document.activeElement).not.toBe(draft);
+    input("personal").focus();
+    draft.focus();
+    expect(document.activeElement).toBe(input("personal"));
     expect(chat.dataset.retained).toBe("true");
     expect(chat.dataset.hasHeader).toBe("true");
     expect(chat.style.cssText).toBe(chatGeometry);

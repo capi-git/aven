@@ -69,6 +69,8 @@ const KEYED: readonly {
 /** Elements laid out but out of sight (a hidden tab) are left out. */
 function shown(element: HTMLElement, box: DOMRect) {
   if (box.width <= 0 || box.height <= 0) return false;
+  // A chat not in front is laid out, out of sight, under [hidden].
+  if (element.closest("[hidden]")) return false;
   return getComputedStyle(element).visibility !== "hidden";
 }
 

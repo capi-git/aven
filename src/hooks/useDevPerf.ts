@@ -176,6 +176,8 @@ export function visibleComposer(): HTMLTextAreaElement | null {
     ].find(
       (element) =>
         element.getClientRects().length > 0 &&
+        // A chat not in front is laid out, out of sight, under [hidden].
+        !element.closest("[hidden]") &&
         getComputedStyle(element).visibility === "visible",
     ) ?? null
   );
@@ -482,6 +484,9 @@ export async function runDevPerf(
     await scenario("switching chat tabs", async (measure) => {
       for (let round_ = 0; round_ < 4; round_ += 1) {
         for (let slot = 1; slot <= 6; slot += 1) {
+          // The first switch brings back chats hidden since they opened.
+          if (round_ === 0 && slot <= 2)
+            measure.mark(slot === 1 ? "first switch" : "later switches");
           const before = get().focusedSurfaceId;
           await measure.time(
             () => pressShortcut(String(slot)),
@@ -489,6 +494,54 @@ export async function runDevPerf(
           );
           await pause(60);
         }
+      }
+    });
+
+    // The same chats from their rows in the pinned sidebar, clicked with the
+    // test mouse as a hand does: the pointer rests on the row first.
+    await scenario("switching chats from the sidebar", async (measure) => {
+      if (!get().sidebarOpen) {
+        pressShortcut("b");
+        await waitFor(() => get().sidebarOpen, 5_000, "the sidebar to pin");
+        await pause(400);
+      }
+      const row = (id: string) =>
+        [
+          ...document.querySelectorAll<HTMLElement>(
+            `.personal-navigation [data-session-card="${CSS.escape(id)}"]`,
+          ),
+        ].find((element) => element.getClientRects().length > 0);
+      // Far apart in the list, so each click lands on a different chat.
+      const order = [0, 3, 1, 4, 2, 5];
+      for (let index = 0; index < 18; index += 1) {
+        const id = chatIds[order[index % order.length]];
+        const button = await waitFor(() => row(id), 5_000, "the chat's row");
+        if (
+          button.getAttribute("aria-current") === "true" ||
+          get().focusedSurfaceId === id
+        )
+          continue;
+        await smokeMouse("move", pressPoint(button), { settle: false });
+        await pause(150);
+        // Read the place again: a card can come into the list and move rows.
+        const at = pressPoint(row(id) ?? button);
+        const before = get().focusedSurfaceId;
+        await smokeMouse("down", at, { settle: false });
+        await measure
+          .time(
+            () => smokeMouse("up", at, { settle: false }),
+            () =>
+              row(id)?.getAttribute("aria-current") === "true" &&
+              get().focusedSurfaceId !== before,
+            3_000,
+          )
+          .catch((error) => {
+            const under = document.elementFromPoint(at.x, at.y);
+            throw new Error(
+              `${errorText(error)} (clicked ${id}, row current ${row(id)?.getAttribute("aria-current") ?? "no"}, focused ${get().focusedSurfaceId ?? "nothing"}, was ${before ?? "nothing"}, under the pointer ${under ? `${under.tagName.toLowerCase()}.${[...under.classList].slice(0, 3).join(".")}` : "nothing"})`,
+            );
+          });
+        await pause(250);
       }
     });
 
