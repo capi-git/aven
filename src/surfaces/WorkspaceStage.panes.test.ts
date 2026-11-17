@@ -49,6 +49,12 @@ describe("panes as cards", () => {
     );
   });
 
+  it("rounds a closed pane's rail like an open pane's card", () => {
+    expect(
+      rule("src/surfaces/WorkspaceStage.css", ".workspace-pane-rail"),
+    ).toContain("border-radius: var(--aven-radius-pane-card, 10px);");
+  });
+
   it("ends every tab row in a pane with the shared hairline", () => {
     expect(
       rule("src/surfaces/WorkspaceStage.css", ".workspace-stage-header"),
