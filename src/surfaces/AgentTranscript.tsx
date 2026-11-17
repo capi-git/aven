@@ -114,6 +114,8 @@ import { useBotTurnOwnsFix } from "../lib/projectBots";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { CrewFenceSource } from "./CrewFenceCard";
 import { HelperCards } from "./HelperCards";
+import { SubagentCard } from "./SubagentCard";
+import { groupSubagentSteps, onlySubagents } from "../lib/subagentRuns";
 import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { RaceCard } from "./RaceCard";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
@@ -2250,6 +2252,7 @@ const ActivityPhases = memo(function ActivityPhases({
           phase={phase}
           cwd={cwd}
           active={!done && index === phases.length - 1}
+          turnLive={!done}
           onApproval={onApproval}
           onOpenFile={onOpenFile}
           onOpenDiff={onOpenDiff}
@@ -2374,6 +2377,7 @@ function ActivityPhaseGroup({
   phase,
   cwd,
   active,
+  turnLive,
   onApproval,
   onOpenFile,
   onOpenDiff,
@@ -2381,6 +2385,8 @@ function ActivityPhaseGroup({
   phase: ActivityPhase;
   cwd?: string;
   active: boolean;
+  /** The turn still runs: a subagent can outlast the group it started in. */
+  turnLive: boolean;
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
@@ -2404,6 +2410,39 @@ function ActivityPhaseGroup({
       : undefined;
   const inert = phase.steps.length === 0 && !headlineHasMore(phase.headline);
 
+  const label = active ? (
+    <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1.6}>
+      {title}
+    </Shimmer>
+  ) : (
+    // Dimmed to sit with the icons: the work is chrome around the answer, and
+    // only the answer reads at full strength.
+    <span className="min-w-0 flex-1 truncate font-sans text-sm text-content/50 transition-colors duration-200 group-hover:text-content/80">
+      {title}
+    </span>
+  );
+
+  // Subagents the agent started side by side are one card, always in view:
+  // they are the work, so folding them away would hide what is running.
+  if (onlySubagents(phase.steps)) {
+    return (
+      <div className="personal-activity-phase flex min-w-0 flex-col">
+        {phase.headline ? (
+          <div className="personal-activity-line flex min-w-0 items-center gap-1.5 py-1">
+            <ActivityPhaseIcon kind={phase.kind} />
+            {label}
+          </div>
+        ) : null}
+        <SubagentCard
+          blocks={phase.steps}
+          live={turnLive}
+          cwd={cwd}
+          onOpenFile={onOpenFile}
+        />
+      </div>
+    );
+  }
+
   // A lone call the agent never introduced is not a group: a header repeating
   // the single row under it says nothing twice.
   if (!phase.headline && phase.steps.length === 1) {
@@ -2423,18 +2462,6 @@ function ActivityPhaseGroup({
       </div>
     );
   }
-
-  const label = active ? (
-    <Shimmer className="min-w-0 truncate font-sans text-sm" duration={1.6}>
-      {title}
-    </Shimmer>
-  ) : (
-    // Dimmed to sit with the icons: the work is chrome around the answer, and
-    // only the answer reads at full strength.
-    <span className="min-w-0 flex-1 truncate font-sans text-sm text-content/50 transition-colors duration-200 group-hover:text-content/80">
-      {title}
-    </span>
-  );
 
   // A line the agent wrote with nothing under it is just that line.
   if (inert) {
@@ -2497,21 +2524,35 @@ function ActivityPhaseGroup({
                   />
                 </div>
               ) : null}
-              {phase.steps.map((block) => (
-                <div
-                  key={block.id}
-                  className={`zen-phase-step${active ? " zen-step-in" : ""}`}
-                >
-                  <ActivityRow
-                    block={block}
-                    cwd={cwd}
-                    live={active}
-                    onApproval={onApproval}
-                    onOpenFile={onOpenFile}
-                    onOpenDiff={onOpenDiff}
-                  />
-                </div>
-              ))}
+              {groupSubagentSteps(phase.steps).map((group) =>
+                group.type === "subagents" ? (
+                  <div
+                    key={group.id}
+                    className={`zen-phase-step${active ? " zen-step-in" : ""}`}
+                  >
+                    <SubagentCard
+                      blocks={group.blocks}
+                      live={turnLive}
+                      cwd={cwd}
+                      onOpenFile={onOpenFile}
+                    />
+                  </div>
+                ) : (
+                  <div
+                    key={group.block.id}
+                    className={`zen-phase-step${active ? " zen-step-in" : ""}`}
+                  >
+                    <ActivityRow
+                      block={group.block}
+                      cwd={cwd}
+                      live={active}
+                      onApproval={onApproval}
+                      onOpenFile={onOpenFile}
+                      onOpenDiff={onOpenDiff}
+                    />
+                  </div>
+                ),
+              )}
             </div>
           </div>
         ) : null}

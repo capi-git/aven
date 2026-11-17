@@ -54,6 +54,7 @@ import {
   turnErrorFromEvent,
   type PiExtensionUiRequest,
 } from "./piProtocol";
+import { extractAgentType } from "./preview";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -823,6 +824,7 @@ function handleFrame(
         kind: toolKindFromName(tool.name),
         status: "running",
         preview: previewFromTool(tool.name, tool.input),
+        ...piAgentType(tool.name, tool.input),
       });
     }
   }
@@ -1142,12 +1144,23 @@ function upsertTool(
       kind: toolKindFromName(name),
       status: "pending",
       preview: previewFromTool(name, input),
+      ...piAgentType(name, input),
     });
     emitTaskListIfNeeded(live, tool);
   } else if (Object.keys(input).length > 0) {
     updateTool(live, tool, input);
   }
   if (index != null && index >= 0) live.toolsByIndex.set(index, tool);
+}
+
+/** The agent type a subagent call asked for, for its row. */
+function piAgentType(
+  name: string,
+  input: Record<string, unknown>,
+): { agentType?: string } {
+  if (toolKindFromName(name) !== "agent") return {};
+  const type = extractAgentType(input);
+  return type ? { agentType: type } : {};
 }
 
 function updateTool(

@@ -5,10 +5,12 @@ import { normalizeTaskListStatus } from "../taskList";
 import type { ApprovalDecision, HarnessEvent } from "./types";
 import {
   composeToolTitle,
+  extractAgentType,
   extractSearchQuery,
   extractShellCommand,
   extractSkillName,
   extractToolPreview,
+  isAgentTool,
 } from "./preview";
 import { fxToolInfo, fxToolVerb } from "./fxTool";
 
@@ -256,6 +258,18 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
         status,
         detail: cap(fx.detail ?? "") || toolDetail(update, tool),
         preview,
+        ...(isAgentTool(toolKind, title)
+          ? agentTypeField(
+              extractAgentType(
+                update.rawInput,
+                tool.rawInput,
+                update.raw_input,
+                tool.raw_input,
+                update.input,
+                tool.input,
+              ),
+            )
+          : {}),
       },
     ];
   }
@@ -267,6 +281,10 @@ export function eventsFromAcpUpdate(params: unknown): HarnessEvent[] {
 
   const usage = usageFromUpdate(update);
   return usage ? [usage] : [];
+}
+
+function agentTypeField(type: string | undefined): { agentType?: string } {
+  return type ? { agentType: type } : {};
 }
 
 export function modelsFromFxOutput(stdout: string): AgentModel[] {

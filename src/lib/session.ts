@@ -271,6 +271,12 @@ export type Block = {
     startedAt?: number;
     /** The call reached the web: what it brought back is anyone's words. */
     web?: true;
+    /** A subagent call's agent type, such as "general-purpose". */
+    agentType?: string;
+    /** How long a subagent call ran, in ms, once it ended. */
+    durationMs?: number;
+    /** What a subagent is doing now, in a few words ("Editing"). */
+    agentActivity?: string;
   };
   approval?: {
     requestId: number;

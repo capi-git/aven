@@ -309,6 +309,39 @@ describe("codex live turn sequence", () => {
     ]);
   });
 
+  it("shows what a child is doing on its row in the lead's transcript", async () => {
+    const { events } = await startTurn("codex-live");
+    notify("item/started", {
+      threadId: "thr_1",
+      item: {
+        id: "spawn",
+        type: "subAgentActivity",
+        kind: "started",
+        agentThreadId: "child",
+        agentPath: "/root/worker",
+      },
+    });
+    notify("item/started", {
+      threadId: "child",
+      item: { id: "c1", type: "commandExecution", command: "npm test" },
+    });
+    notify("item/started", {
+      threadId: "child",
+      item: { id: "c2", type: "agentMessage", text: "" },
+    });
+    const session = events.reduce(
+      applyHarnessEvent,
+      newSession("codex", "/tmp"),
+    );
+    const rows = session.blocks.filter((block) => block.role === "tool");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tool).toMatchObject({
+      callId: "spawn",
+      agentType: "worker",
+      agentActivity: "Running a command",
+    });
+  });
+
   it("does not let a child's terminal notification finish the lead or copy its transcript", async () => {
     const { events, turn } = await startTurn("codex-live");
     let finished = false;

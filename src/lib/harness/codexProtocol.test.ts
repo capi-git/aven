@@ -608,6 +608,7 @@ describe("mapCodexNotification", () => {
         title: "Asset Inventory subagent",
         kind: "agent",
         status: "completed",
+        agentType: "asset-inventory",
       },
       {
         type: "agent.updated",

@@ -1,3 +1,4 @@
+import { subagentActivityFor } from "../subagentRuns";
 import type {
   Attachment,
   RuntimeMode,
@@ -951,6 +952,33 @@ function mapToolItem(
   return null;
 }
 
+/**
+ * What a child thread is doing, from an item it started, in a few plain
+ * words; undefined for items that are not work (its own messages).
+ */
+export function codexChildActivity(
+  item: Record<string, unknown> | null | undefined,
+): string | undefined {
+  switch (stringField(item, "type")) {
+    case "commandExecution":
+      return subagentActivityFor("shell", "execute");
+    case "fileChange":
+      return subagentActivityFor("edit", "edit");
+    case "webSearch":
+      return subagentActivityFor("websearch", "search");
+    case "mcpToolCall":
+    case "dynamicToolCall":
+      return subagentActivityFor("tool", "other");
+    case "reasoning":
+      return subagentActivityFor("think", "think");
+    case "subAgentActivity":
+    case "collabAgentToolCall":
+      return subagentActivityFor("agent", "agent");
+    default:
+      return undefined;
+  }
+}
+
 function mapSubAgentActivity(
   item: Record<string, unknown>,
   callId: string,
@@ -983,6 +1011,7 @@ function mapSubAgentActivity(
           : kind === "interrupted"
             ? "failed"
             : "in_progress",
+      ...(leaf ? { agentType: leaf } : {}),
     },
   ];
   // Interacting with an idle child (for example, sending a message) does not

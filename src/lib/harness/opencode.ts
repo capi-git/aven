@@ -40,9 +40,11 @@ import {
 } from "./opencodeProtocol";
 import {
   composeToolTitle,
+  extractAgentType,
   extractShellCommand,
   extractSkillName,
 } from "./preview";
+import { subagentActivityFor } from "../subagentRuns";
 import { streamTextDelta } from "./streamText";
 import type {
   ApprovalDecision,
@@ -785,6 +787,7 @@ function emitTool(live: Live, part: OpenCodePart): void {
     (typeof state.title === "string" && state.title) ||
     tool;
   const detail = detailFromToolPart(part);
+  const agent = kind === "agent" ? openCodeAgentFields(state) : {};
   const tasks = taskListFromToolInput(tool, state.input);
   if (tasks) live.onEvent({ type: "tasks.updated", items: tasks });
   if (status === "pending") {
@@ -795,6 +798,7 @@ function emitTool(live: Live, part: OpenCodePart): void {
       kind,
       status: "pending",
       preview,
+      ...agent,
     });
     return;
   }
@@ -811,7 +815,34 @@ function emitTool(live: Live, part: OpenCodePart): void {
           : status,
     detail,
     preview,
+    ...agent,
   });
+}
+
+/**
+ * A task call's agent type, and what its child session is doing now: the
+ * last tool in the summary OpenCode keeps on the call while it runs.
+ */
+function openCodeAgentFields(state: { input?: unknown; metadata?: unknown }): {
+  agentType?: string;
+  agentActivity?: string;
+} {
+  const agentType = extractAgentType(state.input);
+  const summary = (state.metadata as { summary?: unknown } | undefined)
+    ?.summary;
+  const last = Array.isArray(summary) ? summary[summary.length - 1] : undefined;
+  const tool =
+    last && typeof last === "object"
+      ? (last as { tool?: unknown }).tool
+      : undefined;
+  const agentActivity =
+    typeof tool === "string" && tool
+      ? subagentActivityFor(tool, toolKindFromName(tool))
+      : undefined;
+  return {
+    ...(agentType ? { agentType } : {}),
+    ...(agentActivity ? { agentActivity } : {}),
+  };
 }
 
 async function waitApproval(

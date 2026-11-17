@@ -209,6 +209,45 @@ export function extractSkillName(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+/**
+ * The agent type a subagent call asked for ("general-purpose", "explore"),
+ * under whichever name its provider gives the field. Cursor can send
+ * `{ custom: "name" }` for an agent of your own.
+ */
+export function extractAgentType(...values: unknown[]): string | undefined {
+  for (const raw of inputRecords(...values)) {
+    for (const key of [
+      "subagent_type",
+      "subagentType",
+      "agent_type",
+      "agentType",
+      "agent",
+    ]) {
+      const value = raw[key];
+      const custom =
+        value && typeof value === "object"
+          ? (value as Record<string, unknown>).custom
+          : undefined;
+      const text = (
+        typeof value === "string"
+          ? value
+          : typeof custom === "string"
+            ? custom
+            : ""
+      ).trim();
+      // A short name, not a sentence or a path someone put in that field.
+      if (
+        text &&
+        text.toLowerCase() !== "unspecified" &&
+        text.length <= 60 &&
+        !/[\s/\\]/.test(text)
+      )
+        return text;
+    }
+  }
+  return undefined;
+}
+
 export function isSkillTool(kind?: string, title?: string): boolean {
   const key = kind?.trim().toLowerCase() ?? "";
   if (key === "skill" || key === "skills") return true;
