@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.188] - 2026-11-17
+
+### Fixed
+
+- **A split in the top row fits its marks.** Since 0.1.187 the split showed a long empty box after its two marks.
+- **A closed pane has round corners.** A closed pane's strip had square corners beside the round open panes.
+
+### Changed
+
+- **Releases build faster.** The web and Windows checks run beside the builds, so a release takes about 14 minutes.
+
 ## [0.1.187] - 2026-11-16
 
 ### Changed
