@@ -1,3 +1,4 @@
+import { SETTINGS } from "../lib/settings";
 import { useTerminalStatus } from "../hooks/useTerminalStatus";
 import {
   terminalIsTransferred,
@@ -143,6 +144,17 @@ function terminalTheme(light: boolean) {
   };
 }
 
+/** Settings › Terminal, as xterm options. */
+function terminalLook() {
+  const font = SETTINGS.terminalFont.load();
+  return {
+    fontFamily: font ? `"${font}", ${monoFont()}` : monoFont(),
+    fontSize: SETTINGS.terminalFontSize.load(),
+    cursorStyle: SETTINGS.terminalCursor.load(),
+    cursorBlink: SETTINGS.terminalCursorBlink.load(),
+  };
+}
+
 function monoFont(): string {
   const fromCss = getComputedStyle(document.documentElement)
     .getPropertyValue("--font-mono")
@@ -221,10 +233,7 @@ export function TerminalView({
     const startCwd = cwdRef.current;
 
     const term = new Terminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily: monoFont(),
-      fontSize: 13,
+      ...terminalLook(),
       lineHeight: 1,
       letterSpacing: 0,
       scrollback: 2000,
@@ -390,6 +399,14 @@ export function TerminalView({
       term.options.theme = terminalTheme(isLightScheme());
     };
     window.addEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
+    // Settings › Terminal reaches open terminals at once.
+    const onLookChange = () => {
+      Object.assign(term.options, terminalLook());
+      lastCols = 0;
+      lastRows = 0;
+      schedule();
+    };
+    const unsubscribeLook = SETTINGS.terminalFontSize.subscribe(onLookChange);
 
     term.attachCustomWheelEventHandler(() => {
       if (term.element?.classList.contains("enable-mouse-events")) return true;
@@ -463,6 +480,7 @@ export function TerminalView({
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste);
       window.removeEventListener(SCHEME_CHANGE_EVENT, onSchemeChange);
+      unsubscribeLook();
       dataSub.dispose();
       oscFg.dispose();
       oscBg.dispose();

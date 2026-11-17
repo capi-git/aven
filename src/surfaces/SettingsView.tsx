@@ -1,4 +1,12 @@
 import {
+  BehaviourGroup,
+  ProjectPage,
+  ProjectTitle,
+  TerminalPage,
+  WorktreesPage,
+  useSettingsProject,
+} from "./SettingsMorePages";
+import {
   ArrowDownCircle,
   ImagePlus,
   Loader,
@@ -248,6 +256,8 @@ type Props = {
   onOpenWhatsNew: (version: string) => void;
   /** Leave Settings and run the tour over the workspace. */
   onTakeTour?: () => void;
+  /** The workspace's projects, each with a page under Projects. */
+  projects?: readonly string[];
 };
 
 export function SettingsView({
@@ -265,8 +275,10 @@ export function SettingsView({
   onDeleteProject,
   onOpenWhatsNew,
   onTakeTour,
+  projects = [],
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const settingsProject = useSettingsProject(projects);
   const [localSection, setLocalSection] = useState(requestedSection);
   const section = onSelectSection ? requestedSection : localSection;
   // A fresh object per pick, so choosing the same result again still reveals it.
@@ -364,6 +376,7 @@ export function SettingsView({
               section={section}
               onSelect={selectSection}
               onClose={onClose}
+              projects={projects}
             />
           </aside>
         ) : null}
@@ -371,8 +384,18 @@ export function SettingsView({
           <div key={section} className="settings-content">
             <div className="settings-page-top">
               <PageHeader
-                title={settingsSectionLabel(section)}
-                description={settingsSectionDescription(section)}
+                title={
+                  section === "project" ? (
+                    <ProjectTitle path={settingsProject} />
+                  ) : (
+                    settingsSectionLabel(section)
+                  )
+                }
+                description={
+                  section === "project"
+                    ? "Name, scripts and memory for this project."
+                    : settingsSectionDescription(section)
+                }
                 icon={(() => {
                   const Icon = SECTION_ICONS[section];
                   return <Icon className="size-4" strokeWidth={1.75} />;
@@ -417,6 +440,11 @@ export function SettingsView({
             {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
             {section === "connections" ? (
               <ProviderConnections cwd={cwd} />
+            ) : null}
+            {section === "worktrees" ? <WorktreesPage /> : null}
+            {section === "terminal" ? <TerminalPage /> : null}
+            {section === "project" ? (
+              <ProjectPage path={settingsProject} />
             ) : null}
             {section === "archive" ? (
               <ArchivePage
@@ -732,6 +760,7 @@ function PreferencesPage({
     return (
       <>
         {workspaceGroup}
+        <BehaviourGroup />
         <SettingsGroup
           title="About Aven"
           description="Your installed version and software updates."

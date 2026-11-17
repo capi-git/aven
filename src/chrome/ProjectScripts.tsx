@@ -1,3 +1,4 @@
+import { SETTINGS } from "../lib/settings";
 import {
   useEffect,
   useLayoutEffect,
@@ -222,6 +223,7 @@ export function ProjectScripts({
   // A new copy runs its setup by itself the first time it is shown.
   useEffect(() => {
     if (!active || !setup || cwd === project || setupRanIn(cwd)) return;
+    if (!SETTINGS.setupInNewCopies.load()) return;
     void runScript("setup", "Setup", setup, cwd);
     setPane("setup");
   }, [active, setup, cwd, project]);

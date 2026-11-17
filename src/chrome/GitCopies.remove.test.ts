@@ -251,6 +251,7 @@ describe("other copy status and removal", () => {
     expect(invoke).toHaveBeenCalledWith("git_worktree_remove", {
       cwd: "/repo",
       path: "/copies/done",
+      removeBuildFolders: true,
     });
     expect(container.querySelector(".git-copies")).toBeNull();
   });
@@ -434,9 +435,18 @@ describe("other copy status and removal", () => {
           command !== "git_worktrees" && command !== "session_list_by_project",
       );
     expect(removals).toEqual([
-      ["git_worktree_remove", { cwd: "/repo", path: "/copies/beta" }],
-      ["git_worktree_remove", { cwd: "/repo", path: "/copies/alpha" }],
-      ["git_worktree_remove", { cwd: "/repo", path: "/copies/delta" }],
+      [
+        "git_worktree_remove",
+        { cwd: "/repo", path: "/copies/beta", removeBuildFolders: true },
+      ],
+      [
+        "git_worktree_remove",
+        { cwd: "/repo", path: "/copies/alpha", removeBuildFolders: true },
+      ],
+      [
+        "git_worktree_remove",
+        { cwd: "/repo", path: "/copies/delta", removeBuildFolders: true },
+      ],
       ["race_cleanup", { root: "/repo", lanes: [race.lanes[0]] }],
     ]);
     expect(container.querySelector('[role="status"]')?.textContent).toBe(

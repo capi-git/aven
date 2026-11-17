@@ -460,4 +460,138 @@ export const SETTINGS = {
     keywords: "history hidden sessions tasks conversations",
     rowDescription: "Keep archived chats listed alongside the active ones.",
   }),
+  confirmQuit: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.confirmQuit",
+      ...storedBoolean(false),
+      changeEvent: "aven:confirm-quit-change",
+      storageChanges: true,
+    }),
+    section: "general",
+    label: "Ask before quitting",
+    description: "Ask before Aven quits, even when nothing is working.",
+    keywords: "quit exit close confirm cmd q prompt",
+    rowDescription:
+      "Ask before Aven quits with Cmd+Q or Quit. Aven always asks while agents work.",
+  }),
+  confirmCloseWorkingTab: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.confirmCloseWorkingTab",
+      ...storedBoolean(false),
+      changeEvent: "aven:confirm-close-working-tab-change",
+      storageChanges: true,
+    }),
+    section: "general",
+    label: "Ask before closing a working tab",
+    description: "Ask before you close a tab while an agent works in it.",
+    keywords: "close tab confirm running busy agent working prompt",
+    rowDescription:
+      "Ask before you close a tab while an agent works in it. The agent keeps working; its chat stays in the sidebar.",
+  }),
+  copyBase: defineSetting({
+    ...defineStoredSetting<"current" | "default">({
+      key: "aven.copyBase",
+      defaultValue: "current",
+      parse: (raw) => (raw === "default" ? "default" : "current"),
+      serialize: (value) => value,
+      changeEvent: "aven:copy-base-change",
+      storageChanges: true,
+    }),
+    section: "worktrees",
+    label: "Start new copies from",
+    description: "The commit a new copy of a project starts from.",
+    keywords: "worktree copy branch base main default head commit",
+    rowDescription:
+      "The project's current commit, or its main branch as last fetched.",
+  }),
+  setupInNewCopies: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.setupInNewCopies",
+      ...storedBoolean(true, true),
+      changeEvent: "aven:setup-in-new-copies-change",
+      storageChanges: true,
+    }),
+    section: "worktrees",
+    label: "Set up new copies",
+    description: "Run a project's Setup command when a new copy opens.",
+    keywords: "worktree copy setup install script npm automatic",
+    rowDescription:
+      "Run the project's Setup command the first time a new copy opens, for example to install packages.",
+  }),
+  removeBuildFolders: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.removeBuildFolders",
+      ...storedBoolean(true, true),
+      changeEvent: "aven:remove-build-folders-change",
+      storageChanges: true,
+    }),
+    section: "worktrees",
+    label: "Remove build folders with a copy",
+    description: "Let a copy go with its build folders, such as node_modules.",
+    keywords:
+      "worktree copy remove delete ignored build node_modules dist target",
+    rowDescription:
+      "Folders a build makes again (node_modules, .build, build, dist, target) do not stop a removal. Other ignored files, such as .env, still do.",
+  }),
+  terminalFont: defineSetting({
+    ...defineStoredSetting<string>({
+      key: "aven.terminalFont",
+      defaultValue: "",
+      parse: (raw) => (raw && /^[\w .-]{1,40}$/.test(raw) ? raw : ""),
+      serialize: (value) => value,
+      changeEvent: "aven:terminal-change",
+      storageChanges: true,
+    }),
+    section: "terminal",
+    label: "Font",
+    description: "The terminal's font.",
+    keywords: "terminal font family monospace typeface",
+    rowDescription: "A font you do not have falls back to Aven's code font.",
+  }),
+  terminalFontSize: defineSetting({
+    ...defineStoredSetting<number>({
+      key: "aven.terminalFontSize",
+      defaultValue: 13,
+      parse: (raw) => {
+        const size = Number(raw);
+        return Number.isInteger(size) && size >= 10 && size <= 20 ? size : 13;
+      },
+      serialize: (value) => String(value),
+      changeEvent: "aven:terminal-change",
+      storageChanges: true,
+    }),
+    section: "terminal",
+    label: "Text size",
+    description: "The size of the terminal's text.",
+    keywords: "terminal font size zoom text bigger smaller",
+    rowDescription: "The size of text in every terminal.",
+  }),
+  terminalCursor: defineSetting({
+    ...defineStoredSetting<"bar" | "block" | "underline">({
+      key: "aven.terminalCursor",
+      defaultValue: "bar",
+      parse: (raw) => (raw === "block" || raw === "underline" ? raw : "bar"),
+      serialize: (value) => value,
+      changeEvent: "aven:terminal-change",
+      storageChanges: true,
+    }),
+    section: "terminal",
+    label: "Cursor",
+    description: "The shape of the terminal's cursor.",
+    keywords: "terminal cursor caret bar block underline",
+    rowDescription: "The shape of the cursor where you type.",
+  }),
+  terminalCursorBlink: defineSetting({
+    ...defineStoredSetting<boolean>({
+      key: "aven.terminalCursorBlink",
+      ...storedBoolean(true, true),
+      changeEvent: "aven:terminal-change",
+      storageChanges: true,
+    }),
+    section: "terminal",
+    label: "Blinking cursor",
+    description: "Let the terminal's cursor blink.",
+    keywords: "terminal cursor blink flash",
+    rowDescription: "Let the cursor blink while the terminal has focus.",
+  }),
 };
