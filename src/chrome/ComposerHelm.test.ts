@@ -700,6 +700,39 @@ describe("the dialog", () => {
     expect(document.body.querySelector("[data-agent-panel]")).not.toBeNull();
   });
 
+  it("stands above the whole message box, not over the words above the mark", async () => {
+    // The mark sits in the box's bottom row, at 700; the box, with its
+    // words, starts at 560.
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(264);
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(200);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const [top, height] = this.matches("[data-composer-box]")
+          ? [560, 180]
+          : this.matches("[data-helm-critter]")
+            ? [700, 26]
+            : [0, 0];
+        return new DOMRect(100, top, 600, height);
+      },
+    );
+    vi.stubGlobal("innerHeight", 900);
+    const box = document.createElement("div");
+    box.setAttribute("data-composer-box", "");
+    host.append(box);
+    props.boxRef = { current: box };
+    await render();
+    await openByClick();
+    const placed = dialog()!;
+    expect(placed.dataset.popoverSide).toBe("top");
+    expect(placed.dataset.anchor).toBe("box");
+    // Its foot 14px over the box's top edge, so it covers none of the box.
+    const frame = placed.parentElement!;
+    const foot = frame.style.top
+      ? parseFloat(frame.style.top) + 200
+      : 900 - parseFloat(frame.style.bottom);
+    expect(foot).toBe(546);
+  });
+
   it("is named for what it holds, without a tooltip", async () => {
     await render();
     expect(critter().getAttribute("aria-label")).toBe(

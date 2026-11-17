@@ -478,11 +478,9 @@ html.has-chat-background:not(.chat-background-empty-only)
   pointer-events: none;
 }
 
-/* Between panes, a very faint whole-pixel line says they are split. It stays
-   the same while you point at it or drag it. */
-.workspace-stage-sash::after {
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
-}
+/* Between panes the gap is the divider and nothing is drawn in it (DESIGN.md):
+   no line at rest, while pointed at or while dragged; the grip shows instead.
+   Only keyboard focus draws a line (above). */
 .workspace-stage-sash[data-direction="right"]::after {
   left: calc(50% - 0.5px);
   width: 1px;

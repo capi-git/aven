@@ -12,6 +12,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
@@ -151,6 +152,11 @@ type Props = {
   onStop?: () => void;
   /** Hands the keyboard back to the message. */
   onReturnFocus: () => void;
+  /**
+   * The message box the helm stands in. Its dialog opens above the box, not
+   * just above the mark in the box's bottom row, so it never covers the words.
+   */
+  boxRef?: RefObject<HTMLElement | null>;
 };
 
 type Page = "main" | "modes" | "skills" | "critter";
@@ -285,6 +291,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
     stopInBar,
     onStop,
     onReturnFocus,
+    boxRef,
   } = props;
   const dialogId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1061,13 +1068,14 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         </button>
         {showDialog ? (
           // In a portal, so a short pane never clips it; always above the
-          // mark (never flipped over the words), its body scrolling when
-          // the room above is short. Inside the perch in React's tree, so
-          // moving between the mark and the menu is not leaving.
+          // message box, from its start where the mark stands (never
+          // flipped over the words), its body scrolling when the room above
+          // is short. Inside the perch in React's tree, so moving between
+          // the mark and the menu is not leaving.
           <Popover
-            anchor={critterRef}
+            anchor={boxRef ?? critterRef}
             side="top"
-            align="end"
+            align={boxRef ? "start" : "end"}
             gap={DIALOG_GAP}
             width={DIALOG_WIDTH}
             flip={false}
@@ -1078,6 +1086,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
             role="dialog"
             aria-label="Message settings"
             data-helm-dialog
+            data-anchor={boxRef ? "box" : "mark"}
             data-page={page}
             onPointerEnter={() => clearTimer()}
             onKeyDown={onDialogKey}

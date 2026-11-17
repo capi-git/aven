@@ -536,6 +536,13 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   justify-content: space-evenly;
   pointer-events: none;
 }
+/* Over the box, from its start: the trail stands over the mark in the box's
+   bottom row (the box's 1px edge, the row's 4px and the button's 4px, then
+   half the 18px mark, less half a dot). */
+.helm-dialog[data-anchor="box"] .helm-dialog-tail {
+  right: auto;
+  left: 16.5px;
+}
 .helm-dialog-tail i {
   width: 3px;
   height: 3px;

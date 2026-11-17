@@ -41,7 +41,9 @@ function layout({
   radius = "10px",
   edge = "1px",
   inset = 0,
-  divider = 0.5,
+  gap = 6,
+  grab = 8,
+  line = false,
   hairlines = true,
   fileTabHeight = 26,
   titleRow = false,
@@ -55,26 +57,29 @@ function layout({
       <div class="aven-tab"><div class="aven-tab-button" data-chat-tab
         style="border-top-left-radius:6px"></div></div>
     </div>`;
+  const card = `border-top-left-radius:${radius};border-top-width:${edge}`;
   document.body.innerHTML = `
     <div data-workspace-stage>
       <div class="workspace-stage-surface" data-workspace-surface="tab"
-        style="border-top-left-radius:${radius};border-top-width:${edge}">
+        data-split="true">
         <div data-tree>
-          <div data-pane-id="chat">
+          <div data-pane-id="chat" style="${card}">
             <div data-session-drop="chat">
               ${chip ? "<div data-session-pane-controls></div>" : ""}
               ${strip.repeat(chatStrips)}
               <div data-chat-content></div>
             </div>
           </div>
-          <div data-pane-id="files">
+          <div data-pane-id="files" style="${card}">
             ${fileNameStrip ? '<div class="aven-tab-bar" data-file-name-strip></div>' : ""}
             <div class="aven-surface-tabs aven-tab-bar" style="${hairline}"><button
               class="aven-tab-button" data-file-tab
               style="border-top-left-radius:6px"></button></div>
             <div data-file-body></div>
           </div>
-          <div role="separator" aria-orientation="vertical" data-divider></div>
+          <div role="separator" aria-orientation="vertical" data-divider
+            style="${line ? "background:rgba(255,255,255,0.1)" : ""}"><div
+            data-grab></div></div>
         </div>
       </div>
       ${
@@ -130,7 +135,22 @@ function layout({
     height: fileTabHeight,
   });
   at("[data-file-body]", { left: 500, top: 64, width: 500, height: 536 });
-  at("[data-divider]", { left: 500, top: 32, width: divider, height: 568 });
+  // Two cards, `gap` apart, with the separator in the middle of the gap and
+  // its grab target across it.
+  at('[data-pane-id="chat"]', {
+    left: 0,
+    top: 0,
+    width: 500 - gap / 2,
+    height: 600,
+  });
+  at('[data-pane-id="files"]', {
+    left: 500 + gap / 2,
+    top: 0,
+    width: 500 - gap / 2,
+    height: 600,
+  });
+  at("[data-divider]", { left: 500, top: 0, width: 0, height: 600 });
+  at("[data-grab]", { left: 500 - grab / 2, top: 0, width: grab, height: 600 });
   measure();
   return document.querySelector<HTMLElement>("[data-file-body]")!;
 }
@@ -145,10 +165,8 @@ describe("paneLayoutProblem", () => {
     const result = paneLayoutProblem(layout());
     expect(result.problem).toBeNull();
     expect(result.summary).toBe(
-      "one 32px strip per pane above its content, with no line under it, and no title row naming the tab again; 10px cards flush with the workspace, divided by a 0.5px hairline; chat and file tabs 26px tall, 6px corners",
+      "one 32px strip per pane above its content, with no line under it, and no title row naming the tab again; 10px cards flush with the workspace, 6px apart with no line between them, grabbed across 8px; chat and file tabs 26px tall, 6px corners",
     );
-    // Under Increase contrast, or on a 1x screen, the hairline is a full pixel.
-    expect(paneLayoutProblem(layout({ divider: 1 })).problem).toBeNull();
   });
 
   it("names a missing, doubled or floating strip and the old chip", () => {
@@ -177,10 +195,10 @@ describe("paneLayoutProblem", () => {
     );
     // Each pane is a card with 10px corners and a faint 1px edge.
     expect(paneLayoutProblem(layout({ radius: "0px" })).problem).toBe(
-      "the pane's corners are 0px, not 10px",
+      "the chat's card has 0px corners, not 10px",
     );
     expect(paneLayoutProblem(layout({ edge: "2px" })).problem).toBe(
-      "the pane has a 2px edge",
+      "the chat's card has a 2px edge",
     );
     // A scaled screen draws the 1px edge a little wider.
     expect(
@@ -189,8 +207,17 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(layout({ inset: 5 })).problem).toBe(
       "the pane is 5px from the workspace edge",
     );
-    expect(paneLayoutProblem(layout({ divider: 8 })).problem).toBe(
-      "the divider between the panes is 8px thick",
+    // The 6px gap is the divider, as between two tabs: flush panes with a
+    // line between them are the old look, and a line in the gap is drawn.
+    expect(paneLayoutProblem(layout({ gap: 0 })).problem).toBe(
+      "the panes are 0px apart, not 6px",
+    );
+    expect(paneLayoutProblem(layout({ line: true })).problem).toBe(
+      "a line is drawn between the panes",
+    );
+    // Grabbing anywhere in the gap takes the divider.
+    expect(paneLayoutProblem(layout({ grab: 2 })).problem).toBe(
+      "the divider can be grabbed across 2px of the 6px gap",
     );
     expect(paneLayoutProblem(layout({ stripHeight: 24 })).problem).toBe(
       "the chat's strip is 24px and the file's 32px",
