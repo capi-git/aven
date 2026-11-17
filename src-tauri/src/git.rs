@@ -496,6 +496,8 @@ fn only_build_folders(ignored: &str) -> bool {
         })
 }
 
+/// `remove_worktree_with`, keeping build folders: what the tests call.
+#[cfg(test)]
 pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String> {
     remove_worktree_with(root, path, false)
 }
@@ -3780,7 +3782,12 @@ mod tests {
         let here = create_chat_copy_from(&repo, &copies, false).unwrap();
         let main = create_chat_copy_from(&repo, &copies, true).unwrap();
         let read =
-            |copy: &ChatCopy| std::fs::read_to_string(Path::new(&copy.path).join("a.txt")).unwrap();
+            // Git on Windows may check text out with CRLF line endings.
+            |copy: &ChatCopy| {
+                std::fs::read_to_string(Path::new(&copy.path).join("a.txt"))
+                    .unwrap()
+                    .replace("\r\n", "\n")
+            };
         assert_eq!(read(&here), "two\n");
         assert_eq!(read(&main), "one\n");
     }
@@ -3802,15 +3809,18 @@ mod tests {
 
         let first = create_chat_copy_for(&repo, &copies).unwrap();
         assert_eq!(first.branch, "aven/copy-1");
-        assert!(first.path.ends_with("my-repo/copy-1"));
+        assert!(Path::new(&first.path).ends_with(Path::new("my-repo").join("copy-1")));
+        // Git on Windows may check text out with CRLF line endings.
         assert_eq!(
-            std::fs::read_to_string(Path::new(&first.path).join("a.txt")).unwrap(),
+            std::fs::read_to_string(Path::new(&first.path).join("a.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
             "one\n"
         );
         // From inside a copy, the next one still sits beside it.
         let second = create_chat_copy_for(Path::new(&first.path), &copies).unwrap();
         assert_eq!(second.branch, "aven/copy-2");
-        assert!(second.path.ends_with("my-repo/copy-2"));
+        assert!(Path::new(&second.path).ends_with(Path::new("my-repo").join("copy-2")));
         assert_eq!(git_worktrees_for(&repo).len(), 3);
 
         let plain = dir.0.join("plain");
