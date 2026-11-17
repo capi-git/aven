@@ -957,11 +957,18 @@ function sanitizeNoteCard(value: Block["noteCard"]): Block["noteCard"] {
   const title = typeof value.title === "string" ? value.title.trim() : "";
   const sourceCwd =
     typeof value.sourceCwd === "string" ? value.sourceCwd.trim() : "";
+  const forward = value.kind === "forward";
+  const harness =
+    forward && (HARNESSES as string[]).includes(value.harness ?? "")
+      ? value.harness
+      : undefined;
   return {
     id,
     slug,
     title,
     ...(sourceCwd ? { sourceCwd } : {}),
+    ...(forward ? { kind: "forward" as const } : {}),
+    ...(harness ? { harness } : {}),
   };
 }
 

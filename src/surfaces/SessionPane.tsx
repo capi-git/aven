@@ -848,6 +848,7 @@ export const SessionPane = memo(function SessionPane({
                 onApproval={approve}
                 onAddToChat={addSelectionToChat}
                 onSaveNote={notesEnabled ? saveNote : undefined}
+                forwardFromId={session.inboxAsk ? undefined : session.id}
                 memoryProject={session.inboxAsk ? undefined : memoryProject}
                 onOpenFile={onOpenFile}
                 onOpenDiff={onOpenDiff}

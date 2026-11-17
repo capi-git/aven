@@ -1,3 +1,4 @@
+import { ForwardButton } from "../chrome/ForwardButton";
 import { visibleInterval } from "../lib/visibleInterval";
 import {
   Check,
@@ -189,6 +190,8 @@ type Props = {
   onApproval?: (requestId: number, decision: ApprovalDecision) => void;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void;
+  /** The chat a reply is forwarded from; omitted hides Forward. */
+  forwardFromId?: string;
   /** Project whose memory "Remember this" adds to; omitted hides it. */
   memoryProject?: string;
   onOpenFile?: (path: string) => void;
@@ -245,6 +248,7 @@ function AgentTranscriptComponent({
   onApproval,
   onAddToChat,
   onSaveNote,
+  forwardFromId,
   memoryProject,
   onOpenFile,
   onOpenDiff,
@@ -872,6 +876,7 @@ function AgentTranscriptComponent({
                     onOpenPlan={onOpenPlan}
                     onBuildPlan={onBuildPlan}
                     onSaveNote={onSaveNote}
+                    forwardFromId={forwardFromId}
                     memoryProject={memoryProject}
                     onSecondOpinion={onSecondOpinion}
                     onHandoff={onHandoff}
@@ -920,6 +925,7 @@ type TranscriptTurnProps = Pick<
   | "onOpenPlan"
   | "onBuildPlan"
   | "onSaveNote"
+  | "forwardFromId"
   | "memoryProject"
   | "onSecondOpinion"
   | "onHandoff"
@@ -1020,6 +1026,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
   onOpenPlan,
   onBuildPlan,
   onSaveNote,
+  forwardFromId,
   memoryProject,
   onSecondOpinion,
   onHandoff,
@@ -1343,6 +1350,7 @@ const TranscriptTurn = memo(function TranscriptTurn({
           completedAt={startedAt != null ? startedAt + durationMs : undefined}
           copyText={turnCopyText(turn)}
           onSaveNote={onSaveNote}
+          forwardFromId={forwardFromId}
           memoryProject={memoryProject}
           harness={turnHarness}
           fromHarness={turnHarness}
@@ -1513,6 +1521,7 @@ function TurnDuration({
   completedAt,
   copyText: output,
   onSaveNote,
+  forwardFromId,
   memoryProject,
   fromHarness,
   onSecondOpinion,
@@ -1529,6 +1538,7 @@ function TurnDuration({
   completedAt?: number;
   copyText?: string;
   onSaveNote?: (text: string) => void;
+  forwardFromId?: string;
   memoryProject?: string;
   fromHarness?: HarnessId;
   onSecondOpinion?: (harness: HarnessId, model: string) => void;
@@ -1552,6 +1562,9 @@ function TurnDuration({
             <CopyTurnButton text={output} />
             {onSaveNote ? (
               <SaveNoteButton text={output} onSave={onSaveNote} />
+            ) : null}
+            {forwardFromId ? (
+              <ForwardButton text={output} fromSessionId={forwardFromId} />
             ) : null}
             {memoryProject ? (
               <RememberButton project={memoryProject} text={output} />

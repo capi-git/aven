@@ -722,6 +722,40 @@ button.chat-reference:hover,
   color: color-mix(in srgb, var(--link-color) 80%, var(--color-content));
 }
 
+/* Another chat named with @: its name in a quiet pill, not a link. */
+.chat-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 5px;
+  border-radius: 5px;
+  vertical-align: baseline;
+  background: var(--aven-fill-quaternary);
+  color: var(--color-content);
+  font-weight: 500;
+  cursor: var(--aven-cursor-pointer);
+}
+
+.chat-mention:hover {
+  background: var(--aven-control-hover);
+}
+
+/* The same pill while the mention is still in the message box. It takes no
+   room of its own (a spread shadow, not padding), so the letters stay over
+   the textarea's. */
+.chat-mention-draft {
+  border-radius: 4px;
+  background: var(--aven-fill-quaternary);
+  box-shadow: 0 0 0 2px var(--aven-fill-quaternary);
+  color: var(--color-content);
+}
+
+.chat-mention:focus-visible {
+  outline: 2px solid var(--link-color);
+  outline-offset: 1px;
+}
+
 .chat-reference:focus-visible {
   outline: 2px solid var(--link-color);
   outline-offset: 2px;

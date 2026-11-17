@@ -773,6 +773,8 @@ import {
   type WorkspaceNavigation,
 } from "./lib/workspaceNavigation";
 import { preparePrompt } from "./lib/promptPreparation";
+import { setChatReferenceSource } from "./lib/chatMentions";
+import { FORWARD_TO_CHAT_EVENT, type ForwardRequest } from "./lib/chatForward";
 import { loadProjectMemory, projectMemoryForTurn } from "./lib/projectMemory";
 import { warmNativeSkills, isNativeCommandPrompt } from "./lib/skills";
 import { nativeSkillContextForSession } from "./lib/sessionSkills";
@@ -6516,6 +6518,40 @@ export default function App({
     (path: string) => void startProjectChat(path),
     [startProjectChat],
   );
+  // Forward: the reply waits as a card over the chosen chat's message box.
+  useEffect(() => {
+    const onForward = (event: Event) => {
+      const request = (event as CustomEvent<ForwardRequest>).detail;
+      if (!request?.card.body.trim()) return;
+      const attach = (id: string) =>
+        setSessions((prev) =>
+          prev.map((session) =>
+            session.id === id
+              ? { ...session, noteCard: request.card }
+              : session,
+          ),
+        );
+      if (!request.toSessionId) {
+        attach(startProjectChat(request.cwd));
+        return;
+      }
+      const target = request.toSessionId;
+      // An open chat shows the card at once; a saved one once it is loaded.
+      attach(target);
+      void onSelectHistorySession(target).then(() => attach(target));
+    };
+    window.addEventListener(FORWARD_TO_CHAT_EVENT, onForward);
+    return () => window.removeEventListener(FORWARD_TO_CHAT_EVENT, onForward);
+  }, [onSelectHistorySession, setSessions, startProjectChat]);
+  // `@chat/…` reads the chat it names when the message is sent.
+  useEffect(() => {
+    setChatReferenceSource({
+      session: (id) => liveSessions.session(id),
+      list: () => liveSessions.list(),
+      load: getSession,
+    });
+    return () => setChatReferenceSource(null);
+  }, [liveSessions]);
   /**
    * A new chat in its own copy of the project: a new folder and branch made
    * from the project's current commit, so it works beside the others.

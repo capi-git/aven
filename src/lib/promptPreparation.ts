@@ -1,3 +1,4 @@
+import { applyChatsToTurn } from "./chatMentions";
 import { applyFileMentionsToTurn } from "./fileMentions";
 import { applyNotesToTurn } from "./notes";
 import {
@@ -17,5 +18,6 @@ export async function preparePrompt(
     return nativeCommandPrompt(context.harness, text);
   const withFiles = await applyFileMentionsToTurn(text, context.cwd);
   const withNotes = await applyNotesToTurn(withFiles);
-  return applySkillsToTurn(withNotes, context);
+  const withChats = await applyChatsToTurn(withNotes);
+  return applySkillsToTurn(withChats, context);
 }
