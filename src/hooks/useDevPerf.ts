@@ -50,6 +50,7 @@ import {
 import { readLaunchReveal } from "../lib/devSmokeReveal";
 import { errorText } from "../lib/errors";
 import { resolveClaudeBinary } from "../lib/harness/child";
+import { nativeBrowser } from "../lib/browser";
 import { IS_MAC } from "../lib/platform";
 import { sameProjectPath } from "../lib/recents";
 import type { Session } from "../lib/session";
@@ -246,6 +247,28 @@ export async function runDevPerf(
     visibleAtEpochMs: undefined as number | undefined,
   };
   let refreshMs = 1000 / 60;
+  // PROBE: each native page layout's round trip and what it carried.
+  const layoutLog: { ms: number; holes: number; moving: boolean; shade: boolean; size: number; visible?: boolean; w?: number; x?: number }[] = [];
+  {
+    const original = nativeBrowser.layout;
+    nativeBrowser.layout = async (id, bounds, visible) => {
+      const begin = performance.now();
+      try {
+        return await original(id, bounds, visible);
+      } finally {
+        layoutLog.push({
+          ms: performance.now() - begin,
+          holes: bounds.holes?.length ?? 0,
+          moving: !!(bounds as { moving?: unknown }).moving,
+          shade: !!bounds.shade,
+          size: JSON.stringify(bounds).length,
+          visible,
+          w: Math.round(bounds.width),
+          x: Math.round(bounds.x),
+        });
+      }
+    };
+  }
 
   const wanted = (name: string) =>
     !settings.only?.length || settings.only.some((part) => name.includes(part));
@@ -275,6 +298,7 @@ export async function runDevPerf(
     };
     startReactProfile();
     const hot = options.frames === false ? null : recordHotCalls();
+    layoutLog.length = 0;
     const started = performance.now();
     let hiddenMs = 0;
     let hiddenSince = document.hidden ? started : 0;
@@ -359,7 +383,16 @@ export async function runDevPerf(
       hiddenMs: round(hiddenMs, 0),
       ...(pagePopups ? { pagePopups } : {}),
       ...(error ? { error } : {}),
-    });
+      pageLayouts: {
+        n: layoutLog.length,
+        ...(layoutLog.length ? spread(layoutLog.map((e) => e.ms)) : {}),
+        holes: layoutLog.filter((e) => e.holes).length,
+        shade: layoutLog.filter((e) => e.shade).length,
+        bytes: layoutLog.reduce((sum, e) => sum + e.size, 0),
+        sample: layoutLog.slice(0, 6).map((e) => `${e.visible ? 'V' : 'h'}${e.x},${e.w}`).join(' '),
+        pane: [...document.querySelectorAll<HTMLElement>('[data-browser-pane]')].map((e) => `${Math.round(e.getBoundingClientRect().width)}:${getComputedStyle(e).visibility}`).join(' '),
+      },
+    } as ScenarioResult);
     pagePopups = undefined;
     steps.push({ name, passed: !error, ...(error ? { detail: error } : {}) });
   };
@@ -861,6 +894,56 @@ export async function runDevPerf(
           await dragSidebarEdge(measure);
         },
       );
+      // The web page's own tab, lifted and carried along the strip and over
+      // the live page and its edges, as a person moves a page to another
+      // place; back to where it was, so nothing moves or splits.
+      await scenario("dragging a web page's tab", async (measure) => {
+        pressShortcut("9");
+        await pause(1_000);
+        if (!document.querySelector("[data-browser-pane]"))
+          throw new Error("No web page in front");
+        const stage = document.querySelector<HTMLElement>(
+          "[data-workspace-stage]",
+        );
+        if (!stage) throw new Error("No workspace stage");
+        for (let round_ = 0; round_ < 3; round_ += 1) {
+          const slot = document.querySelector<HTMLElement>(
+            ".aven-tab-strip [data-motion-slot][data-active='true']",
+          );
+          const first = stripSlots()[0];
+          if (!slot || !first) throw new Error("No web page tab to drag");
+          const box = stage.getBoundingClientRect();
+          const start = pressPoint(slot);
+          const along = pressPoint(first);
+          const stops = [
+            start,
+            { x: along.x, y: start.y },
+            start,
+            { x: box.left + box.width * 0.5, y: box.top + box.height * 0.5 },
+            { x: box.left + 24, y: box.top + box.height * 0.5 },
+            { x: box.left + box.width * 0.5, y: box.bottom - 24 },
+            { x: box.right - 24, y: box.top + box.height * 0.5 },
+            start,
+          ];
+          await dragTab(
+            measure,
+            slot,
+            (share) => {
+              const at = share * (stops.length - 1);
+              const leg = Math.min(Math.floor(at), stops.length - 2);
+              const part = at - leg;
+              return {
+                x: stops[leg].x + (stops[leg + 1].x - stops[leg].x) * part,
+                y: stops[leg].y + (stops[leg + 1].y - stops[leg].y) * part,
+              };
+            },
+            180,
+          );
+          measure.mark("drop");
+          await measure.time(() => smokeMouse("up", start, { settle: false }));
+          await pause(500);
+        }
+      });
       // A popup over a page is drawn beneath it: it is only whole on screen
       // once the page is cut or shaded for it, or hidden behind a picture.
       // A dialog (the command palette) and a menu (the tab's own) show both.
