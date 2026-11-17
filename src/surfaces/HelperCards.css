@@ -1,0 +1,182 @@
+/* The helpers a chat started in a turn (HelperCards.tsx): one compact card
+   each, under the reply, as Super Engineering draws a helper. Grey card,
+   grey words; colour only in the diff counts and the change bar. */
+
+.helper-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 16px 8px;
+}
+
+.helper-card {
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-card, 10px);
+  background: color-mix(in srgb, var(--color-content) 3%, transparent);
+  overflow: hidden;
+}
+
+.helper-card-head,
+.helper-card-file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.helper-card-head {
+  height: 32px;
+  padding: 0 6px 0 10px;
+  font-size: var(--text-ui-label);
+}
+
+.helper-card-mark {
+  width: 14px;
+  height: 14px;
+}
+
+.helper-card-name {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  font-weight: 500;
+  color: var(--color-content);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.helper-card-line {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--aven-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.helper-card-time {
+  flex: none;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.helper-card-icon {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: var(--aven-radius-sm, 6px);
+  color: var(--aven-muted);
+}
+
+.helper-card-icon:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.helper-card-file {
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border-top: 1px solid var(--aven-line);
+  font-size: var(--text-ui-caption);
+}
+
+.helper-card-file-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.helper-card-counts {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.helper-card-added {
+  color: var(--color-emerald-400);
+}
+
+.helper-card-removed {
+  color: var(--color-red-400);
+}
+
+.helper-card-bar {
+  display: flex;
+  flex: none;
+  gap: 1.5px;
+}
+
+.helper-card-bar i {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-content) 16%, transparent);
+}
+
+.helper-card-bar i[data-kind="add"] {
+  background: var(--color-emerald-400);
+}
+
+.helper-card-bar i[data-kind="del"] {
+  background: var(--color-red-400);
+}
+
+.helper-card-button {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-sm, 6px);
+  color: color-mix(in srgb, var(--color-content) 75%, transparent);
+  font-size: var(--text-ui-caption);
+}
+
+.helper-card-button:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.helper-cards-held {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.helper-cards-note {
+  color: var(--aven-muted);
+  font-size: var(--text-ui-caption);
+}
+
+/* A helper's task, under who sent it: the chat that started it and the
+   helper's model. */
+.helper-from {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: var(--text-ui-caption);
+}
+
+.helper-from-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.helper-from-model {
+  flex: none;
+  color: var(--aven-muted);
+}

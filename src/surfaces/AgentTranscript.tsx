@@ -113,6 +113,7 @@ import { botProgressLine, isNothingToReport } from "../lib/projectBotWake";
 import { useBotTurnOwnsFix } from "../lib/projectBots";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { CrewFenceSource } from "./CrewFenceCard";
+import { HelperCards } from "./HelperCards";
 import { DiscussionCard, DiscussionPartnerReply } from "./DiscussionInChat";
 import { RaceCard } from "./RaceCard";
 import { TranscriptSelectionMenu } from "./TranscriptSelectionMenu";
@@ -1312,6 +1313,12 @@ const TranscriptTurn = memo(function TranscriptTurn({
   const footer = (
     <>
       {foldLineAt >= items.length ? foldLineRow : null}
+      <HelperCards
+        turnId={userBlock?.id}
+        othersWorked={!!userBlock?.othersWorked}
+        cwd={cwd}
+        onOpenDiff={onOpenDiff}
+      />
       {proposals.map((block) => (
         <div
           key={block.id}
@@ -1721,6 +1728,18 @@ const TranscriptBlock = memo(function TranscriptBlock({
   if (block.role === "user") {
     if (block.botWake)
       return <BotWakeTag label={block.botWake.label} at={block.startedAt} />;
+    // The app's line that woke this chat once its helpers were done.
+    if (block.helpersDone)
+      return (
+        <BotWakeTag
+          label={
+            block.helpersDone.count === 1
+              ? "Your helper is done"
+              : "Your helpers are done"
+          }
+          at={block.startedAt}
+        />
+      );
     return (
       <UserMessageBlock
         block={block}
@@ -1889,7 +1908,12 @@ function UserMessageBlock({
   const bubbleRef = useSendFlight<HTMLDivElement>(motion, text);
   const chat = layout === "chat";
   const textOnly =
-    Boolean(text) && !block.attachments?.length && !card && !note && !relay;
+    Boolean(text) &&
+    !block.attachments?.length &&
+    !card &&
+    !note &&
+    !relay &&
+    !block.helperTask;
 
   // Only the chat layout rounds a single line; the document layout always uses
   // the square corners, so it never needs the measurement at all.
@@ -1964,6 +1988,20 @@ function UserMessageBlock({
             : undefined
         }
       >
+        {block.helperTask ? (
+          <div className="helper-from" data-helper-from>
+            <HarnessIcon
+              harness={block.helperTask.harness}
+              className="size-3 shrink-0"
+            />
+            <span className="helper-from-name">
+              From {block.helperTask.from}
+            </span>
+            <span className="helper-from-model">
+              · {block.helperTask.model}
+            </span>
+          </div>
+        ) : null}
         {block.attachments?.length ? (
           <div
             className={`personal-message-attachments flex flex-wrap gap-1.5 ${text || card || note ? "mb-2" : ""}`}

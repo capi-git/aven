@@ -35,6 +35,10 @@ export const SMOKE_JUMP_IN_WORD = "AVEN_SMOKE_JUMP_IN";
 export const SMOKE_HEARD_WORD = "AVEN_SMOKE_HEARD";
 /** In a request: the stand-in plans two tasks and leads the run. */
 export const SMOKE_ORCHESTRATE_WORD = "AVEN_SMOKE_ORCHESTRATE";
+/** In a plain chat's message: the stand-in starts two helpers. */
+export const SMOKE_HELPERS_WORD = "AVEN_SMOKE_HELPERS";
+/** In the stand-in's report once its helpers are done. */
+export const SMOKE_HELPERS_REPORT = "Both helpers are done.";
 /** With it, the stand-in lead reads the results and never finishes. */
 export const SMOKE_STALL_WORD = "AVEN_SMOKE_STALL";
 /** With it, the stand-in puts the notes Aven sent ahead of the message in its reply. */

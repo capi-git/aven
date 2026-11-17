@@ -31,7 +31,21 @@ import {
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { openAgentFileInTabs } from "./lib/agentFiles";
-import { orchestrator, type ControlOutcome } from "./lib/orchestration";
+import {
+  isHelperRun,
+  orchestrator,
+  type ControlOutcome,
+  type ShownTurn,
+} from "./lib/orchestration";
+import {
+  asksForHelpers,
+  helpersTabTitle,
+  othersWorkedDuring,
+  turnStartedAt,
+  withHelperPane,
+  withOthersWorked,
+} from "./lib/helperAgents";
+import { sharedWorkTurns } from "./lib/sharedWork";
 import { armChatAutomation, settleChatAutomation } from "./lib/chatAutomation";
 import { agentFilesFolder } from "./lib/chatDownloads";
 import {
@@ -601,6 +615,7 @@ import {
 } from "./lib/paths";
 import { projectOpenWork, removeProjectData } from "./lib/projectData";
 import {
+  isRaceLanePath,
   lastProjectPath,
   looksLikeProject,
   normalizeProjectPath,
@@ -3257,7 +3272,8 @@ export default function App({
   // ended, and a line per agent from the cheap model (see teamResult).
   useEffect(() => {
     for (const run of teamStores.runs) {
-      if (run.status !== "finished") continue;
+      // A chat's helpers report in the chat's own reply instead.
+      if (run.status !== "finished" || isHelperRun(run)) continue;
       const lead = sessionById.get(run.leadId);
       // The reply of the turn the run ended in. A run from an earlier
       // version has no end to match, so it keeps no verdict rather than a
@@ -7171,6 +7187,8 @@ export default function App({
          */
         prepareText?: (text: string) => Promise<string>;
         onSettled?: (outcome: ControlOutcome) => void;
+        /** A managed turn that shows in its chat (see `ShownTurn`). */
+        shown?: ShownTurn;
         /**
          * The user wrote this message. Only such a turn ends their Stop on
          * the chat's use of other tabs and its declined requests.
@@ -7526,8 +7544,21 @@ export default function App({
         // queue what it took down from these only.
         ...typedTurn(options),
         ...(options?.userBlockId ? { id: options.userBlockId } : {}),
-        // The orchestrator writes these turns, not the user; hide them.
-        ...(options?.managed ? { internal: true } : {}),
+        // The orchestrator writes these turns, not the user; hide them,
+        // except a helper's task and the line that wakes its lead.
+        ...(options?.managed && !options.shown ? { internal: true } : {}),
+        ...(options?.shown?.kind === "helper-task"
+          ? {
+              helperTask: {
+                from: options.shown.from,
+                harness: options.shown.harness,
+                model: options.shown.model,
+              },
+            }
+          : {}),
+        ...(options?.shown?.kind === "helpers-done"
+          ? { helpersDone: { count: options.shown.count } }
+          : {}),
       };
       const live = isLiveHarness(current.harness);
       const queuedHandoff =
@@ -7881,6 +7912,24 @@ export default function App({
             ? userMessagesAfterHandoff(current)
             : [];
           const projectMemory = await projectMemoryForTurn(current.cwd);
+          // Any chat may start helpers when you ask it to in words: its
+          // agent gets Aven's control command and a line on how to use it.
+          const mayStartHelpers =
+            !rawCommand &&
+            (current.harness === "claude" || current.harness === "codex") &&
+            !current.orchestrationLeadId &&
+            !current.worktreeCwd &&
+            !current.inboxAsk &&
+            !isBotChat(sessionId) &&
+            !options?.teamMember &&
+            !options?.discussion &&
+            intent !== "plan" &&
+            intent !== "orchestrate" &&
+            !isRaceLanePath(workCwd) &&
+            (await orchestrator.allowHelpers(sessionId, workCwd));
+          const helperRunGoing =
+            isHelperRun(orchestrator.run(sessionId)) &&
+            orchestrator.run(sessionId)?.status === "active";
           const composed = orchestrator.prompt(
             sessionId,
             inboxAskPrompt(
@@ -7911,7 +7960,10 @@ export default function App({
             intent: intent === "orchestrate" ? "plan" : intent,
             // A lead drives the control CLI over loopback; without this the
             // harness sandbox denies the socket and it cannot supervise.
-            controlsAgents: orchestrator.run(sessionId)?.status === "active",
+            controlsAgents:
+              orchestrator.run(sessionId)?.status === "active" ||
+              (mayStartHelpers &&
+                (helperRunGoing || asksForHelpers(harnessText))),
             projectMemory,
             text: noted.text,
             attachments: prepared,
@@ -8061,7 +8113,7 @@ export default function App({
                 if (blocks !== finalized.blocks)
                   finalized = { ...finalized, blocks };
               }
-              const finished =
+              const built =
                 approvedPlan && intent === "build"
                   ? withPlanStatus(
                       finalized,
@@ -8069,6 +8121,20 @@ export default function App({
                       buildSucceeded && !providerFailed ? "built" : "ready",
                     )
                   : finalized;
+              // A turn with helpers says when another chat worked in the
+              // project meanwhile (see HelperCards).
+              const turnStart = turnStartedAt(built.blocks);
+              const finished = withOthersWorked(
+                built,
+                turnStart !== undefined &&
+                  !current.orchestrationLeadId &&
+                  othersWorkedDuring(
+                    sessionId,
+                    current.cwd,
+                    turnStart,
+                    sharedWorkTurns(),
+                  ),
+              );
               const nextSessions = sessionsRef.current.map((session) =>
                 session.id === sessionId ? finished : session,
               );
@@ -9225,7 +9291,13 @@ export default function App({
       const parentId =
         sessionsRef.current.find((session) => session.id === sessionId)
           ?.orchestrationLeadId ?? orchestrator.forSession(sessionId)?.leadId;
-      if (parentId && parentId !== sessionId) {
+      // A helper is a chat of its own, in its pane; an Orchestrator worker
+      // shows in its lead's panel.
+      if (
+        parentId &&
+        parentId !== sessionId &&
+        !isHelperRun(orchestrator.run(parentId))
+      ) {
         setInspectedWorkerId(sessionId);
         sessionId = parentId;
       }
@@ -9332,6 +9404,8 @@ export default function App({
             sessionsRef.current = next;
             setSessions(next);
           }
+          if (isHelperRun(run))
+            setTabs((previous) => withHelperPane(previous, run, existing.id));
           return;
         }
         const restored = await getSession(task.sessionId);
@@ -9373,9 +9447,12 @@ export default function App({
         const next = [...sessionsRef.current, worker];
         sessionsRef.current = next;
         setSessions(next);
-        // Workers belong to the lead's agent panel; no workspace tab is created.
+        // A chat's helpers open as named panes in one tab beside it; an
+        // Orchestrator run's workers belong to the lead's agent panel.
+        if (isHelperRun(run))
+          setTabs((previous) => withHelperPane(previous, run, worker.id));
       },
-      submit: (id, text, done) => {
+      submit: (id, text, done, shown) => {
         // Commit the new turn before the scheduler or confirmation updates
         // another session snapshot in the same event loop.
         submitManagedTurn((settle) => {
@@ -9384,11 +9461,21 @@ export default function App({
             accepted = onSubmit(id, text, [], {
               managed: true,
               onSettled: settle,
+              ...(shown ? { shown } : {}),
+              ...(shown?.kind === "helpers-done"
+                ? {
+                    displayText:
+                      shown.count === 1
+                        ? "Your helper is done."
+                        : "Your helpers are done.",
+                  }
+                : {}),
             });
           });
           return accepted;
         }, done);
       },
+      asksFirst: (cwd) => !!getCrew(cwd)?.askBeforeBuilding,
       steer: async (id, text) => {
         const session = sessionsRef.current.find((entry) => entry.id === id);
         if (!session) throw new Error("This agent is no longer available");
@@ -9647,6 +9734,23 @@ export default function App({
   const orchestrationActions = useMemo(
     () => ({
       open: onOpenApprovalSession,
+      openHelper: (leadId: string, sessionId: string) => {
+        if (focusOpenSession(sessionId)) return;
+        const run = orchestrator.run(leadId);
+        if (!run) return;
+        void ensureOpenSession(sessionId)
+          .then(() => {
+            if (!sessionsRef.current.some((entry) => entry.id === sessionId))
+              return;
+            flushSync(() =>
+              setTabs((previous) => withHelperPane(previous, run, sessionId)),
+            );
+            focusOpenSession(sessionId);
+          })
+          .catch((error: unknown) =>
+            logError("Couldn't open the helper", error),
+          );
+      },
       openAgents: queueWorkerPanes,
       title: (sessionId: string) => {
         const session = sessionsRef.current.find(
@@ -9782,6 +9886,8 @@ export default function App({
       queueWorkerPanes,
       onSubmit,
       updateOrchestrationCard,
+      focusOpenSession,
+      ensureOpenSession,
     ],
   );
 
@@ -12145,6 +12251,7 @@ export default function App({
     paneLayout: true,
     openFile: (path) => onOpenFile(path),
     orchestration: {
+      helpers: true,
       run: (leadId) => orchestrator.run(leadId),
       submissionError: (sessionId) => orchestrator.submissionError(sessionId),
       inspect: (leadId) => orchestrator.inspect(leadId),
@@ -13714,6 +13821,14 @@ function toTitleTab(
     lanes.every((lane) => lane && lane.race.id === lanes[0]?.race.id)
       ? lanes[0]?.race
       : undefined;
+  // A chat's helpers share one tab: "2 helpers", beside the chat.
+  const helperLead = tabSessions[0]?.orchestrationLeadId;
+  const helpers =
+    !!helperLead &&
+    tabSessions.every(
+      (session) => session.orchestrationLeadId === helperLead,
+    ) &&
+    isHelperRun(orchestrator.run(helperLead));
 
   const seen = new Set<HarnessId>();
   const harnesses: HarnessId[] = [];
@@ -13798,9 +13913,11 @@ function toTitleTab(
         : "~",
     title: race
       ? racePromptTitle(race.prompt)
-      : focused
-        ? conversationTitle(focused)
-        : "",
+      : helpers
+        ? helpersTabTitle(tabSessions.length)
+        : focused
+          ? conversationTitle(focused)
+          : "",
     more,
     sessionCount: tabSessions.length,
     sessionIds: tabSessions.map((session) => session.id),

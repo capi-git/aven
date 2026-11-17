@@ -7,6 +7,8 @@ import { plural } from "./words";
 export type OrchestrationSummary = {
   status: OrchestrationRun["status"];
   live?: boolean;
+  /** A chat's helpers: its row stays a chat's, with theirs under it. */
+  mode?: "helpers";
   tasks: {
     sessionId: string;
     title: string;
@@ -28,6 +30,7 @@ export function summarizeOrchestration(
   return {
     status: run.status,
     live: true,
+    ...(run.mode === "helpers" ? { mode: "helpers" as const } : {}),
     tasks: run.tasks.map(
       ({ sessionId, title, harness, model, status, escalated }) => {
         const session = byId.get(sessionId);

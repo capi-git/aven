@@ -605,6 +605,25 @@ function sanitizeBlock(block: Block): Block | null {
     next.botWake = { label: block.botWake.label.slice(0, 200) };
   if (block.role === "user" && block.typed === true && !next.botWake)
     next.typed = true;
+  if (
+    block.role === "user" &&
+    typeof block.helperTask?.from === "string" &&
+    typeof block.helperTask.model === "string" &&
+    HARNESSES.includes(block.helperTask.harness)
+  )
+    next.helperTask = {
+      from: block.helperTask.from.slice(0, 200),
+      harness: block.helperTask.harness,
+      model: block.helperTask.model.slice(0, 120),
+    };
+  if (
+    block.role === "user" &&
+    Number.isInteger(block.helpersDone?.count) &&
+    block.helpersDone!.count > 0
+  )
+    next.helpersDone = { count: Math.min(block.helpersDone!.count, 40) };
+  if (block.role === "user" && block.othersWorked === true)
+    next.othersWorked = true;
   if (block.tool) {
     // When a call started running only matters while it runs.
     const { startedAt, ...tool } = block.tool;

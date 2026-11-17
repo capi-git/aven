@@ -493,6 +493,8 @@ type UserTurnExtra = {
   discussion?: Block["discussion"];
   noteCard?: Block["noteCard"];
   botWake?: Block["botWake"];
+  helperTask?: Block["helperTask"];
+  helpersDone?: Block["helpersDone"];
   internal?: boolean;
   /** You typed it yourself: never a bot's wake-up or a lead's worker turn. */
   typed?: true;
@@ -519,6 +521,8 @@ function userTurnFields(extra?: UserTurnExtra) {
     ...(extra?.discussion ? { discussion: extra.discussion } : {}),
     ...(extra?.noteCard ? { noteCard: extra.noteCard } : {}),
     ...(extra?.botWake ? { botWake: extra.botWake } : {}),
+    ...(extra?.helperTask ? { helperTask: extra.helperTask } : {}),
+    ...(extra?.helpersDone ? { helpersDone: extra.helpersDone } : {}),
     ...(extra?.internal ? { internal: true } : {}),
     ...(extra?.typed && !extra.botWake && !extra.internal
       ? { typed: true as const }
