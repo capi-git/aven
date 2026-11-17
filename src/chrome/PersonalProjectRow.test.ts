@@ -109,34 +109,28 @@ it("still opens the context menu at the pointer", async () => {
   expect(frame?.style.top).toBe("50px");
 });
 
-it("shows the project as a grey folder, open only while its chats show", async () => {
+it("shows the project as its name alone, with its arrow at the row's end", async () => {
   await render();
-  const mark = () => host.querySelector<HTMLElement>(".project-mark")!;
-  expect(mark().dataset.kind).toBe("folder");
-  const closed = mark().innerHTML;
-  // A saved colour stays for its agents' marks; the folder stays grey.
+  // No folder and no Stack: only a logo the person chose stands before it.
+  expect(host.querySelector(".project-mark")).toBeNull();
+  // A saved colour stays for its agents' marks; the row stays grey.
   await act(async () => saveTabGroupColor(projectKey(PATH), 4));
-  expect(mark().querySelector("[data-tone]")).toBeNull();
+  expect(host.querySelector("[data-tone]")).toBeNull();
   expect(host.innerHTML).not.toContain(TAB_GROUP_COLORS[4]);
   await render(undefined, true);
-  expect(mark().innerHTML).not.toBe(closed);
-  await render(undefined, false);
-  expect(mark().innerHTML).toBe(closed);
-  // Its open-or-closed arrow stands before it at all times.
+  expect(host.querySelector(".project-mark")).toBeNull();
+  // The arrow follows the name and waits with the other actions; no line
+  // runs down the side of the chats.
   const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
-  expect(css).toMatch(
-    /\.personal-navigation \.personal-project-disclosure \{\s*order: -1;[^}]*opacity: 1;/,
-  );
+  expect(css).not.toMatch(/\.personal-project-disclosure \{[^}]*order: -1;/);
+  expect(css).not.toContain(".personal-project-tasks::before");
 });
 
-it("keeps the folder still while an agent runs: its little working screen says so", async () => {
+it("says an agent runs with its little working screen beside the name", async () => {
   await render({ running: 1, waiting: 0, unread: 0 });
-  const mark = host.querySelector<HTMLElement>(".project-mark")!;
-  expect(mark.dataset.kind).toBe("folder");
-  expect(mark.hasAttribute("data-active")).toBe(false);
   expect(host.querySelector(".dot-mark-lit")).toBeNull();
   expect(host.querySelector(".personal-project-running")).not.toBeNull();
-  // An agent's screen, working, beside the project's own still mark.
+  // An agent's screen, working, beside the project's name.
   const agent = host.querySelector<HTMLElement>(
     ".personal-project-running .agent-mark",
   )!;

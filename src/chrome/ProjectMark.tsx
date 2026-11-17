@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { appearanceTone } from "../lib/markTones";
 import type { ProjectAppearance } from "../lib/projectAppearance";
-import { Folder, FolderOpen } from "./icons";
 import { StackMark } from "./StackMark";
 import "./ProjectMark.css";
 
@@ -17,10 +16,10 @@ type Props = {
    */
   open?: boolean;
   /**
-   * The sidebar draws a project as a folder: open while its chats show,
-   * closed otherwise. A logo the person chose still stands in for it.
+   * The sidebar draws a project as its name alone: only a logo the person
+   * chose stands before it, and nothing otherwise.
    */
-  folder?: boolean;
+  logoOnly?: boolean;
   className?: string;
 };
 
@@ -34,7 +33,7 @@ export function ProjectMark({
   path,
   appearance: given,
   open = false,
-  folder = false,
+  logoOnly = false,
   className = "",
 }: Props) {
   const resolved = useProjectAppearance(given === undefined ? path : null);
@@ -46,11 +45,11 @@ export function ProjectMark({
     appearance.logoSrc && appearance.logoSrc !== failedSrc
       ? appearance.logoSrc
       : null;
+  if (logoOnly && !logo) return null;
   return (
     <span
       className={`project-mark ${className}`}
-      data-kind={logo ? "logo" : folder ? "folder" : "stack"}
-      data-open={(folder && !logo && open) || undefined}
+      data-kind={logo ? "logo" : "stack"}
       aria-hidden
     >
       {logo ? (
@@ -62,12 +61,6 @@ export function ProjectMark({
           className="project-mark-logo"
           onError={() => setFailedSrc(logo)}
         />
-      ) : folder ? (
-        open ? (
-          <FolderOpen className="project-mark-folder" />
-        ) : (
-          <Folder className="project-mark-folder" />
-        )
       ) : (
         <StackMark
           tone={appearanceTone(appearance)}

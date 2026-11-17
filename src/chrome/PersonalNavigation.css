@@ -234,7 +234,7 @@
   opacity: 1;
 }
 .personal-shell .personal-navigation .personal-project-group {
-  margin: 0 0 6px;
+  margin: 0 0 10px;
 }
 .personal-shell .personal-navigation .personal-project-row {
   display: flex;
@@ -254,7 +254,7 @@
   border-radius: var(--aven-radius-row);
   text-align: left;
   font-size: var(--text-ui-row);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-content);
 }
 .personal-shell
@@ -354,8 +354,8 @@
 }
 /* A row's actions (fold, New chat, ···) take no room at rest and
    show on hover, on keyboard focus anywhere in the row (they stay in the Tab
-   order) and while the ··· menu is open. An open project keeps its fold
-   chevron, which says it is open. */
+   order) and while the ··· menu is open. An open project's chats say it is
+   open, so its arrow waits too. */
 .personal-shell .personal-navigation .personal-project-row-action {
   display: grid;
   place-items: center;
@@ -380,43 +380,19 @@
   opacity: 1;
   pointer-events: auto;
 }
-/* A project is a folder: its open-or-closed arrow stands before it at all
-   times, and its chats sit in under it, along a faint line. */
-.personal-shell .personal-navigation .personal-project-disclosure {
-  order: -1;
-  width: 16px;
-  height: 24px;
-  margin-right: -2px;
-  opacity: 1;
-  pointer-events: auto;
-  color: color-mix(in srgb, var(--color-content) 40%, transparent);
+/* A project is its name alone, as in Super: no folder and no line down the
+   side. Its open-or-closed arrow waits at the row's end with New chat and
+   ···, and shows with them on hover or keyboard focus. Its chats sit in a
+   little under the name. */
+.personal-shell .personal-navigation .personal-project-tasks {
+  position: relative;
+  padding-left: 0;
 }
 .personal-shell
   .personal-navigation
-  .personal-project-row:is(
-    :hover,
-    :focus-within,
-    :has(.personal-project-more[aria-expanded="true"])
-  )
-  .personal-project-disclosure {
-  width: 16px;
-}
-.personal-shell .personal-navigation .personal-project-open {
-  padding-left: 4px;
-}
-.personal-shell .personal-navigation .personal-project-tasks {
-  position: relative;
-  padding-left: 16px;
-}
-.personal-shell .personal-navigation .personal-project-tasks::before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  bottom: 6px;
-  left: 8px;
-  width: 1px;
-  background: color-mix(in srgb, var(--color-content) 10%, transparent);
-  pointer-events: none;
+  .personal-project-tasks
+  .personal-task-card {
+  padding-left: 2px;
 }
 .personal-shell .personal-navigation .personal-project-open:hover,
 .personal-shell .personal-navigation .personal-project-row-action:hover,

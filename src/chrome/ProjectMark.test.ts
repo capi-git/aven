@@ -113,25 +113,14 @@ describe("project marks", () => {
     expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
   });
 
-  it("draws a grey folder in the sidebar, open while its chats show", async () => {
-    await draw({ appearance: appearance({ colorIndex: 7 }), folder: true });
-    expect(kind()).toBe("folder");
+  it("draws only a chosen logo in the sidebar, and nothing otherwise", async () => {
+    await draw({ appearance: appearance({ colorIndex: 7 }), logoOnly: true });
+    expect(container.querySelector(".project-mark")).toBeNull();
     expect(container.querySelector(".stack-mark")).toBeNull();
-    const closed = container.querySelector(".project-mark-folder")!.innerHTML;
-    await draw({
-      appearance: appearance({ colorIndex: 7 }),
-      folder: true,
-      open: true,
-    });
-    expect(container.querySelector(".project-mark-folder")!.innerHTML).not.toBe(
-      closed,
-    );
-    // No colour of its own: grey, from the theme.
-    expect(container.querySelector("[data-tone]")).toBeNull();
-    // A logo the person chose still stands in for the folder.
+    // A logo the person chose still stands before the name.
     await draw({
       appearance: appearance({ logoSrc: "asset://logo.png" }),
-      folder: true,
+      logoOnly: true,
     });
     expect(kind()).toBe("logo");
   });

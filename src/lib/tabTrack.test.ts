@@ -28,24 +28,18 @@ describe("tab track", () => {
 
   describe("separators", () => {
     it("parts every pair of resting tabs, never the first tab", () => {
-      expect([...trackSeparators(tabs("a", "b", "c", "d"), null)]).toEqual([
+      expect([...trackSeparators(tabs("a", "b", "c", "d"))]).toEqual([
         "b",
         "c",
         "d",
       ]);
     });
 
-    it("hides the line on either side of the tab in front", () => {
-      expect([...trackSeparators(tabs("a", "b", "c", "d"), "b")]).toEqual([
-        "d",
-      ]);
-      expect([...trackSeparators(tabs("a", "b", "c", "d"), "a")]).toEqual([
-        "c",
-        "d",
-      ]);
-      expect([...trackSeparators(tabs("a", "b", "c", "d"), "d")]).toEqual([
+    it("keeps the lines on either side of the tab in front", () => {
+      expect([...trackSeparators(tabs("a", "b", "c", "d"))]).toEqual([
         "b",
         "c",
+        "d",
       ]);
     });
 
@@ -56,11 +50,11 @@ describe("tab track", () => {
         { id: "b", tab: true },
         { id: "c", tab: true },
       ];
-      expect([...trackSeparators(entries, null)]).toEqual(["c"]);
+      expect([...trackSeparators(entries)]).toEqual(["c"]);
     });
 
     it("has nothing to part with one tab", () => {
-      expect(trackSeparators(tabs("a"), "a").size).toBe(0);
+      expect(trackSeparators(tabs("a")).size).toBe(0);
     });
   });
 

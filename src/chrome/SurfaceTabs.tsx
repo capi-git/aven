@@ -233,13 +233,10 @@ export function SurfaceTabs({
   const canDrag = files.length > 1;
   const wheelTabs = useWheelTabSwitch();
   // Two tabs or more stand on a track: equal shares, one sliding highlight
-  // and a hairline between resting neighbours (see tabTrack.ts).
+  // and a hairline between neighbours (see tabTrack.ts).
   const track = files.length > 1;
   const separators = track
-    ? trackSeparators(
-        visibleIds.map((id) => ({ id, tab: true })),
-        activeFileId,
-      )
+    ? trackSeparators(visibleIds.map((id) => ({ id, tab: true })))
     : null;
   const highlightRef = useTabHighlight(
     tabStripRef,
