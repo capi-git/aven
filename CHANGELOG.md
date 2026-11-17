@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.1.187] - 2026-11-16
+
+### Changed
+
+- **Each pane is its own card.** Panes now have round corners, a faint edge and a small gap between them, in place of one big card around all of them. In a split, each pane shows its own name at the top, and the top bar shows the split by its marks.
+- **Projects are folders in the sidebar.** A project shows as a grey folder that opens and closes, with its chats set in under it. A logo you chose still shows in its place.
+
+### Fixed
+
+- **Avos notices fit their card and show over web pages.** A long "needs you" line was cut off, with its buttons hidden, and a web page covered notices in the corner.
+
 ## [0.1.186] - 2026-11-14
 
 ### Fixed
