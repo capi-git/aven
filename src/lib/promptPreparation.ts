@@ -18,6 +18,6 @@ export async function preparePrompt(
     return nativeCommandPrompt(context.harness, text);
   const withFiles = await applyFileMentionsToTurn(text, context.cwd);
   const withNotes = await applyNotesToTurn(withFiles);
-  const withChats = await applyChatsToTurn(withNotes);
+  const withChats = await applyChatsToTurn(withNotes, undefined, context.cwd);
   return applySkillsToTurn(withChats, context);
 }

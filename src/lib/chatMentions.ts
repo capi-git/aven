@@ -271,15 +271,23 @@ export function setChatReferenceSource(next: ChatSource | null) {
   source = next;
 }
 
-/** Add each `@chat/…` the message names to the end of it. */
+/**
+ * Add each `@chat/…` the message names to the end of it. A label not handed
+ * out in this run (written before a restart, or pasted) only finds a chat
+ * the picker would offer, in this project when `cwd` is given, so stray text
+ * never pulls in a hidden or unrelated conversation.
+ */
 export async function applyChatsToTurn(
   text: string,
   from: ChatSource | null = source,
+  cwd?: string,
 ): Promise<string> {
   if (!from || !/(^|\s)@chat\//.test(text)) return text;
   const bySlug = (label: string) => {
     const slug = label.slice(CHAT_MENTION_PREFIX.length);
     for (const session of [...from.list()].reverse()) {
+      if (!chatRefFromSession(session, 0)) continue;
+      if (cwd !== undefined && session.cwd !== cwd) continue;
       if (chatSlug(chatTitle(session)) === slug) return session.id;
     }
     return undefined;

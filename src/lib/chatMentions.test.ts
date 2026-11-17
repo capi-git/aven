@@ -146,6 +146,19 @@ describe("applyChatsToTurn", () => {
     expect(out).toContain('Referenced chat "Old plan"');
   });
 
+  it("does not guess a hidden chat or one in another project", async () => {
+    const other = session("o", { title: "New chat", cwd: "/elsewhere" });
+    const ask = { ...session("i", { title: "New chat" }), inboxAsk: true };
+    const source = {
+      session: () => undefined,
+      list: () => [other, ask] as Session[],
+      load: vi.fn(async () => null),
+    };
+    const out = await applyChatsToTurn("see @chat/new-chat", source, "/here");
+    expect(out).toBe("see @chat/new-chat");
+    expect(source.load).not.toHaveBeenCalled();
+  });
+
   it("leaves a message without chat mentions alone", async () => {
     const source = {
       session: vi.fn(),
