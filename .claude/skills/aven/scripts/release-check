@@ -1,0 +1,77 @@
+#!/bin/bash
+# release-check: where Aven's releases stand, and the preflight before a
+# publish. It reads only: no fetch, no push, no merge, no workflow run.
+#
+# Usage:
+#   release-check              the state: the account, main on GitHub and its
+#                              version, the newest release, the installed Aven,
+#                              release runs in progress, open pull requests,
+#                              and what is merged but not yet released
+#   release-check <version>    also the preflight for publishing <version>:
+#                              main's package.json is <version>, CHANGELOG.md
+#                              on main has its entry, the tag does not exist,
+#                              no release run is in progress. When all pass it
+#                              prints the one command that publishes; it never
+#                              runs it.
+#
+# Exit 0: all good. Exit 1: a check failed (named). Exit 2: usage.
+
+set -u
+REPO="capi-git/aven"
+REMOTE="git@github-personal:capi-git/aven.git"
+USER_EXPECTED="capi-git"
+version="${1:-}"
+bad=0
+say_bad() { echo "STOP: $1"; bad=1; }
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "release-check: run it inside an Aven checkout" >&2; exit 2; }
+url=$(git -C "$root" remote get-url origin 2>/dev/null)
+[ "$url" = "$REMOTE" ] && echo "remote: origin is $url" || say_bad "origin is '$url', not $REMOTE"
+login=$(ghp api user --jq .login 2>/dev/null)
+[ "$login" = "$USER_EXPECTED" ] && echo "account: ghp is $login" || say_bad "ghp reports '$login', not $USER_EXPECTED (do not switch the account for the whole Mac)"
+[ "$bad" = 1 ] && exit 1
+
+main_sha=$(git -C "$root" ls-remote origin refs/heads/main | cut -f1)
+[ -n "$main_sha" ] || { echo "STOP: could not read main on GitHub"; exit 1; }
+main_version=$(ghp api "repos/$REPO/contents/package.json?ref=$main_sha" --jq .content | base64 -d | /usr/bin/python3 -I -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+echo "main on GitHub: ${main_sha:0:10}, version $main_version"
+latest=$(ghp release list --repo "$REPO" --limit 1 --json tagName --jq '.[0].tagName')
+echo "newest release: $latest"
+installed=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" /Applications/Aven.app/Contents/Info.plist 2>/dev/null || echo "none")
+echo "installed Aven: $installed (it updates itself from the newest release; the person chooses Restart to update)"
+
+runs=$(ghp run list --repo "$REPO" --workflow release.yml --limit 5 --json databaseId,status,conclusion,headSha,createdAt \
+  --jq '.[] | select(.status != "completed") | "\(.databaseId) \(.status) \(.headSha[0:10]) \(.createdAt)"')
+if [ -n "$runs" ]; then
+  echo "release runs in progress (merge nothing to main until they end):"
+  echo "$runs" | sed 's/^/  /'
+else
+  echo "release runs in progress: none"
+fi
+
+prs=$(ghp pr list --repo "$REPO" --state open --json number,title,headRefName --jq '.[] | "#\(.number) \(.title) [\(.headRefName)]"')
+echo "open pull requests:"; [ -n "$prs" ] && echo "$prs" | sed 's/^/  /' || echo "  none"
+
+if [ -n "$latest" ]; then
+  merged=$(ghp api "repos/$REPO/compare/$latest...$main_sha" --jq '.commits[] | .commit.message | split("\n")[0]')
+  echo "merged since $latest:"; [ -n "$merged" ] && echo "$merged" | sed 's/^/  /' || echo "  nothing: main is what $latest holds"
+fi
+
+[ -z "$version" ] && exit 0
+
+echo "preflight for $version:"
+[ "$main_version" = "$version" ] && echo "  main's package.json says $version" || say_bad "main's package.json says $main_version, not $version (merge the release pull request first)"
+if ghp api "repos/$REPO/contents/CHANGELOG.md?ref=$main_sha" --jq .content | base64 -d | grep -q "^## \[$version\]"; then
+  echo "  CHANGELOG.md on main has ## [$version]"
+else
+  say_bad "CHANGELOG.md on main has no '## [$version]' entry"
+fi
+if ghp release view "v$version" --repo "$REPO" >/dev/null 2>&1; then
+  say_bad "the release v$version exists already (a release is never replaced; the next version corrects it)"
+else
+  echo "  no release v$version yet"
+fi
+[ -n "$runs" ] && say_bad "a release run is in progress"
+[ "$bad" = 1 ] && exit 1
+echo "ready. The command that publishes (only on the person's word for $version):"
+echo "  ghp workflow run release.yml --repo $REPO --ref main -f publish=true -f windows=true -f expected_version=$version -f expected_source_sha=$main_sha"

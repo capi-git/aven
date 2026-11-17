@@ -1,0 +1,61 @@
+#!/bin/bash
+# public-scan: scan what a push would make public, before it goes.
+#
+# The Aven repository (capi-git/aven) is public: a pushed branch, a pull
+# request, its title and body, a CHANGELOG line and a release note are read by
+# anyone. This scans every ADDED line of a range, and the names of added files,
+# for secrets and private names, and prints each hit for you to read in its
+# context.
+#
+# Usage:
+#   public-scan                 HEAD against its merge base with origin/main
+#   public-scan <base>          HEAD against <base> (a commit, a tag, a branch)
+#   public-scan --file <path>   a text you are about to send (a PR body, an
+#                               issue, a release note)
+#
+# A hit is removed (from the code or the text), or shown to be harmless (a
+# test's example path, the word "token" in code that handles tokens). Add a
+# private name to PATTERN when you learn one. It pushes nothing.
+
+set -u
+OUT="${TMPDIR:-/tmp}/aven-public-scan-$$"
+mkdir -p "$OUT"
+trap 'rm -rf "$OUT"' EXIT
+
+# Secrets, the person's own names, paths and accounts, their employer and its
+# projects, their private apps' private repositories, and names seen in their
+# notes. Words that Aven's own code uses all the time (token, secret,
+# password, keychain) are left out: they would hide the real hits.
+PATTERN='ottersoft|\bholo\b|epcr|catalog studio|jackthomas|jthomas|jack\.hagan|jackhagan|/Users/[a-z]|gmail\.com|Notion-2\.0|jhagan-|sk-ant-[A-Za-z0-9_-]{8}|\bsk-[A-Za-z0-9]{24}|ghp_[A-Za-z0-9]{20}|gho_[A-Za-z0-9]{20}|github_pat_|xox[bpas]-|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY|AuthKey_[A-Z0-9]{8}|\btrading\b|nvidia'
+PRIVATE_FILES='(^|/)\.env(\..*)?$|\.(pem|p8|p12|pfx|key|keychain(-db)?|mobileprovision)$|(^|/)id_(rsa|ed25519)|\.claude/|(^|/)target/|\.log$'
+
+if [ "${1:-}" = "--file" ]; then
+  [ -f "${2:-}" ] || { echo "public-scan: no file ${2:-}" >&2; exit 2; }
+  cp "$2" "$OUT/added"
+  echo "scanning $(wc -l < "$OUT/added" | tr -d ' ') lines of $2"
+else
+  git rev-parse --show-toplevel >/dev/null 2>&1 || { echo "public-scan: run it inside the checkout" >&2; exit 2; }
+  if [ -n "${1:-}" ]; then
+    base="$1"
+  else
+    base=$(git merge-base HEAD origin/main 2>/dev/null) || { echo "public-scan: no origin/main; give a base" >&2; exit 2; }
+  fi
+  git rev-parse -q --verify "$base^{commit}" >/dev/null || { echo "public-scan: $base is not a commit here" >&2; exit 2; }
+  echo "range $(git rev-parse --short "$base")..$(git rev-parse --short HEAD): $(git rev-list --count "$base"..HEAD) commits"
+  git diff --stat "$base" HEAD | tail -1
+  files=$(git diff --name-only --diff-filter=A "$base" HEAD | grep -E "$PRIVATE_FILES" || true)
+  [ -n "$files" ] && { echo "PRIVATE FILES ADDED:"; echo "$files" | sed 's/^/  /'; }
+  git diff "$base" HEAD | grep '^+' | grep -v '^+++' > "$OUT/added" || true
+  # Commit messages become public too (a squash merge keeps the PR's text).
+  git log --format='%B' "$base"..HEAD >> "$OUT/added"
+  echo "$(wc -l < "$OUT/added" | tr -d ' ') added lines and commit message lines scanned"
+fi
+
+hits=$(grep -inE "$PATTERN" "$OUT/added" | cut -c1-220 || true)
+if [ -n "$hits" ]; then
+  echo "SCAN HITS (read each in its context):"
+  echo "$hits"
+  exit 1
+fi
+echo "scan: no hits"
+exit 0

@@ -1,0 +1,211 @@
+#!/bin/bash
+# checks: run Aven's source checks in the checkout you are in, with the traps
+# of a fresh work tree handled (no oxlint in node_modules, cargo only through
+# scripts/with-dev-env.sh, the real-app check only when the window gate is
+# clear).
+#
+# Usage:  checks [--dry-run] <set> [<set> ...]
+#
+#   changed [base]  the checks for what this branch changed (default base: the
+#                   merge base with origin/main, and files not yet committed):
+#                   Prettier and oxlint on the changed frontend files, Vitest
+#                   on the test files that name them, tsc; cargo fmt when Rust
+#                   changed; the matching scripts/test-*.py for a changed
+#                   script. It says which bigger set to run next.
+#   web             npm run check:web, step by step (Prettier, oxlint, every
+#                   Vitest test, tsc)
+#   tooling         npm run check:tooling (packaging and release tooling)
+#   native          the pull request's native check on this Mac: cargo fmt,
+#                   clippy and tests of the WebKit build (--no-default-features,
+#                   no CEF needed). Release runs test with --release too:
+#   native-release  cargo test --release of the same build
+#   rust            npm run check:rust (the Chromium build; needs CEF_ROOT)
+#   app             the real-app check (npm run check:app) after window-gate;
+#                   opens Aven Dev on top of every Space for several minutes
+#   steps           list the real-app check's steps (it has no subsets)
+#
+# --dry-run prints the commands and runs none. Exit 0 when every command
+# passed, 1 when one failed (the others still ran), 2 on a usage error.
+# It never installs, pushes or quits anything.
+
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "checks: run it inside an Aven checkout" >&2; exit 2; }
+cd "$ROOT" || exit 2
+[ -f scripts/dev-aven.py ] || { echo "checks: $ROOT is not an Aven checkout" >&2; exit 2; }
+
+dry=0
+failed=""
+run() {
+  echo "+ $*"
+  [ "$dry" = 1 ] && return 0
+  "$@" || failed="$failed
+  $*"
+}
+
+need_modules() {
+  if [ ! -x node_modules/.bin/vitest ]; then
+    [ "$dry" = 1 ] && { echo "  (no node_modules here: a real run stops and asks for 'npm ci')"; return; }
+    echo "checks: no node_modules here. Run 'npm ci' in this checkout first." >&2
+    exit 2
+  fi
+}
+
+# oxlint is missing from the main checkout's node_modules. A work tree that
+# ran `npm ci` has it; borrow that binary (it only reads).
+oxlint_bin() {
+  if [ -x node_modules/.bin/oxlint ]; then echo node_modules/.bin/oxlint; return; fi
+  for b in "$HOME"/Developer/.worktrees/Aven/*/node_modules/.bin/oxlint "$HOME"/Developer/Aven/.claude/worktrees/*/node_modules/.bin/oxlint; do
+    [ -x "$b" ] && { echo "$b"; return; }
+  done
+  echo ""
+}
+
+lint() {
+  local ox
+  ox=$(oxlint_bin)
+  if [ -z "$ox" ]; then
+    echo "+ oxlint $*   (NOT RUN: no oxlint binary here or in another work tree; run 'npm ci')"
+    failed="$failed
+  oxlint (missing)"
+    return
+  fi
+  run "$ox" "$@"
+}
+
+cargo_dev() { run ./scripts/with-dev-env.sh cargo "$@"; }
+
+set_web() {
+  need_modules
+  run npx prettier --check src
+  lint src
+  run npx vitest run
+  run npx tsc --noEmit
+}
+
+# The test files of changed modules: a changed test itself, and for src/x/Name.tsx
+# every src/x/Name.test.ts and Name.<topic>.test.ts beside it.
+tests_for() {
+  local f dir name
+  for f in "$@"; do
+    case "$f" in
+      *.test.ts|*.test.tsx) [ -f "$f" ] && echo "$f" ;;
+      *)
+        dir=$(dirname "$f"); name=$(basename "$f"); name=${name%.*}
+        ls "$dir/$name".test.ts "$dir/$name".test.tsx "$dir/$name".*.test.ts "$dir/$name".*.test.tsx 2>/dev/null
+        ;;
+    esac
+  done
+}
+
+set_changed() {
+  local base="${1:-}"
+  if [ -z "$base" ]; then
+    base=$(git merge-base HEAD origin/main 2>/dev/null) || { echo "checks: no origin/main here; give a base" >&2; exit 2; }
+  fi
+  local files
+  files=$( { git diff --name-only --diff-filter=ACMR "$base"; git ls-files --others --exclude-standard; } | sort -u)
+  if [ -z "$files" ]; then
+    echo "nothing changed against $(git rev-parse --short "$base")"
+    return
+  fi
+  echo "changed against $(git rev-parse --short "$base"):"
+  echo "$files" | sed 's/^/  /'
+  local front tests rust py
+  front=$(echo "$files" | grep -E '^src/.*\.(ts|tsx|css)$' || true)
+  rust=$(echo "$files" | grep -E '^(src-tauri|tools)/.*\.rs$|(^|/)Cargo\.(toml|lock)$' || true)
+  py=$(echo "$files" | grep -E '^scripts/' || true)
+  if [ -n "$front" ]; then
+    need_modules
+    # Test files that name a changed module: Name.test.ts, Name.topic.test.ts.
+    tests=$(tests_for $front | sort -u)
+    # shellcheck disable=SC2086
+    run npx prettier --check $front
+    local code
+    code=$(echo "$front" | grep -E '\.(ts|tsx)$' || true)
+    # shellcheck disable=SC2086
+    [ -n "$code" ] && lint $code
+    if [ -n "$tests" ]; then
+      # shellcheck disable=SC2086
+      run npx vitest run $tests
+    else
+      echo "  (no test file is named after a changed module: run 'checks web' for every test)"
+    fi
+    run npx tsc --noEmit
+  fi
+  if [ -n "$rust" ]; then
+    cargo_dev fmt --all --check
+    echo "  Rust changed: run 'checks native' (the pull request runs it), and 'checks native-release' for a new native test"
+  fi
+  for f in $py; do
+    t="scripts/test-$(basename "${f%.*}").py"
+    case "$f" in scripts/test-*) t="$f" ;; esac
+    [ -f "$t" ] && run python3 -B "$t"
+  done
+  [ -n "$py" ] && echo "  scripts changed: 'checks tooling' runs every tooling test"
+  return 0
+}
+
+set_steps() {
+  /usr/bin/python3 -I - "$ROOT/src/hooks/useDevSmoke.ts" <<'PY'
+import re, sys
+s = open(sys.argv[1], errors="ignore").read()
+names = [m.group(2) for m in re.finditer(r"\bstep\(\s*([\"'`])((?:(?!\1).)*)\1", s, re.S)]
+for n in names:
+    print(re.sub(r"\s+", " ", n))
+print(f"({len(names)} steps; the check always runs all of them)", file=sys.stderr)
+PY
+}
+
+[ $# -ge 1 ] || { sed -n '2,32p' "$0"; exit 2; }
+sets=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry=1 ;;
+    changed)
+      if [ $# -ge 2 ] && [ "${2#-}" = "$2" ] && git rev-parse -q --verify "$2^{commit}" >/dev/null 2>&1; then
+        sets+=("changed:$2"); shift
+      else
+        sets+=("changed:")
+      fi
+      ;;
+    web|tooling|native|native-release|rust|app|steps) sets+=("$1") ;;
+    *) echo "checks: unknown set $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+[ ${#sets[@]} -gt 0 ] || { echo "checks: name a set (changed, web, tooling, native, native-release, rust, app, steps)" >&2; exit 2; }
+
+for s in "${sets[@]}"; do
+  echo "== $s"
+  case "$s" in
+    changed:*) set_changed "${s#changed:}" ;;
+    web) set_web ;;
+    tooling) run npm run check:tooling ;;
+    native)
+      cargo_dev fmt --all --check
+      cargo_dev clippy --locked --workspace --all-targets --no-default-features -- -D warnings
+      cargo_dev test --locked --workspace --no-default-features
+      ;;
+    native-release) cargo_dev test --locked --workspace --no-default-features --release ;;
+    rust) run ./scripts/with-dev-env.sh npm run check:rust ;;
+    app)
+      if [ "$dry" = 1 ]; then
+        echo "+ $HERE/window-gate"
+        echo "+ npm run check:app"
+      else
+        "$HERE/window-gate" || { echo "checks: the window gate is busy; the real-app check did not run"; failed="$failed
+  npm run check:app (window gate busy)"; continue; }
+        run npm run check:app
+      fi
+      ;;
+    steps) set_steps ;;
+  esac
+done
+
+if [ -n "$failed" ]; then
+  echo "FAILED:$failed"
+  exit 1
+fi
+[ "$dry" = 1 ] && echo "dry run: nothing ran" || echo "all passed"
+exit 0

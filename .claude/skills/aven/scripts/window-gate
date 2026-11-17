@@ -1,0 +1,100 @@
+#!/bin/bash
+# window-gate: may a test window of Aven Dev open now?
+#
+# The real-app check, the speed test and the iPhone check (npm run check:app,
+# perf:app, check:iphone) open Aven Dev in a throwaway profile and keep its
+# window ABOVE every other window, on every Space, for minutes; their mouse
+# steps fail when someone uses the Mac. `npm run dev:app` opens a window too.
+# So all of these must say that nothing is on:
+#
+#   1. the screen is unlocked and the login window is not in front
+#      (a locked Mac fails the check with "covered" windows, not a fault),
+#   2. no Aven Dev runs, from any checkout, and no other runner of
+#      scripts/dev-aven.py (a second preview is refused anyway),
+#   3. the preview port (AVEN_DEV_PORT, else 1420) is free,
+#   4. nobody used the keyboard or the mouse in the last 2 minutes
+#      (the window sits on top of their work; a press of theirs breaks a
+#      real-pointer step),
+#   5. the person is not in a call: Rune's call check, when Rune's skill is
+#      on this Mac (Aven has no call check of its own).
+#
+# Usage:
+#   window-gate                exit 0 when clear; exit 1 and the reasons when busy
+#   window-gate --allow-active skip check 4: the person said for THIS run that
+#                              a window on top of their work is fine
+#   window-gate --wait         look every 30 seconds until clear, then exit 0
+#                              (run it in the background; one command, no loop
+#                              of your own)
+#
+# It reads only. It never quits, starts or changes anything, and never touches
+# the installed Aven.
+
+PORT="${AVEN_DEV_PORT:-1420}"
+RUNE_GATE="$HOME/Developer/Rune/.claude/skills/rune/scripts/call-gate"
+IDLE_NEEDED=120
+allow_active=0
+wait=0
+for arg in "$@"; do
+  case "$arg" in
+    --allow-active) allow_active=1 ;;
+    --wait) wait=1 ;;
+    *) echo "window-gate: unknown option $arg" >&2; exit 2 ;;
+  esac
+done
+
+reasons() {
+  # 1. The screen.
+  if ioreg -n Root -d1 2>/dev/null | grep -q '"CGSSessionScreenIsLocked" = Yes'; then
+    echo "the screen is locked"
+  else
+    local front
+    front=$(lsappinfo info -only name "$(lsappinfo front 2>/dev/null)" 2>/dev/null)
+    case "$front" in *loginwindow*) echo "the login window is in front" ;; esac
+  fi
+  # 2. Aven Dev and the runner. (By the program's own path: a shell that only
+  # names Aven Dev is not one.)
+  local dev
+  dev=$(ps -axo pid=,comm= | awk '$0 ~ /Aven Dev\.app\/Contents\/MacOS\// {print $1}' | head -1)
+  [ -n "$dev" ] && echo "Aven Dev runs now (pid $dev); quit it normally from its own window"
+  local runner
+  runner=$(pgrep -f "scripts/dev-aven.py" | head -1)
+  [ -n "$runner" ] && echo "a dev-aven.py run is in progress (pid $runner)"
+  # 3. The port.
+  if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "port $PORT is in use (another preview; AVEN_DEV_PORT=1421 runs beside it)"
+  fi
+  # 4. The person at the Mac.
+  if [ "$allow_active" = 0 ]; then
+    local idle
+    idle=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}')
+    if [ -n "$idle" ] && [ "$idle" -lt "$IDLE_NEEDED" ]; then
+      echo "the Mac was used ${idle} seconds ago (the window would sit on top of their work)"
+    fi
+  fi
+  # 5. A call, through Rune's call check when it is here.
+  if [ -x "$RUNE_GATE" ]; then
+    local call
+    call=$("$RUNE_GATE" 2>/dev/null | sed -n 's/^  - //p')
+    [ -n "$call" ] && echo "$call" | sed 's/^/a call: /'
+  fi
+}
+
+if [ "$wait" = 1 ]; then
+  while true; do
+    busy=$(reasons)
+    [ -z "$busy" ] && break
+    /usr/bin/python3 -I -c "import time; time.sleep(30)"
+  done
+  echo "clear at $(date '+%H:%M:%S')"
+  exit 0
+fi
+
+busy=$(reasons)
+if [ -z "$busy" ]; then
+  [ -x "$RUNE_GATE" ] || echo "note: no call check on this Mac (Rune's skill is not here)"
+  echo "clear"
+  exit 0
+fi
+echo "busy:"
+echo "$busy" | sed 's/^/  - /'
+exit 1

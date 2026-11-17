@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""guard-bash: refuse the shell commands the aven skill's standing rules forbid.
+
+SKILL.md registers it as a PreToolUse hook on the Bash tool, so it runs before
+each shell command in a session that has loaded the skill. It reads the hook's
+JSON on stdin and denies a command that
+
+  - uses GitHub with another account than the personal one (a bare `gh`, or
+    the work account's `ghw`; the personal command is `ghp`),
+  - switches the gh account for the whole Mac (`auth switch`),
+  - deletes a release or a run, changes the repository, writes a secret, or
+    sends a DELETE through `ghp api`,
+  - force-pushes (`--force`, `-f`, `--force-with-lease`, a `+refspec`),
+  - bypasses a git hook (`--no-verify`, `-c core.hooksPath=...`),
+  - pushes to `main` (main changes only through a pull request), pushes or
+    deletes a tag (the Release Aven workflow makes the tags), or deletes a
+    remote branch,
+  - uses `git stash` other than `list` and `show` (the stash list is shared
+    by every work tree; agents have popped the person's own stash),
+  - quits, kills, moves or deletes the installed Aven (it may host this very
+    session; it updates itself when the person chooses Restart to update).
+
+It is a backstop, not the rule: it reads the command's own words, so a command
+hidden inside `$(...)`, `bash -c "..."` or a script is not seen, and a line it
+cannot parse is allowed. Anything else exits 0 with no output, which leaves
+the decision to the permission mode as before.
+
+Try it:  echo '{"tool_input":{"command":"git push -f"}}' | guard-bash
+"""
+
+import json
+import re
+import shlex
+import sys
+
+HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
+SEPARATORS = {";", "&&", "||", "|", "&", "|&", "(", ")"}
+WRAPPERS = {"command", "env", "sudo", "time", "nohup", "exec"}
+FORCE = {"-f", "--force", "--force-with-lease", "--force-if-includes"}
+GIT_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+INSTALLED = "/Applications/Aven.app"
+FILE_WRITERS = {"rm", "mv", "ditto", "cp", "rsync", "ln", "trash"}
+
+
+def without_heredocs(line):
+    """Here-document bodies are text for a file or a message, not commands."""
+    kept, end = [], None
+    for text in line.split("\n"):
+        if end is not None:
+            if text.strip() == end:
+                end = None
+            continue
+        kept.append(text)
+        m = HEREDOC.search(text)
+        if m:
+            end = m.group(1)
+    return "\n".join(kept)
+
+
+def simple_commands(line):
+    lexer = shlex.shlex(without_heredocs(line).replace("\n", " ; "), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    commands = [[]]
+    for token in lexer:
+        if token in SEPARATORS:
+            commands.append([])
+        else:
+            commands[-1].append(token)
+    return [c for c in commands if c]
+
+
+def words_of(command):
+    """The command without leading `VAR=value` words and wrappers."""
+    words = list(command)
+    while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in WRAPPERS):
+        words.pop(0)
+    return words
+
+
+def why_not_github(name, words):
+    if name == "gh":
+        if words[1:3] == ["auth", "switch"]:
+            return "`gh auth switch` changes the account for every session on this Mac."
+        return "Aven uses the personal GitHub account: write `ghp`, never a bare `gh`."
+    if name == "ghw":
+        return "`ghw` is the work account. Aven (capi-git/aven) uses the personal account: `ghp`."
+    if name != "ghp":
+        return None
+    if words[1:3] == ["auth", "switch"]:
+        return "`auth switch` changes the account for every session on this Mac."
+    if words[1:3] in (["release", "delete"], ["release", "delete-asset"]):
+        return "A release is never deleted; the next version corrects it."
+    if words[1:3] == ["run", "delete"]:
+        return "Deleting workflow runs needs the person's own word in chat; ask them."
+    if words[1:2] == ["secret"] or words[1:3] in (["repo", "delete"], ["repo", "edit"], ["repo", "rename"]):
+        return "Secrets and repository settings are the person's to change; ask them."
+    if words[1:2] == ["api"]:
+        upper = [w.upper() for w in words]
+        if "-XDELETE" in upper or "--METHOD=DELETE" in upper or any(
+            a in ("-X", "--METHOD") and b == "DELETE" for a, b in zip(upper, upper[1:])
+        ):
+            return "No DELETE through the GitHub API; ask the person."
+    return None
+
+
+def why_not_git(words):
+    args, i = words[1:], 0
+    # The options of git itself, before the subcommand.
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] == "-c" and i + 1 < len(args) and args[i + 1].lower().startswith("core.hookspath"):
+            return "A git hook is never bypassed (core.hooksPath); a failing hook is a finding."
+        i += 2 if args[i] in GIT_WITH_VALUE else 1
+    if i >= len(args):
+        return None
+    sub, rest = args[i], args[i + 1:]
+    if "--no-verify" in rest and sub in {"commit", "push", "merge"}:
+        return "A git hook is never bypassed (--no-verify); a failing hook is a finding."
+    if sub == "stash":
+        if rest[:1] in (["list"], ["show"]):
+            return None
+        return ("`git stash` is shared by every work tree and has lost the person's work before. "
+                "Set work aside with a temporary commit, or copy the files to the scratch folder.")
+    if sub != "push":
+        return None
+    plain = [a for a in rest if not a.startswith("-")]
+    if any(a in FORCE or a.startswith("--force-with-lease=") for a in rest) or any(a.startswith("+") for a in plain):
+        return "Never force-push or rewrite pushed history. Merge main into the branch and push normally."
+    if "--tags" in rest or "--follow-tags" in rest:
+        return "Tags are made only by the Release Aven workflow."
+    if "--delete" in rest or "-d" in rest or any(a.startswith(":") for a in plain):
+        return "A remote branch is not deleted by hand; GitHub deletes a merged branch by itself."
+    for spec in plain[1:]:
+        dest = spec.split(":", 1)[1] if ":" in spec else spec
+        if dest in ("main", "refs/heads/main"):
+            return "Nothing is pushed to main. Push the work branch and merge it through a pull request."
+        if dest.startswith("refs/tags/") or re.match(r"^v\d+\.\d+\.\d+", dest):
+            return "Tags are made only by the Release Aven workflow."
+    return None
+
+
+def why_not_installed_app(name, words):
+    if name in ("killall", "pkill"):
+        if any(re.search(r"aven", w, re.I) for w in words[1:]):
+            return ("Never kill Aven: the installed Aven may host this very session, and Aven Dev is quit "
+                    "normally from its own window (its runner then stops its own server).")
+    if name == "osascript":
+        text = " ".join(words[1:])
+        if re.search(r"\bquit\b", text, re.I) and re.search(r"Aven|com\.capi\.monocode\.personal", text) \
+                and not re.search(r"Aven Dev|com\.capi\.aven\.dev", text):
+            return "Never quit the installed Aven: it may host this very session."
+    if name in FILE_WRITERS and any(w.rstrip("/") == INSTALLED or w.startswith(INSTALLED + "/") for w in words[1:]):
+        return ("The installed Aven is never replaced, moved or deleted by hand. It updates itself from a "
+                "published release when the person chooses Restart to update.")
+    return None
+
+
+def why_not(command):
+    words = words_of(command)
+    if not words:
+        return None
+    name = words[0].rsplit("/", 1)[-1]
+    reason = why_not_github(name, words)
+    if not reason and name == "git":
+        reason = why_not_git(words)
+    return reason or why_not_installed_app(name, words)
+
+
+def main():
+    try:
+        command = json.load(sys.stdin).get("tool_input", {}).get("command", "")
+        commands = simple_commands(command)
+    except Exception:
+        return  # a line this cannot read is left to the permission mode
+    for one in commands:
+        reason = why_not(one)
+        if reason:
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "aven skill: " + reason}}))
+            return
+
+
+main()
