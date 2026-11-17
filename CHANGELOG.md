@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.1.189] - 2026-11-17
+
+### Added
+
+- **Any chat can start helper agents.** Ask in words, and the chat opens helpers in panes beside it. Each helper shows a small card in the chat and reports back when it is done.
+- **A Checks tab beside Files and Changes.** It shows the path to merge: commit, push, pull request and checks, with the button for the next step and how long each check ran.
+- **Setup and Run at the foot of the side panel.** Save a setup command and run commands for each project. Setup runs by itself the first time a new copy opens.
+- **A choice of working mark.** Settings › Appearance › Working mark: the Bot, or a small ball of dots.
+
+### Changed
+
+- **The message box holds the model, attach and Send,** in one row, as in Super.
+- **Nothing open opens a new chat.** The Home page is gone.
+- **A split is two cards.** The panes of a split are separate cards with a small gap; point at the gap to see its grip.
+
+### Fixed
+
+- **Switching chats is quicker.** A chat that left the front made Aven redraw every part of both chats.
+- **Chats use less power while an agent writes.** Code blocks and tables no longer carry a hidden blur that was redrawn on every word.
+
 ## [0.1.188] - 2026-11-17
 
 ### Fixed
