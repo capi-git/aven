@@ -36,6 +36,7 @@ import {
   extractShellCommand,
   extractSkillName,
   extractToolPreview,
+  extractAgentType,
   isAgentTool,
   isAgentToolName,
   isWeakToolTitle,
@@ -552,6 +553,7 @@ function handleCursorTask(live: Live, params: unknown): void {
     kind: "agent",
     status: "in_progress",
     detail: cursorSubagentDetail(task),
+    ...agentTypeField(extractAgentType(task)),
   });
 }
 
@@ -858,6 +860,7 @@ function handleSessionUpdate(live: Live, params: unknown) {
       status: displayedStatus,
       detail,
       preview,
+      ...(agent ? agentTypeField(extractAgentType(rawInput)) : {}),
     });
     if (needsCursorToolEnrichment(toolKind, title, preview)) {
       queueCursorToolEnrichment(live, callId, toolKind);
@@ -866,6 +869,10 @@ function handleSessionUpdate(live: Live, params: unknown) {
       live.enrichedTools.add(callId);
     }
   }
+}
+
+function agentTypeField(type: string | undefined): { agentType?: string } {
+  return type ? { agentType: type } : {};
 }
 
 function isCursorAgentInput(value: unknown): boolean {

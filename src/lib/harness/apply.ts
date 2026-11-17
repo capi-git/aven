@@ -136,6 +136,10 @@ export function applyHarnessEvent(
           status: event.status,
           preview: event.preview,
           ...(event.web ? { web: true as const } : {}),
+          ...(event.agentType ? { agentType: event.agentType } : {}),
+          ...(event.agentActivity
+            ? { agentActivity: event.agentActivity }
+            : {}),
           streaming: true,
         }),
         event,
@@ -150,6 +154,10 @@ export function applyHarnessEvent(
           detail: event.detail,
           preview: event.preview,
           ...(event.web ? { web: true as const } : {}),
+          ...(event.agentType ? { agentType: event.agentType } : {}),
+          ...(event.agentActivity
+            ? { agentActivity: event.agentActivity }
+            : {}),
           streaming: event.status !== "completed" && event.status !== "failed",
         }),
         event,
@@ -973,6 +981,13 @@ function normalizeLabel(value: string): string {
     .toLowerCase();
 }
 
+const TERMINAL_TOOL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "stopped",
+  "cancelled",
+]);
+
 function upsertTool(
   session: Session,
   patch: {
@@ -983,6 +998,8 @@ function upsertTool(
     detail?: string;
     preview?: ToolPreview;
     web?: true;
+    agentType?: string;
+    agentActivity?: string;
     streaming: boolean;
   },
 ): Session {
@@ -1010,6 +1027,8 @@ function upsertTool(
         ...(preview ? { preview } : {}),
         ...(patch.streaming ? { startedAt: Date.now() } : {}),
         ...(patch.web ? { web: true as const } : {}),
+        ...(patch.agentType ? { agentType: patch.agentType } : {}),
+        ...(patch.agentActivity ? { agentActivity: patch.agentActivity } : {}),
       },
     });
   }
@@ -1032,6 +1051,17 @@ function upsertTool(
   // A call first seen through its approval starts running when it streams.
   const startedAt =
     prev.tool?.startedAt ?? (patch.streaming ? Date.now() : undefined);
+  const agentType = patch.agentType ?? prev.tool?.agentType;
+  const agentActivity = patch.agentActivity ?? prev.tool?.agentActivity;
+  // A subagent's run time outlives its start time, which is never saved.
+  const durationMs =
+    prev.tool?.durationMs ??
+    (startedAt !== undefined &&
+    isAgentTool(kind, label) &&
+    status !== undefined &&
+    TERMINAL_TOOL_STATUSES.has(status)
+      ? Math.max(0, Date.now() - startedAt)
+      : undefined);
   if (
     prev.text === label &&
     prev.streaming === patch.streaming &&
@@ -1040,6 +1070,9 @@ function upsertTool(
     prev.tool?.status === status &&
     prev.tool?.detail === detail &&
     prev.tool?.startedAt === startedAt &&
+    prev.tool?.agentType === agentType &&
+    prev.tool?.agentActivity === agentActivity &&
+    prev.tool?.durationMs === durationMs &&
     samePreview(prev.tool?.preview, preview)
   ) {
     return session;
@@ -1059,6 +1092,9 @@ function upsertTool(
       ...(startedAt !== undefined ? { startedAt } : {}),
       // Once a web call, always one: an update never takes the mark off.
       ...(patch.web || prev.tool?.web ? { web: true as const } : {}),
+      ...(agentType ? { agentType } : {}),
+      ...(agentActivity ? { agentActivity } : {}),
+      ...(durationMs !== undefined ? { durationMs } : {}),
     },
   };
   return { ...session, blocks };

@@ -23,6 +23,7 @@ import {
   codexAttachmentInputs,
   codexAsyncUserInputQuestions,
   codexAsyncUserInputReply,
+  codexChildActivity,
   codexBrowserHostInstructionsFromConfig,
   codexDeveloperInstructions,
   codexToolApprovalEvent,
@@ -164,6 +165,8 @@ type Live = {
   assistantTurnKey: string;
   emittedReasoning: string;
   agents: Map<string, AgentUpdate>;
+  /** A child thread's row in the lead's transcript, by the child's thread id. */
+  agentRows: Map<string, string>;
   retired: boolean;
 };
 
@@ -882,6 +885,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
       assistantTurnKey: crypto.randomUUID(),
       emittedReasoning: "",
       agents: new Map(),
+      agentRows: new Map(),
       retired: false,
     };
     liveRef.current = live;
@@ -1048,6 +1052,19 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     if (child) {
       const status = childThreadStatus(method, record, child.status);
       if (status) publishAgentUpdate(live, { ...child, status });
+      // What the child is doing now, on its row in the lead's transcript.
+      const row = live.agentRows.get(threadId);
+      const activity =
+        method === "item/started"
+          ? codexChildActivity(asRecord(record?.item))
+          : undefined;
+      if (row && activity && !live.muteUpdates)
+        live.onEvent({
+          type: "tool.updated",
+          callId: row,
+          kind: "agent",
+          agentActivity: activity,
+        });
     }
     return;
   }
@@ -1103,8 +1120,18 @@ function handleNotification(live: Live, method: string, params: unknown): void {
         ? item.id
         : undefined;
   const itemKey = itemId ? `${live.assistantTurnKey}:${itemId}` : undefined;
+  const rows = new Set(
+    mapped.events.flatMap((event) =>
+      (event.type === "tool.started" || event.type === "tool.updated") &&
+      event.kind === "agent"
+        ? [event.callId]
+        : [],
+    ),
+  );
   for (const event of mapped.events) {
     if (event.type === "agent.updated") {
+      if (event.callId && rows.has(event.callId))
+        live.agentRows.set(event.agentId, event.callId);
       publishAgentUpdate(live, event);
       continue;
     }
