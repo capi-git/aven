@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AvosNotice } from "../lib/avos";
 import type { ScheduledRun } from "../lib/scheduledAgents";
+import { BROWSER_OVERLAYS } from "../lib/browserOverlays";
 import { AvosNoticeCard } from "./AvosNotices";
 
 let root: Root;
@@ -139,4 +140,35 @@ it("puts a project's things on one card, each with its own buttons", async () =>
     container.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(),
   );
   expect(onDismiss).toHaveBeenLastCalledWith([review.id, notice.id]);
+});
+
+it("keeps a long line inside the card, whole on hover, and cut out of a page", async () => {
+  const long: AvosNotice = {
+    ...notice,
+    id: "/work/clippedin\nquestion",
+    text: "“Skip today's every-day reminder once it is ticked” needs you to choose how it should work",
+  };
+  for (const notices of [[long], [review, long]]) {
+    await act(async () =>
+      root.render(
+        createElement(AvosNoticeCard, {
+          path: notice.path,
+          notices,
+          onOpen: vi.fn(),
+          onAnswer: vi.fn(),
+          onDismiss: vi.fn(),
+        }),
+      ),
+    );
+    const card = container.querySelector<HTMLElement>("[data-avos-notice]")!;
+    // A native browser page leaves a hole where the card is.
+    expect(card.matches(BROWSER_OVERLAYS)).toBe(true);
+    // The line wraps to two lines at most (the class clamps it), never one
+    // line cut off, and its whole text shows on hover.
+    const line = [
+      ...card.querySelectorAll<HTMLElement>(".avos-notice-text"),
+    ].find((item) => item.textContent === long.text)!;
+    expect(line.title).toBe(long.text);
+    expect(line.className).not.toContain("truncate");
+  }
 });

@@ -27,6 +27,8 @@
    one row each (its line, then its buttons), under the project's name. */
 .avos-notice-items {
   display: grid;
+  /* A line never widens the card: it wraps inside it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   margin: 0;
   padding: 10px 14px 12px;
@@ -43,4 +45,14 @@
 }
 .avos-notice-items[data-many] > li > span {
   margin-right: 4px;
+}
+/* A thing's line: two lines at most, then an ellipsis; the whole line shows
+   on hover and in Avos. */
+.avos-notice-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
 }

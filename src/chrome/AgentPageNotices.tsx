@@ -44,6 +44,7 @@ export function AgentPageNotices({ notices, onShow, onDismiss }: Props) {
         <article
           key={notice.id}
           role="status"
+          data-native-browser-occluded="true"
           className="pointer-events-auto flex items-center gap-2.5 aven-glass-overlay [--aven-radius-overlay:var(--aven-radius-bubble)] py-2 pr-2 pl-3.5"
         >
           <HarnessIcon harness={notice.harness} className="size-4 shrink-0" />
