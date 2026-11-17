@@ -173,7 +173,7 @@ export function helperFiles(
     const key = pathKey(preview.path);
     const file = files.get(key) ?? {
       path: preview.path,
-      label: displayPath(preview.path, cwd),
+      label: projectLabel(preview.path, cwd),
       additions: 0,
       deletions: 0,
     };
@@ -182,6 +182,20 @@ export function helperFiles(
     files.set(key, file);
   }
   return [...files.values()];
+}
+
+/**
+ * A file's name relative to the project. macOS folders under /var and /tmp
+ * are also reached as /private/…, and an agent may report either name.
+ */
+function projectLabel(path: string, cwd: string): string {
+  const label = displayPath(path, cwd);
+  if (!label.startsWith("/")) return label;
+  const other = path.startsWith("/private/")
+    ? path.slice("/private".length)
+    : `/private${path}`;
+  const retried = displayPath(other, cwd);
+  return retried.startsWith("/") ? label : retried;
 }
 
 function countLines(

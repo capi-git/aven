@@ -135,6 +135,14 @@ describe("a helper's card", () => {
     ]);
   });
 
+  it("names a file from the project, by either name of a macOS folder", () => {
+    const [file] = helperFiles(
+      [write("/private/var/folders/x/project/hero.css", 1)],
+      "/var/folders/x/project",
+    );
+    expect(file.label).toBe("hero.css");
+  });
+
   it("splits the five-segment bar between added and removed lines", () => {
     expect(changeBar(2, 1)).toBe(3);
     expect(changeBar(5, 0)).toBe(5);
