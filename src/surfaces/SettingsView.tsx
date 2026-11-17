@@ -15,7 +15,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { SETTINGS } from "../lib/settingDefinitions";
-import { SettingsNav } from "../chrome/SettingsRail";
+import { SECTION_ICONS, SettingsNav } from "../chrome/SettingsRail";
 import { subscribeSettingsAnchor } from "../lib/settingsSearch";
 import {
   GIT_FINISH_BEHAVIOR_DEFAULT,
@@ -359,16 +359,12 @@ export function SettingsView({
             className="settings-navigation"
             aria-label="Settings categories"
           >
-            <div className="settings-navigation-title">Settings</div>
             <SettingsNav
               embedded
               section={section}
               onSelect={selectSection}
               onClose={onClose}
             />
-            <p className="settings-navigation-note">
-              Make Aven feel like yours.
-            </p>
           </aside>
         ) : null}
         <div ref={scrollRef} className="settings-scroll">
@@ -377,20 +373,23 @@ export function SettingsView({
               <PageHeader
                 title={settingsSectionLabel(section)}
                 description={settingsSectionDescription(section)}
+                icon={(() => {
+                  const Icon = SECTION_ICONS[section];
+                  return <Icon className="size-4" strokeWidth={1.75} />;
+                })()}
               />
             </div>
-            {section === "appearance" ? null : (
+            {/* Only where the place matters; Super shows no saved-where line. */}
+            {section !== "skills" && section !== "connections" ? null : (
               <div className="settings-scope-line">
                 <span className="settings-scope-dot" aria-hidden />
                 <span>On this device</span>
                 <span className="settings-scope-hint">
                   {section === "skills"
                     ? "Project instructions · device tools"
-                    : section === "connections"
-                      ? cwd
-                        ? "Checked in the open project"
-                        : "Checked in your home folder"
-                      : "Your preferences are saved automatically"}
+                    : cwd
+                      ? "Checked in the open project"
+                      : "Checked in your home folder"}
                 </span>
               </div>
             )}

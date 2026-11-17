@@ -346,8 +346,8 @@ describe("settings navigation", () => {
       ),
     ).toEqual(["App", "Agents", "Workspace"]);
     expect(
-      [...sectionList()!.querySelectorAll("button")].map((button) =>
-        button.getAttribute("aria-label"),
+      [...sectionList()!.querySelectorAll("button[data-settings-section]")].map(
+        (button) => button.getAttribute("aria-label"),
       ),
     ).toEqual([
       "General",
