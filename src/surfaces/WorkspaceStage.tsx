@@ -38,6 +38,7 @@ import {
 } from "../lib/paneFit";
 import { evenSplit, railedLeafIds, unrailLeaf } from "../lib/paneRails";
 import { focusPaneContent } from "../lib/paneFocus";
+import { noteTabKey, refuseParkedFocus } from "../lib/parkedFocus";
 import {
   captureScrollOffsets,
   HiddenSurfaceClock,
@@ -1061,6 +1062,21 @@ export function WorkspaceStage({
       unsubscribe();
     };
   }, [hiddenKey, demote]);
+  // A parked surface is not inert (see `parked` below): what had focus in a
+  // chat that just left the front gives it up, as inert would make it, and
+  // a Tab press passes over parked chats.
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active.closest<HTMLElement>("[data-workspace-surface]")?.hidden
+    )
+      active.blur();
+  });
+  useEffect(() => {
+    document.addEventListener("keydown", noteTabKey, true);
+    return () => document.removeEventListener("keydown", noteTabKey, true);
+  }, []);
   const promoted = shownIds.filter((id) => demoted.has(id));
   if (promoted.length)
     setDemoted((previous) => {
@@ -1961,6 +1977,9 @@ export function WorkspaceStage({
           const shown = visible && !!currentRect;
           const retained = retainedGeometry.current.get(id);
           const handoff = !shown && held.has(id) && !!retained;
+          // Hidden but laid out, out of sight (see WorkspaceStage.css): not
+          // inert, as toggling inert restyles the whole chat.
+          const parked = !shown && !handoff && !!retained && !demoted.has(id);
           const rect = shown ? currentRect : (retained?.rect ?? currentRect);
           const hasHeader = shown
             ? headerContents.has(id)
@@ -1982,7 +2001,7 @@ export function WorkspaceStage({
               data-handoff={handoff ? "out" : undefined}
               hidden={!shown && !handoff}
               aria-hidden={!shown || undefined}
-              inert={!shown || undefined}
+              inert={(!shown && !parked) || undefined}
               style={
                 rect
                   ? {
@@ -2011,7 +2030,11 @@ export function WorkspaceStage({
               onPointerDownCapture={() => {
                 if (shown && focusedId !== id) current.current.onFocus(id);
               }}
-              onFocusCapture={() => {
+              onFocusCapture={(event) => {
+                if (parked) {
+                  refuseParkedFocus(event.target, event.relatedTarget);
+                  return;
+                }
                 if (shown && focusedId !== id) current.current.onFocus(id);
               }}
             >

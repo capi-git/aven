@@ -87,6 +87,7 @@ import {
   LockOpen,
   Lock,
   MoveUp,
+  Paperclip,
   SlidersHorizontal,
   Zap,
 } from "./icons";
@@ -975,37 +976,6 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         if (opened === "keyboard" || opened === "pinned") close(false);
       }}
     >
-      {modeChip ? <div className="helm-mode-chip">{modeChip}</div> : null}
-      <div className="helm-spacer" />
-      <HelmBubble
-        say={say}
-        run={run}
-        stopInBar={stopInBar}
-        onStop={onStop}
-        fixes={fixes}
-        onDismiss={() => {
-          if (runSay) dismiss();
-          else if (usageWarning) markUsageWarningSeen(usageWarning);
-        }}
-        hint={hintWords}
-      />
-      {/* Only something typed (or attached) can be sent; Return sends too. */}
-      <button
-        type="button"
-        className="helm-plane"
-        aria-label={sendLabel}
-        title={`${sendLabel} (Return)`}
-        data-helm-send
-        hidden={!hasValue}
-        disabled={!hasValue}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={onSend}
-      >
-        <MoveUp aria-hidden className="helm-plane-art" />
-      </button>
-      {/* After Send, so Send appearing never moves it from under the
-          pointer that pressed it. */}
-      {mic}
       <div
         className="helm-perch"
         onPointerEnter={scheduleOpen}
@@ -1059,6 +1029,18 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
               className={`helm-critter${hop ? " helm-critter-hop" : ""}`}
             />
           )}
+          {showAgent ? (
+            <span className="helm-model">
+              <span className="helm-model-name">
+                {agentModelWords(agent.current.name, harness)}
+              </span>
+              {agent.summary.effort ? (
+                <span className="helm-model-effort">
+                  {agent.summary.effort}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
         </button>
         {showDialog ? (
           // In a portal, so a short pane never clips it; always above the
@@ -1107,6 +1089,49 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
           </Popover>
         ) : null}
       </div>
+      {modeChip ? <div className="helm-mode-chip">{modeChip}</div> : null}
+      <div className="helm-spacer" />
+      <HelmBubble
+        say={say}
+        run={run}
+        stopInBar={stopInBar}
+        onStop={onStop}
+        fixes={fixes}
+        onDismiss={() => {
+          if (runSay) dismiss();
+          else if (usageWarning) markUsageWarningSeen(usageWarning);
+        }}
+        hint={hintWords}
+      />
+      {/* Only something typed (or attached) can be sent; Return sends too. */}
+      <button
+        type="button"
+        className="helm-plane"
+        aria-label={sendLabel}
+        title={`${sendLabel} (Return)`}
+        data-helm-send
+        hidden={!hasValue}
+        disabled={!hasValue}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onSend}
+      >
+        <MoveUp aria-hidden className="helm-plane-art" />
+      </button>
+      {/* After Send, so Send appearing never moves it from under the
+          pointer that pressed it. */}
+      {mic}
+      {attachmentsSupported ? (
+        <button
+          type="button"
+          className="helm-attach"
+          aria-label="Attach files"
+          title={`Attach files (${MOD}U)`}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onAttach}
+        >
+          <Paperclip aria-hidden className="helm-attach-art" />
+        </button>
+      ) : null}
       {panel ? (
         <AgentPanel
           anchor={critterRef}

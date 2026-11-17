@@ -1122,3 +1122,51 @@ html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
   font-size: var(--text-ui-row);
   font-weight: 600;
 }
+/* A chat's helpers sit under its row, along a faint line, as its chats
+   sit under a project. Each is a quieter title that brightens when it's
+   in front or working, and opens its pane. */
+.personal-shell .personal-navigation .personal-helper-rows {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 2px;
+  padding-left: 16px;
+}
+.personal-shell .personal-navigation .personal-helper-rows::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 4px;
+  left: 30px;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-content) 10%, transparent);
+  pointer-events: none;
+}
+.personal-shell .personal-navigation .personal-helper-row {
+  display: flex;
+  min-height: 26px;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 7px 3px 26px;
+  border-radius: var(--aven-radius-row);
+  color: var(--personal-muted);
+  font-size: var(--text-ui-row);
+  text-align: left;
+}
+.personal-shell .personal-navigation .personal-helper-row:hover {
+  background: var(--personal-hover);
+}
+.personal-shell
+  .personal-navigation
+  .personal-helper-row:is([aria-current="true"], [data-working]) {
+  color: var(--color-content);
+}
+.personal-shell .personal-navigation .personal-helper-row[aria-current="true"] {
+  background: var(--aven-selected);
+}
+.personal-shell .personal-navigation .personal-helper-title {
+  min-width: 0;
+  flex: 1;
+}

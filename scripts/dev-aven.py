@@ -544,7 +544,8 @@ pre{background:#f4f4f4;padding:12px;border-radius:6px;overflow:auto}</style></he
     f"away from it. The page is plain and static so the numbers reflect Aven, not the page.</p>"
     f"<pre>function section{index}(rows) {{ return rows.filter(Boolean).map(String); }}</pre>"
     for index in range(1, 41)
-) + "</body></html>"
+) + """<script>addEventListener('scroll',()=>{document.title='Speed test page '+Math.round(scrollY)},{passive:true})</script>
+</body></html>"""
 
 
 @contextmanager
@@ -650,6 +651,7 @@ def record_scenario(root, name, recorder, app, seconds):
     done = subprocess.run([str(recorder), '0', str(app.pid), str(seconds * 1000)],
                           capture_output=True, text=True)
     used = window_server_seconds() - before
+    (ROOT / 'target/perf/last-recording.json').write_text(done.stdout or done.stderr)
     try:
         frames = json.loads(done.stdout)
     except ValueError:

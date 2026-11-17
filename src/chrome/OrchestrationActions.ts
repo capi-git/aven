@@ -34,6 +34,8 @@ export const OrchestrationActions = createContext<{
   confirm(leadId: string, blockId: string): Promise<void>;
   retry(leadId: string, blockId: string): void;
   open(sessionId: string): void;
+  /** Bring a helper a chat started into view: its pane in the helpers tab. */
+  openHelper?(leadId: string, sessionId: string): void;
   /** Open every worker of a run as tabs beside the lead, not sidebar rows. */
   openAgents?(workers: OrchestrationWorkerDetail[]): void;
   /** A loaded chat's title as the sidebar shows it, to name a run's lead. */

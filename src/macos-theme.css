@@ -567,7 +567,11 @@ textarea {
 }
 
 /* Frost whole surfaces, rather than adding a compositor layer for every
-   button or row. Their controls inherit the same translucent material. */
+   button or row. Their controls inherit the same translucent material.
+   Nothing in a chat's transcript is frosted: behind a code block, a table
+   or an activity row is only the chat's own flat background, so a blur
+   there looks the same as none, yet WebKit redraws each one on every
+   scroll and streamed word. */
 html:not(.theme-light)
   :is(.personal-shell, .detached-workspace)
   :is(
@@ -576,9 +580,6 @@ html:not(.theme-light)
     .settings-provider-card,
     .settings-shortcuts-table,
     .scheduled-editor,
-    .personal-activity-phase,
-    [data-streamdown="code-block"],
-    [data-streamdown="table-wrapper"],
     .workspace-inspector-header,
     .workspace-footer,
     .browser-toolbar,

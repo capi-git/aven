@@ -25,7 +25,11 @@ Actions, with the JSON object each one takes:
             "files" is the write scope: project-relative paths, where a
             directory covers its descendants and ["."] reserves the whole
             checkout. "dependsOn" holds taskIds that must be reviewed first.
-  get       {"taskId":"..."}
+            Helpers a chat starts for the user ({"title","prompt"} is
+            enough) default to the chat's own harness and model, reserve no
+            files unless "files" is given, open beside the chat, and need no
+            review or finish: Aven wakes the chat once every helper is done.
+  get      {"taskId":"..."}
             One task, including its prompt and its full latest result.
   wait      {"timeoutSeconds":20}
             Block until a task changes state, or until the timeout (0-25).

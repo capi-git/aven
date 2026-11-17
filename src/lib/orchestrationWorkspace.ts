@@ -1,5 +1,5 @@
 import { closeLeaf, leafIds, type WorkspaceTab } from "./layout";
-import type { OrchestrationRun } from "./orchestration";
+import { isHelperRun, type OrchestrationRun } from "./orchestration";
 import type { Session } from "./session";
 
 export function releaseOrchestrationWorker(
@@ -63,6 +63,8 @@ export function consolidateOrchestrationTabs(
 ) {
   const parents = new Map(
     runs.flatMap((run) =>
+      // A chat's helpers keep their own tab of panes beside it.
+      !isHelperRun(run) &&
       tabs.some((tab) => leafIds(tab.layout).includes(run.leadId))
         ? run.tasks.map((task) => [task.sessionId, run.leadId] as const)
         : [],

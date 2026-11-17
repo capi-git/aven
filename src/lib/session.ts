@@ -283,6 +283,12 @@ export type Block = {
   orchestrationLeadId?: string;
   /** App-authored continuation: sent to the harness but hidden from the user transcript. */
   internal?: boolean;
+  /** A helper's task, shown under the chat that started it and its model. */
+  helperTask?: { from: string; harness: HarnessId; model: string };
+  /** Aven's message that woke a chat once the helpers it started were done. */
+  helpersDone?: { count: number };
+  /** Another chat worked in this project while this turn ran. */
+  othersWorked?: true;
   handoff?: HandoffMeta;
   secondOpinion?: SecondOpinionMeta;
   /** Relayed by Aven from the other chat in a discussion. */

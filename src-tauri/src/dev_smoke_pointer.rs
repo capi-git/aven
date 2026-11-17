@@ -164,25 +164,48 @@ fn scroll_phases(phase: &str) -> Option<(i64, i64)> {
 
 /// One two-finger trackpad scroll event at (x, y), the page's client pixels,
 /// moving the content under it `dx` CSS pixels to the left (as a swipe to
-/// the next page does), in `phase`. Successive calls make one gesture.
+/// the next page does), or `dy` up, in `phase`. Successive calls make one
+/// gesture. With `native`, the event goes to the view under the point, as
+/// AppKit routes a real one: a web page's own view where one is shown.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn dev_smoke_scroll(
     caller: Webview,
     x: f64,
     y: f64,
     zoom: f64,
     dx: f64,
+    dy: Option<f64>,
+    native: Option<bool>,
     phase: String,
 ) -> Result<(), String> {
     crate::dev_smoke::smoke_dir().ok_or("Only during Aven Dev's real-app check")?;
     let phases = scroll_phases(&phase).ok_or("Unknown scroll phase")?;
-    if !(x.is_finite() && y.is_finite() && dx.is_finite() && zoom.is_finite() && zoom > 0.0) {
+    let dy = dy.unwrap_or(0.0);
+    let native = native.unwrap_or(false);
+    if !(x.is_finite()
+        && y.is_finite()
+        && dx.is_finite()
+        && dy.is_finite()
+        && zoom.is_finite()
+        && zoom > 0.0)
+    {
         return Err("Invalid scroll".into());
     }
     let (send, receive) = std::sync::mpsc::sync_channel(1);
     caller
         .with_webview(move |platform| {
-            let result = unsafe { post_scroll(platform.inner().cast(), x, y, zoom, dx, phases) };
+            let result = unsafe {
+                post_scroll(
+                    platform.inner().cast(),
+                    x,
+                    y,
+                    zoom,
+                    (dx, dy),
+                    native,
+                    phases,
+                )
+            };
             let _ = send.send(result);
         })
         .map_err(|error| error.to_string())?;
@@ -202,7 +225,8 @@ unsafe fn post_scroll(
     x: f64,
     y: f64,
     zoom: f64,
-    dx: f64,
+    (dx, dy): (f64, f64),
+    native: bool,
     (phase, momentum): (i64, i64),
 ) -> Result<(), String> {
     if view.is_null() {
@@ -236,7 +260,8 @@ unsafe fn post_scroll(
     let primary_frame: NSRect = msg_send![primary, frame];
     let global = NSPoint::new(on_screen.x, primary_frame.size.height - on_screen.y);
     let number: isize = msg_send![window, windowNumber];
-    let ns_event = scroll_event(global, number, dx * zoom, phase, momentum)?;
+    let points = (dx * zoom, dy * zoom);
+    let ns_event = scroll_event(global, number, points, phase, momentum)?;
     let target: *mut AnyObject = msg_send![&*ns_event, window];
     // AppKit leaves an event made this way without a window, so its location
     // stays in screen points. WebKit reads it as the window's, so place it
@@ -245,7 +270,7 @@ unsafe fn post_scroll(
         scroll_event(
             NSPoint::new(in_window.x, primary_frame.size.height - in_window.y),
             number,
-            dx * zoom,
+            points,
             phase,
             momentum,
         )?
@@ -271,23 +296,55 @@ unsafe fn post_scroll(
             in_window.y,
         ));
     }
-    let _: () = msg_send![view, scrollWheel: &*ns_event];
+    let receiver: *mut AnyObject = if native {
+        let content: *mut AnyObject = msg_send![window, contentView];
+        let parent: *mut AnyObject = if content.is_null() {
+            std::ptr::null_mut()
+        } else {
+            msg_send![content, superview]
+        };
+        let point: NSPoint = if parent.is_null() {
+            in_window
+        } else {
+            msg_send![parent, convertPoint: in_window, fromView: std::ptr::null_mut::<AnyObject>()]
+        };
+        let hit: *mut AnyObject = if content.is_null() {
+            std::ptr::null_mut()
+        } else {
+            msg_send![content, hitTest: point]
+        };
+        if hit.is_null() {
+            return Err("No view under the scroll".into());
+        }
+        hit
+    } else {
+        view as *const AnyObject as *mut AnyObject
+    };
+    let _: () = msg_send![&*receiver, scrollWheel: &*ns_event];
     Ok(())
 }
 
 /// A continuous (trackpad) scroll event at `global`, Quartz's display points,
-/// moving content `points` to the left, in the given phases.
+/// moving content `points` (x, y) to the left and up, in the given phases.
 unsafe fn scroll_event(
     global: NSPoint,
     window_number: isize,
-    points: f64,
+    points: (f64, f64),
     phase: i64,
     momentum: i64,
 ) -> Result<Retained<AnyObject>, String> {
-    // AppKit's scrollingDeltaX: the page's deltaX reversed, so content
-    // moving left (scrolling towards the next page) is negative.
-    let delta = -points;
-    let event = CGEventCreateScrollWheelEvent2(std::ptr::null(), 0, 2, 0, delta.round() as i32, 0);
+    // AppKit's scrollingDeltaX and Y: the page's deltas reversed, so content
+    // moving left or up (towards the next page, or further down) is negative.
+    let delta = -points.0;
+    let vertical = -points.1;
+    let event = CGEventCreateScrollWheelEvent2(
+        std::ptr::null(),
+        0,
+        2,
+        vertical.round() as i32,
+        delta.round() as i32,
+        0,
+    );
     if event.is_null() {
         return Err("Could not create the scroll event".into());
     }
@@ -296,6 +353,8 @@ unsafe fn scroll_event(
     CGEventSetIntegerValueField(event, 88, 1);
     CGEventSetIntegerValueField(event, 97, delta.round() as i64);
     CGEventSetDoubleValueField(event, 94, delta);
+    CGEventSetIntegerValueField(event, 96, vertical.round() as i64);
+    CGEventSetDoubleValueField(event, 93, vertical);
     CGEventSetIntegerValueField(event, 99, phase);
     CGEventSetIntegerValueField(event, 123, momentum);
     CGEventSetLocation(event, global);

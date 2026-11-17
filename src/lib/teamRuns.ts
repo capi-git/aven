@@ -19,6 +19,7 @@ import {
 } from "./discussions";
 import { agentFullName, agentNames, type NamedAgent } from "./agentNames";
 import {
+  isHelperRun,
   taskWaitingReason,
   type OrchestrationRun,
   type OrchestrationTask,
@@ -761,7 +762,10 @@ export function teamRunsFrom(
       .filter((discussion) => previews || !discussion.preview)
       .map((discussion) => discussionTeam(discussion, look)),
     ...stores.races.map((race) => raceTeam(race, look)),
-    ...stores.runs.map((run) => orchestrationTeam(run, look)),
+    // A chat's helpers show as their card and panes, not as a team.
+    ...stores.runs
+      .filter((run) => !isHelperRun(run))
+      .map((run) => orchestrationTeam(run, look)),
   ];
 }
 
@@ -784,6 +788,7 @@ export function teamSessionIds(stores: TeamStores): string[] {
     for (const lane of race.lanes) ids.add(lane.sessionId);
   }
   for (const run of stores.runs) {
+    if (isHelperRun(run)) continue;
     ids.add(run.leadId);
     const over =
       (run.status === "finished" || run.status === "stopped") &&

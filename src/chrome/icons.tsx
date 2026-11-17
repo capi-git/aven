@@ -7,6 +7,7 @@ import {
 import Add01Icon from "@hugeicons/core-free-icons/Add01Icon";
 import AlertCircleIcon from "@hugeicons/core-free-icons/AlertCircleIcon";
 import AppWindowIcon from "@hugeicons/core-free-icons/AppWindowIcon";
+import Attachment01Icon from "@hugeicons/core-free-icons/Attachment01Icon";
 import Archive02Icon from "@hugeicons/core-free-icons/Archive02Icon";
 import ArrowDown01Icon from "@hugeicons/core-free-icons/ArrowDown01Icon";
 import ArrowDownLeft01Icon from "@hugeicons/core-free-icons/ArrowDownLeft01Icon";
@@ -179,6 +180,7 @@ const DiagonalArrowIcon: IconSvgElement = [
 
 export const AlertCircle = wrap(AlertCircleIcon, "AlertCircle");
 export const AppWindow = wrap(AppWindowIcon, "AppWindow");
+export const Paperclip = wrap(Attachment01Icon, "Paperclip");
 export const Archive = wrap(Archive02Icon, "Archive");
 export const ArrowDownCircle = wrap(CircleArrowDown01Icon, "ArrowDownCircle");
 export const ArrowLeft = wrap(ArrowLeft01Icon, "ArrowLeft");

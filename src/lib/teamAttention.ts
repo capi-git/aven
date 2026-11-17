@@ -33,8 +33,10 @@ export const NO_LEAD_DECIDED: LeadDecided = new Set();
  * workers are ordinary chats again.
  */
 export function runManagesWorkers(
-  run: Pick<OrchestrationRun, "status" | "tasks">,
+  run: Pick<OrchestrationRun, "status" | "tasks" | "mode">,
 ): boolean {
+  // A chat's helpers ask you themselves, in their own panes.
+  if (run.mode === "helpers") return false;
   return (
     run.status === "active" ||
     run.status === "paused" ||
@@ -66,7 +68,7 @@ export function pendingRequestKey(
  * to you because the lead left it unanswered (`escalated`).
  */
 export function leadDecidedIds(
-  runs: readonly Pick<OrchestrationRun, "status" | "tasks">[],
+  runs: readonly Pick<OrchestrationRun, "status" | "tasks" | "mode">[],
   session: (
     id: string,
   ) => Pick<Session, "blocks" | "pendingQuestion"> | undefined,

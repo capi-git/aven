@@ -14,7 +14,7 @@ import {
 } from "./session";
 import type { ApprovalDecision, HarnessEvent } from "./harness/types";
 import { pendingApprovalForSession } from "./approvalToast";
-import { onGuidanceReset } from "./agentGuidanceDelivery";
+import { offerGuidance, onGuidanceReset } from "./agentGuidanceDelivery";
 import { logError } from "./errors";
 import { pendingRequestKey } from "./teamAttention";
 import { displayPath } from "./paths";
@@ -57,6 +57,14 @@ export type OrchestrationTask = {
    * unanswered, which Aven handed to you. Cleared once it is answered.
    */
   escalated?: string;
+  /** When its latest turn started, and when that turn ended. */
+  startedAt?: number;
+  endedAt?: number;
+  /**
+   * A helper's: the lead's message whose turn started it, so the helper's
+   * card shows under that reply.
+   */
+  turn?: string;
 };
 export type OrchestrationRun = {
   version: 1;
@@ -97,7 +105,27 @@ export type OrchestrationRun = {
    * else left to move the run on (`runStalled`). Only while it is active.
    */
   stalledAt?: number;
+  /**
+   * Helpers a chat started because you asked it to, in words: no plan or
+   * Confirm, no review or finish. They work in the project beside other
+   * chats, answer you themselves in their own panes, and the lead is woken
+   * once all of them are done. Without it, an Orchestrator run.
+   */
+  mode?: "helpers";
+  /**
+   * Helpers wait for you to start them (Access › Ask before building):
+   * their card shows Start.
+   */
+  held?: boolean;
 };
+
+/** A chat's helpers (`OrchestrationRun.mode`), rather than an Orchestrator run. */
+export const isHelperRun = (
+  run: Pick<OrchestrationRun, "mode"> | undefined,
+): boolean => run?.mode === "helpers";
+
+/** The most helpers a chat has working or waiting to start at once. */
+export const MAX_HELPERS = 4;
 /** How long a run's save may take before it counts as failed. */
 const SAVE_TIMEOUT_MS = 20_000;
 
@@ -129,7 +157,10 @@ export type OrchestrationHost = {
     id: string,
     text: string,
     done: (outcome: ControlOutcome) => void,
+    shown?: ShownTurn,
   ): void;
+  /** Whether helpers in this project wait for you (Ask before building). */
+  asksFirst?(cwd: string): boolean;
   stop(id: string): Promise<void>;
   /** Redirect a worker mid-turn, without discarding what it has already done. */
   steer(id: string, text: string): Promise<void>;
@@ -149,10 +180,18 @@ export type OrchestrationHost = {
     reply: UserQuestionReply,
   ): boolean;
 };
+/**
+ * How a turn the run sends shows in its chat. Without it the message is the
+ * app's and stays hidden: a helper's task shows, under who sent it, and so
+ * does the line that wakes a lead once its helpers are done.
+ */
+export type ShownTurn =
+  | { kind: "helper-task"; from: string; harness: HarnessId; model: string }
+  | { kind: "helpers-done"; count: number };
 type Storage = {
   save(run: OrchestrationRun): Promise<void>;
   load(id: string): Promise<OrchestrationRun | null>;
-  enable(id: string, cwd: string): Promise<string>;
+  enable(id: string, cwd: string, shared?: boolean): Promise<string>;
   disable(id: string): Promise<void>;
   scopes(cwd: string, files: string[]): Promise<string[]>;
 };
@@ -167,7 +206,8 @@ const storage: Storage = {
       throw new Error("Unsupported orchestration history");
     return run;
   },
-  enable: (sessionId, cwd) => invoke("control_enable", { sessionId, cwd }),
+  enable: (sessionId, cwd, shared) =>
+    invoke("control_enable", { sessionId, cwd, shared: !!shared }),
   disable: (sessionId) => invoke("control_disable", { sessionId }),
   scopes: (cwd, files) => invoke("control_scopes", { cwd, files }),
 };
@@ -346,6 +386,7 @@ export function blockingRunFor(
 ): OrchestrationRun | undefined {
   return runs.find(
     (run) =>
+      !isHelperRun(run) &&
       (run.status === "active" || run.tasks.some(activeTask)) &&
       run.leadId !== sessionId &&
       !run.tasks.some((task) => task.sessionId === sessionId) &&
@@ -437,6 +478,17 @@ export function workerTurnPrompt(
   role?: AgentRoleId,
 ): string {
   return `${withRoleBrief(prompt, role, "for this task")}\n\n<aven_assignment>\nYou are a worker managed by an Aven lead. Work in this shared checkout. Your assigned write scope is: ${files.join(", ")}. Read other files as needed, but do not edit outside your scope. If another file or shared operation is needed, report the blocker and stop so the lead can assign a new task. Do not spawn agents, create worktrees, switch branches, stage/commit changes, install dependencies or run broad formatters/generators unless this task owns '.' and explicitly requires that operation. Do not undo another agent's changes. Other workers may be editing concurrently; report focused checks, changed files, remaining issues and a concise final result.\n</aven_assignment>`;
+}
+
+/**
+ * What a helper receives: the task as its lead wrote it, which its chat
+ * shows, and the rules it works by, which it hides.
+ */
+export function helperTurnPrompt(prompt: string, files: string[]): string {
+  const scope = files.length
+    ? ` Change only these paths: ${files.join(", ")}. If the task needs another file, say so in your reply instead of changing it.`
+    : "";
+  return `${prompt}\n\n<aven_assignment>\nAnother chat in this Aven project started you as its helper, because the user asked it to. You work in the same project folder as that chat and possibly others, at the same time.${scope} Do not start agents, create worktrees, switch branches, stage or commit changes, or undo changes you did not make. End with a short reply: what you did, the files you changed, and anything left to do.\n</aven_assignment>`;
 }
 
 /** Task text a person should see: the assignment envelope stays in the send. */
@@ -544,6 +596,30 @@ export function leadReminder(cli: string): string {
   return `<aven_orchestration>\nYou are still the lead of this Aven run; the rules given with its first message still apply. Coordinate it with ${cli}. Run \`${cli} --help\` again if you need an action or its JSON fields. You receive worker results automatically when idle. Never print credentials.\n</aven_orchestration>`;
 }
 
+/**
+ * What every chat that may start helpers is told, in full the first time
+ * its conversation hears it (see `agentGuidanceDelivery`).
+ */
+export function helperBrief(cli: string): string {
+  return `<aven_helpers>\nYou can start helper agents for the user with ${cli}. Do this only when the user explicitly asks in words for agents, helpers or chats working alongside you (for example "start two agents side by side to ..."). A request for subagents means your own built-in subagents, not these.\nEach helper is its own chat in this project folder: it changes the files directly, beside you, and the user watches it in a pane next to this chat. Start one per call:\n${cli} delegate --json '{"title":"Short name","prompt":"Self-contained instructions"}'\nGive each helper a title of one or two words and a complete prompt, since a helper sees none of this conversation: say which files it should change, what to check, and that it must not commit. Optional: "harness" and "model" (ids from list; yours by default) and "files" (paths only it may change; a helper whose files overlap another's waits for it). At most ${MAX_HELPERS} at once.\nAfter starting them, end your turn with a short note on what each helper does. Do not wait for them: Aven wakes you with their results once every helper is done, and then you report back to the user. Use list or get to check on one, message to give a finished helper another turn, and cancel to stop one. Run \`${cli} --help\` for every action and its fields. Credentials are already in your environment; never print them.\n</aven_helpers>`;
+}
+
+/** What stands in for `helperBrief` once the conversation holds it. */
+export function helperReminder(cli: string): string {
+  return `<aven_helpers>\nYou can still start helpers with ${cli} when the user asks in words; the rules given earlier apply. Run \`${cli} --help\` if you need them.\n</aven_helpers>`;
+}
+
+/** The wake-up a lead gets once every helper it started is done. */
+export function helpersDonePrompt(tasks: readonly OrchestrationTask[]): string {
+  const results = tasks
+    .map(
+      (task) =>
+        `${task.id} — ${task.title}: ${task.status}${task.error ? `\n${task.error}` : ""}\n${resultTail(task.result, RESULT_HANDOFF_CHARS)}`,
+    )
+    .join("\n\n");
+  return `Your helpers are done. Report back to the user in a few sentences: what each helper did, what it changed, and anything that needs their attention. Check a change yourself when the result leaves it unclear. Start more helpers only if the user asked for that.\n\n${results}`;
+}
+
 export class Orchestrator {
   private runs: OrchestrationRun[] = [];
   private listeners = new Set<() => void>();
@@ -564,6 +640,11 @@ export class Orchestrator {
   >();
   private host: OrchestrationHost | null = null;
   /**
+   * The control command each chat may start helpers with, for this page:
+   * granted before its turn (`allowHelpers`), told in its message (`prompt`).
+   */
+  private helperAccess = new Map<string, { cwd: string; cli: string }>();
+  /**
    * Each lead's run rules, by lead id: for which run they were sent and
    * whether a turn carrying them ended well. Kept in this window only.
    */
@@ -581,6 +662,30 @@ export class Orchestrator {
   }
   bind(host: OrchestrationHost) {
     this.host = host;
+  }
+  /**
+   * Let a chat start helpers when you ask it to: its agent's process gets
+   * the control command's credentials (shared, so the project stays open to
+   * other chats) and its message says how. A chat an Orchestrator run leads
+   * keeps that run's rules. False when it may not, or the grant failed.
+   */
+  async allowHelpers(sessionId: string, cwd: string): Promise<boolean> {
+    const run = this.run(sessionId);
+    if (run && !isHelperRun(run) && run.status === "active") return false;
+    try {
+      const cli = await this.store.enable(sessionId, cwd, true);
+      this.helperAccess.set(sessionId, { cwd, cli });
+      return true;
+    } catch (error) {
+      this.helperAccess.delete(sessionId);
+      // A project an Orchestrator run holds, or a helper's own chat: quiet.
+      console.debug("Helpers are unavailable for this chat", error);
+      return false;
+    }
+  }
+  /** This chat was given the control command for helpers on this page. */
+  helpersAllowed(sessionId: string): boolean {
+    return this.helperAccess.has(sessionId);
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -610,7 +715,7 @@ export class Orchestrator {
     previous: OrchestrationRun | undefined,
     next: OrchestrationRun,
   ) {
-    if (previous?.status !== "active") return;
+    if (previous?.status !== "active" || isHelperRun(next)) return;
     const kind =
       next.status === "finished"
         ? "finished"
@@ -785,6 +890,29 @@ export class Orchestrator {
           ].map((sessionId) => this.host?.stop(sessionId)),
         );
         await this.store.disable(id);
+      }
+      if (isHelperRun(run)) {
+        // Helpers have no supervisor to resume: what was cut short says so
+        // on its card, and the chat goes on as any chat.
+        await this.commit({
+          ...run,
+          status: run.status === "active" ? "finished" : run.status,
+          held: undefined,
+          tasks: run.tasks.map((task) =>
+            activeTask(task) || task.status === "queued"
+              ? {
+                  ...task,
+                  status: activeTask(task) ? "failed" : "cancelled",
+                  error: activeTask(task)
+                    ? "Stopped when Aven closed."
+                    : undefined,
+                  delivered: true,
+                  endedAt: task.endedAt ?? Date.now(),
+                }
+              : { ...task, delivered: true },
+          ),
+        });
+        return;
       }
       const interrupted = run.status === "active";
       // Summaries cut short by a reload are asked for again, within their
@@ -1022,7 +1150,14 @@ export class Orchestrator {
     const session = this.host?.session(id);
     if (!session) return null;
     const own = this.forSession(id);
-    if (
+    if (isHelperRun(own)) {
+      // A helper takes your messages once its task is done.
+      const working =
+        own!.leadId !== id &&
+        own!.tasks.some((task) => task.sessionId === id && activeTask(task));
+      if (working)
+        return `This helper is still working on what “${this.leadTitle(own!) ?? "another chat"}” gave it. Wait for it, or stop it.`;
+    } else if (
       own &&
       own.leadId !== id &&
       (own.status === "active" || own.tasks.some(activeTask))
@@ -1030,7 +1165,7 @@ export class Orchestrator {
       return `This agent works for the lead in “${this.leadTitle(own) ?? "another chat"}”. Send it instructions there, or stop the run.`;
     const other = this.blockingRun(id);
     if (other) return this.busyMessage(other);
-    if (own?.status === "paused")
+    if (own?.status === "paused" && !isHelperRun(own))
       return "The run is paused. Resume or stop it before sending the lead a message.";
     if (
       own?.status === "active" &&
@@ -1048,6 +1183,15 @@ export class Orchestrator {
   busyMessage(run: OrchestrationRun): string {
     return busyProjectMessage(run, this.leadTitle(run));
   }
+  /** A model id's name, as the model picker shows it. */
+  private modelName(harness: HarnessId, model: string): string {
+    return (
+      this.host
+        ?.choices()
+        .find((choice) => choice.harness === harness)
+        ?.models.find((entry) => entry.id === model)?.name ?? model
+    );
+  }
   /** The lead chat's title as the sidebar shows it, if it is loaded. */
   leadTitle(run: OrchestrationRun): string | undefined {
     const lead = this.host?.session(run.leadId);
@@ -1062,7 +1206,16 @@ export class Orchestrator {
    */
   prompt(id: string, prompt: string): string {
     const run = this.run(id);
-    if (!run || run.status !== "active") return prompt;
+    if (!run || run.status !== "active" || isHelperRun(run)) {
+      const access = this.helperAccess.get(id);
+      if (!access) return prompt;
+      const cli = `${shellPath(access.cli)} control`;
+      return `${prompt}\n\n${offerGuidance({
+        kind: "helpers",
+        full: helperBrief(cli),
+        reminder: helperReminder(cli),
+      })}`;
+    }
     const cli = `${shellPath(run.cli)} control`;
     const key = `${run.startedAt ?? ""}|${run.cli}`;
     const told = this.briefed.get(id);
@@ -1107,7 +1260,19 @@ export class Orchestrator {
     const result = this.actions
       .catch(() => undefined)
       .then(async () => {
-        const run = this.run(leadId);
+        let run = this.run(leadId);
+        if (
+          (!run || run.status !== "active") &&
+          this.helperAccess.has(leadId)
+        ) {
+          if (action === "list" && !isHelperRun(run))
+            return { helpers: [], harnesses: this.host!.choices() };
+          if (action !== "delegate" && !isHelperRun(run))
+            throw new Error(
+              "No helpers yet. Start one with delegate, as the user asked.",
+            );
+          run = await this.helperRun(leadId);
+        }
         if (!run || run.status !== "active")
           throw new Error("This run is not active");
         if (
@@ -1131,6 +1296,75 @@ export class Orchestrator {
       void this.pump();
     }
   }
+  /**
+   * The chat's helpers, going: started on its first delegate, and started
+   * again for each later batch, keeping the helpers it had so their cards
+   * stay. Waits for you first when the project asks before building.
+   */
+  private async helperRun(leadId: string): Promise<OrchestrationRun> {
+    const access = this.helperAccess.get(leadId)!;
+    const lead = this.host?.session(leadId);
+    if (!lead) throw new Error("Open this chat in Aven to start helpers");
+    const previous = this.run(leadId);
+    const held = this.host?.asksFirst?.(access.cwd) ? true : undefined;
+    const modelName =
+      this.host
+        ?.choices()
+        .find((choice) => choice.harness === lead.harness)
+        ?.models.find((model) => model.id === lead.model)?.name ?? lead.model;
+    if (isHelperRun(previous)) {
+      if (previous!.status === "active") return previous!;
+      const working = previous!.tasks.some(activeTask);
+      await this.commit({
+        ...previous!,
+        status: "active",
+        error: undefined,
+        cli: access.cli,
+        continuations: 0,
+        requests: {},
+        allowedHarnesses: this.host!.choices().map((choice) => choice.harness),
+        held: working ? previous!.held : held,
+        lead: { harness: lead.harness, model: modelName },
+      });
+      return this.run(leadId)!;
+    }
+    const [canonicalRoot] = await this.store.scopes(access.cwd, ["."]);
+    await this.commit({
+      version: 1,
+      leadId,
+      cwd: access.cwd,
+      canonicalRoot,
+      cli: access.cli,
+      status: "active",
+      mode: "helpers",
+      ...(held ? { held } : {}),
+      allowedHarnesses: this.host!.choices().map((choice) => choice.harness),
+      maxWorkers: MAX_HELPERS,
+      tasks: [],
+      continuations: 0,
+      requests: {},
+      title: sessionDisplayTitle(lead.title, lead.harness),
+      lead: { harness: lead.harness, model: modelName },
+      startedAt: Date.now(),
+    });
+    return this.run(leadId)!;
+  }
+  /** The lead's latest message you can see: the reply a new helper belongs to. */
+  private leadTurn(leadId: string): string | undefined {
+    const blocks = this.host?.session(leadId)?.blocks ?? [];
+    for (let index = blocks.length - 1; index >= 0; index--) {
+      const block = blocks[index];
+      if (block.role === "user" && !block.internal) return block.id;
+    }
+    return undefined;
+  }
+  /** Let helpers that wait for you (Ask before building) start. */
+  async startHelpers(leadId: string) {
+    const run = this.run(leadId);
+    if (!run || !isHelperRun(run) || !run.held) return;
+    await this.commit({ ...run, held: undefined });
+    void this.pump();
+  }
   private view(run: OrchestrationRun) {
     return {
       ...run,
@@ -1152,6 +1386,14 @@ export class Orchestrator {
    * it does not want to decide alone.
    */
   pendingInput(task: OrchestrationTask) {
+    // A helper asks you in its own pane, like any chat.
+    if (
+      this.runs.some(
+        (run) =>
+          isHelperRun(run) && run.tasks.some((entry) => entry.id === task.id),
+      )
+    )
+      return undefined;
     const worker = this.host?.session(task.sessionId);
     const pending = worker && pendingApprovalForSession(worker);
     if (!pending) return undefined;
@@ -1247,7 +1489,22 @@ export class Orchestrator {
       case "delegate": {
         if (run.tasks.length >= 40)
           throw new Error("This run has reached its 40-task limit");
-        const harness = text(input.harness, "harness") as HarnessId;
+        const helpers = isHelperRun(run);
+        const lead = helpers ? this.host!.session(run.leadId) : undefined;
+        if (
+          helpers &&
+          run.tasks.filter(
+            (entry) => activeTask(entry) || entry.status === "queued",
+          ).length >= MAX_HELPERS
+        )
+          throw new Error(
+            `At most ${MAX_HELPERS} helpers work at once. Wait for one to finish, or cancel one.`,
+          );
+        const harness = (
+          helpers && input.harness == null && lead
+            ? lead.harness
+            : text(input.harness, "harness")
+        ) as HarnessId;
         if (
           !HARNESSES.includes(harness) ||
           !run.allowedHarnesses.includes(harness)
@@ -1269,7 +1526,11 @@ export class Orchestrator {
         );
         const model =
           input.model == null
-            ? permittedModels[0]?.id
+            ? lead &&
+              lead.harness === harness &&
+              permittedModels.some((item) => item.id === lead.model)
+              ? lead.model
+              : permittedModels[0]?.id
             : text(input.model, "model", 256);
         if (!model || !permittedModels.some((item) => item.id === model))
           throw new Error(
@@ -1277,8 +1538,9 @@ export class Orchestrator {
           );
         const title = text(input.title, "title", 160);
         const prompt = text(input.prompt, "prompt");
-        const files = strings(input.files, "files");
-        if (!files.length)
+        const files =
+          helpers && input.files == null ? [] : strings(input.files, "files");
+        if (!files.length && !helpers)
           throw new Error(
             "Declare at least one file/directory scope in files, or '.' for exclusive checkout access",
           );
@@ -1293,7 +1555,10 @@ export class Orchestrator {
           throw new Error(
             `dependsOn must hold taskIds from this run; unknown or cancelled: ${listed(missing)}.`,
           );
-        const scopes = await this.store.scopes(run.cwd, files);
+        const scopes = files.length
+          ? await this.store.scopes(run.cwd, files)
+          : [];
+        const turn = helpers ? this.leadTurn(run.leadId) : undefined;
         const created: OrchestrationTask = {
           id: crypto.randomUUID(),
           sessionId: crypto.randomUUID(),
@@ -1308,6 +1573,7 @@ export class Orchestrator {
           accepted: false,
           result: "",
           delivered: true,
+          ...(turn ? { turn } : {}),
         };
         return record(
           {
@@ -1452,6 +1718,19 @@ export class Orchestrator {
         return changeTask(target.id, { accepted: true }, { accepted: true });
       }
       case "finish": {
+        if (isHelperRun(run)) {
+          const working = run.tasks.filter(
+            (entry) => activeTask(entry) || entry.status === "queued",
+          );
+          if (working.length)
+            throw new Error(
+              `Helpers are still working: ${listed(working.map((entry) => entry.title))}. Aven wakes you once they are done.`,
+            );
+          return record(
+            { ...this.run(run.leadId)!, status: "finished" },
+            { finished: true },
+          );
+        }
         const outstanding = this.run(run.leadId)!.tasks.filter(
           (entry) => entry.status !== "cancelled" && !entry.accepted,
         );
@@ -1480,8 +1759,13 @@ export class Orchestrator {
   }
   private async wait(leadId: string, input: Record<string, unknown>) {
     const run = this.run(leadId);
+    if (isHelperRun(run) && run!.status !== "active") return this.view(run!);
     if (!run || run.status !== "active")
-      throw new Error("This run is not active");
+      throw new Error(
+        this.helperAccess.has(leadId)
+          ? "No helpers are working. Start one with delegate, as the user asked."
+          : "This run is not active",
+      );
     const seconds = input.timeoutSeconds ?? 20;
     if (
       typeof seconds !== "number" ||
@@ -1525,7 +1809,8 @@ export class Orchestrator {
     try {
       for (const initial of this.runs) {
         const initialRun = this.run(initial.leadId);
-        if (!initialRun || initialRun.status !== "active") continue;
+        if (!initialRun || initialRun.status !== "active" || initialRun.held)
+          continue;
         for (const initialTask of initialRun.tasks) {
           const run = this.run(initial.leadId);
           if (
@@ -1558,7 +1843,11 @@ export class Orchestrator {
           // correction from the lead is sent as it is. It counts as said
           // only once that turn went out (below).
           const role = task.role && !task.roleSent ? task.role : undefined;
-          await this.patchTask(run.leadId, task.id, { status: "running" });
+          await this.patchTask(run.leadId, task.id, {
+            status: "running",
+            startedAt: Date.now(),
+            endedAt: undefined,
+          });
           try {
             if (
               !this.host
@@ -1579,16 +1868,31 @@ export class Orchestrator {
                 ?.status !== "running"
             )
               continue;
-            const prompt = workerTurnPrompt(task.prompt, task.files, role);
+            const helpers = isHelperRun(run);
+            const prompt = helpers
+              ? helperTurnPrompt(task.prompt, task.files)
+              : workerTurnPrompt(task.prompt, task.files, role);
             // A turn refused outright settles while it is being sent.
             let sending = true;
             let refused = false;
-            this.host.submit(task.sessionId, prompt, (outcome) => {
-              if (sending) refused = true;
-              void this.settle(run.leadId, task.id, outcome).catch(
-                console.error,
-              );
-            });
+            this.host.submit(
+              task.sessionId,
+              prompt,
+              (outcome) => {
+                if (sending) refused = true;
+                void this.settle(run.leadId, task.id, outcome).catch(
+                  console.error,
+                );
+              },
+              helpers
+                ? {
+                    kind: "helper-task",
+                    from: this.leadTitle(run) ?? run.title ?? "Another chat",
+                    harness: task.harness,
+                    model: this.modelName(task.harness, task.model),
+                  }
+                : undefined,
+            );
             sending = false;
             if (role && !refused)
               await this.patchTask(run.leadId, task.id, { roleSent: true });
@@ -1619,7 +1923,9 @@ export class Orchestrator {
     const task = this.run(leadId)?.tasks.find((entry) => entry.id === taskId);
     if (!task || task.status !== "running") return;
     const worker = this.host?.session(task.sessionId);
+    const helpers = isHelperRun(this.run(leadId));
     await this.patchTask(leadId, taskId, {
+      endedAt: Date.now(),
       status: outcome.status,
       result: resultTail(
         outcome.text,
@@ -1628,7 +1934,8 @@ export class Orchestrator {
       ),
       error: outcome.error,
       delivered: false,
-      accepted: false,
+      // A helper's work is the user's to look at, not the lead's to accept.
+      accepted: helpers && outcome.status === "completed",
       touched: worker
         ? filesTouched(worker.blocks, this.run(leadId)?.cwd ?? worker.cwd)
         : task.touched,
@@ -1772,6 +2079,8 @@ export class Orchestrator {
   }
   stopForSession(id: string): Promise<void> | null {
     const run = this.forSession(id);
+    // Stopping a lead stops its turn; its helpers keep working beside it.
+    if (isHelperRun(run) && run!.leadId === id) return null;
     if (
       !run ||
       (run.status !== "active" &&
@@ -1882,6 +2191,7 @@ export class Orchestrator {
   }
   /** `${taskId}:${requestId}` for every worker currently blocked on the lead. */
   private blockedKeys(run: OrchestrationRun): string[] {
+    if (isHelperRun(run)) return [];
     return run.tasks.flatMap((task) => {
       const pending = this.pendingInput(task);
       return pending ? [`${task.id}:${pending.requestId}`] : [];
@@ -1901,6 +2211,10 @@ export class Orchestrator {
       if (run.status !== "active" || this.waking.has(run.leadId)) continue;
       const lead = this.host?.session(run.leadId);
       if (!lead || lead.busy || lead.queuedMessages?.length) continue;
+      if (isHelperRun(run)) {
+        this.wakeHelperLead(run, lead);
+        continue;
+      }
       const announced = this.announced.get(run.leadId) ?? new Set<string>();
       const results = run.tasks.filter((task) => !task.delivered);
       const blocked = this.blockedKeys(run).filter(
@@ -2014,6 +2328,71 @@ export class Orchestrator {
     }
     this.watchLeads();
   }
+  /**
+   * A lead's helpers: once none is working or waiting to start, the lead is
+   * woken once with their results; once it has heard them all and is idle,
+   * the helpers are over.
+   */
+  private wakeHelperLead(run: OrchestrationRun, lead: Session) {
+    const working = run.tasks.some(
+      (task) => activeTask(task) || task.status === "queued",
+    );
+    if (working) return;
+    const results = run.tasks.filter((task) => !task.delivered);
+    if (!results.length) {
+      if (leadIsIdle(lead))
+        void this.commit({ ...run, status: "finished" }).catch((error) =>
+          logError("Couldn't save the helpers", error),
+        );
+      return;
+    }
+    if (!leadIsIdle(lead)) return;
+    this.waking.add(run.leadId);
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const current = this.run(run.leadId);
+          const session = this.host?.session(run.leadId);
+          if (
+            !current ||
+            current.status !== "active" ||
+            !session ||
+            !leadIsIdle(session)
+          )
+            return;
+          const done = current.tasks.filter((task) => !task.delivered);
+          if (!done.length) return;
+          await this.commit({
+            ...current,
+            continuations: current.continuations + 1,
+            tasks: current.tasks.map((task) =>
+              task.delivered ? task : { ...task, delivered: true },
+            ),
+          });
+          if (this.run(run.leadId)?.status !== "active") return;
+          this.host!.submit(
+            run.leadId,
+            helpersDonePrompt(done),
+            (outcome) => {
+              if (outcome.status === "completed") this.sync();
+              else {
+                const latest = this.run(run.leadId);
+                if (latest?.status === "active")
+                  void this.commit({ ...latest, status: "finished" }).catch(
+                    (error) => logError("Couldn't save the helpers", error),
+                  );
+              }
+            },
+            { kind: "helpers-done", count: done.length },
+          );
+        } catch (error) {
+          console.error("Waking the lead for its helpers failed", error);
+        } finally {
+          this.waking.delete(run.leadId);
+        }
+      })();
+    }, 0);
+  }
   /** The lead has nothing to do and Aven is not about to wake it. */
   private leadIdle(run: OrchestrationRun): boolean {
     const lead = this.host?.session(run.leadId);
@@ -2082,7 +2461,7 @@ export class Orchestrator {
    */
   private watchLeads() {
     for (const run of this.runs) {
-      if (run.status !== "active") continue;
+      if (run.status !== "active" || isHelperRun(run)) continue;
       const leadId = run.leadId;
       const stalled = this.stalled(run);
       if (run.stalledAt !== undefined && !stalled)
@@ -2160,6 +2539,7 @@ export class Orchestrator {
     if (
       !run ||
       run.status !== "active" ||
+      isHelperRun(run) ||
       !task ||
       event.preview?.kind !== "write"
     )

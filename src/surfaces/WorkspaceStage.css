@@ -62,13 +62,20 @@ html.has-chat-background:not(.chat-background-empty-only)
   display: none;
 }
 
-/* Visited surfaces remain measured while inactive. The hidden/inert attributes
-   still exclude them from focus, accessibility, and native page presentation. */
-.workspace-stage[hidden][data-retained="true"],
-.workspace-stage-surface[hidden][data-retained="true"] {
+/* Visited surfaces remain measured while inactive. The hidden attribute still
+   excludes them from accessibility and native page presentation. */
+.workspace-stage[hidden][data-retained="true"] {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
+}
+/* A pane's surface that is not in front only moves out of sight. Visibility,
+   opacity, pointer-events or inert on it would make WebKit restyle every
+   element of the chat on each switch, both ways (about 5 ms per thousand
+   elements); a translate restyles this box alone. Far to the left, no scroll
+   container can bring it back into view. WorkspaceStage keeps focus out. */
+.workspace-stage-surface[hidden][data-retained="true"] {
+  translate: -400vw 0;
 }
 
 @layer base {
