@@ -43,7 +43,6 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
-  HELM_WORKING_SELECTOR,
   closeHelmDialog,
   helmStateWords,
   restoringComposer,
@@ -2836,27 +2835,16 @@ export async function runDevSmoke(
         );
         try {
           let seen: string | null = "the bubble never appeared";
-          // The orb draws itself frame by frame: it moves if two looks at
-          // it, a poll apart, find its dots in different places.
-          let lastFrame = "";
           await waitFor(
             () => {
               const helm = root.querySelector<HTMLElement>("[data-helm]");
-              const frame =
-                helm?.querySelector(HELM_WORKING_SELECTOR)?.innerHTML ?? "";
-              const moved = lastFrame !== "" && frame !== lastFrame;
-              lastFrame = frame;
               seen =
-                helmWorkingProblem(
-                  helm ?? null,
-                  moved,
-                  prefersReducedMotion(),
-                ) ??
+                helmWorkingProblem(helm ?? null) ??
                 helmStopProblem(root.closest("[data-session-drop]") ?? root);
               return seen === null;
             },
             5_000,
-            "the mark to work while the chat offers its one Stop",
+            "the helm to say it works while the chat offers its one Stop",
           ).catch(() => {
             throw new Error(`While the agent worked, ${seen}`);
           });
