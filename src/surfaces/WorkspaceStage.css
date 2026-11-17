@@ -207,7 +207,8 @@ html.has-chat-background:not(.chat-background-empty-only)
 /* A collapsed pane: a slim rail where it stood, never nothing. It shows a
    mark for each of its tabs (the one in front first) and its name along it;
    the whole rail is one button that opens the pane at its last size. Grey,
-   like the rest of the workspace; it fades in where the pane folded. */
+   like the rest of the workspace; it fades in where the pane folded. It is
+   a card like an open pane, with the same rounded corners. */
 .workspace-pane-rail {
   position: absolute;
   z-index: 30;
@@ -216,6 +217,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   justify-content: stretch;
   padding: 0;
   border: 0;
+  border-radius: var(--aven-radius-pane-card, 10px);
   overflow: hidden;
   background: color-mix(in srgb, var(--color-content) 4%, transparent);
   color: var(--aven-label-secondary);
