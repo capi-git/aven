@@ -759,7 +759,7 @@ describe("dragging with splits", () => {
   });
 });
 
-it("gives a split on the window's row a tab's width per pane, so each keeps its name", () => {
+it("sizes a split on the window's row to its marks, with no empty room after them", () => {
   const css = readFileSync("src/chrome/TitleBar.css", "utf8").replace(
     /\s+/g,
     " ",
@@ -772,10 +772,11 @@ it("gives a split on the window's row a tab's width per pane, so each keeps its 
   const split = css.match(
     /\.workspace-status-strip \.aven-tab-strip\[data-tab-track\] \.aven-tab-slot\.aven-split-entry \{([^}]*)\}/,
   );
-  expect(split?.[1]).toContain(
-    "flex: 0 1 calc(var(--aven-split-panes, 2) * 200px)",
-  );
-  expect(split?.[1]).toContain(
-    "min-width: calc(var(--aven-split-panes, 2) * 88px)",
+  // Each pane names itself in its own card, so the row shows marks only.
+  expect(split?.[1]).toContain("flex: 0 0 auto;");
+  expect(split?.[1]).toContain("width: auto;");
+  expect(split?.[1]).not.toContain("200px");
+  expect(css).toMatch(
+    /\.workspace-status-strip \.aven-split-segment \.aven-split-label \{ display: none; \}/,
   );
 });
