@@ -3665,7 +3665,7 @@ mod tests {
 
         let first = create_chat_copy_for(&repo, &copies).unwrap();
         assert_eq!(first.branch, "aven/copy-1");
-        assert!(first.path.ends_with("my-repo/copy-1"));
+        assert!(Path::new(&first.path).ends_with(Path::new("my-repo").join("copy-1")));
         assert_eq!(
             std::fs::read_to_string(Path::new(&first.path).join("a.txt")).unwrap(),
             "one\n"
@@ -3673,7 +3673,7 @@ mod tests {
         // From inside a copy, the next one still sits beside it.
         let second = create_chat_copy_for(Path::new(&first.path), &copies).unwrap();
         assert_eq!(second.branch, "aven/copy-2");
-        assert!(second.path.ends_with("my-repo/copy-2"));
+        assert!(Path::new(&second.path).ends_with(Path::new("my-repo").join("copy-2")));
         assert_eq!(git_worktrees_for(&repo).len(), 3);
 
         let plain = dir.0.join("plain");
