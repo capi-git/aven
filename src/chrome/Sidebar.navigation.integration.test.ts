@@ -129,6 +129,35 @@ function item(container: HTMLElement | null, label: string) {
 }
 
 describe("sidebar workspace navigation", () => {
+  it("folds the project you leave instead of unfolding every project you visited", async () => {
+    localStorage.setItem(
+      RECENT_PROJECTS_KEY,
+      JSON.stringify([
+        { path: "/projects/Above", openedAt: 2 },
+        { path: "/projects/Catalog", openedAt: 1 },
+      ]),
+    );
+    await act(async () => root.render(createElement(ProjectNavigationSidebar)));
+    const open = (name: string) =>
+      document.querySelector<HTMLButtonElement>(
+        `button[aria-label^="Open ${name} project"]`,
+      )!;
+    const folds = () =>
+      [...document.querySelectorAll(".personal-project-disclosure")].map(
+        (row) => row.getAttribute("aria-label"),
+      );
+    await click(open("Catalog"));
+    expect(folds()).toEqual(["Expand Above chats", "Collapse Catalog chats"]);
+    await click(open("Above"));
+    expect(folds()).toEqual(["Collapse Above chats", "Expand Catalog chats"]);
+    await click(open("Catalog"));
+    expect(folds()).toEqual(["Expand Above chats", "Collapse Catalog chats"]);
+    // A project unfolded with its arrow stays open while you work elsewhere.
+    await click(button("Expand Above chats"));
+    await click(open("Catalog"));
+    expect(folds()).toEqual(["Collapse Above chats", "Collapse Catalog chats"]);
+  });
+
   it("deletes a workspace you are not in from its right-click menu", async () => {
     const state = assignWorkspaceProject(
       defaultWorkspaceProfiles(),
