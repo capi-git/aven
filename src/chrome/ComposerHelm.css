@@ -7,10 +7,16 @@
 /* The composer keeps a strip above its first card (or the box) for the
    mark to stand in, so it never covers the words in the transcript, the
    queue or the box. */
+/* The helm is the message box's own bottom row, as one box holds the
+   words, the model and effort, attach, the microphone and Send. The box
+   keeps that row's room at its foot. */
 .personal-composer[data-helm],
 .personal-shell .personal-composer[data-helm] {
-  --helm-perch: 40px;
-  padding-top: var(--helm-perch);
+  --helm-perch: 36px;
+}
+.personal-composer[data-helm] [data-composer-box] {
+  padding-bottom: var(--helm-perch);
+  border-radius: 12px;
 }
 
 /* The helm's tokens, shared by the perch and its menu (in a portal). */
@@ -33,13 +39,15 @@
 }
 .composer-helm {
   position: absolute;
-  inset: 0 0 auto;
+  /* Over the box's foot: the composer's own bottom padding is 6px (p-1.5)
+     and the box's edge 1px. */
+  inset: auto 7px 7px;
   z-index: 25;
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
   height: var(--helm-perch);
-  padding: 0 14px 0 10px;
+  padding: 0 6px 0 4px;
   container: composer-helm / inline-size;
   pointer-events: none;
 }
@@ -863,4 +871,87 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
 }
 button.helm-work:is(:hover, :focus-visible) .helm-work-stop {
   opacity: 0.95;
+}
+
+/* ---- inside the box: model and effort at the left, tools at the right -- */
+.composer-helm > .helm-mode-chip,
+.composer-helm > .helm-say,
+.composer-helm > .helm-plane,
+.composer-helm > .helm-mic {
+  margin-bottom: 0;
+}
+.composer-helm .helm-perch {
+  width: auto;
+  height: 26px;
+  margin-bottom: 0;
+}
+.composer-helm .helm-critter-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 26px;
+  padding: 0 7px 0 4px;
+}
+.composer-helm .helm-critter-button:hover,
+.composer-helm .helm-critter-button[aria-expanded="true"] {
+  background: var(--aven-control-hover, var(--helm-track));
+}
+/* The Bot stands small at the row's start, still drawing the work. */
+.composer-helm .helm-critter-button .dot-mark.helm-critter {
+  width: 18px;
+  height: 18px;
+}
+.helm-model {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.helm-model-name {
+  color: color-mix(in srgb, var(--color-content) 80%, transparent);
+}
+.helm-model-effort {
+  color: var(--helm-quiet);
+}
+.composer-helm .helm-perch-room {
+  bottom: 1px;
+  left: 6px;
+  transform: none;
+}
+.helm-attach {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-md);
+  background: transparent;
+  color: var(--helm-muted);
+  cursor: var(--aven-cursor-pointer);
+}
+.helm-attach:hover {
+  background: var(--aven-control-hover, var(--helm-track));
+  color: var(--helm-ink);
+}
+.helm-attach-art {
+  width: 15px;
+  height: 15px;
+}
+/* Attach, the microphone, then Send at the far right. Send keeps its place
+   while the box is empty, so the others never move when it appears. */
+.composer-helm > .helm-attach {
+  order: 1;
+}
+.composer-helm > .helm-mic {
+  order: 2;
+}
+.composer-helm > .helm-plane {
+  order: 3;
+}
+.composer-helm > .helm-plane[hidden] {
+  display: grid !important;
+  visibility: hidden;
 }
