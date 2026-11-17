@@ -26,13 +26,22 @@ const RowDescription = createContext<string | undefined>(undefined);
 export function PageHeader({
   title,
   description,
+  icon,
 }: {
   title: string;
   description: string;
+  icon?: ReactNode;
 }) {
   return (
     <header className="settings-page-header">
-      <h1>{title}</h1>
+      <h1>
+        {icon ? (
+          <span className="settings-page-icon" aria-hidden="true">
+            {icon}
+          </span>
+        ) : null}
+        {title}
+      </h1>
       {description ? <p>{description}</p> : null}
     </header>
   );

@@ -3,6 +3,9 @@
 }
 /* A plain page title: semibold, its tracking tightened a little. */
 .settings-page-header h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: var(--text-ui-title, 20px);
   font-weight: 600;
@@ -15,6 +18,11 @@
   color: var(--aven-muted);
   font-size: var(--text-ui-body);
   line-height: 1.5;
+}
+.settings-page-icon {
+  display: grid;
+  place-items: center;
+  color: var(--aven-muted);
 }
 .settings-heading {
   margin: 22px 0 8px;
@@ -43,12 +51,16 @@
 .settings-group-intro {
   min-width: 0;
 }
+/* Group names in small capitals above their card, as in Super Engineering. */
 .settings-group-header h2 {
   margin: 0;
+  padding-inline: 2px;
   color: var(--aven-muted);
-  font-size: var(--text-ui-label);
-  font-weight: 500;
+  font-size: var(--text-ui-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
   line-height: 1.4;
+  text-transform: uppercase;
 }
 /* Where a group's choices are saved, as a quiet pill beside its title. */
 .settings-group-scope {

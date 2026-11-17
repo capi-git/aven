@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { pageHeadings, type PageHeading } from "../lib/settingsHeadings";
 import {
   AppWindow,
   Archive,
@@ -23,7 +24,7 @@ import {
 import { requestSettingsAnchor, searchSettings } from "../lib/settingsSearch";
 import "./SettingsRail.css";
 
-const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
+export const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   general: Settings,
   appearance: Palette,
   notifications: Inbox,
@@ -72,6 +73,7 @@ export function SettingsNav({
   const resultsRef = useRef<HTMLElement | null>(null);
   const results = useMemo(() => searchSettings(query), [query]);
   const searching = query.trim().length > 0;
+  const headings = usePageHeadings(section);
   // Escape anywhere in Settings clears an open search before it closes Settings.
   useEffect(() => {
     if (!query) return;
@@ -93,7 +95,12 @@ export function SettingsNav({
   return (
     <div className={`settings-nav${embedded ? " settings-nav--embedded" : ""}`}>
       <div className="settings-nav__back">
-        <NavRow label="Back to app" icon={ArrowLeft} onClick={onClose} />
+        <NavRow
+          label="Back to app"
+          icon={ArrowLeft}
+          onClick={onClose}
+          keyHint="esc"
+        />
       </div>
       <label className="settings-nav__search">
         <Search className="size-3.5 shrink-0" aria-hidden />
@@ -187,11 +194,72 @@ export function SettingsNav({
               active={item.id === section}
               onClick={() => onSelect(item.id)}
             />,
+            // The open page's headings, Super-style: a click scrolls to one.
+            ...(item.id === section && headings.length > 1
+              ? [
+                  <div
+                    key={`${item.id}-headings`}
+                    className="settings-nav__headings"
+                  >
+                    {headings.map((heading, index) => (
+                      <button
+                        type="button"
+                        key={`${index}-${heading.title}`}
+                        className="settings-nav__heading"
+                        onClick={() =>
+                          heading.element.scrollIntoView({
+                            block: "start",
+                            behavior: "smooth",
+                          })
+                        }
+                      >
+                        {heading.title}
+                      </button>
+                    ))}
+                  </div>,
+                ]
+              : []),
           ])}
         </nav>
       )}
     </div>
   );
+}
+
+/**
+ * The headings of the settings page on screen, kept current as the page
+ * renders. Read from the page itself, so every section gets them for free.
+ */
+function usePageHeadings(section: SettingsSectionId): PageHeading[] {
+  const [headings, setHeadings] = useState<PageHeading[]>([]);
+  useEffect(() => {
+    let frame = 0;
+    const read = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const next = pageHeadings(document);
+        setHeadings((current) =>
+          current.length === next.length &&
+          current.every(
+            (entry, index) =>
+              entry.title === next[index].title &&
+              entry.element === next[index].element,
+          )
+            ? current
+            : next,
+        );
+      });
+    };
+    read();
+    const page = document.querySelector("[data-app-settings]");
+    const observer = page ? new MutationObserver(read) : null;
+    if (page) observer?.observe(page, { childList: true, subtree: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [section]);
+  return headings;
 }
 
 function NavRow({
@@ -201,6 +269,7 @@ function NavRow({
   icon: Icon,
   active = false,
   onClick,
+  keyHint,
 }: {
   label: string;
   description?: string;
@@ -208,6 +277,7 @@ function NavRow({
   icon: IconComponent;
   active?: boolean;
   onClick: () => void;
+  keyHint?: string;
 }) {
   return (
     <button
@@ -224,6 +294,11 @@ function NavRow({
         <Icon className="settings-nav__icon" strokeWidth={1.75} />
       </span>
       <span className="settings-nav__label">{label}</span>
+      {keyHint ? (
+        <kbd className="settings-nav__key" aria-hidden="true">
+          {keyHint}
+        </kbd>
+      ) : null}
     </button>
   );
 }
