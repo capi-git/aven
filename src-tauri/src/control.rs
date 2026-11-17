@@ -31,6 +31,11 @@ struct Grant {
     session: String,
     cwd: String,
     token: String,
+    /// A chat's standing access for helpers it may start when asked
+    /// (`control_enable` with `shared`). It holds no checkout: other chats
+    /// keep working in the project beside it. An Orchestrator run's grant is
+    /// not shared and reserves the checkout for its lead and workers.
+    shared: bool,
 }
 struct Pending {
     window: String,
@@ -50,6 +55,10 @@ struct Inner {
     /// The window whose page loaded each lead's run, running or not: one
     /// window holds a run at a time.
     holds: HashMap<String, String>,
+    /// Each chat's token for this launch. A grant enabled again (after a
+    /// page reload revoked it, or a run ended) keeps the token its agent's
+    /// running process already holds in its environment.
+    tokens: HashMap<String, String>,
 }
 
 /// What a window may do with a saved run it asks to load (`claim`).
@@ -61,6 +70,27 @@ enum Claim {
     Refuse,
 }
 impl Inner {
+    /// The chat's token for this launch, made on first use.
+    fn token_for(&mut self, session: &str) -> String {
+        self.tokens
+            .entry(session.to_string())
+            .or_insert_with(|| {
+                format!(
+                    "{}{}",
+                    uuid::Uuid::new_v4().simple(),
+                    uuid::Uuid::new_v4().simple()
+                )
+            })
+            .clone()
+    }
+
+    /// The Orchestrator run that reserves a checkout overlapping `cwd`.
+    fn exclusive_grant(&self, cwd: &str) -> Option<&Grant> {
+        self.grants
+            .values()
+            .find(|grant| !grant.shared && paths_overlap(&grant.cwd, cwd))
+    }
+
     fn ensure_owner(&self, window: &str, session: &str) -> Result<(), String> {
         let granted = self.grants.get(session).or_else(|| {
             self.workers
@@ -211,6 +241,7 @@ impl Inner {
         self.holds.retain(|_, window| window != label);
         let ids = self.window_sessions(label);
         self.grants.retain(|id, _| !ids.contains(id));
+        self.tokens.retain(|id, _| !ids.contains(id));
         self.workers.retain(|id, _| !ids.contains(id));
         self.active.retain(|id, _| !ids.contains(id));
         self.pending.retain(|_, pending| {
@@ -417,6 +448,7 @@ pub fn control_enable(
     host: State<'_, ControlHost>,
     session_id: String,
     cwd: String,
+    shared: Option<bool>,
 ) -> Result<String, String> {
     let window = owning_window(&webview)?;
     let _work =
@@ -430,41 +462,77 @@ pub fn control_enable(
         .inner
         .lock()
         .map_err(|_| "Control service unavailable")?;
-    inner.ensure_owner(window.label(), &session_id)?;
-    if inner
-        .active
-        .iter()
-        .any(|(id, turn)| id != &session_id && paths_overlap(&turn.cwd, &cwd))
-    {
-        return Err(
-            "Another session is running in this checkout. Stop it before enabling orchestration."
-                .into(),
-        );
-    }
-    if inner.grants.values().any(|g| {
-        paths_overlap(&g.cwd, &cwd) && (g.session != session_id || g.window != window.label())
-    }) {
-        return Err("This checkout already has an orchestrator in another session".into());
-    }
-    // The window that starts or resumes a run holds it from then on.
-    inner
-        .holds
-        .insert(session_id.clone(), window.label().to_string());
-    inner.grants.insert(
-        session_id.clone(),
-        Grant {
-            window: window.label().into(),
-            session: session_id,
-            cwd,
-            token: format!(
-                "{}{}",
-                uuid::Uuid::new_v4().simple(),
-                uuid::Uuid::new_v4().simple()
-            ),
-        },
-    );
+    inner.enable(window.label(), &session_id, &cwd, shared.unwrap_or(false))?;
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     Ok(executable.to_string_lossy().into_owned())
+}
+
+impl Inner {
+    /// Give a chat its control grant in `window`. A shared grant is a chat's
+    /// standing access for helpers it starts when asked: it reserves
+    /// nothing, and an Orchestrator run's grant on the same chat is kept as
+    /// it is. An exclusive grant starts or resumes an Orchestrator run,
+    /// which needs the checkout to itself.
+    fn enable(
+        &mut self,
+        window: &str,
+        session_id: &str,
+        cwd: &str,
+        shared: bool,
+    ) -> Result<(), String> {
+        self.ensure_owner(window, session_id)?;
+        if shared {
+            if self.workers.contains_key(session_id) {
+                return Err("A helper cannot start helpers of its own".into());
+            }
+            if let Some(grant) = self.grants.get(session_id) {
+                if !grant.shared && grant.window == window {
+                    return Ok(());
+                }
+            }
+            if self
+                .exclusive_grant(cwd)
+                .is_some_and(|grant| grant.session != session_id)
+            {
+                return Err("This checkout is controlled by an orchestrator. Stop that run before starting helpers.".into());
+            }
+        } else {
+            if self
+                .active
+                .iter()
+                .any(|(id, turn)| id != session_id && paths_overlap(&turn.cwd, cwd))
+            {
+                return Err(
+                    "Another session is running in this checkout. Stop it before enabling orchestration."
+                        .into(),
+                );
+            }
+            // Other chats' standing helper access reserves nothing; another
+            // run's grant does.
+            if self.grants.values().any(|g| {
+                paths_overlap(&g.cwd, cwd)
+                    && (g.session != session_id || g.window != window)
+                    && (!g.shared || g.session == session_id)
+            }) {
+                return Err("This checkout already has an orchestrator in another session".into());
+            }
+            // The window that starts or resumes a run holds it from then on.
+            self.holds
+                .insert(session_id.to_string(), window.to_string());
+        }
+        let token = self.token_for(session_id);
+        self.grants.insert(
+            session_id.to_string(),
+            Grant {
+                window: window.into(),
+                session: session_id.to_string(),
+                cwd: cwd.to_string(),
+                token,
+                shared,
+            },
+        );
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -577,26 +645,32 @@ pub fn control_authorize_turn(
         .inner
         .lock()
         .map_err(|_| "Control service unavailable")?;
-    inner.ensure_owner(window.label(), &session_id)?;
-    if let Some(lead) = inner
-        .grants
-        .values()
-        .find(|grant| paths_overlap(&grant.cwd, &cwd))
-    {
-        if lead.window != window.label()
-            || (lead.session != session_id && inner.workers.get(&session_id) != Some(&lead.session))
-        {
-            return Err("This checkout is controlled by an orchestrator. Stop that run before starting independent work.".into());
+    inner.authorize(window.label(), &session_id, &cwd)
+}
+
+impl Inner {
+    /// A chat's turn may start: no Orchestrator run holds its checkout for
+    /// another chat. A chat's standing helper access holds nothing, so chats
+    /// beside a lead and its helpers keep working.
+    fn authorize(&mut self, window: &str, session_id: &str, cwd: &str) -> Result<(), String> {
+        self.ensure_owner(window, session_id)?;
+        if let Some(lead) = self.exclusive_grant(cwd) {
+            if lead.window != window
+                || (lead.session != session_id
+                    && self.workers.get(session_id) != Some(&lead.session))
+            {
+                return Err("This checkout is controlled by an orchestrator. Stop that run before starting independent work.".into());
+            }
         }
+        self.active.insert(
+            session_id.to_string(),
+            ActiveTurn {
+                window: window.to_string(),
+                cwd: cwd.to_string(),
+            },
+        );
+        Ok(())
     }
-    inner.active.insert(
-        session_id,
-        ActiveTurn {
-            window: window.label().to_string(),
-            cwd,
-        },
-    );
-    Ok(())
 }
 
 #[tauri::command]
@@ -856,6 +930,7 @@ mod tests {
                 session: "lead".into(),
                 cwd: "/project".into(),
                 token: "test".into(),
+                shared: false,
             },
         );
         assert!(inner.ensure_update_idle().is_ok());
@@ -888,7 +963,47 @@ mod tests {
             session: lead.into(),
             cwd: cwd.into(),
             token: "test".into(),
+            shared: false,
         }
+    }
+
+    #[test]
+    fn shared_helper_access_holds_no_checkout() {
+        let mut inner = Inner::default();
+        inner.enable("main", "lead", "/repo", true).unwrap();
+        inner.enable("main", "other", "/repo", true).unwrap();
+        // Both chats work in the project, and each keeps its own token.
+        inner.authorize("main", "lead", "/repo").unwrap();
+        inner.authorize("main", "other", "/repo").unwrap();
+        inner.authorize("main", "third", "/repo/src").unwrap();
+        assert_ne!(inner.grants["lead"].token, inner.grants["other"].token);
+        // A helper of the lead starts no helpers of its own.
+        inner.workers.insert("helper".into(), "lead".into());
+        assert!(inner.enable("main", "helper", "/repo", true).is_err());
+        // An Orchestrator run still needs the checkout to itself.
+        assert!(inner.enable("main", "lead", "/repo", false).is_err());
+        inner.active.clear();
+        inner.enable("main", "lead", "/repo", false).unwrap();
+        assert!(!inner.grants["lead"].shared);
+        assert!(inner.authorize("main", "other", "/repo").is_err());
+        assert!(inner.authorize("main", "helper", "/repo").is_ok());
+        // Shared access never replaces a run's grant, nor starts beside it.
+        inner.enable("main", "lead", "/repo", true).unwrap();
+        assert!(!inner.grants["lead"].shared);
+        assert!(inner.enable("main", "other", "/repo/src", true).is_err());
+    }
+
+    #[test]
+    fn a_grant_enabled_again_keeps_its_token() {
+        let mut inner = Inner::default();
+        inner.enable("main", "lead", "/repo", true).unwrap();
+        let token = inner.grants["lead"].token.clone();
+        assert_eq!(inner.reset_window("main"), vec!["lead".to_string()]);
+        inner.enable("main", "lead", "/repo", true).unwrap();
+        // The agent's running process holds this token in its environment.
+        assert_eq!(inner.grants["lead"].token, token);
+        inner.close_window("main");
+        assert!(!inner.tokens.contains_key("lead"));
     }
 
     #[test]
@@ -1019,6 +1134,7 @@ mod tests {
                     session: id.into(),
                     cwd: format!("/{id}"),
                     token: id.into(),
+                    shared: false,
                 },
             );
         }
@@ -1095,6 +1211,7 @@ mod tests {
                 session: "lead".into(),
                 cwd: "/repo".into(),
                 token: "test-secret".into(),
+                shared: false,
             },
         );
         inner.workers.insert("worker".into(), "lead".into());

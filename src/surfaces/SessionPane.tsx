@@ -18,6 +18,7 @@ import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
 import { PaneNameStrip } from "../chrome/PaneNameStrip";
 import { ProviderMarks } from "../chrome/ProviderMarks";
 import {
+  isHelperRun,
   leadIsIdle,
   orchestrator,
   sameCheckout,
@@ -116,8 +117,9 @@ import type { PaletteAgent } from "../lib/commandPalette";
 import type { DiscussionHost } from "../lib/discussions";
 
 const NO_RUNS: readonly OrchestrationRun[] = [];
+/** An Orchestrator run that holds its project; a chat's helpers hold none. */
 const runIsOpen = (run: OrchestrationRun) =>
-  run.status === "active" || run.status === "paused";
+  !isHelperRun(run) && (run.status === "active" || run.status === "paused");
 
 type Props = {
   session: Session;

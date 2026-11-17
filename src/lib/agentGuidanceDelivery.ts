@@ -17,7 +17,7 @@ import type { HarnessId } from "./session";
  * reaches the provider, whoever composed the message around the blocks.
  */
 
-export type GuidanceKind = "browser" | "iphone" | "files" | "git";
+export type GuidanceKind = "browser" | "iphone" | "files" | "git" | "helpers";
 
 export type GuidanceBlock = {
   kind: GuidanceKind;

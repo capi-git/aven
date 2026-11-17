@@ -936,7 +936,11 @@ fn index_orchestration(conn: &Connection, lead: &str, run: &Value) -> rusqlite::
             "model": task["model"], "status": task["status"],
         }));
     }
-    let summary = serde_json::json!({ "status": run["status"], "tasks": summaries });
+    let mut summary = serde_json::json!({ "status": run["status"], "tasks": summaries });
+    // A chat's helpers keep its row a chat's in the sidebar.
+    if run["mode"].as_str() == Some("helpers") {
+        summary["mode"] = Value::from("helpers");
+    }
     conn.execute("INSERT INTO orchestration_sidebar(lead_id, summary) VALUES (?1, ?2) ON CONFLICT(lead_id) DO UPDATE SET summary = excluded.summary", params![lead, summary.to_string()])?;
     Ok(())
 }

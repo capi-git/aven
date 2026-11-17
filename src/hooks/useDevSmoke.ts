@@ -7,6 +7,8 @@ import {
   SMOKE_OVERLAY_RESULT_EVENT,
   SMOKE_ECHO_NOTE_WORD,
   SMOKE_HEARD_WORD,
+  SMOKE_HELPERS_REPORT,
+  SMOKE_HELPERS_WORD,
   SMOKE_JUMP_IN_WORD,
   SMOKE_KEEPER_WORD,
   SMOKE_ORCHESTRATE_WORD,
@@ -153,6 +155,8 @@ type Options = DevPerfOptions & {
     inspect?: (leadId: string) => OrchestrationWakeState;
     /** Stop a run and its agents, as the bar's Stop run does. */
     stopRun?: (leadId: string) => Promise<void>;
+    /** Chats start helpers when asked in words (see `helperAgents.ts`). */
+    helpers?: boolean;
   };
   /** Races a message from the message box; the check keeps a lane mid-run. */
   race?: SmokeRace;
@@ -452,6 +456,106 @@ async function expectOnScreen(view: UtilityView | null) {
         "nothing"
       }`,
     );
+  }
+}
+
+/**
+ * Ask a new chat for two helpers in words, and check what Super Engineering
+ * shows: the helpers in one "2 helpers" tab beside the chat, each one's task
+ * under "From <chat>", a card per helper in the reply with the file it
+ * changed, the helpers nested under the chat in the sidebar, and one
+ * wake-up after which the chat reports back and the helpers are over.
+ */
+async function checkHelpers(get: () => Options, path: string): Promise<string> {
+  const orchestration = get().orchestration!;
+  get().motion?.showWorkspace?.();
+  const lead = await openNewTask(get, path);
+  await waitFor(
+    () => chatComposer(lead.id),
+    5_000,
+    "the new chat's message box",
+  );
+  try {
+    get().submit(
+      lead.id,
+      `Start two agents side by side: one fixes the hero, one checks pricing. ${SMOKE_HELPERS_WORD}`,
+    );
+    const run = await waitFor(
+      () => {
+        const current = orchestration.run(lead.id);
+        return current?.mode === "helpers" && current.tasks.length === 2
+          ? current
+          : undefined;
+      },
+      60_000,
+      "the chat to start two helpers",
+    );
+    const ids = run.tasks.map((task) => task.sessionId);
+    const tab = await waitFor(
+      () =>
+        [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+          (entry) => entry.textContent?.includes("2 helpers"),
+        ),
+      15_000,
+      'a "2 helpers" tab',
+    );
+    const froms = await waitFor(
+      () => {
+        const tasks = ids.map(
+          (id) =>
+            get()
+              .sessions.find((session) => session.id === id)
+              ?.blocks.find((block) => block.role === "user")?.helperTask,
+        );
+        return tasks.every(Boolean) ? tasks : undefined;
+      },
+      30_000,
+      "each helper's task to show who sent it",
+    );
+    await waitFor(
+      () => orchestration.run(lead.id)?.status === "finished",
+      90_000,
+      "the helpers to finish and the chat to report back",
+    );
+    await waitFor(
+      () => !get().sessions.find((session) => session.id === lead.id)?.busy,
+      30_000,
+      "the chat's report to end",
+    );
+    const blocks =
+      get().sessions.find((session) => session.id === lead.id)?.blocks ?? [];
+    const wakes = blocks.filter((block) => block.helpersDone).length;
+    if (wakes !== 1)
+      throw new Error(`The chat was woken ${wakes} times, not once`);
+    const report = [...blocks]
+      .reverse()
+      .find((block) => block.role === "assistant")?.text;
+    if (!report?.includes(SMOKE_HELPERS_REPORT))
+      throw new Error(`The chat's last reply is "${report ?? ""}"`);
+    const pane = await waitFor(
+      () => chatPane(lead.id),
+      5_000,
+      "the chat's pane",
+    );
+    const cards = pane.querySelectorAll("[data-helper-card]");
+    if (cards.length !== 2)
+      throw new Error(`The reply shows ${cards.length} helper cards, not 2`);
+    const files = [...pane.querySelectorAll<HTMLElement>("[data-helper-file]")]
+      .map((row) => row.dataset.helperFile)
+      .sort()
+      .join(", ");
+    if (files !== "hero.css, pricing.md")
+      throw new Error(`The cards list these files: ${files || "none"}`);
+    const nested = document.querySelectorAll(
+      `[data-helper-family="${lead.id}"] [data-helper-row]`,
+    ).length;
+    if (nested !== 2)
+      throw new Error(
+        `The sidebar nests ${nested} helpers under the chat, not 2`,
+      );
+    return `"${tab.textContent?.trim()}" tab; tasks from "${froms[0]!.from}"; 2 cards (${files}); woken once`;
+  } catch (error) {
+    throw new Error(await failedRunReport(get, lead.id, error));
   }
 }
 
@@ -4121,6 +4225,15 @@ export async function runDevSmoke(
         throw new Error(await failedRunReport(get, lead.id, error));
       }
     });
+
+  // Helpers from a plain chat, asked for in words: no toggle, no plan, no
+  // Confirm. They open side by side in one tab, the reply has a card each,
+  // and the chat is woken once to report when both are done.
+  if (safe && orchestration?.helpers)
+    await step(
+      "a chat starts helpers when asked, side by side, and reports back",
+      () => checkHelpers(get, config.projectPath),
+    );
 
   // A two-lane race from the message box, with the stand-in Grok as the
   // second agent: compare, retry its failed lane, and keep Claude's mid-run.

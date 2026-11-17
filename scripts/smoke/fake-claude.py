@@ -18,7 +18,10 @@ four teammates and three ideas; as a Lead asked to watch a Notion page it
 sets up a job, whose run leaves a Publish card. Asked to plan an
 orchestration that carries the orchestration marker, it proposes two tasks;
 as a worker it can ask its lead a question; as the lead it supervises
-through Aven's control command, the same way a real lead does. For the iPhone
+through Aven's control command, the same way a real lead does. Asked in a
+plain chat for helpers (the helpers marker), it starts two through that
+command; as a helper it writes its one file, and woken once its helpers are
+done it reports back. For the iPhone
 check it uses the iPhone pane's simulator through `--aven-simulator`. It never
 contacts a network or an account.
 Every invocation is logged beside it as evidence that Aven's native spawn
@@ -390,6 +393,54 @@ def control(text, action, payload):
         result = {"ok": False, "error": str(error)}
     log({"pid": os.getpid(), "control": action, "ok": result.get("ok")})
     return result
+
+
+# A chat asked for helpers (useDevSmoke.ts), as a person asks in words.
+HELPERS_WORD = "AVEN_SMOKE_HELPERS"
+HELPER_FILE_PATTERN = re.compile(r"AVEN_SMOKE_HELPER_FILE ([\w./-]+)")
+HELPERS_DONE = "Your helpers are done."
+HELPERS_REPORT = "Both helpers are done."
+HELPER_WORK = [
+    ("Hero", "hero.css", "Make the hero heading wrap on small phones and keep Get started visible."),
+    ("Pricing", "pricing.md", "Check the pricing page at 320, 768 and 1280 px and list what breaks."),
+]
+HELPER_TEXT = {
+    "hero.css": (".hero h1 {\n  font-size: clamp(32px, 8vw, 64px);\n  overflow-wrap: anywhere;\n}\n"
+                 "@media (max-width: 640px) {\n  .hero .actions { flex-direction: column; }\n}\n"),
+    "pricing.md": "# Pricing at three widths\n\n- 320 px: the plans sit in one row and the prices wrap.\n- 768 px: fine.\n- 1280 px: fine.\n",
+}
+HELPER_SAYS = {
+    "hero.css": "The heading now scales with the screen and wraps; below 640 px the buttons stack.",
+    "pricing.md": "At 320 px the plans sit in one row and the prices wrap; 768 and 1280 px are fine.",
+}
+
+
+def helpers_lead_turn(text):
+    """Start two helpers side by side, as a chat asked for them does."""
+    started = []
+    for title, name, ask in HELPER_WORK:
+        done = control(text, "delegate", {
+            "title": title,
+            "prompt": f"{ask} Change only {name}. Do not commit. AVEN_SMOKE_HELPER_FILE {name} AVEN_SMOKE_HOLD 3000",
+        }) or {}
+        if done.get("ok"):
+            started.append(title)
+        else:
+            return f"Couldn't start {title}: {done.get('error')}"
+    return ("I started two helpers side by side in a new tab:\n\n"
+            "- **Hero** makes the heading wrap on small phones.\n"
+            "- **Pricing** checks the pricing page at three widths.\n\n"
+            "They change only their own file and do not commit. I will report back when both are done.")
+
+
+def helper_turn(session, turn, text):
+    """A helper writes its one file and says what it did."""
+    found = HELPER_FILE_PATTERN.search(text)
+    if not found:
+        return None
+    name = found.group(1)
+    emit_write(session, turn, name, HELPER_TEXT.get(name, "written by a helper\n"))
+    return HELPER_SAYS.get(name, f"I wrote {name}.")
 
 
 def lead_turn(text):
@@ -961,7 +1012,16 @@ def main():
                 reply = f"Agreed, that works. {REPLY} {HEARD_WORD}"
             if not helper and PLANNING_SIGNATURE in text and ORCHESTRATE in text:
                 reply = proposal_reply(text)
+            elif not helper and HELPERS_DONE in text and "<aven_helpers>" in text:
+                reply = (f"{HELPERS_REPORT}\n\n"
+                         "- **Hero** changed hero.css: the heading wraps and the buttons stack on phones.\n"
+                         "- **Pricing** wrote pricing.md: only 320 px breaks, where the prices wrap.")
+            elif not helper and HELPERS_WORD in text and "<aven_helpers>" in text:
+                reply = helpers_lead_turn(text)
             elif not helper and "<aven_assignment>" in text:
+                said = helper_turn(session, turn, text) if chat_session(args) else None
+                if said:
+                    reply = said
                 if ASK_LEAD in text:
                     ask_lead(session, turn)
                 if STALL in text:

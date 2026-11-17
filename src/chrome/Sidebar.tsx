@@ -1469,6 +1469,7 @@ function SidebarComponent({
         }
         compact={compact}
         now={now}
+        activeSessionId={activeSessionId}
         onSelect={onSessionCardSelect}
         onPrefetch={onPrefetchSession}
         onPlaceOnPane={onPlaceSessionOnPane}
@@ -2831,8 +2832,11 @@ function SessionCard({
   onArchive,
   onRename,
   onDelete,
+  activeSessionId,
 }: {
   session: SessionSummary;
+  /** The chat on screen, for its helpers' rows. */
+  activeSessionId?: string | null;
   /** Its part in a discussion with another chat, if any. */
   talk?: SidebarTalk;
   /** The races this row stands for, their lanes folded in. */
@@ -3119,7 +3123,12 @@ function SessionCard({
 
   // The lead opens from its header. Worker controls remain sibling buttons,
   // so expanding or stopping a worker cannot accidentally open the lead.
-  if (session.orchestration)
+  // A chat's helpers keep its row a chat's, with theirs nested under it.
+  const helpers =
+    session.orchestration?.mode === "helpers"
+      ? session.orchestration.tasks
+      : undefined;
+  if (session.orchestration && !helpers)
     return (
       <div ref={rowRef} className="personal-task-row group relative">
         <div
@@ -3212,7 +3221,7 @@ function SessionCard({
       </div>
     );
 
-  return (
+  const row = (
     <div
       ref={rowRef}
       className="personal-task-row group relative"
@@ -3360,6 +3369,71 @@ function SessionCard({
           <Archive className="size-3.5" strokeWidth={1.75} />
         </button>
       ) : null}
+    </div>
+  );
+  if (!helpers?.length) return row;
+  return (
+    <div className="personal-task-family" data-helper-family={session.id}>
+      {row}
+      <SidebarHelperRows
+        helpers={helpers}
+        activeId={activeSessionId}
+        onSelect={onSelect}
+      />
+    </div>
+  );
+}
+
+/**
+ * The helpers a chat started, under its row: each a quiet row with its
+ * name, its working mark or Needs you, opening its pane.
+ */
+function SidebarHelperRows({
+  helpers,
+  activeId,
+  onSelect,
+}: {
+  helpers: NonNullable<SessionSummary["orchestration"]>["tasks"];
+  activeId?: string | null;
+  onSelect: (
+    sessionId: string,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => void;
+}) {
+  return (
+    <div className="personal-helper-rows" role="group" aria-label="Helpers">
+      {helpers.map((helper) => {
+        const working =
+          helper.status === "running" || helper.status === "cancelling";
+        return (
+          <button
+            key={helper.sessionId}
+            type="button"
+            className="personal-helper-row"
+            data-helper-row={helper.sessionId}
+            data-working={working || undefined}
+            aria-current={helper.sessionId === activeId ? "true" : undefined}
+            title={helper.title}
+            onClick={(event) => onSelect(helper.sessionId, event)}
+          >
+            <FadeText className="personal-helper-title">
+              {helper.title}
+            </FadeText>
+            {helper.needsInput ? (
+              <span className="personal-task-status flex shrink-0 items-center">
+                <ChatStatusPill word="needs-you" />
+              </span>
+            ) : working ? (
+              <span className="personal-task-agent" aria-hidden>
+                <AgentMark
+                  state="working"
+                  className="personal-task-agent-mark"
+                />
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
