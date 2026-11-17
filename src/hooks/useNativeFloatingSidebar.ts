@@ -69,6 +69,7 @@ const WORKSPACE_ACTIONS = new Set([
   "onNew",
   "onNewStandalone",
   "onNewProjectTask",
+  "onNewProjectChatInCopy",
   "onOpenStandalone",
   "onSearch",
   "onOpenInbox",

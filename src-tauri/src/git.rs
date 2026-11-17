@@ -321,6 +321,85 @@ pub async fn git_worktree_remove(cwd: String, path: String) -> Result<(), String
     .map_err(|e| e.to_string())?
 }
 
+/// A new copy (git worktree) of the project for one chat: its own folder
+/// under Aven's data and its own branch, started from the project's HEAD.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatCopy {
+    pub path: String,
+    pub branch: String,
+}
+
+#[tauri::command]
+pub async fn git_chat_copy_create(app: tauri::AppHandle, cwd: String) -> Result<ChatCopy, String> {
+    use tauri::Manager;
+    let copies = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("copies");
+    tauri::async_runtime::spawn_blocking(move || create_chat_copy_for(&expand_home(&cwd), &copies))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Letters, digits, dots and dashes only, so a folder name is never a path.
+fn copy_folder_name(name: &str) -> String {
+    let clean: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let clean = clean.trim_matches(|c| c == '-' || c == '.').to_string();
+    if clean.is_empty() {
+        "project".into()
+    } else {
+        clean
+    }
+}
+
+pub(crate) fn create_chat_copy_for(root: &Path, copies: &Path) -> Result<ChatCopy, String> {
+    if !git_is_work_tree(root) {
+        return Err("This project is not a Git repository, so it can't have copies.".into());
+    }
+    let base = git_stdout(root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+        .filter(|sha| !sha.is_empty())
+        .ok_or("This project has no commits yet. Make a first commit, then try again.")?;
+    let primary = git_worktrees_for(root)
+        .into_iter()
+        .find(|copy| copy.primary)
+        .map(|copy| PathBuf::from(copy.path))
+        .unwrap_or_else(|| root.to_path_buf());
+    let repo = primary
+        .file_name()
+        .map(|name| copy_folder_name(&name.to_string_lossy()))
+        .unwrap_or_else(|| "project".into());
+    let parent = copies.join(&repo);
+    std::fs::create_dir_all(&parent).map_err(|e| format!("Could not make the copy folder: {e}"))?;
+    // The first free "copy-N": no folder there and no branch of that name.
+    let (path, branch) = (1..1000)
+        .map(|n| (parent.join(format!("copy-{n}")), format!("aven/copy-{n}")))
+        .find(|(path, branch)| {
+            !path.exists() && !git_ref_exists(&primary, &format!("refs/heads/{branch}"))
+        })
+        .ok_or("Too many copies of this project. Remove some, then try again.")?;
+    let path_text = path.to_string_lossy().to_string();
+    git_checked(
+        &primary,
+        &[
+            "worktree", "add", "--quiet", "-b", &branch, &path_text, &base,
+        ],
+    )?;
+    Ok(ChatCopy {
+        path: path_text,
+        branch,
+    })
+}
+
 pub(crate) fn remove_worktree_for(root: &Path, path: &Path) -> Result<(), String> {
     let copies = git_worktrees_for(root);
     let copy = copies
@@ -3567,6 +3646,42 @@ mod tests {
                 ("/copies/a".to_string(), None),
             ]
         );
+    }
+
+    #[test]
+    fn makes_a_chat_copy_on_its_own_branch() {
+        let dir = tmp("git-chat-copy");
+        let repo = dir.0.join("my repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        assert!(git(&repo, &["init", "-q", "-b", "main"]));
+        let copies = dir.0.join("copies");
+        assert!(
+            create_chat_copy_for(&repo, &copies).is_err(),
+            "no commits yet"
+        );
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        assert!(git(&repo, &["add", "."]));
+        assert!(git(&repo, &["commit", "-q", "-m", "first"]));
+
+        let first = create_chat_copy_for(&repo, &copies).unwrap();
+        assert_eq!(first.branch, "aven/copy-1");
+        assert!(Path::new(&first.path).ends_with(Path::new("my-repo").join("copy-1")));
+        // Git on Windows may check text out with CRLF line endings.
+        assert_eq!(
+            std::fs::read_to_string(Path::new(&first.path).join("a.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "one\n"
+        );
+        // From inside a copy, the next one still sits beside it.
+        let second = create_chat_copy_for(Path::new(&first.path), &copies).unwrap();
+        assert_eq!(second.branch, "aven/copy-2");
+        assert!(Path::new(&second.path).ends_with(Path::new("my-repo").join("copy-2")));
+        assert_eq!(git_worktrees_for(&repo).len(), 3);
+
+        let plain = dir.0.join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert!(create_chat_copy_for(&plain, &copies).is_err());
     }
 
     #[test]

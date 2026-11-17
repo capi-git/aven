@@ -34,6 +34,7 @@ export function offersNewChat(mode: PaletteMode, text: string): boolean {
 /** App actions the palette can run, keyed by the global shortcut names. */
 export type PaletteCommandId =
   | "new_chat"
+  | "new_chat_in_copy"
   | "new_terminal"
   | "new_browser_tab"
   | "open_board"
@@ -76,6 +77,11 @@ export const PALETTE_COMMANDS: readonly PaletteCommand[] = [
     label: "New chat",
     keys: `${MOD}T`,
     keywords: "task session conversation ask",
+  },
+  {
+    id: "new_chat_in_copy",
+    label: "New chat in a copy",
+    keywords: "worktree branch isolated parallel separate copy",
   },
   {
     id: "new_terminal",

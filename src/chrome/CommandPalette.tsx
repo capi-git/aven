@@ -44,6 +44,7 @@ import { HarnessIcon } from "./HarnessIcon";
 import {
   Folder,
   Globe,
+  GitBranch,
   MessageSquarePlus,
   Race,
   Search,
@@ -122,6 +123,7 @@ type Section = { title: string; items: Item[] };
 
 const COMMAND_ICONS: Partial<Record<PaletteCommandId, ReactNode>> = {
   new_chat: <MessageSquarePlus className="size-3.5" />,
+  new_chat_in_copy: <GitBranch className="size-3.5" />,
   new_terminal: <Terminal className="size-3.5" />,
   new_browser_tab: <Globe className="size-3.5" />,
   open_search: <Search className="size-3.5" />,

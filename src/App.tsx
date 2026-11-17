@@ -423,6 +423,7 @@ import { displayAttachments, prepareAttachments } from "./lib/attachments";
 import {
   basename,
   listDir,
+  createChatCopy,
   notifyGitChanged,
   pickFolder,
   readTextFile,
@@ -6538,14 +6539,16 @@ export default function App({
    * Returns the chat's id.
    */
   const startProjectChat = useCallback(
-    (path: string, seed?: string): string => {
+    (path: string, seed?: string, copy?: string): string => {
       revealProjectTask(path);
       // The sidebar's "New chat" can be pressed over a utility view; the new
       // chat has to replace it, or nothing seems to happen.
       showWorkspace();
-      const session = seed
-        ? { ...newDefaultSession(path), composerSeed: seed }
-        : newDefaultSession(path);
+      const session: Session = {
+        ...newDefaultSession(path),
+        ...(seed ? { composerSeed: seed } : {}),
+        ...(copy ? { worktreeCwd: copy } : {}),
+      };
       // A suggested message takes the place of an untouched new chat already
       // open in this project (the walkthrough leaves one), not a second tab.
       if (seed) {
@@ -6580,6 +6583,30 @@ export default function App({
   const onNewProjectTask = useCallback(
     (path: string) => void startProjectChat(path),
     [startProjectChat],
+  );
+  /**
+   * A new chat in its own copy of the project: a new folder and branch made
+   * from the project's current commit, so it works beside the others.
+   */
+  const startProjectChatInCopy = useCallback(
+    async (path: string): Promise<string | null> => {
+      try {
+        const copy = await createChatCopy(path);
+        notifyGitChanged();
+        return startProjectChat(path, undefined, copy.path);
+      } catch (error) {
+        void message(errorText(error), {
+          title: "Can't make a copy",
+          kind: "error",
+        });
+        return null;
+      }
+    },
+    [startProjectChat],
+  );
+  const onNewProjectChatInCopy = useCallback(
+    (path: string) => void startProjectChatInCopy(path),
+    [startProjectChatInCopy],
   );
 
   const dispatchWalkthrough = useCallback(
@@ -10607,7 +10634,8 @@ export default function App({
     ...PALETTE_COMMANDS.filter(
       (command) =>
         (command.id !== "open_notes" || notesEnabled) &&
-        (command.id !== "open_board" || boardProject),
+        (command.id !== "open_board" || boardProject) &&
+        (command.id !== "new_chat_in_copy" || boardProject),
     ).map((command) =>
       command.id === "open_board"
         ? {
@@ -10635,6 +10663,9 @@ export default function App({
       () => void
     > = {
       new_chat: () => void run.onNew(),
+      new_chat_in_copy: () => {
+        if (boardProject) onNewProjectChatInCopy(boardProject);
+      },
       new_terminal: run.onNewTerminal,
       new_browser_tab: onNewBrowserTab,
       open_board: () => onOpenBoard(),
@@ -12089,6 +12120,7 @@ export default function App({
     projectHistoryErrors: profileHistoryErrors,
     onSelectProjectSession: (_path, id) => void onSelectHistorySession(id),
     onNewProjectTask,
+    onNewProjectChatInCopy,
     sessions: profileHome
       ? []
       : standaloneActive
