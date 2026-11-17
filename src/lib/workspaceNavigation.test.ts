@@ -54,12 +54,12 @@ describe("workspace destination history", () => {
       (place) => place.surfaceId !== "73",
     )!;
     expect(back.current.surfaceId).toBe("72");
-    const next = recordWorkspaceLocation(back, { ...session, kind: "home" });
+    const next = recordWorkspaceLocation(back, { ...session, kind: "search" });
     expect(next.forward).toEqual([]);
     expect(
       recordWorkspaceLocation(next, {
         ...session,
-        kind: "home",
+        kind: "search",
         surfaceId: "ignored",
       }),
     ).toBe(next);

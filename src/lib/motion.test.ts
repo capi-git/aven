@@ -181,10 +181,7 @@ describe("pressed buttons", () => {
       expect(selectors).toContain(`${shared}:active`);
     expect(press).toContain("scale: var(--aven-press-scale);");
     // One rule for each: the old per-control press transforms are gone.
-    for (const file of [
-      "src/surfaces/SettingsControls.css",
-      "src/surfaces/WorkspaceHome.css",
-    ])
+    for (const file of ["src/surfaces/SettingsControls.css"])
       expect(readFileSync(file, "utf8")).not.toMatch(
         /:active:not\(:disabled\) \{\s*transform: scale/,
       );

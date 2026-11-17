@@ -18,7 +18,6 @@ function Harness() {
 function openViews(): string[] {
   return (
     [
-      ["home", views.homeViewOpen],
       ["settings", views.settingsOpen],
       ["search", views.searchViewOpen],
       ["inbox", views.inboxViewOpen],
@@ -92,34 +91,17 @@ it("closes Notes when Notes is turned off", async () => {
   expect(openViews()).toEqual([]);
 });
 
-it("opens Home over every utility and the file picker", async () => {
-  await act(async () => {
-    views.onOpenInbox();
-    views.setFilePickerOpen(true);
-  });
-  await act(async () => views.onOpenHome());
-  expect(openViews()).toEqual(["home"]);
-});
-
-it("closes the five utilities but leaves Home and the file picker", async () => {
-  await act(async () => {
-    views.setHomeViewOpen(true);
-    views.setFilePickerOpen(true);
-    views.onOpenAutomations();
-  });
+it("closes the five utilities but leaves the file picker", async () => {
+  await act(async () => views.onOpenAutomations());
   // Opening a utility closes the file picker, so reopen it.
   await act(async () => views.setFilePickerOpen(true));
   await act(async () => views.closeUtilityViews());
-  expect(openViews()).toEqual(["home", "filePicker"]);
+  expect(openViews()).toEqual(["filePicker"]);
 });
 
-it("shows the workspace over Home and every utility for a new chat", async () => {
-  // The sidebar's New chat pressed over Home.
-  await act(async () => views.setHomeViewOpen(true));
-  await act(async () => views.showWorkspace());
-  expect(openViews()).toEqual([]);
-  // Starting an Inbox item or adding a note to a chat from a utility opened
-  // over Home must not leave Home in front of the new chat.
+it("shows the workspace over every utility for a new chat", async () => {
+  // Starting an Inbox item or adding a note to a chat from a utility must
+  // leave the new chat in front.
   for (const open of [
     () => views.onOpenInbox(),
     () => views.onOpenNotes(),
@@ -127,7 +109,6 @@ it("shows the workspace over Home and every utility for a new chat", async () =>
     () => views.onOpenAutomations(),
     () => views.onOpenSettings(),
   ]) {
-    await act(async () => views.onOpenHome());
     await act(async () => open());
     await act(async () => views.showWorkspace());
     expect(openViews()).toEqual([]);

@@ -39,7 +39,7 @@
   font-weight: 600;
   letter-spacing: -0.01em;
 }
-/* The workspace's name is its Home; the chevron beside it switches
+/* The workspace's name opens its menu; the chevron beside it switches
    workspace, and New chat sits at the row's end. */
 .personal-shell .personal-profile-name {
   display: flex;
@@ -61,12 +61,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-/* Home on screen: the whole row is selected, as a library row is. */
-.personal-shell
-  .personal-profile-header:has(> .personal-profile-name[aria-current="page"]) {
-  border-radius: var(--aven-radius-row);
-  background: var(--personal-selected);
 }
 .personal-shell .personal-profile-new {
   display: grid;

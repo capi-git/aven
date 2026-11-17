@@ -67,8 +67,20 @@
 }
 
 .personal-empty-session-heading,
-.empty-session-composer {
+.empty-session-composer,
+.empty-session-getting-started {
   pointer-events: auto;
+}
+
+.empty-session-getting-started {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.empty-session-getting-started .getting-started {
+  width: 100%;
+  text-align: left;
 }
 
 .empty-session-composer {

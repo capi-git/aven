@@ -89,16 +89,8 @@ import { teamWorkspace } from "../lib/teamWorkspace";
 import { possessive } from "../lib/words";
 import { HARNESS_TITLE, type HarnessId, type Session } from "../lib/session";
 import { getActivitySnapshot, type ActivityEntry } from "../lib/activity";
-import { isInFlightSession } from "../lib/inFlight";
 import { takePagePicture } from "../lib/pagePictures";
 import type { OrchestrationRun } from "../lib/orchestration";
-import { leadDecidedIds } from "../lib/teamAttention";
-import {
-  homeLiveSessions,
-  homeNeedsYou,
-  homeScope,
-  isWaitingAttention,
-} from "../lib/workspaceHome";
 
 type Options = DevPerfOptions & {
   sessions: Session[];
@@ -192,13 +184,11 @@ type SmokeUtilities = {
 };
 
 type SmokeMotion = {
-  /** Home, as the toolbar's Home button opens it. */
-  openHome: () => void;
   /** The Changes panel, as the menu's Source Control opens it. */
   showChanges: () => void;
   /** Close the panel on the right. */
   hideChanges: () => void;
-  /** Leave Home and any utility view for the workspace. */
+  /** Leave any utility view for the workspace. */
   showWorkspace?: () => void;
 };
 
@@ -363,39 +353,6 @@ function sidebarProjectRow(path: string): HTMLElement | null {
         sameProjectPath(row.dataset.projectPath ?? "", path) &&
         row.getClientRects().length > 0,
     ) ?? null
-  );
-}
-
-function homeOnScreen(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(".workspace-home");
-}
-
-function homeAgentTile(path: string): HTMLElement | null {
-  return (
-    [
-      ...document.querySelectorAll<HTMLElement>(
-        ".workspace-home-agent[data-project-path]",
-      ),
-    ].find((tile) => sameProjectPath(tile.dataset.projectPath ?? "", path)) ??
-    null
-  );
-}
-
-/**
- * Why an agent's Bot is not working as it should, or null: in its working
- * state, its eyes scanning side to side unless reduced motion keeps it
- * still.
- */
-function workingAgentProblem(mark: HTMLElement | null): string | null {
-  if (!mark) return "is missing";
-  if (mark.dataset.agent !== "working")
-    return `is ${mark.dataset.agent ?? "not an agent's Bot"}, not working`;
-  const key = mark.querySelector(".agent-eyes");
-  if (!key) return "has no face";
-  return animationProblem(
-    getComputedStyle(key).animationName,
-    "agent-scan",
-    prefersReducedMotion(),
   );
 }
 
@@ -1890,11 +1847,9 @@ async function confirmProposal(
 
 /** Why something asks you to answer a worker the lead decides for, or null. */
 function needsYouProblem(
-  get: () => Options,
   leadId: string,
   workerId: string,
   since: number,
-  projectPath: string,
 ): string | null {
   const ids = new Set([leadId, workerId]);
   const asked = getActivitySnapshot().filter(
@@ -1907,21 +1862,6 @@ function needsYouProblem(
     return `Activity asks you to answer it (${asked
       .map((entry) => `"${entry.summary}"`)
       .join(", ")}), so a banner would too`;
-  const sessions = get().sessions;
-  const run = get().orchestration?.run(leadId);
-  const live = homeLiveSessions(
-    sessions,
-    new Set(sessions.filter(isInFlightSession).map((session) => session.id)),
-    leadDecidedIds(run ? [run] : [], (id) =>
-      sessions.find((session) => session.id === id),
-    ),
-  );
-  const home = homeNeedsYou(
-    live,
-    getActivitySnapshot(),
-    homeScope([{ path: projectPath }], []),
-  ).filter((item) => ids.has(item.id) && isWaitingAttention(item));
-  if (home.length) return "Home's Needs you lists the worker's question";
   if (
     document.querySelector(
       `[data-session-card="${leadId}"][data-needs-approval]`,
@@ -2291,8 +2231,8 @@ let started = false;
  * launched by `scripts/dev-aven.py --smoke`: send one turn to a stand-in
  * provider through the normal send path with the floating sidebar attached,
  * open and close the utility views by handler and by shortcut, watch what
- * moves while an agent works and when its turn ends (the sidebar's mark, Home
- * and Parallel work), run a two-round discussion between two chats, flag a
+ * moves while an agent works and when its turn ends (the sidebar's mark and
+ * Parallel work), run a two-round discussion between two chats, flag a
  * second dev server and tell its chat about the first, check
  * the restart-to-update question's preview, then have the floating sidebar
  * open Settings and press Back, then report.
@@ -2914,107 +2854,6 @@ export async function runDevSmoke(
           : "still while working; fanned and folded";
       },
     );
-
-  // Home: every project's agent as Bot, the working one typing,
-  // Right now and today's recap; then the sidebar's New chat pressed over
-  // Home leaves it for the new chat.
-  if (safe && typedTask && motion)
-    await step(
-      "Home shows each project's agent, and New chat leaves Home for the chat",
-      async () => {
-        const reply = await startHeldTurn(
-          get,
-          typedTask.id,
-          "Take a moment while Home is open.",
-        );
-        try {
-          return await homeChecks(reply);
-        } catch (error) {
-          // Leave the app as the later steps expect it: the turn finished and
-          // the workspace, not Home, on screen.
-          await reply().catch(() => undefined);
-          motion.showWorkspace?.();
-          throw error;
-        }
-      },
-    );
-
-  async function homeChecks(reply: () => Promise<unknown>) {
-    if (!motion || !typedTask)
-      throw new Error("Home checks need the workspace");
-    {
-      motion.openHome();
-      const home = await waitFor(homeOnScreen, 5_000, "Home");
-      const tiles = [
-        ...home.querySelectorAll<HTMLElement>(
-          ".workspace-home-agent[data-project-path]",
-        ),
-      ];
-      if (tiles.length === 0) throw new Error("Home shows no agents");
-      const bare = tiles.filter(
-        (tile) => !tile.querySelector(".agent-mark .agent-head"),
-      );
-      if (bare.length)
-        throw new Error(`${bare.length} of ${tiles.length} agents are not Bot`);
-      const tile = await waitFor(
-        () => {
-          const found = homeAgentTile(config.projectPath);
-          return found?.dataset.state === "running" && found;
-        },
-        5_000,
-        "the project's agent to show it is working",
-      );
-      const working = workingAgentProblem(
-        tile.querySelector<HTMLElement>(".agent-mark"),
-      );
-      if (working)
-        throw new Error(`On Home, the working agent's mark ${working}`);
-      const chip = await waitFor(
-        () => homeOnScreen()?.querySelector('[data-pulse="running"]'),
-        5_000,
-        "Right now to count the working agent",
-      );
-      const chipText = chip.textContent?.trim() ?? "";
-      if (!/^\d+ agents? working/.test(chipText))
-        throw new Error(`Right now reads "${chipText}"`);
-      await reply();
-      const recap = await waitFor(
-        () => homeOnScreen()?.querySelector(".workspace-home-today"),
-        5_000,
-        "today's recap",
-      );
-      const recapText = recap.textContent?.trim() ?? "";
-      if (!/^Today: \d+ tasks? done/.test(recapText))
-        throw new Error(`Today's recap reads "${recapText}"`);
-
-      const before = new Set(get().sessions.map((session) => session.id));
-      get().newProjectTask(config.projectPath);
-      const created = await waitFor(
-        () =>
-          get().sessions.find(
-            (session) =>
-              !before.has(session.id) &&
-              sameProjectPath(session.cwd, config.projectPath),
-          ),
-        5_000,
-        "the new task",
-      );
-      await waitFor(
-        () => !homeOnScreen() && workspaceOnScreen(),
-        5_000,
-        "Home to give way to the new chat",
-      );
-      await waitFor(
-        () =>
-          visibleComposer()
-            ?.closest("[data-session-drop]")
-            ?.getAttribute("data-session-drop") === created.id,
-        5_000,
-        "the new task's message box",
-      );
-      return `${tiles.length} ${tiles.length === 1 ? "agent" : "agents"}; ${chipText}; ${recapText}`;
-    }
-  }
 
   // Parallel work in the Changes panel starts folded to its header line.
   if (safe && typedTask && motion)
@@ -3892,13 +3731,7 @@ export async function runDevSmoke(
             60_000,
             "a worker to ask its lead",
           );
-          const asked = needsYouProblem(
-            get,
-            lead.id,
-            asking.id,
-            since,
-            config.projectPath,
-          );
+          const asked = needsYouProblem(lead.id, asking.id, since);
           if (asked) throw new Error(asked);
           const row = document.querySelector(
             `[data-orchestration-agent="${asking.id}"]`,

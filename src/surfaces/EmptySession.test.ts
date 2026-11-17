@@ -3,7 +3,9 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GettingStartedCard } from "../lib/gettingStarted";
 import { EmptySession } from "./EmptySession";
+import { GettingStartedContext } from "./GettingStarted";
 
 vi.mock("./TerminalGridBackground", () => ({
   TerminalGridBackground: ({ visible }: { visible: boolean }) =>
@@ -115,5 +117,75 @@ describe("empty session background", () => {
     } finally {
       await act(async () => root.unmount());
     }
+  });
+});
+
+describe("the Getting started card", () => {
+  const card: GettingStartedCard = {
+    steps: [
+      { id: "agent", title: "Connect an agent", detail: "Claude", done: true },
+      { id: "project", title: "Add a project", detail: "", done: false },
+    ],
+    next: "project",
+    doneCount: 1,
+    allDone: false,
+  };
+
+  it("shows under a new chat's message box while it is offered", async () => {
+    const onStart = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            GettingStartedContext.Provider,
+            { value: { card, onStart, onHide: vi.fn() } },
+            createElement(EmptySession, {
+              visible: true,
+              cwd: "/projects/demo",
+              hasChatBackground: true,
+              composer: createElement("textarea"),
+            }),
+          ),
+        ),
+      );
+      const section = host.querySelector(
+        ".empty-session-composer + .empty-session-getting-started .getting-started",
+      );
+      expect(section?.textContent).toContain("Getting started");
+      await act(async () =>
+        host
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Start: Add a project"]',
+          )!
+          .click(),
+      );
+      expect(onStart).toHaveBeenCalledWith("project");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("stays out of a screen without a message box and when not offered", () => {
+    const withCard = (composer: boolean, offered: boolean) =>
+      renderToStaticMarkup(
+        createElement(
+          GettingStartedContext.Provider,
+          {
+            value: offered ? { card, onStart: vi.fn(), onHide: vi.fn() } : null,
+          },
+          createElement(EmptySession, {
+            visible: true,
+            cwd: "/projects/demo",
+            hasChatBackground: true,
+            composer: composer ? createElement("textarea") : undefined,
+          }),
+        ),
+      );
+    expect(withCard(false, true)).not.toContain("getting-started");
+    expect(withCard(true, false)).not.toContain("getting-started");
   });
 });

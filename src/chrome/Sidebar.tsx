@@ -300,13 +300,10 @@ export type SidebarProps = {
   onOpenInbox?: () => void;
   onOpenAutomations?: () => void;
   onOpenNotes?: () => void;
-  /** The workspace's row opens its Home. */
-  onOpenHome?: () => void;
   searchActive?: boolean;
   inboxActive?: boolean;
   automationsActive?: boolean;
   notesActive?: boolean;
-  homeActive?: boolean;
   /** Failed automation runs nobody has opened, counted on its tile. */
   automationsUnread?: number;
   /** Cards automations left that the Inbox lists, counted on its tile. */
@@ -457,12 +454,10 @@ function SidebarComponent({
   onOpenInbox,
   onOpenAutomations,
   onOpenNotes,
-  onOpenHome,
   searchActive = false,
   inboxActive = false,
   automationsActive = false,
   notesActive = false,
-  homeActive = false,
   automationsUnread = 0,
   inboxCount = 0,
   notesEnabled = true,
@@ -1809,7 +1804,6 @@ function SidebarComponent({
           ? (x, y) => openWorkspaceMenu(activeProfile, x, y)
           : undefined
       }
-      homeActive={homeActive && !settingsOpen}
       showNewSession={!settingsOpen && !!onNewStandalone}
       startingNewSession={startingStandalone}
       onNewSession={() => {
@@ -1891,16 +1885,7 @@ function SidebarComponent({
           profiles={profiles}
           activeProfileId={activeProfileId}
           anchor={profileMenuAnchor}
-          onSelect={(id) => {
-            if (id !== activeProfileId || !onOpenHome) {
-              selectProfile(id);
-              return;
-            }
-            // The workspace you're in: its Home. Home sits under Settings, so
-            // leave Settings for it.
-            if (settingsOpen) onCloseSettings?.();
-            onOpenHome();
-          }}
+          onSelect={selectProfile}
           onDelete={onDeleteProfile ? setDeletingProfile : undefined}
           onWorkspaceMenu={openWorkspaceMenu}
           onDismiss={() => setProfileMenuAnchor(null)}

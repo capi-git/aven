@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   foldTeamRows,
-  groupHomeRunning,
   groupRunningChats,
   sidebarTeams,
   teamAgentsText,
@@ -9,7 +8,6 @@ import {
   teamsByOrigin,
 } from "./teamGrouping";
 import type { TeamMember, TeamRun } from "./teamRuns";
-import type { HomeRunning } from "./workspaceHome";
 
 const member = (
   sessionId: string,
@@ -42,42 +40,20 @@ function team(patch: Partial<TeamRun>): TeamRun {
   };
 }
 
-const row = (id: string, startedAt?: number): HomeRunning => ({
-  id,
-  title: id,
-  cwd: "/work/site",
-  ...(startedAt !== undefined ? { startedAt } : {}),
-  doing: "Edit App.tsx",
-});
-
 describe("a team as one row", () => {
-  it("folds a race's lanes into one row for the chat it was sent from", () => {
-    const rows = groupHomeRunning(
-      [row("solo", 5), row("l1", 20), row("l0", 10)],
-      [team({})],
-    );
-    expect(rows).toEqual([
-      row("solo", 5),
-      {
-        id: "chat",
-        title: "Fix the login loop",
-        cwd: "/work/site",
-        startedAt: 10,
-        doing: "Racing · 1 of 2 done",
-        team: {
-          id: "race:r1",
-          kind: "race",
-          status: "Racing · 1 of 2 done",
-          members: [
-            { sessionId: "l0", harness: "claude" },
-            { sessionId: "l1", harness: "codex" },
-          ],
-          count: 2,
-          working: 1,
-          needsYou: false,
-        },
-      },
-    ]);
+  it("describes a race by its lanes for the row it was sent from", () => {
+    expect(teamRowInfo(team({}))).toEqual({
+      id: "race:r1",
+      kind: "race",
+      status: "Racing · 1 of 2 done",
+      members: [
+        { sessionId: "l0", harness: "claude" },
+        { sessionId: "l1", harness: "codex" },
+      ],
+      count: 2,
+      working: 1,
+      needsYou: false,
+    });
   });
 
   it("folds a discussion's two chats and a run's lead into one row each", () => {
@@ -100,10 +76,19 @@ describe("a team as one row", () => {
       need: { sessionId: "lead", kind: "paused", text: "Paused", since: 1 },
       members: [member("lead", "queued"), member("w1")],
     });
-    const rows = groupHomeRunning([row("b"), row("lead")], [discussion, run]);
-    expect(rows.map((entry) => [entry.id, entry.doing])).toEqual([
-      ["a", "Discussing · Round 1 of 2"],
-      ["lead", "Orchestrating · Needs you"],
+    const groups = groupRunningChats(
+      [{ id: "b" }, { id: "lead" }],
+      [discussion, run],
+    );
+    expect(
+      groups.map((group) =>
+        group.kind === "team"
+          ? [group.team.id, teamRowInfo(group.team).status]
+          : [group.item.id],
+      ),
+    ).toEqual([
+      ["discuss:d1", "Discussing · Round 1 of 2"],
+      ["orchestrate:lead", "Orchestrating · Needs you"],
     ]);
   });
 
@@ -127,8 +112,11 @@ describe("a team as one row", () => {
   });
 
   it("leaves a race ready to compare, and chats outside teams, alone", () => {
-    const rows = [row("l0"), row("other")];
-    expect(groupHomeRunning(rows, [team({ status: "ready" })])).toEqual(rows);
+    const groups = groupRunningChats(
+      [{ id: "l0" }, { id: "other" }],
+      [team({ status: "ready" })],
+    );
+    expect(groups.map((group) => group.kind)).toEqual(["chat", "chat"]);
   });
 
   it("groups Activity's running chats the same way", () => {

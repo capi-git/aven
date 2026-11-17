@@ -122,7 +122,7 @@ async function click(label: string) {
 }
 
 describe("workspace status data and actions", () => {
-  it.each(["home", "workspace", "settings"] as const)(
+  it.each(["workspace", "settings"] as const)(
     "keeps Windows caption controls available in the %s toolbar",
     async (view) => {
       platform.isMac = false;
@@ -568,12 +568,11 @@ describe("workspace status data and actions", () => {
     expect(nativeWindow.startDragging).not.toHaveBeenCalled();
   });
 
-  it("leaves Search and Home to the sidebar, pinned or a hover away", async () => {
+  it("leaves Search to the sidebar, pinned or a hover away", async () => {
     await render({
       onToggleSidebar: vi.fn(),
       sidebarOpen: true,
       onSearch: vi.fn(),
-      onHome: vi.fn(),
       onGoBack: vi.fn(),
       onGoForward: vi.fn(),
       canGoBack: true,
@@ -589,13 +588,9 @@ describe("workspace status data and actions", () => {
     expect(labels()).toEqual(["Toggle workspace sidebar", "Back", "Forward"]);
   });
 
-  it("leaves a new browser to Home's own Open browser button", async () => {
+  it("opens a new browser from the header", async () => {
     const browser = vi.fn();
-    await render({ onNewBrowser: browser, homeOpen: true });
-    expect(
-      container.querySelector('button[aria-label="New browser tab"]'),
-    ).toBeNull();
-    await render({ homeOpen: false });
+    await render({ onNewBrowser: browser });
     await click("New browser tab");
     expect(browser).toHaveBeenCalledOnce();
   });
@@ -617,7 +612,6 @@ describe("workspace status data and actions", () => {
   });
 
   it("keeps every compact navigation action available without enabling missing history", async () => {
-    const home = vi.fn();
     const back = vi.fn();
     const forward = vi.fn();
     const search = vi.fn();
@@ -630,7 +624,6 @@ describe("workspace status data and actions", () => {
           onToggleSidebar: vi.fn(),
           onSearch: search,
           onNewBrowser: browser,
-          onHome: home,
           onGoBack: back,
           onGoForward: forward,
           canGoBack: false,
@@ -648,7 +641,6 @@ describe("workspace status data and actions", () => {
     expect(items.map((item) => item.textContent)).toEqual([
       "Search workspace",
       "New browser tab",
-      "Workspace Home",
       "Back",
       "Forward",
     ]);
@@ -659,19 +651,18 @@ describe("workspace status data and actions", () => {
       expect(item.querySelector(".aven-menu-icon svg")).not.toBeNull();
       expect(item.querySelector(".aven-menu-label")).not.toBeNull();
     }
-    expect(items[3].disabled).toBe(true);
-    expect(items[4].disabled).toBe(false);
-    await act(async () => items[3].click());
+    expect(items[2].disabled).toBe(true);
+    expect(items[3].disabled).toBe(false);
+    await act(async () => items[2].click());
     expect(back).not.toHaveBeenCalled();
     expect(container.querySelector('[role="menu"]')).not.toBeNull();
-    await act(async () => items[4].click());
+    await act(async () => items[3].click());
     expect(forward).toHaveBeenCalledOnce();
     expect(container.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(button("More navigation"));
     for (const [label, callback] of [
       ["Search workspace", search],
       ["New browser tab", browser],
-      ["Workspace Home", home],
     ] as const) {
       await click("More navigation");
       const item = [
@@ -689,7 +680,6 @@ describe("workspace status data and actions", () => {
         createElement(WorkspaceNavigation, {
           compact: true,
           onSearch: vi.fn(),
-          onHome: vi.fn(),
           onGoBack: vi.fn(),
           onGoForward: vi.fn(),
           canGoBack: false,
@@ -709,7 +699,9 @@ describe("workspace status data and actions", () => {
     await key("ArrowUp");
     expect(document.activeElement?.textContent).toBe("Forward");
     await key("ArrowUp");
-    expect(document.activeElement?.textContent).toBe("Workspace Home");
+    expect(document.activeElement?.textContent).toBe("Search workspace");
+    await key("End");
+    expect(document.activeElement?.textContent).toBe("Forward");
     await key("Home");
     expect(document.activeElement?.textContent).toBe("Search workspace");
     await key("End");

@@ -81,7 +81,6 @@ describe("controls stay visible with Increase contrast and Reduce transparency",
         "src/chrome/BotSettingsSheet.css",
         '.modal-panel[role="dialog"] .bot-sheet-title-field:focus',
       ],
-      ["src/surfaces/WorkspaceHome.css", ".workspace-home-actions button"],
     ])
       expect(rule(file, selector)).toContain("var(--aven-control-edge");
   });
@@ -132,13 +131,9 @@ describe("text on an accent fill", () => {
     expect(theme).toMatch(
       /--aven-on-accent: var\(\s*--theme-accent-foreground,\s*var\(--color-background-base\)\s*\);/,
     );
-    for (const [file, selector] of [
-      [
-        "src/surfaces/WorkspaceHome.css",
-        ".workspace-home-actions .workspace-home-new",
-      ],
-    ])
-      expect(rule(file, selector)).toContain("color: var(--aven-on-accent");
+    expect(
+      rule("src/chrome/GitHousekeeping.css", ".git-house-primary"),
+    ).toContain("color: var(--aven-on-accent");
   });
 });
 

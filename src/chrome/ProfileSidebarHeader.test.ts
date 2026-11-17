@@ -45,7 +45,7 @@ const render = (props: Props) =>
 
 describe("the workspace row", () => {
   it("opens the workspace menu from one button, and a new chat from +", async () => {
-    const props = everything({ homeActive: true });
+    const props = everything();
     await render(props);
     const header = host.querySelector(".personal-profile-header")!;
     const buttons = [...header.querySelectorAll<HTMLButtonElement>("button")];
@@ -53,7 +53,6 @@ describe("the workspace row", () => {
     const [menu, add] = buttons;
     expect(menu.getAttribute("aria-label")).toBe("Switch workspace, Personal");
     expect(menu.textContent).toBe("Personal");
-    expect(menu.getAttribute("aria-current")).toBe("page");
     expect(menu.getAttribute("aria-haspopup")).toBe("menu");
     expect(add.getAttribute("aria-label")).toBe("New chat without a project");
     expect(add.title).toBe("New chat");
@@ -70,12 +69,8 @@ describe("the workspace row", () => {
     expect(props.onMenuChange).toHaveBeenLastCalledWith(menu);
   });
 
-  it("marks Home only while it is on screen and holds New chat while one starts", async () => {
+  it("holds New chat while one starts", async () => {
     await render(everything({ startingNewSession: true }));
-    const home = host.querySelector<HTMLButtonElement>(
-      ".personal-profile-name",
-    )!;
-    expect(home.hasAttribute("aria-current")).toBe(false);
     const add = host.querySelector<HTMLButtonElement>(".personal-profile-new")!;
     expect(add.disabled).toBe(true);
     expect(add.title).toBe("Starting…");

@@ -17,7 +17,6 @@ import {
   teamsNeedingYou,
 } from "./teamAttention";
 import type { TeamMember, TeamRun } from "./teamRuns";
-import { homeLiveSessions, homeNeedsYou, homeScope } from "./workspaceHome";
 
 const approval: Block = {
   id: "ask",
@@ -355,27 +354,6 @@ describe("where needs show", () => {
         ),
       ].sort(),
     ).toEqual(["b", "l1"]);
-  });
-
-  it("puts a paused team on Home's Needs you", () => {
-    const sessions = [chat("a"), chat("b")];
-    const rows = homeNeedsYou(
-      homeLiveSessions(sessions, new Set(), new Set()),
-      [],
-      homeScope([{ path: "/work/site" }], []),
-      undefined,
-      [paused, ready],
-    );
-    expect(rows).toEqual([
-      {
-        id: "b",
-        kind: "paused",
-        title: "Fix the login loop",
-        cwd: "/work/site",
-        detail: "Ready to continue.",
-        at: 4,
-      },
-    ]);
   });
 
   it("badges the Dock for team needs and requests together", async () => {

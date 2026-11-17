@@ -372,26 +372,6 @@ describe("the footer", () => {
   });
 });
 
-describe("Home's project cards", () => {
-  const home = rules("src/surfaces/WorkspaceHome.css");
-  it("show their tools only on hover, keyboard focus or an open menu", () => {
-    expect(ruleFor(home, ".workspace-home-agent-tools").get("opacity")).toBe(
-      "0",
-    );
-    const shown = ruleFor(
-      home,
-      ".workspace-home-agent:is(:hover, :focus-within) .workspace-home-agent-tools",
-    );
-    expect(shown.get("opacity")).toBe("1");
-    expect(
-      ruleFor(
-        home,
-        '.workspace-home-agent-tools:has([aria-expanded="true"])',
-      ).get("opacity"),
-    ).toBe("1");
-  });
-});
-
 describe("the toolbar's strip", () => {
   const bar = rules("src/chrome/WorkspaceStatusBar.css");
   const extras = ":is(.personal-title-browser-new, .personal-title-board-open)";

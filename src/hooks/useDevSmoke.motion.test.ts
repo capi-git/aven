@@ -39,8 +39,6 @@ const config = { projectPath: PROJECT, binDir: "/tmp/check/bin" };
 const REACTION_MS = 1_200;
 
 type Flaws = {
-  /** The sidebar's New chat leaves Home on screen (the 0.1.141 QA bug). */
-  homeStays?: boolean;
   /** The sidebar's Stack sweeps while its agent works. */
   stackSweeps?: boolean;
   /** The sidebar's Stack reacts as the turn ends. */
@@ -49,8 +47,6 @@ type Flaws = {
   fanStuck?: boolean;
   /** Neither the project's row nor its chat's shows its agent working. */
   noRunningDot?: boolean;
-  /** Home's working agent mark does not animate. */
-  stillWhileWorking?: boolean;
   /** Parallel work opens unfolded. */
   parallelOpen?: boolean;
 };
@@ -68,7 +64,6 @@ const turned = (degrees: number) => {
  * app would draw from it, kept in step as the check drives it.
  */
 function app(flaws: Flaws = {}) {
-  let homeOpen = false;
   let changesOpen = false;
   let expanded = false;
   let reaction: string | null = null;
@@ -85,7 +80,6 @@ function app(flaws: Flaws = {}) {
         { id, harness: "claude", cwd: path, busy: false, blocks: [] },
       ] as unknown as Session[];
       focused = id;
-      if (!flaws.homeStays) homeOpen = false;
       draw();
     }),
     submit: vi.fn((id: string, text: string) => {
@@ -108,10 +102,6 @@ function app(flaws: Flaws = {}) {
       );
     }),
     motion: {
-      openHome: vi.fn(() => {
-        homeOpen = true;
-        draw();
-      }),
       showChanges: vi.fn(() => {
         changesOpen = true;
         draw();
@@ -148,9 +138,6 @@ function app(flaws: Flaws = {}) {
     ].join("");
     return `<span class="project-mark" data-kind="stack"${attributes}><span class="stack-mark"${expanded ? " data-open" : ""}><svg class="stack-mark-art">${page("back", -14)}${page("middle", -6)}<rect class="stack-mark-front"></rect></svg></span></span>`;
   };
-  // A project's agent (Home's tiles): Bot, typing while it works.
-  const mark = (working: boolean) =>
-    `<span class="dot-mark agent-mark" data-agent="${working ? "working" : "still"}"${reaction ? ` data-reaction="${reaction}"` : ""}><span class="agent-bob"><svg class="agent-body"><path class="agent-head"></path></svg>${working ? `<i class="agent-eyes" style="animation-name: ${flaws.stillWhileWorking ? "none" : "agent-scan"}"></i>` : ""}</span></span>`;
   function draw() {
     const working = state.sessions.some((session) => session.busy);
     document.body.innerHTML = `
@@ -170,21 +157,9 @@ function app(flaws: Flaws = {}) {
               .join("")
           : ""
       }
-      <div class="personal-workspace-content"${homeOpen ? " hidden" : ""}>
+      <div class="personal-workspace-content">
         <div data-session-drop="${focused}"><div data-composer><textarea style="visibility: visible"></textarea></div></div>
       </div>
-      ${
-        homeOpen
-          ? `<section class="workspace-home">
-              <ul>
-                <li class="workspace-home-agent" data-project-path="${PROJECT}" data-state="${working ? "running" : "idle"}">${mark(working)}</li>
-                <li class="workspace-home-agent" data-project-path="/tmp/check/other" data-state="idle">${mark(false)}</li>
-              </ul>
-              ${working ? `<ul><li data-pulse="running"><button>1 agent working</button></li></ul>` : ""}
-              ${done ? `<p><button class="workspace-home-today">Today: ${done} ${done === 1 ? "task" : "tasks"} done</button></p>` : ""}
-            </section>`
-          : ""
-      }
       ${
         changesOpen
           ? `<section class="git-copies" aria-label="Parallel work"${flaws.parallelOpen ? " data-open" : ""}><h3><button class="git-copies-toggle" aria-expanded="${!!flaws.parallelOpen}">Parallel work <span>· 1 merged</span></button></h3>${flaws.parallelOpen ? "<p>Copy</p>" : ""}</section>`
@@ -226,7 +201,7 @@ describe("the real-app check's motion steps", () => {
     document.body.innerHTML = "";
   });
 
-  it("pass when the Stack stays still and fans, Home gives way and Parallel work is folded", async () => {
+  it("pass when the Stack stays still and fans and Parallel work is folded", async () => {
     const steps = await check();
     expect(steps.map((step) => [step.name, step.passed])).toEqual([
       ["stand-in provider is the one Aven found", true],
@@ -236,17 +211,10 @@ describe("the real-app check's motion steps", () => {
         "the project's folder stays still while its agent works, and opens while the project is open",
         true,
       ],
-      [
-        "Home shows each project's agent, and New chat leaves Home for the chat",
-        true,
-      ],
       ["Parallel work starts folded to one line", true],
     ]);
     expect(named(steps, "the project's folder").detail).toBe(
       "still while working; fanned and folded",
-    );
-    expect(named(steps, "Home shows").detail).toBe(
-      "2 agents; 1 agent working; Today: 3 tasks done",
     );
     expect(named(steps, "Parallel work").detail).toBe(
       "Parallel work · 1 merged",
@@ -257,12 +225,6 @@ describe("the real-app check's motion steps", () => {
         .querySelector(".personal-project-disclosure")
         ?.getAttribute("aria-expanded"),
     ).toBe("false");
-  });
-
-  it("fail when New chat in the sidebar leaves Home in front of the chat", async () => {
-    const home = named(await check({ homeStays: true }), "Home shows");
-    expect(home.passed).toBe(false);
-    expect(home.detail).toContain("Home to give way to the new chat");
   });
 
   it("fail when the Stack stays closed as the project opens", async () => {
@@ -298,14 +260,6 @@ describe("the real-app check's motion steps", () => {
     );
     expect(mark.passed).toBe(false);
     expect(mark.detail).toContain("the sidebar to show its agent working");
-  });
-
-  it("fail when Home's working agent mark stands still", async () => {
-    const home = named(await check({ stillWhileWorking: true }), "Home shows");
-    expect(home.passed).toBe(false);
-    expect(home.detail).toBe(
-      "On Home, the working agent's mark its animation is none, expected agent-scan",
-    );
   });
 
   it("fail when Parallel work opens unfolded", async () => {

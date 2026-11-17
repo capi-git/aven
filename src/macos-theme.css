@@ -466,7 +466,6 @@ textarea {
     .settings-button:not(.settings-button-danger),
     .settings-select,
     .team-card-button:not([data-variant]),
-    .workspace-home-actions button:not(.workspace-home-new),
     .git-clean-action,
     .personal-profile-new
   ):active:not(:disabled) {
@@ -576,7 +575,6 @@ html:not(.theme-light)
     .settings-group-surface,
     .settings-provider-card,
     .settings-shortcuts-table,
-    .workspace-home-panel,
     .scheduled-editor,
     .personal-activity-phase,
     [data-streamdown="code-block"],
@@ -649,7 +647,6 @@ html.is-mac:not(.theme-light)
     .settings-group-surface,
     .settings-provider-card,
     .settings-shortcuts-table,
-    .workspace-home-panel,
     .scheduled-editor,
     .automation-example-card,
     .personal-activity-phase,
