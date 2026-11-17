@@ -182,6 +182,10 @@ describe("paneLayoutProblem", () => {
     expect(paneLayoutProblem(layout({ edge: "2px" })).problem).toBe(
       "the pane has a 2px edge",
     );
+    // A scaled screen draws the 1px edge a little wider.
+    expect(
+      paneLayoutProblem(layout({ edge: "1.111111px" })).problem,
+    ).toBeNull();
     expect(paneLayoutProblem(layout({ inset: 5 })).problem).toBe(
       "the pane is 5px from the workspace edge",
     );
