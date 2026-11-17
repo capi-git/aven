@@ -321,7 +321,7 @@ describe("sidebar workspace navigation", () => {
 
   it("switches profiles from the heading without changing appearance", async () => {
     const select = vi.fn();
-    const before = loadWorkspaceTheme("personal");
+    const before = loadWorkspaceTheme();
     await act(async () =>
       root.render(
         createElement(Sidebar, { ...props, onSelectProfile: select }),
@@ -340,7 +340,7 @@ describe("sidebar workspace navigation", () => {
     expect(select).toHaveBeenCalledExactlyOnceWith("work");
     expect(menu()).toBeNull();
     expect(document.activeElement).toBe(trigger);
-    expect(loadWorkspaceTheme("personal")).toEqual(before);
+    expect(loadWorkspaceTheme()).toEqual(before);
     await act(async () =>
       root.render(
         createElement(Sidebar, {

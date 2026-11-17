@@ -32,7 +32,6 @@ describe("settings search", () => {
     ["frosted", "Translucency", "appearance"],
     ["accent", "Accent colour", "appearance"],
     ["color", "Accent colour", "appearance"],
-    ["copy workspaces", "Use for all workspaces", "appearance"],
     ["hotkeys", "Keyboard shortcuts", "keybindings"],
     ["default model", "Providers", "providers"],
     ["cli updates", "Keep provider tools up to date", "providers"],

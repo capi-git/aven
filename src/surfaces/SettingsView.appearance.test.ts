@@ -14,6 +14,7 @@ import {
 import {
   loadWorkspaceTheme,
   saveWorkspaceTheme,
+  WORKSPACE_THEMES_KEY,
   useActivateWorkspaceTheme,
   defaultWorkspaceTheme,
 } from "../lib/workspaceThemes";
@@ -53,14 +54,12 @@ const APPEARANCE_CONTROLS = [
   "Autosave files",
   "Chat text size",
   "Code font",
-  "Use for all workspaces",
 ];
 
 function Harness() {
   useActivateWorkspaceTheme("work");
   return createElement(SettingsView, {
     section: "appearance",
-    workspaceName: "Work",
     cwd: "~",
     sessions: [],
     besideRail: true,
@@ -98,7 +97,7 @@ describe("workspace appearance settings", () => {
       "theme-light",
       "match-workspace-panels",
     );
-    saveWorkspaceTheme("work", {
+    saveWorkspaceTheme({
       preference: "dark",
       opacity: 0.45,
       blur: 12,
@@ -174,7 +173,7 @@ describe("workspace appearance settings", () => {
     )!;
   const settle = () =>
     act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 220));
+      await new Promise((resolve) => setTimeout(resolve, 650));
     });
   const checkedAccent = () =>
     container
@@ -203,6 +202,18 @@ describe("workspace appearance settings", () => {
       ).toBeTruthy();
     expect(container.querySelector(".settings-group-scope")).toBeNull();
     expect(container.querySelector(".settings-scope-line")).toBeNull();
+    // One look for every workspace: no per-workspace group or copy button.
+    expect(
+      container
+        .querySelector(".settings-group-intro h2")
+        ?.getAttribute("title"),
+    ).toBe("Set the mood. Every workspace uses it.");
+    expect(
+      Array.from(container.querySelectorAll(".settings-group-intro h2")).map(
+        (title) => title.textContent,
+      ),
+    ).not.toContain("Workspaces");
+    expect(buttonWithText("Copy to all")).toBeUndefined();
     const text = container.textContent!.toLowerCase();
     for (const removed of [
       "saved separately",
@@ -216,6 +227,8 @@ describe("workspace appearance settings", () => {
       "Highlight",
       "Same appearance across workspaces",
       "device display preferences",
+      "Each workspace keeps its own look",
+      "Use for all workspaces",
     ])
       expect(text).not.toContain(removed.toLowerCase());
   });
@@ -228,7 +241,7 @@ describe("workspace appearance settings", () => {
     expect(frost().value).toBe("81");
     expect(frost().disabled).toBe(false);
     expect(Object.fromEntries(storage)).toEqual(before);
-    expect(loadWorkspaceTheme("work")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 0.45,
       blur: 12,
       bodyGlass: false,
@@ -240,7 +253,7 @@ describe("workspace appearance settings", () => {
     await mount();
     await input("Translucency", "50");
     await settle();
-    expect(loadWorkspaceTheme("work")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 0.45,
       blur: 32,
     });
@@ -249,7 +262,7 @@ describe("workspace appearance settings", () => {
     await settle();
     expect(glass().getAttribute("aria-valuetext")).toBe("Solid");
     expect(frost().disabled).toBe(true);
-    expect(loadWorkspaceTheme("work")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 1,
       blur: 32,
       bodyGlass: false,
@@ -261,7 +274,7 @@ describe("workspace appearance settings", () => {
 
     await input("Opacity", "52");
     await settle();
-    expect(loadWorkspaceTheme("work")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 0.52,
       blur: 32,
       bodyGlass: true,
@@ -272,7 +285,7 @@ describe("workspace appearance settings", () => {
     await input("Opacity", "5");
     await input("Translucency", "100");
     await settle();
-    expect(loadWorkspaceTheme("work")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 0.05,
       blur: 0,
       bodyGlass: true,
@@ -280,18 +293,18 @@ describe("workspace appearance settings", () => {
     expect(frost().getAttribute("aria-valuetext")).toBe("Clear");
     expect(loadStatusBarOpacity()).toBe(0.06);
     // The glass sliders leave colours alone.
-    expect(loadWorkspaceTheme("work").colors?.dark?.accent).toBe("#446688");
+    expect(loadWorkspaceTheme().colors?.dark?.accent).toBe("#446688");
   });
 
   it("disables both glass sliders in light mode with a one-line note and keeps the dark values", async () => {
-    saveWorkspaceTheme("work", { preference: "light" });
+    saveWorkspaceTheme({ preference: "light" });
     await mount();
     expect(glass().disabled).toBe(true);
     expect(frost().disabled).toBe(true);
     expect(container.querySelector("#setting-opacity")?.textContent).toContain(
       "Light mode always uses a solid window. Glass applies in dark mode.",
     );
-    expect(loadWorkspaceTheme("work")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 0.45,
       blur: 12,
     });
@@ -313,7 +326,7 @@ describe("workspace appearance settings", () => {
     await click(container.querySelector('[role="radio"][aria-label="Forest"]'));
     expect(checkedAccent()).toBe("Forest");
     expect(buttonWithText("Custom…")?.hasAttribute("data-checked")).toBe(false);
-    expect(loadWorkspaceTheme("work")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 0.45,
       blur: 12,
       bodyGlass: false,
@@ -335,7 +348,7 @@ describe("workspace appearance settings", () => {
     ).toBe("#a2c7aa");
 
     await click(container.querySelector('[role="radio"][aria-label="Blue"]'));
-    expect(loadWorkspaceTheme("work").colors?.dark).toEqual({
+    expect(loadWorkspaceTheme().colors?.dark).toEqual({
       background: "#112233",
       accent: "#57b5ff",
       highlight: "#8ccbff",
@@ -364,7 +377,7 @@ describe("workspace appearance settings", () => {
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
       ),
     );
-    expect(loadWorkspaceTheme("work").colors).toEqual({
+    expect(loadWorkspaceTheme().colors).toEqual({
       dark: { background: "#112233", accent: "#abcdef" },
       light: { background: "#eeeeff", accent: "#abcdef" },
     });
@@ -414,13 +427,30 @@ describe("workspace appearance settings", () => {
     expect(loadChatBackgroundScope()).toBe("empty");
   });
 
-  it("copies this workspace's look to every workspace", async () => {
+  it("saves a held Opacity drag once, and at once when the pointer lifts", async () => {
     await mount();
-    await click(buttonWithText("Copy to all"));
-    expect(loadWorkspaceTheme("personal")).toEqual(loadWorkspaceTheme("work"));
-    expect(container.textContent).toContain(
-      "Appearance applied to all workspaces.",
+    const themeWrites = () =>
+      setItem.mock.calls.filter(([key]) => key === WORKSPACE_THEMES_KEY).length;
+    const setItem = vi.spyOn(localStorage, "setItem");
+    for (const percent of ["40", "38", "36", "34"])
+      await input("Opacity", percent);
+    // Each step repaints the window but saves nothing yet.
+    expect(themeWrites()).toBe(0);
+    expect(glass().value).toBe("34");
+    await act(async () =>
+      glass().dispatchEvent(new PointerEvent("pointerup", { bubbles: true })),
     );
+    expect(themeWrites()).toBe(1);
+    expect(loadWorkspaceTheme()).toMatchObject({ opacity: 0.34 });
+    await settle();
+    expect(themeWrites()).toBe(1);
+
+    // Held without letting go: one save once the slider stops.
+    for (const percent of ["60", "62", "64"]) await input("Opacity", percent);
+    expect(themeWrites()).toBe(1);
+    await settle();
+    expect(themeWrites()).toBe(2);
+    expect(loadWorkspaceTheme()).toMatchObject({ opacity: 0.64 });
   });
 
   it("restores the default theme, glass and device display settings", async () => {
@@ -428,7 +458,7 @@ describe("workspace appearance settings", () => {
     await mount();
     await input("Opacity", "90");
     await click(buttonWithText("Restore defaults"));
-    expect(loadWorkspaceTheme("work")).toEqual(defaultWorkspaceTheme());
+    expect(loadWorkspaceTheme()).toEqual(defaultWorkspaceTheme());
     expect(loadStatusBarOpacity()).toBe(STATUS_BAR_OPACITY_DEFAULT);
     expect(loadChatBackgroundScope()).toBe("all");
     expect(glass().value).toBe("52");

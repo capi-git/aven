@@ -229,6 +229,7 @@ export function Slider({
   max,
   step = 1,
   onChange,
+  onCommit,
   disabled = false,
 }: {
   label: string;
@@ -238,6 +239,8 @@ export function Slider({
   max: number;
   step?: number;
   onChange: (value: number) => void;
+  /** Letting go: the pointer lifts, a key comes up, or focus leaves. */
+  onCommit?: () => void;
   disabled?: boolean;
 }) {
   const descriptionId = useContext(RowDescription);
@@ -264,6 +267,9 @@ export function Slider({
         disabled={disabled}
         style={{ "--settings-slider-fill": `${fill}%` } as CSSProperties}
         onChange={(event) => onChange(Number(event.target.value))}
+        onPointerUp={onCommit}
+        onKeyUp={onCommit}
+        onBlur={onCommit}
       />
       <output htmlFor={inputId} aria-hidden="true">
         {display}

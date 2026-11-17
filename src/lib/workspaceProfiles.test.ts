@@ -2,11 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  defaultWorkspaceTheme,
-  loadWorkspaceTheme,
-  WORKSPACE_THEMES_KEY,
-} from "./workspaceThemes";
+import { loadWorkspaceTheme, WORKSPACE_THEMES_KEY } from "./workspaceThemes";
 import {
   assignWorkspaceProject,
   removeWorkspaceProfile,
@@ -499,18 +495,6 @@ describe("workspace transitions", () => {
   });
 
   it("creates persistent empty workspaces without reusing a foreign project", () => {
-    const inherited = {
-      hue: 265,
-      saturation: 18,
-      preference: "dark",
-      opacity: 0.2,
-      blur: 12,
-      bodyGlass: true,
-    };
-    localStorage.setItem(
-      WORKSPACE_THEMES_KEY,
-      JSON.stringify({ version: 1, fallback: inherited, themes: {} }),
-    );
     render(personalPath);
     let id = "";
     let target = "";
@@ -525,11 +509,29 @@ describe("workspace transitions", () => {
       loadWorkspaceProfiles().profiles.find((profile) => profile.id === id)
         ?.name,
     ).toBe("Research");
-    expect(loadWorkspaceTheme(id)).toEqual(defaultWorkspaceTheme());
-    expect(loadWorkspaceTheme("personal")).toEqual({
-      ...inherited,
-      matchPanels: false,
+  });
+
+  it("keeps the one look when a workspace is created", () => {
+    const look = {
+      hue: 265,
+      saturation: 18,
+      preference: "dark",
+      opacity: 0.2,
+      blur: 12,
+      bodyGlass: true,
+    };
+    localStorage.setItem(
+      WORKSPACE_THEMES_KEY,
+      JSON.stringify({ version: 1, fallback: look, themes: {} }),
+    );
+    render(personalPath);
+    const before = localStorage.getItem(WORKSPACE_THEMES_KEY);
+    act(() => {
+      latest.selectProfile(latest.createProfile("Research"));
     });
+    expect(latest.activeProfile.name).toBe("Research");
+    expect(loadWorkspaceTheme()).toEqual({ ...look, matchPanels: false });
+    expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(before);
   });
 });
 

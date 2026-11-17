@@ -252,7 +252,6 @@ describe("the pro look's shapes", () => {
     for (const file of [
       "src/surfaces/RaceView.tsx",
       "src/chrome/CommandPalette.tsx",
-      "src/chrome/ApplyWorkspaceThemeButton.tsx",
     ]) {
       expect(read(file)).toContain(button);
       expect(read(file)).toContain("hover:bg-(--aven-control-hover)");

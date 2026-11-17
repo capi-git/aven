@@ -109,22 +109,18 @@ export function withCustomAccent(
 }
 
 export function saveWorkspaceAccentPreset(
-  profileId: string,
   preset: AccentPreset,
 ): WorkspaceTheme {
-  const current = loadWorkspaceTheme(profileId);
-  return saveWorkspaceTheme(profileId, {
+  const current = loadWorkspaceTheme();
+  return saveWorkspaceTheme({
     colors: withAccentPreset(current.colors, preset),
   });
 }
 
-export function saveWorkspaceCustomAccent(
-  profileId: string,
-  color: string,
-): WorkspaceTheme {
-  const current = loadWorkspaceTheme(profileId);
+export function saveWorkspaceCustomAccent(color: string): WorkspaceTheme {
+  const current = loadWorkspaceTheme();
   if (!normalizeThemeColor(color)) return current;
-  return saveWorkspaceTheme(profileId, {
+  return saveWorkspaceTheme({
     colors: withCustomAccent(current.colors, color),
   });
 }

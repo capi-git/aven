@@ -76,7 +76,6 @@ function ControlledSettings({
   };
   const view = createElement(SettingsView, {
     section,
-    workspaceName: "Work",
     onSelectSection: onSelect,
     cwd: "/fixture/project",
     sessions: [],
@@ -117,7 +116,7 @@ beforeEach(() => {
     removeItem: (key: string) => values.delete(key),
     clear: () => values.clear(),
   });
-  saveWorkspaceTheme("work", {
+  saveWorkspaceTheme({
     preference: "dark",
     opacity: 0.7,
     blur: 12,
@@ -654,7 +653,7 @@ describe("settings navigation", () => {
 
   it("announces unmatched searches without changing category or saved values", async () => {
     await mount();
-    const before = loadWorkspaceTheme("work");
+    const before = loadWorkspaceTheme();
     await search("notarealsettingxyz");
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "No matching settings",
@@ -666,7 +665,7 @@ describe("settings navigation", () => {
     ).toHaveLength(0);
     expect(container.querySelector("h1")?.textContent).toBe("General");
     expect(onSection).not.toHaveBeenCalled();
-    expect(loadWorkspaceTheme("work")).toEqual(before);
+    expect(loadWorkspaceTheme()).toEqual(before);
   });
 
   it("retains saved task behavior and workspace appearance across category navigation", async () => {
@@ -691,7 +690,7 @@ describe("settings navigation", () => {
         '[role="radio"][aria-label="Forest"]',
       )!,
     );
-    const appearance = loadWorkspaceTheme("work");
+    const appearance = loadWorkspaceTheme();
     expect(appearance.colors?.dark?.accent).toBe("#a2c7aa");
     expect(appearance.colors?.dark?.background).toBe("#112233");
     await section("Keyboard shortcuts");
@@ -704,7 +703,7 @@ describe("settings navigation", () => {
     ).toBe("false");
     expect(loadFollowUpBehavior()).toBe("steer");
     await section("Appearance");
-    expect(loadWorkspaceTheme("work")).toEqual(appearance);
+    expect(loadWorkspaceTheme()).toEqual(appearance);
     expect(
       container
         .querySelector('[role="radio"][aria-label="Forest"]')

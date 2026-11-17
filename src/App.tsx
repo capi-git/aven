@@ -12704,7 +12704,6 @@ export default function App({
                           <SettingsView
                             section={settingsSection}
                             onSelectSection={onSelectSettingsSection}
-                            workspaceName={profiles.activeProfile.name}
                             cwd={sidebarCwd}
                             sessions={sidebarHistory}
                             besideRail={sidebarOpen}
