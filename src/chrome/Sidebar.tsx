@@ -246,6 +246,8 @@ export type SidebarProps = {
   projectHistoryErrors?: ReadonlySet<string>;
   onSelectProjectSession?: (path: string, sessionId: string) => void;
   onNewProjectTask?: (path: string) => void;
+  /** A new chat in a new copy (git worktree) of the project. */
+  onNewProjectChatInCopy?: (path: string) => void;
   /** Per-project activity and changed files, keyed by `projectKey(path)`. */
   projectStatus?: ProjectStatusMap;
   liveAgents?: LiveAgent[];
@@ -422,6 +424,7 @@ function SidebarComponent({
   projectHistoryErrors,
   onSelectProjectSession,
   onNewProjectTask,
+  onNewProjectChatInCopy,
   projectStatus,
   liveAgents = [],
   discussions = NO_DISCUSSIONS,
@@ -2185,6 +2188,11 @@ function SidebarComponent({
                         onOpenBoard={
                           onOpenBoard
                             ? () => onOpenBoard(project.path)
+                            : undefined
+                        }
+                        onNewInCopy={
+                          onNewProjectChatInCopy
+                            ? () => onNewProjectChatInCopy(project.path)
                             : undefined
                         }
                         onMove={onMoveProject}

@@ -576,6 +576,7 @@ pub fn run() {
             git::git_diff_files,
             git::git_worktrees,
             git::git_worktree_remove,
+            git::git_chat_copy_create,
             git::git_file_diff,
             git::git_history,
             git::git_commit_files,

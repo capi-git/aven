@@ -21,6 +21,7 @@ import {
   setupRanIn,
   stopScript,
   subscribeScripts,
+  suggestRunCommands,
   suggestSetupCommand,
   type ScriptRun,
 } from "../lib/projectScripts";
@@ -235,20 +236,25 @@ export function ProjectScripts({
           (entries) => !cancelled && setSetupHint(suggestSetupCommand(entries)),
         )
         .catch(() => undefined);
-    if (!scripts.length || editing === "run")
-      readTextFile(`${project}/package.json`)
+    if (!scripts.length || editing === "run") {
+      // package.json scripts first, then what the root's files suggest (a
+      // build script, a Swift package, an Xcode project…).
+      const npm = readTextFile(`${project}/package.json`)
         .then((raw) => {
           const pkg = JSON.parse(raw) as { scripts?: Record<string, unknown> };
-          if (cancelled || !pkg.scripts || typeof pkg.scripts !== "object")
-            return;
-          setRunHints(
-            Object.keys(pkg.scripts)
-              .filter((key) => /^[\w][\w:-]*$/.test(key))
-              .slice(0, 6)
-              .map((key) => ({ name: key, command: `npm run ${key}` })),
-          );
+          if (!pkg.scripts || typeof pkg.scripts !== "object") return [];
+          return Object.keys(pkg.scripts)
+            .filter((key) => /^[\w][\w:-]*$/.test(key))
+            .map((key) => ({ name: key, command: `npm run ${key}` }));
         })
-        .catch(() => undefined);
+        .catch(() => []);
+      const files = listDir(project)
+        .then((entries) => suggestRunCommands(entries))
+        .catch(() => []);
+      void Promise.all([npm, files]).then(([fromNpm, fromFiles]) => {
+        if (!cancelled) setRunHints([...fromNpm, ...fromFiles].slice(0, 6));
+      });
+    }
     return () => {
       cancelled = true;
     };

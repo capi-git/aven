@@ -38,6 +38,9 @@ import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { CrewCritter } from "./CrewCritter";
 
+/** A chat in its own copy: its own folder and branch, beside the others. */
+export const NEW_CHAT_IN_COPY_LABEL = "New chat in a copy";
+
 type Props = {
   path: string;
   active: boolean;
@@ -49,6 +52,8 @@ type Props = {
   onSelect: () => void;
   onToggle: () => void;
   onNew?: () => void;
+  /** A new chat in its own copy (git worktree) of the project. */
+  onNewInCopy?: () => void;
   /** Open the project's board, from the ··· menu. */
   onOpenBoard?: () => void;
   onMove?: (path: string, profileId: string) => void;
@@ -71,6 +76,7 @@ export function PersonalProjectRow({
   onSelect,
   onToggle,
   onNew,
+  onNewInCopy,
   onOpenBoard,
   onMove,
   onRemove,
@@ -125,6 +131,15 @@ export function PersonalProjectRow({
       id: "pin",
       label: isPinned ? "Unpin project" : "Pin project",
     },
+    ...(onNewInCopy
+      ? [
+          {
+            kind: "item" as const,
+            id: "new-copy",
+            label: NEW_CHAT_IN_COPY_LABEL,
+          },
+        ]
+      : []),
     { kind: "item", id: "customize", label: "Customise project…" },
     ...(onOpenBoard
       ? [{ kind: "item" as const, id: "board", label: openAvosLabel() }]
@@ -269,6 +284,7 @@ export function PersonalProjectRow({
           onPick={(id) => {
             setMenu(null);
             if (id === "open") onSelect();
+            else if (id === "new-copy") onNewInCopy?.();
             else if (id === "board") onOpenBoard?.();
             else if (id === "customize") setCustomizing(true);
             else if (id === "memory") setEditingMemory(true);

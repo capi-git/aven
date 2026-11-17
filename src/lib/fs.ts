@@ -131,6 +131,18 @@ export function removeGitWorktree(cwd: string, path: string): Promise<void> {
   return invoke<void>("git_worktree_remove", { cwd, path });
 }
 
+/**
+ * A new copy of the project for one chat: its own folder in Aven's data and
+ * its own `aven/copy-N` branch, started from the project's current commit.
+ */
+export function createChatCopy(
+  cwd: string,
+): Promise<{ path: string; branch: string }> {
+  return invoke<{ path: string; branch: string }>("git_chat_copy_create", {
+    cwd,
+  });
+}
+
 /** File list and counts only, for diff content views that do not need sync data. */
 export function gitDiffFiles(cwd: string): Promise<GitDiffIndex> {
   return invoke<GitDiffIndex>("git_diff_files", { cwd });
