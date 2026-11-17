@@ -609,6 +609,42 @@ class RealAppCheckGateTests(unittest.TestCase):
             self.assertEqual(module.failed_steps(Path(folder) / 'missing.json'), [])
 
 
+class ParallelCheckTests(unittest.TestCase):
+    """Checks moved beside the builds for speed must still gate publishing."""
+
+    def test_web_checks_run_once_beside_the_builds_and_gate_publishing(self):
+        workflow = WORKFLOW.read_text()
+        job = re.search(r'\n  web-checks:\n(.*?)\n\n  ', workflow, re.S)
+        self.assertIsNotNone(job)
+        self.assertIn('needs: validate-source', job.group(1))
+        self.assertIn('- run: npm run check:web', job.group(1))
+        self.assertNotIn('secrets.', job.group(1))
+        publish = workflow[workflow.index('\n  publish:\n'):]
+        self.assertIn("needs.web-checks.result == 'success'", publish)
+        self.assertIn('web-checks', re.search(r'needs: \[(.*?)\]', publish).group(1))
+        # The macOS build skips only what that job runs, and only in CI.
+        self.assertIn("AVEN_SKIP_WEB_CHECKS: '1'", step_block('Test and build candidate before any signing key is on the runner'))
+        self.assertIn('skip_web_checks: true', re.search(r'\n  windows:\n(.*?)\n\n  publish:', workflow, re.S).group(1))
+        script = (ROOT / 'scripts/build-release.sh').read_text()
+        self.assertIn('if [[ "${AVEN_SKIP_WEB_CHECKS:-0}" == 1 ]]; then', script)
+        self.assertIn('  npm run check:web\n', script)
+
+    def test_standalone_windows_candidate_keeps_its_web_checks(self):
+        text = WINDOWS_WORKFLOW.read_text()
+        frontend = re.search(r'\n  frontend:\n(.*?)\n\n  ', text, re.S).group(1)
+        self.assertIn('if: ${{ !inputs.skip_web_checks }}', frontend)
+        self.assertIn('- run: npm run check:web', frontend)
+
+    def test_windows_release_tests_still_run_in_their_own_job(self):
+        text = WINDOWS_WORKFLOW.read_text()
+        tests = re.search(r'\n  windows-tests:\n(.*?)\n\n  windows:', text, re.S)
+        self.assertIsNotNone(tests)
+        self.assertIn('cargo test --locked --workspace --release --target x86_64-pc-windows-msvc '
+                      '--no-default-features --features tauri/custom-protocol', tests.group(1))
+        self.assertNotIn('secrets.', tests.group(1))
+        self.assertNotIn('if:', tests.group(1).split('steps:')[0])
+
+
 class WindowsUpdateSigningTests(unittest.TestCase):
     def test_release_signs_windows_updates_only_when_publishing(self):
         job = re.search(r'\n  windows:\n(.*?)\n\n  publish:', WORKFLOW.read_text(), re.S)
