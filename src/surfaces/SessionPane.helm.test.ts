@@ -161,7 +161,8 @@ describe("a chat's message box and its helm", () => {
     const bubble = container.querySelector<HTMLElement>(
       '[data-helm-say="running"]',
     )!;
-    expect(bubble.textContent).toContain("Composer.tsx");
+    // The transcript shows the tool call; the bubble does not repeat it.
+    expect(bubble.textContent).not.toContain("Composer.tsx");
     expect(bubble.querySelector('[role="timer"]')).not.toBeNull();
     expect(stops()).toHaveLength(1);
     await act(async () => stops()[0].click());

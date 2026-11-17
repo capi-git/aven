@@ -276,9 +276,9 @@ html
   opacity: 0;
   transition: opacity 120ms ease-out;
 }
-.helm-say:is([data-helm-say="running"], [data-helm-say="waiting"]):is(
-    :hover,
-    :focus-within
+:is(.helm-say:hover, .helm-say:focus-within):is(
+    [data-helm-say="running"],
+    [data-helm-say="waiting"]
   )
   .helm-say-clock {
   opacity: 1;
@@ -335,10 +335,11 @@ button.helm-work:hover {
 .helm-work-stop-dots {
   opacity: 0;
 }
-button.helm-work:is(:hover, :focus-visible) .helm-work-art {
+:is(button.helm-work:hover, button.helm-work:focus-visible) .helm-work-art {
   opacity: 0.25;
 }
-button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
+:is(button.helm-work:hover, button.helm-work:focus-visible)
+  .helm-work-stop-dots {
   opacity: 0.95;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -824,6 +825,10 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   .helm-say {
     animation: helm-say-in 160ms ease-out backwards;
   }
+  /* The mark fades as it steps aside for a running turn, and back. */
+  .composer-helm .dot-mark.helm-critter {
+    transition: opacity 150ms ease-out;
+  }
   /* Picking a mark: it lifts into place. */
   .dot-mark.helm-critter.helm-critter-hop {
     animation: helm-pick-hop 360ms cubic-bezier(0.2, 0.8, 0.2, 1) 1;
@@ -876,7 +881,7 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop-dots {
   transition: opacity 120ms ease-out;
   pointer-events: none;
 }
-button.helm-work:is(:hover, :focus-visible) .helm-work-stop {
+:is(button.helm-work:hover, button.helm-work:focus-visible) .helm-work-stop {
   opacity: 0.95;
 }
 
@@ -908,6 +913,12 @@ button.helm-work:is(:hover, :focus-visible) .helm-work-stop {
 .composer-helm .helm-critter-button .dot-mark.helm-critter {
   width: 18px;
   height: 18px;
+}
+/* While its turn runs the mark steps aside, keeping its place so the
+   model's name never moves: the bubble's Stop and words say the turn
+   works, and one orb is enough. */
+.composer-helm .dot-mark.helm-critter.helm-critter-away {
+  opacity: 0;
 }
 .helm-model {
   display: flex;

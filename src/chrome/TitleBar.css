@@ -156,12 +156,17 @@ html.theme-light .personal-shell {
 /* Tabs read like the sidebar's rows: a name with no plate, the front one
    filled. Close (and a browser tab's menu) show only while the tab is
    pointed at, over the end of its name, so a tab is as wide as its name and
-   never changes width. */
-.aven-tab:is(:hover, :focus-within)[data-closable="true"] .aven-tab-label {
+   never changes width. Each state names the tab's class (here and below)
+   so WebKit keys the rule on it: a bare :hover or :focus-within in :is()
+   or :not() is checked against the whole page on every pointer or focus
+   move. */
+:is(.aven-tab:hover, .aven-tab:focus-within)[data-closable="true"]
+  .aven-tab-label {
   -webkit-mask-image: linear-gradient(to left, transparent 14px, #000 26px);
   mask-image: linear-gradient(to left, transparent 14px, #000 26px);
 }
-.aven-tab:is(:hover, :focus-within)[data-has-menu="true"] .aven-tab-label {
+:is(.aven-tab:hover, .aven-tab:focus-within)[data-has-menu="true"]
+  .aven-tab-label {
   -webkit-mask-image: linear-gradient(to left, transparent 34px, #000 46px);
   mask-image: linear-gradient(to left, transparent 34px, #000 46px);
 }
@@ -417,7 +422,7 @@ html.theme-light .personal-shell {
   opacity: 0;
 }
 .personal-shell
-  .aven-tab[data-has-menu="true"]:is(:hover, :focus-within)
+  :is(.aven-tab:hover, .aven-tab:focus-within)[data-has-menu="true"]
   .personal-title-browser-menu {
   opacity: 1;
 }
@@ -452,7 +457,7 @@ html.theme-light .personal-shell {
     .workspace-footer,
     .personal-sidebar-footer
   )
-  button:not(:hover, :disabled)
+  button:not(:disabled):not(:where(button:hover))
   > svg.lucide {
   color: color-mix(in srgb, var(--color-content) 72%, transparent);
 }
@@ -1422,7 +1427,7 @@ html.theme-light .personal-shell {
 .workspace-status-strip
   .aven-tab-slot[data-pinned]
   .aven-tab[data-active="false"]
-  .aven-tab-button:not(:hover)
+  .aven-tab-button:not(.aven-tab-button:hover)
   .personal-title-tab-identity {
   opacity: 0.65;
 }

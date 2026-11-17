@@ -57,7 +57,7 @@ export type HelmFix = { label: string; run: () => void; detail?: string };
 export type HelmSay =
   | {
       kind: "running";
-      /** A few words: "Thinking", "Writing", "Edit app.js", "Needs you". */
+      /** A few general words: "Thinking", "Writing", "Working", "Needs you". */
       text: string;
       /** The whole line, when `text` leaves some of it out. */
       hint?: string;

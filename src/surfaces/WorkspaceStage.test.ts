@@ -456,9 +456,11 @@ describe("workspace stage", () => {
     flushFrame();
     expect(surface("chat").style.width).toBe("calc(65% - 3px)");
     expect(surface("browser").style.left).toBe("calc(65% + 3px)");
+    // No pane draws its own wallpaper: its crop, an inherited property that
+    // restyles the whole pane, waits for the drop.
     expect(
       surface("browser").style.getPropertyValue("--workspace-background-left"),
-    ).toBe("calc(-65cqw - 3px)");
+    ).toBe("calc(-50cqw - 3px)");
     expect(sash().getAttribute("aria-valuenow")).toBe("65");
     expect(rendered).not.toHaveBeenCalled();
     expect(measure).toHaveBeenCalledOnce();
@@ -466,6 +468,9 @@ describe("workspace stage", () => {
     expect(props.onLayoutChange).toHaveBeenCalledExactlyOnceWith(
       columns([0.65, 0.35]),
     );
+    expect(
+      surface("browser").style.getPropertyValue("--workspace-background-left"),
+    ).toBe("calc(-65cqw - 3px)");
     act(() => window.dispatchEvent(pointer("pointerup", 750)));
     act(() => sash().dispatchEvent(new Event("lostpointercapture")));
     expect(props.onLayoutChange).toHaveBeenCalledOnce();
@@ -477,6 +482,32 @@ describe("workspace stage", () => {
       false,
     );
     expect(document.body.style.cursor).toBe("");
+  });
+
+  it("moves a pane's own wallpaper crop with each resize frame", async () => {
+    // The app's wallpaper on empty chats only: each pane draws its own crop.
+    document.documentElement.classList.add(
+      "has-chat-background",
+      "chat-background-empty-only",
+    );
+    try {
+      await render({ layout: columns() });
+      bindStageBounds();
+      act(() => sash().dispatchEvent(pointer("pointerdown", 600)));
+      act(() => window.dispatchEvent(pointer("pointermove", 750)));
+      flushFrame();
+      expect(
+        surface("browser").style.getPropertyValue(
+          "--workspace-background-left",
+        ),
+      ).toBe("calc(-65cqw - 3px)");
+      act(() => window.dispatchEvent(pointer("pointerup", 750)));
+    } finally {
+      document.documentElement.classList.remove(
+        "has-chat-background",
+        "chat-background-empty-only",
+      );
+    }
   });
 
   it("keeps vertical dragging current when animation frames are deferred", async () => {
