@@ -9,10 +9,17 @@
 - **Any chat can start helper agents.** Ask in words, and the chat opens helpers in panes beside it. Each helper shows a small card in the chat and reports back when it is done.
 - **A Checks tab beside Files and Changes.** It shows the path to merge: commit, push, pull request and checks, with the button for the next step and how long each check ran.
 - **Setup and Run at the foot of the side panel.** Save a setup command and run commands for each project. Setup runs by itself the first time a new copy opens.
-- **A choice of working mark.** Settings › Appearance › Working mark: the Bot, or a small ball of dots.
+- **Start a chat in its own copy of the project.** The new chat works on its own branch in its own folder, so it does not change your main folder.
+- **Run suggests Build and open for Mac apps.** For an Xcode project, Run offers to build the app and open it.
+- **New Settings pages:** Worktrees, Terminal, Projects and Behaviour, and Appearance in Super's parts (Theme, Layout, Chat, Files & diffs, Typography).
+- **Subagents show as one progress card.** When a chat starts subagents side by side, one card shows each one, what it does now and how long it has run. A finished row opens to show its report.
+- **A choice of working mark.** Settings › Appearance › Working mark: the Orb, or a small ball of dots.
 
 ### Changed
 
+- **Thinking Orbs replace the Bot and every spinner.** An agent's mark and every loading sign is now a small orb. In the message box, it shows whether the chat is reasoning, searching or using a tool.
+- **Avos is removed.** Use helpers from any chat in its place. Old Avos chats stay readable, and its scheduled jobs are paused.
+- **Settings looks like Super Engineering's.**
 - **The message box holds the model, attach and Send,** in one row, as in Super.
 - **Nothing open opens a new chat.** The Home page is gone.
 - **A split is two cards.** The panes of a split are separate cards with a small gap; point at the gap to see its grip.
