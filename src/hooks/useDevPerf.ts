@@ -492,6 +492,49 @@ export async function runDevPerf(
       }
     });
 
+    // The same chats from their rows in the pinned sidebar, clicked with the
+    // test mouse as a hand does: the pointer rests on the row first.
+    await scenario("switching chats from the sidebar", async (measure) => {
+      if (!get().sidebarOpen) {
+        pressShortcut("b");
+        await waitFor(() => get().sidebarOpen, 5_000, "the sidebar to pin");
+        await pause(400);
+      }
+      const row = (id: string) =>
+        [
+          ...document.querySelectorAll<HTMLElement>(
+            `.personal-navigation [data-session-card="${CSS.escape(id)}"]`,
+          ),
+        ].find((element) => element.getClientRects().length > 0);
+      // Far apart in the list, so each click lands on a different chat.
+      const order = [0, 3, 1, 4, 2, 5];
+      for (let index = 0; index < 18; index += 1) {
+        const id = chatIds[order[index % order.length]];
+        const button = await waitFor(() => row(id), 5_000, "the chat's row");
+        if (button.getAttribute("aria-current") === "true") continue;
+        await smokeMouse("move", pressPoint(button), { settle: false });
+        await pause(150);
+        // Read the place again: a card can come into the list and move rows.
+        const at = pressPoint(row(id) ?? button);
+        const before = get().focusedSurfaceId;
+        await smokeMouse("down", at, { settle: false });
+        await measure
+          .time(
+            () => smokeMouse("up", at, { settle: false }),
+            () =>
+              row(id)?.getAttribute("aria-current") === "true" &&
+              get().focusedSurfaceId !== before,
+            3_000,
+          )
+          .catch((error) => {
+            throw new Error(
+              `${errorText(error)} (row current ${row(id)?.getAttribute("aria-current") ?? "no"}, focused ${get().focusedSurfaceId ?? "nothing"}, was ${before ?? "nothing"})`,
+            );
+          });
+        await pause(250);
+      }
+    });
+
     // A hand drags at the display's rate; each event is a real mouse event in
     // the web view, so this pays what a tab drag really pays.
     const dragTab = async (
