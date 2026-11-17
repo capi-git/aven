@@ -2566,6 +2566,7 @@ function ComposerComponent({
         stopInBar={stopInBar}
         onStop={onStop}
         onReturnFocus={focusField}
+        boxRef={boxRef}
       />
     </div>
   );

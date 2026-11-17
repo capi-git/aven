@@ -1,10 +1,9 @@
 /**
  * What the real-app check (`useDevSmoke`) asks of the message box's helm:
  * its menu opens above the box and never over the words, a chat that works
- * offers one Stop (in the mark's bubble) and no Working row, and a light
- * sweeps across the mark while the agent works.
+ * offers one Stop (in the mark's bubble) and no Working row, and the
+ * mark's orb moves while the agent works.
  */
-import { animationProblem } from "./devSmokeMotion";
 
 type Box = Pick<DOMRect, "top" | "bottom" | "left" | "right">;
 
@@ -54,31 +53,33 @@ export function helmStopProblem(
   return null;
 }
 
-/** A working agent's face at the helm, whose scanning animation is read. */
-export const HELM_TYPING_SELECTOR =
-  '.helm-critter[data-agent="working"] .agent-eyes';
+/** A working agent's orb at the helm, whose frames are read. */
+export const HELM_WORKING_SELECTOR =
+  '.helm-critter[data-agent="working"] .thinking-orb';
 
 /**
- * Why the helm is not showing a working agent, or null: its Bot in the
- * running pose, scanning (its eyes moving side to side, unless reduced motion
- * keeps it still), and the bubble saying what it does with a clock.
+ * Why the helm is not showing a working agent, or null: its mark in the
+ * running pose, its Thinking Orb drawing work (not idle), moving between two
+ * looks at it (`moved`) unless reduced motion keeps it still, and the bubble
+ * saying what it does with a clock.
  */
 export function helmWorkingProblem(
   helm: Element | null,
-  typingAnimation: string,
+  moved: boolean,
   reducedMotion: boolean,
 ): string | null {
   if (!helm) return "the message box has no helm";
   if ((helm as HTMLElement).dataset.pose !== "running")
     return `the mark is ${(helm as HTMLElement).dataset.pose ?? "unposed"}, not running`;
-  if (!helm.querySelector(HELM_TYPING_SELECTOR))
-    return "the mark is not scanning";
+  const orb = helm.querySelector<SVGElement>(HELM_WORKING_SELECTOR);
+  if (!orb) return "the mark is not working";
+  const look = orb.dataset.orb ?? "idle";
+  if (look.startsWith("idle")) return `the mark's orb is ${look}`;
   const bubble = helm.querySelector('[data-helm-say="running"]');
   if (!bubble) return "the mark's bubble says nothing";
   if (!bubble.querySelector('[role="timer"]'))
     return "the bubble shows no elapsed time";
-  const typing = animationProblem(typingAnimation, "agent-scan", reducedMotion);
-  return typing ? `the scanning: ${typing}` : null;
+  return moved || reducedMotion ? null : `the mark's ${look} orb stands still`;
 }
 
 /**

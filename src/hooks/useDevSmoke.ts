@@ -34,6 +34,7 @@ import { getKeeperProject } from "../lib/memoryKeeper";
 import { formatLineDiff } from "../lib/memoryKeeperFormat";
 import { nativeFloatingSidebar } from "../lib/floatingSidebar";
 import { resolveClaudeBinary } from "../lib/harness/child";
+import { effectiveCssZoom } from "../lib/drag";
 import { getPtyStatus } from "../lib/pty";
 import { IS_MAC } from "../lib/platform";
 import { applyUiScale, loadUiScale } from "../lib/uiScale";
@@ -42,7 +43,7 @@ import {
   helmDialogProblem,
   helmStopProblem,
   helmWorkingProblem,
-  HELM_TYPING_SELECTOR,
+  HELM_WORKING_SELECTOR,
   closeHelmDialog,
   helmStateWords,
   restoringComposer,
@@ -2037,13 +2038,23 @@ export function hasHairlineBelow(element: HTMLElement) {
 /** A workspace pane's corners: a card's (DESIGN.md). */
 const PANE_CARD_RADIUS = 10;
 
+/** The gap between two panes of a split, as between two tabs' cards
+ * (DESIGN.md; twice `SPLIT_HALF_GAP_PX` in PaneTree). */
+const SPLIT_GAP_PX = 6;
+
+/** A computed colour that paints nothing. */
+const clearColor = (color: string) =>
+  !color ||
+  color === "transparent" ||
+  /^rgba\(.*,\s*0(\.0+)?\)$/.test(color.replace(/\s+/g, " "));
+
 /**
  * Why a tab holding a chat beside a file pane does not give each pane one
  * strip laid out above its content (the file's tab row is its strip), lay
- * the tab out as its own card (10px corners, against the workspace's edges,
- * hairlines under the tab rows and between the panes inside it) and use one tab
- * style, or null with what it measured. `file` is any element in the file's
- * pane.
+ * the tab against the workspace's edges with each pane its own card (10px
+ * corners, 6px apart, nothing drawn in the gap but a separator you can grab
+ * across it) and use one tab style, or null with what it measured. `file` is
+ * any element in the file's pane.
  */
 export function paneLayoutProblem(file: HTMLElement): {
   problem: string | null;
@@ -2091,17 +2102,23 @@ export function paneLayoutProblem(file: HTMLElement): {
     strips.push(strip);
   }
   const [chatStrip, fileStrip] = strips;
-  // Its own card: 10px corners and a faint 1px edge, against the
-  // workspace's edges (the gap to the next pane is the divider).
-  const style = getComputedStyle(tab);
-  const radius = parseFloat(style.borderTopLeftRadius) || 0;
-  if (Math.abs(radius - PANE_CARD_RADIUS) > 0.5)
-    return fail(
-      `the pane's corners are ${radius}px, not ${PANE_CARD_RADIUS}px`,
-    );
-  const edge = parseFloat(style.borderTopWidth) || 0;
-  // 1px, which a scaled screen can draw a little wider.
-  if (edge > 1.5) return fail(`the pane has a ${edge}px edge`);
+  // Each pane is its own card, as two tabs side by side are: 10px corners
+  // and a faint 1px edge. The split tab draws no card around them.
+  for (const [who, pane] of [
+    ["chat", chatPane],
+    ["file", filePane],
+  ] as const) {
+    const card = getComputedStyle(pane);
+    const radius = parseFloat(card.borderTopLeftRadius) || 0;
+    if (Math.abs(radius - PANE_CARD_RADIUS) > 0.5)
+      return fail(
+        `the ${who}'s card has ${radius}px corners, not ${PANE_CARD_RADIUS}px`,
+      );
+    const edge = parseFloat(card.borderTopWidth) || 0;
+    // 1px, which a scaled screen can draw a little wider.
+    if (edge > 1.5) return fail(`the ${who}'s card has a ${edge}px edge`);
+  }
+  // The tab, and so its outer panes, against the workspace's edges.
   const tabRect = tab.getBoundingClientRect();
   const stageRect = stage.getBoundingClientRect();
   const inset = Math.max(
@@ -2112,20 +2129,62 @@ export function paneLayoutProblem(file: HTMLElement): {
   );
   if (inset > 0.5)
     return fail(`the pane is ${inset}px from the workspace edge`);
-  // A hairline divides the two panes: the split's own divider, beside them.
+  // The gap between the two cards is the divider: 6px, with no line drawn in
+  // it. The split's own separator stands in the gap, and grabbing anywhere
+  // in the gap takes it.
   const divider = [
     ...(chatPane.parentElement?.querySelectorAll<HTMLElement>(
       ':scope > [role="separator"]',
     ) ?? []),
   ].find(onScreen);
   if (!divider) return fail("no divider between the panes");
+  const across = divider.getAttribute("aria-orientation") !== "horizontal";
+  const [first, second] = [
+    chatPane.getBoundingClientRect(),
+    filePane.getBoundingClientRect(),
+  ].sort((a, b) => (across ? a.left - b.left : a.top - b.top));
+  const gapStart = across ? first.right : first.bottom;
+  const gapEnd = across ? second.left : second.top;
+  const gap = Math.round((gapEnd - gapStart) * 10) / 10;
+  // In the viewport's pixels, which the interface's zoom scales.
+  const wanted = SPLIT_GAP_PX * effectiveCssZoom(tab);
+  if (Math.abs(gap - wanted) > 1)
+    return fail(
+      `the panes are ${gap}px apart, not ${Math.round(wanted * 10) / 10}px`,
+    );
+  const drawn = getComputedStyle(divider);
+  const lineWidth = [
+    drawn.borderLeftWidth,
+    drawn.borderRightWidth,
+    drawn.borderTopWidth,
+    drawn.borderBottomWidth,
+  ].reduce((sum, width) => sum + (parseFloat(width) || 0), 0);
+  if (!clearColor(drawn.backgroundColor) || lineWidth > 0)
+    return fail("a line is drawn between the panes");
   const dividerRect = divider.getBoundingClientRect();
-  const thickness =
-    divider.getAttribute("aria-orientation") === "horizontal"
-      ? dividerRect.height
-      : dividerRect.width;
-  if (!(thickness > 0 && thickness <= 1))
-    return fail(`the divider between the panes is ${thickness}px thick`);
+  const middle = across
+    ? (dividerRect.left + dividerRect.right) / 2
+    : (dividerRect.top + dividerRect.bottom) / 2;
+  if (middle < gapStart - 0.5 || middle > gapEnd + 0.5)
+    return fail("the divider is not in the gap between the panes");
+  // Its grab target: the separator itself or the strip it holds.
+  const reach = [
+    divider,
+    ...divider.querySelectorAll<HTMLElement>(":scope > *"),
+  ]
+    .map((part) => part.getBoundingClientRect())
+    .reduce(
+      (wide, rect) => {
+        const span = across ? [rect.left, rect.right] : [rect.top, rect.bottom];
+        return span[1] - span[0] > wide[1] - wide[0] ? span : wide;
+      },
+      [middle, middle],
+    );
+  if (reach[0] > gapStart + 0.5 || reach[1] < gapEnd - 0.5)
+    return fail(
+      `the divider can be grabbed across ${Math.round((reach[1] - reach[0]) * 10) / 10}px of the ${gap}px gap`,
+    );
+  const grab = Math.round((reach[1] - reach[0]) * 10) / 10;
   // One title row per pane, as in Cydonia: the panes' strips name them, so
   // no title row above them names the tab again.
   const header = stage.querySelector<HTMLElement>(
@@ -2153,7 +2212,7 @@ export function paneLayoutProblem(file: HTMLElement): {
     );
   return {
     problem: null,
-    summary: `one ${height(chatStrip)}px strip per pane above its content, with no line under it, and no title row naming the tab again; ${PANE_CARD_RADIUS}px cards flush with the workspace, divided by a ${thickness}px hairline; chat and file tabs ${look(chatTab)}`,
+    summary: `one ${height(chatStrip)}px strip per pane above its content, with no line under it, and no title row naming the tab again; ${PANE_CARD_RADIUS}px cards flush with the workspace, ${gap}px apart with no line between them, grabbed across ${grab}px; chat and file tabs ${look(chatTab)}`,
   };
 }
 
@@ -2777,21 +2836,27 @@ export async function runDevSmoke(
         );
         try {
           let seen: string | null = "the bubble never appeared";
+          // The orb draws itself frame by frame: it moves if two looks at
+          // it, a poll apart, find its dots in different places.
+          let lastFrame = "";
           await waitFor(
             () => {
               const helm = root.querySelector<HTMLElement>("[data-helm]");
-              const frame = helm?.querySelector(HELM_TYPING_SELECTOR);
+              const frame =
+                helm?.querySelector(HELM_WORKING_SELECTOR)?.innerHTML ?? "";
+              const moved = lastFrame !== "" && frame !== lastFrame;
+              lastFrame = frame;
               seen =
                 helmWorkingProblem(
                   helm ?? null,
-                  frame ? getComputedStyle(frame).animationName : "none",
+                  moved,
                   prefersReducedMotion(),
                 ) ??
                 helmStopProblem(root.closest("[data-session-drop]") ?? root);
               return seen === null;
             },
             5_000,
-            "the mark to type while the chat offers its one Stop",
+            "the mark to work while the chat offers its one Stop",
           ).catch(() => {
             throw new Error(`While the agent worked, ${seen}`);
           });

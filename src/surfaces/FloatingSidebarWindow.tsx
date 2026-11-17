@@ -480,10 +480,11 @@ async function runOverlaySmoke(owner: string) {
       10_000,
       "the Settings button",
     );
+    // By its name: the row also shows its key (esc), so its text is more.
     const findBack = () =>
-      [
-        ...document.querySelectorAll<HTMLButtonElement>(".settings-nav button"),
-      ].find((button) => button.textContent?.trim() === "Back to app");
+      document.querySelector<HTMLButtonElement>(
+        '.settings-nav button[aria-label="Back to app"]',
+      );
     settings.click();
     let back = await waitFor(
       findBack,

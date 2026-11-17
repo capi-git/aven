@@ -219,6 +219,16 @@ export function Popover({
     // above its trigger rather than drift over it.
     const observer = new ResizeObserver(place);
     if (frame.current) observer.observe(frame.current);
+    // An anchor that grows, as a message box does with each line, moves the
+    // edge the popover stands on.
+    const anchorNow = anchorRef.current;
+    const anchorElement =
+      anchorNow instanceof HTMLElement
+        ? anchorNow
+        : anchorNow && "current" in anchorNow
+          ? anchorNow.current
+          : null;
+    if (anchorElement) observer.observe(anchorElement);
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
     return () => {
