@@ -39,7 +39,7 @@ import {
   type ReactProfile,
 } from "../lib/devPerfReact";
 import { pressPoint, smokeMouse } from "../lib/devSmokeLoneTab";
-import { smokeSwipe } from "../lib/devSmokeSwipe";
+import { smokePageScroll, smokeSwipe, swipePoint } from "../lib/devSmokeSwipe";
 import {
   checkMotion,
   recordMotion,
@@ -914,6 +914,32 @@ export async function runDevPerf(
           await dragSidebarEdge(measure);
         },
       );
+      // Two-finger scrolls down the page and back up, as a trackpad sends
+      // them: the page's own engine scrolls, with Aven's interface around it.
+      await scenario("scrolling a web page", async (measure) => {
+        pressShortcut("9");
+        await pause(1_000);
+        const pane = document.querySelector<HTMLElement>("[data-browser-pane]");
+        if (!pane) throw new Error("No web page in front");
+        const at = swipePoint(pane);
+        // The test page puts its scroll position in its title.
+        const scrolled = () =>
+          Number(
+            /Speed test page (\d+)/.exec(
+              document.body.textContent ?? "",
+            )?.[1] ?? 0,
+          );
+        await smokePageScroll(at, 400, refreshMs);
+        await waitFor(() => scrolled() > 0, 5_000, "the page to scroll");
+        await pause(600);
+        for (let round_ = 0; round_ < 4; round_ += 1) {
+          for (const distance of [900, -900]) {
+            measure.mark(distance > 0 ? "down" : "up");
+            await smokePageScroll(at, distance, refreshMs);
+            await pause(600);
+          }
+        }
+      });
       // A popup over a page is drawn beneath it: it is only whole on screen
       // once the page is cut or shaded for it, or hidden behind a picture.
       // A dialog (the command palette) and a menu (the tab's own) show both.

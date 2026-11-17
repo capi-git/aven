@@ -74,7 +74,9 @@ Task {
     try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: DispatchQueue(label: "frames"))
     try await stream.startCapture()
     try await Task.sleep(nanoseconds: duration * 1_000_000)
-    try await stream.stopCapture()
+    // A window that closes first (the scenario's app quit) has already
+    // stopped the stream; the frames up to then are still the recording.
+    try? await stream.stopCapture()
     let rows = output.frames.map { ["at": $0.at, "rows": Double($0.rows)] }
     print(String(data: try JSONSerialization.data(withJSONObject: rows), encoding: .utf8)!)
     exit(0)
