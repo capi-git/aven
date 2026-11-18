@@ -553,7 +553,12 @@ function BrowserPaneSession({
   const markupImage = markup.state?.phase === "active" ? markup.state : null;
   // Layout motions move a picture of the page while the live page waits at
   // its final bounds (browserMotion.ts). Mark up keeps its own still image.
-  const [motionImage, setMotionImage] = useState<string | null>(null);
+  // The picture standing in for the page in a motion; `size` keeps it at
+  // the page's size when it was taken rather than stretching with the pane.
+  const [motionImage, setMotionImage] = useState<{
+    src: string;
+    size: { width: number; height: number } | null;
+  } | null>(null);
   const markingUp = useRef(false);
   markingUp.current = !!markup.state;
   useEffect(
@@ -571,14 +576,16 @@ function BrowserPaneSession({
             return null;
           return nativeBrowser.snapshot(pageId);
         },
-        hold: async (src, wanted) => {
+        hold: async (src, wanted, keepSize) => {
           const controller = presentationController.current;
           if (!controller || markingUp.current) return false;
+          const box = keepSize ? host.current?.getBoundingClientRect() : null;
+          const size = box ? { width: box.width, height: box.height } : null;
           // Decoded and painted before the live page is hidden, so the pane
           // never shows the window behind it.
           await decodeMotionImage(src);
           if (!wanted()) return false;
-          flushSync(() => setMotionImage(src));
+          flushSync(() => setMotionImage({ src, size }));
           await nextPaint();
           // The motion went ahead without this page: it stays live, and no
           // picture blinks over it after the move has landed.
@@ -2159,7 +2166,17 @@ function BrowserPaneSession({
         {motionImage ? (
           <img
             className="browser-motion-image"
-            src={motionImage}
+            src={motionImage.src}
+            style={
+              motionImage.size
+                ? {
+                    right: "auto",
+                    bottom: "auto",
+                    width: motionImage.size.width,
+                    height: motionImage.size.height,
+                  }
+                : undefined
+            }
             alt=""
             aria-hidden="true"
             draggable={false}
