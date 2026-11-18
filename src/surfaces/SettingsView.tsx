@@ -235,6 +235,7 @@ import {
   subscribeUpdater,
 } from "../lib/updater";
 import { SkillsSettings } from "./SkillsSettings";
+import { PromptsPage } from "./SettingsPrompts";
 import { AccentColorSetting } from "./AccentColorSetting";
 import { ProviderConnections } from "./ProviderConnections";
 import { ProviderSetup } from "./ProviderSetup";
@@ -432,6 +433,7 @@ export function SettingsView({
               </div>
             ) : null}
             {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
+            {section === "prompts" ? <PromptsPage /> : null}
             {section === "connections" ? (
               <ProviderConnections cwd={cwd} />
             ) : null}
@@ -626,6 +628,7 @@ function PreferencesPage({
       title="Sidebar &amp; extras"
       description="Choose what appears around your work."
     >
+      <SidebarStyleRow />
       <Row {...SETTINGS.notesEnabled.row}>
         <Toggle
           label={SETTINGS.notesEnabled.label}
@@ -1434,6 +1437,24 @@ function NewChatInkRow() {
         label={SETTINGS.newChatInk.label}
         on={on}
         onChange={SETTINGS.newChatInk.save}
+      />
+    </Row>
+  );
+}
+
+/** A device preference, like the system's; Restore defaults leaves it. */
+function SidebarStyleRow() {
+  const style = useSetting(SETTINGS.sidebarStyle);
+  return (
+    <Row {...SETTINGS.sidebarStyle.row}>
+      <Segmented
+        label={SETTINGS.sidebarStyle.label}
+        value={style}
+        options={[
+          { value: "simple", label: "Simple" },
+          { value: "tiles", label: "Tiles" },
+        ]}
+        onChange={SETTINGS.sidebarStyle.save}
       />
     </Row>
   );

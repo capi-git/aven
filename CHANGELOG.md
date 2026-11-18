@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.1.192] - 2026-11-18
+
+### Added
+
+- **Tiles sidebar style.** Settings › General › Sidebar style › Tiles puts a small tile before each project, as in Super: its first letter in the project's colour, or its logo. New chat stays in view.
+
+### Changed
+
+- **Project names are no longer bold.** They are grey, and the open project is white.
+- **Finished helpers leave the sidebar.** Under a chat, helpers show only while they work, wait, need you or failed. The helper cards in the chat still open finished ones.
+- **Grey dots beside a web page's address.** The project mark there now matches every other agent mark.
+
 ## [0.1.191] - 2026-11-18
 
 ### Added

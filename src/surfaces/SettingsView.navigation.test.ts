@@ -359,6 +359,7 @@ describe("settings navigation", () => {
       "Models",
       "MCP",
       "Skills",
+      "Prompts",
       "Browser",
       "Git",
       "Worktrees",

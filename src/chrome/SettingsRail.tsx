@@ -32,6 +32,7 @@ import {
   Search,
   Settings,
   Terminal,
+  WandSparkles,
   Wrench,
   type IconComponent,
 } from "./icons";
@@ -52,6 +53,7 @@ export const SECTION_ICONS: Record<SettingsSectionId, IconComponent> = {
   "provider-setup": Wrench,
   tasks: MessageSquare,
   skills: Wrench,
+  prompts: WandSparkles,
   git: GitBranch,
   connections: Globe,
   browser: AppWindow,
@@ -70,6 +72,7 @@ const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   "provider-setup": "Install & sign in",
   tasks: "Access, follow-ups & review",
   skills: "Instructions & computer use",
+  prompts: "Git & AI actions",
   git: "Commits & pull requests",
   connections: "Linked services",
   browser: "Tab memory",

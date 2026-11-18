@@ -14,6 +14,7 @@ import {
 import { Composer } from "../chrome/Composer";
 import { DevPreviewChip } from "../chrome/DevPreviewChip";
 import { MemoryKeeperOffer } from "../chrome/MemoryKeeper";
+import { MergeLine } from "../chrome/MergeLine";
 import { DuplicateServerChip } from "../chrome/DuplicateServerChip";
 import { PaneNameStrip } from "../chrome/PaneNameStrip";
 import { ProviderMarks } from "../chrome/ProviderMarks";
@@ -623,6 +624,10 @@ export const SessionPane = memo(function SessionPane({
     [onSubmit],
   );
   const busy = !!session.busy;
+  const sendToAgent = useCallback(
+    (text: string) => submitText(sessionId, text),
+    [sessionId, submitText],
+  );
   // Kept while its inputs hold, so the memoized message box skips streams.
   const idle = leadIsIdle(session);
   const openDiscussion = discussion?.open;
@@ -698,7 +703,18 @@ export const SessionPane = memo(function SessionPane({
       onOpenDiff,
     ],
   );
-  const composer = (
+  // Under the message box: where the chat's branch stands, and its next step.
+  const mergeLine =
+    session.inboxAsk || botProject ? null : (
+      <MergeLine
+        cwd={workCwd}
+        enabled={visible}
+        busy={busy}
+        textHarness={session.harness}
+        onSendToAgent={sendToAgent}
+      />
+    );
+  const composerBox = (
     <Composer
       key={session.id}
       enabled={visible}
@@ -767,6 +783,12 @@ export const SessionPane = memo(function SessionPane({
     >
       {review}
     </Composer>
+  );
+  const composer = (
+    <>
+      {composerBox}
+      {mergeLine}
+    </>
   );
 
   return (

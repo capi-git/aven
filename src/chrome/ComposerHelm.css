@@ -958,6 +958,29 @@ button.helm-work:hover {
   width: 15px;
   height: 15px;
 }
+/* Enhance prompt: shows with a draft, before Attach, so nothing to its
+   right moves when it appears. */
+.helm-enhance {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--aven-radius-md);
+  background: transparent;
+  color: var(--helm-muted);
+  cursor: var(--aven-cursor-pointer);
+}
+.helm-enhance:hover {
+  background: var(--aven-control-hover, var(--helm-track));
+  color: var(--helm-ink);
+}
+.helm-enhance-art {
+  width: 15px;
+  height: 15px;
+}
 /* Attach, the microphone, then Send at the far right. Send keeps its place
    while the box is empty, so the others never move when it appears. */
 .composer-helm > .helm-attach {
