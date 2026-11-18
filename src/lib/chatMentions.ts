@@ -37,18 +37,73 @@ const REFERENCE_LIMIT = 6_000;
 const MAX_MESSAGES = 10;
 
 /**
- * Labels given this run, each owned by one chat for good, so a draft still
- * names the same chat when it is sent, even after a rename.
+ * Labels handed out, each owned by one chat for good, so a draft still names
+ * the same chat when it is sent, even after a rename, and a sent message
+ * still opens the chat that was picked after Aven restarts. Kept on this
+ * Mac; the newest LABELS_MAX are remembered.
  */
 const labelOwner = new Map<string, string>();
 const labelsOf = new Map<string, string>();
 /** Name and agent of each labelled chat, to draw its mention. */
 const namesOf = new Map<string, { title: string; harness: HarnessId }>();
 
+export const CHAT_LABELS_KEY = "aven.chatMentionLabels";
+const LABELS_MAX = 500;
+let labelsLoaded = false;
+
+type StoredLabel = {
+  label: string;
+  id: string;
+  title: string;
+  harness: HarnessId;
+};
+
+function loadLabels() {
+  if (labelsLoaded) return;
+  labelsLoaded = true;
+  try {
+    const raw = globalThis.localStorage?.getItem(CHAT_LABELS_KEY);
+    const rows: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(rows)) return;
+    for (const row of rows as Partial<StoredLabel>[]) {
+      if (
+        typeof row?.label !== "string" ||
+        typeof row.id !== "string" ||
+        labelOwner.has(row.label) ||
+        labelsOf.has(row.id)
+      )
+        continue;
+      labelOwner.set(row.label, row.id);
+      labelsOf.set(row.id, row.label);
+      if (typeof row.title === "string" && typeof row.harness === "string")
+        namesOf.set(row.id, { title: row.title, harness: row.harness });
+    }
+  } catch {
+    // Unreadable: labels start afresh; old mentions resolve by their name.
+  }
+}
+
+function saveLabels() {
+  try {
+    const rows: StoredLabel[] = [];
+    for (const [label, id] of labelOwner) {
+      const named = namesOf.get(id);
+      if (named) rows.push({ label, id, ...named });
+    }
+    globalThis.localStorage?.setItem(
+      CHAT_LABELS_KEY,
+      JSON.stringify(rows.slice(-LABELS_MAX)),
+    );
+  } catch {
+    // Best effort: this run still knows every label it handed out.
+  }
+}
+
 export function resetChatMentionLabels() {
   labelOwner.clear();
   labelsOf.clear();
   namesOf.clear();
+  labelsLoaded = false;
 }
 
 export function isChatMentionPath(path: string): boolean {
@@ -79,6 +134,7 @@ export function chatSlug(title: string): string {
 export function chatMentionLabel(
   chat: Pick<ChatRef, "id" | "title" | "harness">,
 ) {
+  loadLabels();
   namesOf.set(chat.id, { title: chat.title, harness: chat.harness });
   const owned = labelsOf.get(chat.id);
   if (owned) return owned;
@@ -88,6 +144,7 @@ export function chatMentionLabel(
     if (labelOwner.has(label)) continue;
     labelOwner.set(label, chat.id);
     labelsOf.set(chat.id, label);
+    saveLabels();
     return label;
   }
   return `${CHAT_MENTION_PREFIX}${chat.id}`;
@@ -95,7 +152,40 @@ export function chatMentionLabel(
 
 /** The chat a `chat/…` label was given to, if any. */
 export function chatIdForLabel(label: string): string | undefined {
+  loadLabels();
   return labelOwner.get(label);
+}
+
+/**
+ * The one chat in memory a label from before labels were kept can mean: one
+ * the picker would offer, whose name gives the label, in `cwd`'s project
+ * when given. Two such chats make it a guess, so neither is chosen.
+ */
+function chatIdBySlug(
+  sessions: readonly Session[],
+  label: string,
+  cwd?: string,
+): string | undefined {
+  const slug = label.slice(CHAT_MENTION_PREFIX.length);
+  // A chat working in a copy reads from the copy's folder: its project is
+  // the one the copy belongs to.
+  const project =
+    cwd === undefined
+      ? undefined
+      : (sessions.find(
+          (session) =>
+            session.worktreeCwd && sameProjectPath(session.worktreeCwd, cwd),
+        )?.cwd ?? cwd);
+  let found: string | undefined;
+  for (const session of sessions) {
+    if (!chatRefFromSession(session, 0)) continue;
+    if (project !== undefined && !sameProjectPath(session.cwd, project))
+      continue;
+    if (chatSlug(chatTitle(session)) !== slug) continue;
+    if (found && found !== session.id) return undefined;
+    found = session.id;
+  }
+  return found;
 }
 
 export function chatsAsProjectFiles(chats: ChatRef[]): ProjectFile[] {
@@ -283,15 +373,7 @@ export async function applyChatsToTurn(
   cwd?: string,
 ): Promise<string> {
   if (!from || !/(^|\s)@chat\//.test(text)) return text;
-  const bySlug = (label: string) => {
-    const slug = label.slice(CHAT_MENTION_PREFIX.length);
-    for (const session of [...from.list()].reverse()) {
-      if (!chatRefFromSession(session, 0)) continue;
-      if (cwd !== undefined && session.cwd !== cwd) continue;
-      if (chatSlug(chatTitle(session)) === slug) return session.id;
-    }
-    return undefined;
-  };
+  const bySlug = (label: string) => chatIdBySlug(from.list(), label, cwd);
   const ids = chatIdsInText(text, bySlug);
   if (ids.length === 0) return text;
   const sessions: Session[] = [];
@@ -305,19 +387,17 @@ export async function applyChatsToTurn(
 export type MentionedChat = { id: string; title: string; harness: HarnessId };
 
 /**
- * The chat a `chat/…` label names, with its current name: one labelled this
- * run, or one in memory whose name gives the label (a message from before a
- * restart).
+ * The chat a `chat/…` label names, with its current name: the one it was
+ * handed out to, or, for a message from before labels were kept, the one
+ * chat in memory in `cwd`'s project whose name gives the label.
  */
-export function resolveChatLabel(label: string): MentionedChat | undefined {
+export function resolveChatLabel(
+  label: string,
+  cwd?: string,
+): MentionedChat | undefined {
   const live = (id: string) => source?.session(id);
   let id = chatIdForLabel(label);
-  if (!id && source) {
-    const slug = label.slice(CHAT_MENTION_PREFIX.length);
-    id = [...source.list()]
-      .reverse()
-      .find((session) => chatSlug(chatTitle(session)) === slug)?.id;
-  }
+  if (!id && source) id = chatIdBySlug(source.list(), label, cwd);
   if (!id) return undefined;
   const named = live(id) ?? namesOf.get(id);
   if (!named) return undefined;

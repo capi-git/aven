@@ -58,6 +58,7 @@ import {
   waitForBrowserHandoff,
 } from "../lib/browserHandoff";
 import { WORKSPACE_DROP_FEEDBACK } from "../hooks/useBrowserDropIndicator";
+import { holdOrbs } from "../hooks/useOrbHold";
 import {
   DOCK_EASE,
   DOCK_PREVIEW_INSET,
@@ -1808,6 +1809,9 @@ export function WorkspaceStage({
     const restoreSelection = suppressTextSelection();
     setDragCursor(horizontal ? "col-resize" : "row-resize");
     container.dataset.resizing = "true";
+    // Orbs hold still while a split resizes, as for any other resize; the
+    // mark stays on the stage so the window isn't restyled.
+    const releaseOrbs = holdOrbs();
     dragPaneWallpaper.current = paneWallpaperShown(container);
     let offset = startOffset;
     let drawnRails = railedLeafIds(tree).join("\0");
@@ -1910,6 +1914,7 @@ export function WorkspaceStage({
       restoreSelection();
       setDragCursor(null);
       delete container.dataset.resizing;
+      releaseOrbs();
       dragPaneWallpaper.current = null;
       dragDraft.current = null;
       setDraftRails(null);

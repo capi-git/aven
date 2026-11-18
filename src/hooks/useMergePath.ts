@@ -11,6 +11,11 @@ import { MERGE_PATH_REFRESH_S } from "../lib/mergePath";
 
 export type MergePathState = {
   index: GitDiffIndex | null;
+  /**
+   * The copy's local Git state as soon as it is read, before the pull
+   * request read (a network call) finishes. Set only until `index` is.
+   */
+  localIndex: GitDiffIndex | null;
   pr: GitPr | null;
   error: string | null;
   loading: boolean;
@@ -26,6 +31,7 @@ export type MergePathState = {
  */
 export function useMergePath(cwd: string, enabled: boolean): MergePathState {
   const [index, setIndex] = useState<GitDiffIndex | null>(null);
+  const [localIndex, setLocalIndex] = useState<GitDiffIndex | null>(null);
   const [pr, setPr] = useState<GitPr | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,6 +42,7 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
 
   useEffect(() => {
     setIndex(null);
+    setLocalIndex(null);
     setPr(null);
     setError(null);
   }, [cwd]);
@@ -54,8 +61,18 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
       setLoading(true);
       setNextIn(null);
       try {
+        const indexRead = gitDiffIndex(cwd);
+        // Local Git answers long before GitHub: say what it shows at once,
+        // once, so a line that applies can hold its place.
+        void indexRead.then(
+          (read) => {
+            if (!cancelled && cwdRef.current === cwd)
+              setLocalIndex((current) => current ?? read);
+          },
+          () => {},
+        );
         const [nextIndex, nextPr] = await Promise.all([
-          gitDiffIndex(cwd),
+          indexRead,
           // No remote means no pull request to look for.
           gitPrStatus(cwd).catch((cause) => {
             logError("pull request status", cause);
@@ -100,5 +117,5 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
   }, [cwd, enabled, nonce]);
 
   const refresh = useCallback(() => setNonce((value) => value + 1), []);
-  return { index, pr, error, loading, nextIn, refresh };
+  return { index, localIndex, pr, error, loading, nextIn, refresh };
 }

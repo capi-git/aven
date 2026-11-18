@@ -378,6 +378,37 @@ describe("sortable motion in a CSS-zoomed titlebar", () => {
 });
 
 describe("picking a tab up", () => {
+  it("lifts a split's segment that moves alone straight away, never copying the whole split first", () => {
+    const { nodes, visuals } = tabs(["split", "other"]);
+    const segment = document.createElement("span");
+    segment.textContent = "Left pane";
+    segment.getBoundingClientRect = () => new DOMRect(50, 1, 50, 30);
+    visuals.get("split")!.append(segment);
+    const copied = vi.spyOn(Node.prototype, "cloneNode");
+    const motion = new SortableMotion();
+    motion.begin(nodes, "split", { x: 60, y: 16 }, "x", segment);
+    motion.activate({ x: 66, y: 16 }, segment);
+    // One copy, of the segment alone, and one preview on the page.
+    expect(copied.mock.contexts[0]).toBe(segment);
+    expect(document.querySelectorAll("[data-sortable-preview]")).toHaveLength(
+      1,
+    );
+    expect(copyOf().textContent).toBe("Left pane");
+    expect(segment.dataset.sortableTornPart).toBe("true");
+    // Laid out at the pointer, drawn from the segment's own place.
+    expect(previewOf()!.style.transform).toBe("translate3d(56px, 1px, 0)");
+    const [rise] = playedOn(lifter());
+    expect(rise.keyframes[0].transform).toBe(
+      "translate3d(-6px, 0px, 0px) scale(1)",
+    );
+    // A tear-off after that changes nothing: it is already torn.
+    motion.tearOff(segment, { x: 70, y: 60 });
+    expect(document.querySelectorAll("[data-sortable-preview]")).toHaveLength(
+      1,
+    );
+    motion.cancel();
+  });
+
   it("lifts in place: the copy starts over the tab, then catches up with the pointer", () => {
     const { nodes } = tabs(["first", "second"]);
     const motion = new SortableMotion();

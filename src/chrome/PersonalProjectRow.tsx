@@ -215,6 +215,20 @@ export function PersonalProjectRow({
   ]
     .filter(Boolean)
     .join("\n");
+  // In Tiles style New chat stays in view at the row's end, so it is the last
+  // button: the fold arrow and ··· appear to its left on hover and never move
+  // it out from under the pointer.
+  const newChat = onNew ? (
+    <button
+      type="button"
+      className="personal-project-row-action"
+      aria-label={`New chat in ${label}`}
+      title={`New chat in ${label}`}
+      onClick={onNew}
+    >
+      <Plus className="size-3.5" />
+    </button>
+  ) : null;
   return (
     <>
       <div
@@ -293,17 +307,7 @@ export function PersonalProjectRow({
             <ChevronRight className="size-3" />
           )}
         </button>
-        {onNew ? (
-          <button
-            type="button"
-            className="personal-project-row-action"
-            aria-label={`New chat in ${label}`}
-            title={`New chat in ${label}`}
-            onClick={onNew}
-          >
-            <Plus className="size-3.5" />
-          </button>
-        ) : null}
+        {tiles ? null : newChat}
         <button
           type="button"
           className="personal-project-row-action personal-project-more"
@@ -320,6 +324,7 @@ export function PersonalProjectRow({
         >
           <MoreHorizontal className="size-3.5" />
         </button>
+        {tiles ? newChat : null}
       </div>
       <ProjectPeekCard
         state={peek}

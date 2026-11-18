@@ -137,3 +137,97 @@ it.each([
   await pointer(window, "pointerup", 200);
   expect(props.onMovePane).toHaveBeenCalledTimes(reason === "commit" ? 1 : 0);
 });
+
+it.each(["lostpointercapture", "blur", "unmount", "pointercancel", "commit"])(
+  "ends an inner divider drag on %s: no resize cover or selection lock is left",
+  async (reason) => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    let unmounted = false;
+    cleanups.push(() => {
+      if (!unmounted) act(() => root.unmount());
+      container.remove();
+    });
+    const session = (id: string) =>
+      ({
+        id,
+        title: id,
+        cwd: "/qa",
+        harness: "claude",
+        model: "test",
+        modelSettings: {},
+        runtimeMode: "supervised",
+        blocks: [],
+      }) as Session;
+    const props = {
+      visible: true,
+      layout: {
+        type: "split",
+        id: "split",
+        dir: "right",
+        sizes: [0.5, 0.5],
+        children: [
+          { type: "leaf", id: "a" },
+          { type: "leaf", id: "b" },
+        ],
+      },
+      sessions: [session("a"), session("b")],
+      editorPanes: [],
+      dirtyFileIds: new Set(),
+      fileErrorCounts: new Map(),
+      focusedId: "a",
+      composerFocused: false,
+      recents: [],
+      onFocus: vi.fn(),
+      onMovePane: vi.fn(),
+      onRatio: vi.fn(),
+    } as unknown as ComponentProps<typeof PaneTree>;
+    await act(async () => root.render(createElement(PaneTree, props)));
+    const handle = container.querySelector<HTMLElement>(
+      ".aven-pane-seam > [data-native-hit-margin]",
+    )!;
+    let captured = false;
+    handle.setPointerCapture = vi.fn(() => {
+      captured = true;
+    });
+    handle.hasPointerCapture = vi.fn(() => captured);
+    handle.releasePointerCapture = vi.fn(() => {
+      captured = false;
+    });
+    const pointer = (type: string, x: number) =>
+      act(async () =>
+        handle.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            button: 0,
+            pointerId: 1,
+            clientX: x,
+            clientY: 20,
+          }),
+        ),
+      );
+    const cover = () => document.querySelector("[data-grab-cover]");
+    const locked = () =>
+      document.documentElement.classList.contains("is-reordering");
+
+    await pointer("pointerdown", 50);
+    expect(cover()).not.toBeNull();
+    expect(locked()).toBe(true);
+
+    if (reason === "unmount") {
+      await act(async () => root.unmount());
+      unmounted = true;
+    } else if (reason === "blur")
+      await act(async () => window.dispatchEvent(new Event("blur")));
+    else if (reason === "lostpointercapture")
+      await act(async () => handle.dispatchEvent(new Event(reason)));
+    else await pointer(reason === "commit" ? "pointerup" : reason, 60);
+
+    expect(cover()).toBeNull();
+    expect(locked()).toBe(false);
+    // Ending it again (a late pointerup) does nothing more.
+    if (!unmounted) await pointer("pointerup", 70);
+    expect(props.onRatio).not.toHaveBeenCalled();
+  },
+);

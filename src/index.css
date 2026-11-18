@@ -1104,24 +1104,14 @@ button.chat-reference:hover,
 /*
  * Zen mode's activity phases: a run of related tool calls under the line the
  * agent wrote to introduce it, on a rail, folding back to that line when the
- * agent moves on.
+ * agent moves on. Opening and closing take their full height at once, both
+ * ways, so the transcript is laid out once, not on every frame; the steps
+ * only fade in, as one block (motion.css zeroes it under Reduce motion).
  */
-.zen-phase-body {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition:
-    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms ease;
-}
-
-.zen-phase-body[data-open="false"] {
-  grid-template-rows: 0fr;
-  opacity: 0;
-}
-
 .zen-phase-body > * {
   min-height: 0;
   overflow: hidden;
+  animation: zen-step-in var(--aven-motion-base) ease-out both;
 }
 
 /*
@@ -1355,10 +1345,6 @@ button.chat-reference:hover,
   .zen-tool-spin,
   .zen-thinking-pulse {
     animation: none;
-  }
-
-  .zen-phase-body {
-    transition: none;
   }
 
   .zen-fold-item[data-fold-state="opening"] {

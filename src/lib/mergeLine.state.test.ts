@@ -59,7 +59,7 @@ function checks(overrides: Partial<PrChecks> = {}): PrChecks {
 
 const details = (
   c: Partial<PrChecks> = {},
-  unresolvedThreads: number | null = 0,
+  unresolvedThreads: MergeLineDetails["unresolvedThreads"] = 0,
 ): MergeLineDetails => ({ checks: checks(c), unresolvedThreads });
 
 const summary = (state: ReturnType<typeof mergeLineState>) =>
@@ -225,6 +225,23 @@ describe("mergeLineState", () => {
         details({ mergeable: undefined, mergeStateStatus: undefined }),
       )?.action,
     ).toBeNull();
+  });
+
+  it("keeps checking until the first review-thread read settles", () => {
+    expect(summary(mergeLineState(index(), openPr, details({}, null)))).toEqual(
+      ["Checking", "muted", undefined, undefined, undefined],
+    );
+    // Threads that can't be read leave the review decision to decide.
+    expect(
+      mergeLineState(index(), openPr, details({}, "unavailable"))?.status,
+    ).toBe("Ready to merge");
+    expect(
+      mergeLineState(
+        index(),
+        openPr,
+        details({ reviewDecision: "CHANGES_REQUESTED" }, "unavailable"),
+      )?.status,
+    ).toBe("Changes requested");
   });
 
   it("is ready to squash and merge when GitHub says it is clean", () => {
