@@ -1,0 +1,244 @@
+/*
+ * Hover cards: a quick look at a chat, project, tab or footer button.
+ * One title, a few rows, at most one footer. Colour only for small status.
+ */
+.hover-card {
+  --hover-card-muted: color-mix(in srgb, var(--color-content) 58%, transparent);
+  --hover-card-line: color-mix(in srgb, var(--color-content) 12%, transparent);
+  --hover-card-ok: var(--aven-git-add);
+  --hover-card-wait: var(--toolbar-panel-warning, #d99c45);
+  --hover-card-bad: var(--aven-git-del);
+  color: var(--color-content);
+  font: var(--text-ui-body) / 1.4 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.hover-card-body {
+  padding: 12px 14px;
+}
+
+.hover-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--text-ui-sheet);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.hover-card-title > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hover-card-aside {
+  flex: none;
+  margin-left: auto;
+  color: var(--hover-card-muted);
+  font-size: var(--text-ui-label);
+  font-weight: 400;
+}
+
+.hover-card-meta {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 6px;
+  color: var(--hover-card-muted);
+  font: var(--text-ui-label) / 1.4 var(--font-mono);
+}
+.hover-card-meta > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hover-card-meta b {
+  color: var(--color-content);
+  font-weight: 500;
+}
+
+.hover-card-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 10px;
+  color: var(--hover-card-muted);
+  font-size: var(--text-ui-label);
+  white-space: nowrap;
+}
+.hover-card-live > :last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hover-card-heading {
+  margin: 10px 0 4px;
+  color: var(--hover-card-muted);
+  font-size: var(--text-ui-caption);
+}
+.hover-card-heading:first-child {
+  margin-top: 0;
+}
+
+.hover-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 26px;
+  font-size: var(--text-ui-row);
+  white-space: nowrap;
+}
+.hover-card-row > :first-child:not(.hover-card-dot, .hover-card-ok) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hover-card-row-end {
+  flex: none;
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--hover-card-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hover-card-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-label);
+}
+.hover-card-muted {
+  color: var(--hover-card-muted);
+}
+.hover-card-add {
+  color: var(--hover-card-ok);
+}
+.hover-card-del {
+  color: var(--hover-card-bad);
+}
+
+.hover-card-bar {
+  height: 4px;
+  margin: 2px 0 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--hover-card-line);
+}
+.hover-card-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-content);
+  opacity: 0.85;
+}
+
+.hover-card-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hover-card-ok);
+}
+.hover-card-dot[data-state="waiting"] {
+  background: var(--hover-card-wait);
+}
+.hover-card-dot[data-state="idle"] {
+  background: var(--hover-card-muted);
+}
+.hover-card-dot[data-state="failed"] {
+  background: var(--hover-card-bad);
+}
+
+.hover-card-ok {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--hover-card-ok);
+  color: #0d1a10;
+}
+.hover-card-ok[data-size="small"] {
+  width: 12px;
+  height: 12px;
+}
+
+.hover-card-separator {
+  margin: 8px -14px;
+  border-top: 1px solid var(--hover-card-line);
+}
+
+.hover-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--hover-card-line);
+}
+
+.hover-card-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 10px;
+  border: 1px solid var(--hover-card-line);
+  border-radius: var(--aven-radius-row);
+  background: color-mix(in srgb, var(--color-content) 8%, transparent);
+  color: var(--color-content);
+  font-size: var(--text-ui-label);
+}
+.hover-card-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+}
+.hover-card-button:disabled {
+  opacity: 0.5;
+}
+.hover-card-button[data-size="small"] {
+  height: 20px;
+  margin-left: 8px;
+  padding: 0 7px;
+}
+
+.hover-card-quote {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--aven-radius-row);
+  background: color-mix(in srgb, var(--color-content) 6%, transparent);
+  color: var(--hover-card-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* A menu inside a card: app rows with icons. */
+.hover-card-menu {
+  padding: 6px;
+}
+.hover-card-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-row);
+  color: var(--color-content);
+  font-size: var(--text-ui-row);
+  text-align: left;
+}
+.hover-card-menu-item:hover,
+.hover-card-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  outline: none;
+}
+.hover-card-menu-item img {
+  width: 18px;
+  height: 18px;
+}
