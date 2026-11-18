@@ -17,6 +17,17 @@ export type PrChecks = {
   /** Pull request state, lower case: open, merged or closed. */
   state: string;
   checks: PrCheck[];
+  /**
+   * GitHub's merge view, upper case. Optional: an older Aven build's native
+   * side sends none of these.
+   */
+  mergeable?: "MERGEABLE" | "CONFLICTING" | "UNKNOWN" | string;
+  /** `CLEAN`, `DIRTY`, `BLOCKED`, `BEHIND`, `UNSTABLE`, `DRAFT`, … or "". */
+  mergeStateStatus?: string;
+  /** `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED` or "". */
+  reviewDecision?: string;
+  isDraft?: boolean;
+  baseRefName?: string;
 };
 
 /** CI checks GitHub reports on a pull request, through the project's routed account. */

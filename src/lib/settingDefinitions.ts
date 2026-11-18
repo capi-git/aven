@@ -26,6 +26,22 @@ export const SETTINGS = {
     keywords:
       "pull request pr commit push branch finish done review automatic turn off",
   }),
+  promptsGit: defineSetting({
+    section: "prompts",
+    label: "Git prompts",
+    description:
+      "Instructions for pull requests, commits and the merge line's fixes.",
+    keywords:
+      "prompt instruction create pr pull request commit push resolve conflicts fix checks ci investigate blocked review changes requested agent action custom default",
+  }),
+  promptsActions: defineSetting({
+    section: "prompts",
+    label: "Action prompts",
+    description:
+      "Instructions for commit messages, prompt enhancement and review replies.",
+    keywords:
+      "prompt instruction commit message wand enhance improve draft sparkle review replies reply thread custom default",
+  }),
   installedSkills: defineSetting({
     section: "skills",
     label: "Installed skills",

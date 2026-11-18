@@ -1,3 +1,5 @@
+import { loadPrompt } from "./prompts";
+
 /**
  * What agents do with their changes when they finish. "project" leaves the
  * decision to each project's own instructions; every other choice is the
@@ -85,7 +87,8 @@ export function agentGitInstructions(
     case "leave":
       return `<aven-git>When you finish changing files, leave your changes uncommitted for the user to review. Do not commit, push, or open a pull request. ${PRECEDENCE}</aven-git>`;
     case "commit":
-      return `<aven-git>When you finish changing files, commit your work with a clear message on the current branch, or on a new branch if you are on the default branch. Do not push or open a pull request. ${PRECEDENCE}</aven-git>`;
+      // Settings › Prompts can reword this one ("Commit").
+      return `<aven-git>${loadPrompt("commit")} ${PRECEDENCE}</aven-git>`;
     case "pr":
       return `<aven-git>When you finish changing files, commit your work on a new branch, push it, and open a pull request, following the repository's remote and account rules. Report the pull request link. ${PRECEDENCE}</aven-git>`;
   }
