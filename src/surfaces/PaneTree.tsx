@@ -15,7 +15,6 @@ import {
   suppressTextSelection,
   setDragCursor,
 } from "../lib/drag";
-import { followGrip } from "../lib/gripFollow";
 import { paneDropFromPoint, useExternalPaneDrop } from "../lib/paneDrop";
 import type { ApprovalDecision, UserQuestionReply } from "../lib/harness";
 import type { EditorNavigationTarget } from "../lib/search";
@@ -605,10 +604,6 @@ function Sash({
             ? "absolute inset-y-0 -left-1 -right-1 cursor-col-resize touch-none"
             : "absolute inset-x-0 -top-1 -bottom-1 cursor-row-resize touch-none"
         }
-        onPointerMove={(e) => {
-          const seam = e.currentTarget.parentElement;
-          if (seam) followGrip(e, row, seam);
-        }}
         onPointerDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
