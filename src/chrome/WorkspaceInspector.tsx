@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { GitFileDiffKind, GitHistoryCommit } from "../lib/fs";
 import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
+import { whenIdle } from "../lib/idle";
 import { retryableLazy } from "../lib/retryableLazy";
 import { setReviewProject, useReviewComments } from "../lib/reviewQueue";
 import type { OpenFileFn } from "../lib/search";
@@ -98,6 +99,21 @@ const InspectorSearch = retryableLazy(() =>
   import("./ProjectSearch").then(({ ProjectSearch }) => ProjectSearch),
 );
 
+const TAB_VIEWS = {
+  files: InspectorFiles,
+  changes: InspectorChanges,
+  review: InspectorReview,
+  checks: InspectorChecks,
+} as const;
+
+/**
+ * Load a tab's view before the panel shows it, so opening the panel draws
+ * the tab at once instead of "Loading files…" first.
+ */
+export function preloadInspectorTab(tab: WorkspaceInspectorTab) {
+  return TAB_VIEWS[tab].preload();
+}
+
 const TABS = ["files", "changes", "review", "checks"] as const;
 const LABELS: Record<WorkspaceInspectorTab, string> = {
   files: "Files",
@@ -111,6 +127,11 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
 ) {
   const id = useId();
   const active = props.active;
+  // A closed panel's tab loads once startup settles, as the other views do
+  // (preloadLazyViews): not with startup, so the first chat opens as fast.
+  const tabRef = useRef(props.tab);
+  tabRef.current = props.tab;
+  useEffect(() => whenIdle(() => void preloadInspectorTab(tabRef.current)), []);
   // How many files wait in Changes, shown on its tab while there are any.
   const diffStats = useProjectDiffStats(props.gitCwd || props.cwd, active);
   const changedFiles = diffStats?.files ?? 0;
