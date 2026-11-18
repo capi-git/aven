@@ -8,6 +8,7 @@ import { ProjectScripts, SCRIPT_PROMPTS } from "./ProjectScripts";
 vi.mock("../lib/fs", () => ({
   listDir: () => Promise.resolve([]),
   readTextFile: () => Promise.reject(new Error("none")),
+  subscribeGitChanged: () => () => undefined,
 }));
 vi.mock("./DotSpinner", () => ({ DotSpinner: () => null }));
 

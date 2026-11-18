@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useGitFileStatuses } from "./useGitFileStatuses";
 import { useProjectDiffStats } from "./useProjectDiffStats";
+import { beginSidePanelOpen, endSidePanelOpen } from "../lib/sidePanel";
 
 const mocks = vi.hoisted(() => ({
   index: vi.fn(),
@@ -187,14 +188,27 @@ describe("diff stats resume freshness", () => {
     expect(mocks.stats).toHaveBeenCalledTimes(2);
   });
 
-  it("reloads when a panel reopens, since git changes went unwatched while closed", async () => {
-    await act(async () => root.render(createElement(Probe)));
-    await act(async () =>
-      root.render(createElement(Probe, { enabled: false })),
-    );
+  it("trusts stats on a quick reopen, unless Git changed or they grew old", async () => {
+    const close = () =>
+      act(async () => root.render(createElement(Probe, { enabled: false })));
+    const open = () => act(async () => root.render(createElement(Probe)));
+    await open();
+    await close();
     now += 5_000;
-    await act(async () => root.render(createElement(Probe)));
+    await open();
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
+
+    await close();
+    await act(async () => {
+      for (const listener of mocks.gitListeners) listener();
+    });
+    await open();
     expect(mocks.stats).toHaveBeenCalledTimes(2);
+
+    await close();
+    now += 30_000;
+    await open();
+    expect(mocks.stats).toHaveBeenCalledTimes(3);
   });
 
   it("reloads on resume after a git change arrived while hidden", async () => {
@@ -211,5 +225,49 @@ describe("diff stats resume freshness", () => {
       document.dispatchEvent(new Event("visibilitychange")),
     );
     expect(mocks.stats).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("file statuses on a reopen", () => {
+  let cwd: string;
+  let now: number;
+  function Probe({ enabled = true }: { enabled?: boolean }) {
+    useGitFileStatuses(cwd, enabled);
+    return null;
+  }
+  beforeEach(() => {
+    cwd = `/statuses-${++project}`;
+    now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  it("reuses colours read moments ago, and reads after a Git change or a while", async () => {
+    const close = () =>
+      act(async () => root.render(createElement(Probe, { enabled: false })));
+    const open = () => act(async () => root.render(createElement(Probe)));
+    await open();
+    expect(mocks.index).toHaveBeenCalledTimes(1);
+    await close();
+    now += 5_000;
+    await open();
+    expect(mocks.index).toHaveBeenCalledTimes(1);
+
+    // Heard while open, a change reads at once and again on the next show.
+    await act(async () => {
+      for (const listener of mocks.gitListeners) listener();
+    });
+    expect(mocks.index).toHaveBeenCalledTimes(2);
+    await close();
+    now += 30_000;
+    await open();
+    expect(mocks.index).toHaveBeenCalledTimes(3);
+  });
+
+  it("waits for the side panel to slide in before reading", async () => {
+    beginSidePanelOpen();
+    await act(async () => root.render(createElement(Probe)));
+    expect(mocks.index).not.toHaveBeenCalled();
+    await act(async () => endSidePanelOpen());
+    expect(mocks.index).toHaveBeenCalledTimes(1);
   });
 });
