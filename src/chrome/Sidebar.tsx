@@ -1,3 +1,5 @@
+import { SETTINGS } from "../lib/settingDefinitions";
+import { useSetting } from "../hooks/useSetting";
 import { useFloatingSidebarClip } from "../hooks/useFloatingSidebarClip";
 import { setDockedSidebarWidth } from "../lib/dockedSidebarWidth";
 import { usePanelDockHandoff } from "../hooks/usePanelDockHandoff";
@@ -510,6 +512,7 @@ function SidebarComponent({
     filtersKey: sessionFiltersKey,
     profileIds: profiles.map((profile) => profile.id),
   });
+  const sidebarStyle = useSetting(SETTINGS.sidebarStyle);
   const [, refreshProjects] = useState(0);
   // Projects other than the open one that the user unfolded with the arrow.
   // Opening a project does not add it: the project you leave folds again.
@@ -1800,6 +1803,7 @@ function SidebarComponent({
       data-native-browser-occluded={floating && open ? "true" : undefined}
       data-native-browser-edge={floating && open ? "left" : undefined}
       data-navigation-header={navigation ? "true" : undefined}
+      data-sidebar-style={sidebarStyle}
       className="personal-navigation personal-sidebar sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col"
     >
       <div

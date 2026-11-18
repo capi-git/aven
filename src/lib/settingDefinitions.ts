@@ -387,6 +387,22 @@ export const SETTINGS = {
       "orb bot face dots spinner working busy mascot indicator thinking",
     rowDescription: "What the message box shows while an agent works.",
   }),
+  sidebarStyle: defineSetting({
+    ...defineStoredSetting<"simple" | "tiles">({
+      key: "aven.sidebarStyle",
+      defaultValue: "simple",
+      parse: (raw) => (raw === "tiles" ? "tiles" : "simple"),
+      serialize: (value) => value,
+      changeEvent: "aven:sidebar-style-change",
+      storageChanges: true,
+    }),
+    section: "general",
+    label: "Sidebar style",
+    description:
+      "Show projects as names alone, or with a logo and a New chat button.",
+    keywords: "sidebar projects logo icon tile super compact simple look",
+    rowDescription: "Tiles show each project's logo and a New chat button.",
+  }),
   reduceMotion: defineSetting({
     ...defineStoredSetting<boolean>({
       key: "aven.reduceMotion",
