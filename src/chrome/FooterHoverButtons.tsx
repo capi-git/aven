@@ -19,8 +19,6 @@ import {
   formatGroup,
   formatMemoryOf,
   formatPercent,
-  machineStats,
-  MACHINE_STATS_POLL_MS,
   memoryShare,
   type MachineStats,
 } from "../lib/machineStats";
@@ -33,8 +31,8 @@ import {
   type OpenInApp,
 } from "../lib/openInApps";
 import { IS_MAC } from "../lib/platform";
-import { runningScriptPtys } from "../lib/projectScripts";
 import { hasRateLimitWindows, loadSavedRateLimits } from "../lib/rateLimits";
+import { useMachineStats } from "../hooks/useMachineStats";
 import { HoverCard, useHoverCard } from "./HoverCard";
 import { Chip, ChevronDown } from "./icons";
 
@@ -255,35 +253,17 @@ export function FooterContext({
 
 // --- This Mac ----------------------------------------------------------------
 
-/** Reads this Mac's CPU and memory every 2 seconds, only while `open`. */
-function useMachineStats(open: boolean): MachineStats | null {
-  const [stats, setStats] = useState<MachineStats | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    let alive = true;
-    let timer: number | undefined;
-    const read = () => {
-      machineStats(runningScriptPtys())
-        .then((next) => {
-          if (alive && next) setStats(next);
-        })
-        .catch(() => {
-          /* Best effort: the card keeps its last reading. */
-        })
-        .finally(() => {
-          if (alive) timer = window.setTimeout(read, MACHINE_STATS_POLL_MS);
-        });
-    };
-    read();
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, [open]);
-  return stats;
-}
-
-export function MachineCardBody({ stats }: { stats: MachineStats | null }) {
+/**
+ * The This Mac card. `children` adds sections below the machine's own
+ * rows, such as a list of chats and tabs with their memory.
+ */
+export function MachineCardBody({
+  stats,
+  children,
+}: {
+  stats: MachineStats | null;
+  children?: ReactNode;
+}) {
   return (
     <div className="hover-card-body">
       <div className="hover-card-heading">This Mac</div>
@@ -321,6 +301,7 @@ export function MachineCardBody({ stats }: { stats: MachineStats | null }) {
           ) : null}
         </>
       )}
+      {children}
     </div>
   );
 }
