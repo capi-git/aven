@@ -133,6 +133,7 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
 
   const root = props.gitCwd || props.cwd;
   const hasProject = !!root && root !== "~";
+  const scriptsProject = props.cwd && props.cwd !== "~" ? props.cwd : root;
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const current = TABS.indexOf(props.tab);
     const next =
@@ -299,7 +300,10 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
       </div>
       {hasProject ? (
         <ProjectScripts
-          project={props.cwd && props.cwd !== "~" ? props.cwd : root}
+          // One mount per project: its scripts are read as it mounts, so a
+          // new copy of another project never sees the last one's setup.
+          key={scriptsProject}
+          project={scriptsProject}
           cwd={root}
           active={active}
           onOpenTerminal={props.onOpenTerminal}

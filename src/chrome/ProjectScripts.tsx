@@ -53,7 +53,10 @@ import { shortTimeAgo } from "../lib/gitChangesView";
 import "./ProjectScripts.css";
 
 type Props = {
-  /** The project's main folder: scripts are saved for the whole project. */
+  /**
+   * The project's main folder: scripts are saved for the whole project. Its
+   * scripts are read as the strip mounts, so callers key it by project.
+   */
   project: string;
   /** The copy the scripts run in. */
   cwd: string;
@@ -381,12 +384,6 @@ export function ProjectScripts({
   const [runHints, setRunHints] = useState<{ name: string; command: string }[]>(
     [],
   );
-
-  useEffect(() => {
-    setSetup(loadSetupScript(project));
-    setScripts(loadRunScripts(project));
-    setEditing(null);
-  }, [project]);
 
   // A new copy runs its setup by itself the first time it is shown.
   useEffect(() => {
