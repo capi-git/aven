@@ -201,7 +201,6 @@ import {
   saveNotificationsEnabled,
   type NotificationPermission,
 } from "../lib/notifications";
-import { ApplyWorkspaceThemeButton } from "../chrome/ApplyWorkspaceThemeButton";
 import {
   resolvedWorkspaceColors,
   resetWorkspaceTheme,
@@ -243,7 +242,6 @@ import { ProviderSetup } from "./ProviderSetup";
 type Props = {
   section: SettingsSectionId;
   onSelectSection?: (section: SettingsSectionId) => void;
-  workspaceName?: string;
   cwd: string;
   sessions: SessionSummary[];
   besideRail?: boolean;
@@ -263,7 +261,6 @@ type Props = {
 export function SettingsView({
   section: requestedSection,
   onSelectSection,
-  workspaceName,
   cwd,
   sessions,
   besideRail = false,
@@ -424,10 +421,7 @@ export function SettingsView({
               />
             ) : null}
             {section === "appearance" ? (
-              <AppearancePage
-                appearance={appearance}
-                workspaceName={workspaceName}
-              />
+              <AppearancePage appearance={appearance} />
             ) : null}
             {section === "keybindings" ? <KeybindingsPage /> : null}
             {section === "git" ? <GitPage /> : null}
@@ -1067,10 +1061,11 @@ function UpdateRow({
 
 type AppearanceSettings = ReturnType<typeof useAppearanceSettings>;
 
-const GLASS_SAVE_DELAY_MS = 200;
+/** A held slider saves this long after it stops; letting go saves at once. */
+const GLASS_SAVE_DELAY_MS = 600;
 
 function useAppearanceSettings() {
-  const { profileId, theme } = useActiveWorkspaceTheme();
+  const { theme } = useActiveWorkspaceTheme();
   const colorScheme = useColorScheme();
   const accent = resolvedWorkspaceColors(theme, colorScheme).accent;
   const accentPreset = selectedAccentPreset(theme, colorScheme);
@@ -1091,12 +1086,9 @@ function useAppearanceSettings() {
 
   useEffect(() => subscribeUiScale(() => setUiScale(loadUiScale())), []);
 
-  const onThemePreference = useCallback(
-    (next: ThemePreference) => {
-      saveWorkspaceTheme(profileId, { preference: next });
-    },
-    [profileId],
-  );
+  const onThemePreference = useCallback((next: ThemePreference) => {
+    saveWorkspaceTheme({ preference: next });
+  }, []);
 
   // A drag paints the window each frame and saves once it settles: saving
   // repaints every view that reads the workspace's look.
@@ -1109,6 +1101,7 @@ function useAppearanceSettings() {
   const translucency =
     draggedGlass?.translucency ?? translucencyFromBlur(theme.blur);
   const glassSave = useRef<{
+    slider: "opacity" | "translucency";
     frame: number;
     timer: ReturnType<typeof setTimeout>;
     save: () => void;
@@ -1122,59 +1115,74 @@ function useAppearanceSettings() {
     pending.save();
   }, []);
   useEffect(() => saveGlassNow, [saveGlassNow]);
+  /** A newer position of the same slider replaces the pending save; it is
+   *  not saved on the way. Saving repaints every view that reads the look,
+   *  so saving each step of a drag made the slider jitter. */
+  const replaceGlassSave = useCallback(
+    (slider: "opacity" | "translucency") => {
+      const pending = glassSave.current;
+      if (pending?.slider !== slider) return saveGlassNow();
+      cancelAnimationFrame(pending.frame);
+      clearTimeout(pending.timer);
+      glassSave.current = null;
+    },
+    [saveGlassNow],
+  );
   // Each slider saves only its own half, so a drag on one never resets the
   // other. Opacity repaints a CSS variable each frame; the blur goes to the
   // window once the drag settles, so it is never re-blurred per frame.
   const onOpacity = useCallback(
     (percent: number) => {
-      saveGlassNow();
+      replaceGlassSave("opacity");
       const { opacity, bodyGlass, statusBarOpacity } =
         glassSettingsForOpacity(percent);
       setDraggedGlass((draft) => ({ ...draft, opacity: percent }));
       glassSave.current = {
+        slider: "opacity",
         frame: requestAnimationFrame(() => applySidebarOpacity(opacity)),
         timer: setTimeout(saveGlassNow, GLASS_SAVE_DELAY_MS),
         save: () => {
-          saveWorkspaceTheme(profileId, { opacity, bodyGlass });
+          saveWorkspaceTheme({ opacity, bodyGlass });
           saveStatusBarOpacity(applyStatusBarOpacity(statusBarOpacity));
           setDraggedGlass(null);
         },
       };
     },
-    [profileId, saveGlassNow],
+    [replaceGlassSave, saveGlassNow],
   );
   const onTranslucency = useCallback(
     (value: number) => {
-      saveGlassNow();
+      replaceGlassSave("translucency");
       setDraggedGlass((draft) => ({ ...draft, translucency: value }));
       glassSave.current = {
+        slider: "translucency",
         frame: 0,
         timer: setTimeout(saveGlassNow, GLASS_SAVE_DELAY_MS),
         save: () => {
-          saveWorkspaceTheme(profileId, { blur: blurForTranslucency(value) });
+          saveWorkspaceTheme({ blur: blurForTranslucency(value) });
           setDraggedGlass(null);
         },
       };
     },
-    [profileId, saveGlassNow],
+    [replaceGlassSave, saveGlassNow],
   );
 
   const onFrameTone = useCallback(
     (tone: FrameTone | "default") =>
-      saveWorkspaceTheme(profileId, {
+      saveWorkspaceTheme({
         frameTone: tone === "default" ? undefined : tone,
       }),
-    [profileId],
+    [],
   );
 
   const onAccentPreset = useCallback(
-    (preset: AccentPreset) => saveWorkspaceAccentPreset(profileId, preset),
-    [profileId],
+    (preset: AccentPreset) => saveWorkspaceAccentPreset(preset),
+    [],
   );
 
   const onCustomAccent = useCallback(
-    (color: string) => saveWorkspaceCustomAccent(profileId, color),
-    [profileId],
+    (color: string) => saveWorkspaceCustomAccent(color),
+    [],
   );
 
   /** Repaints this window only; the drag saves once when released. */
@@ -1232,7 +1240,7 @@ function useAppearanceSettings() {
 
   const restoreDefaults = useCallback(() => {
     saveGlassNow();
-    resetWorkspaceTheme(profileId);
+    resetWorkspaceTheme();
     onChatBackgroundOpacity(Math.round(CHAT_BACKGROUND_OPACITY_DEFAULT * 100));
     // "Show on" is no longer offered; a reset returns it to every session.
     saveChatBackgroundScope(
@@ -1247,11 +1255,9 @@ function useAppearanceSettings() {
     onChatBackgroundOpacity,
     onClearChatBackground,
     onUiScale,
-    profileId,
   ]);
 
   return {
-    profileId,
     themePreference,
     colorScheme,
     accent,
@@ -1267,6 +1273,7 @@ function useAppearanceSettings() {
     onThemePreference,
     onOpacity,
     onTranslucency,
+    onGlassCommit: saveGlassNow,
     onFrameTone,
     onAccentPreset,
     onCustomAccent,
@@ -1279,23 +1286,13 @@ function useAppearanceSettings() {
   };
 }
 
-function AppearancePage({
-  appearance,
-  workspaceName,
-}: {
-  appearance: AppearanceSettings;
-  workspaceName?: string;
-}) {
+function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
   const glassDisabled = appearance.colorScheme === "light";
   return (
     <>
       <SettingsGroup
         title="Theme"
-        description={
-          workspaceName
-            ? `Set the mood for your ${workspaceName} workspace.`
-            : "Set the mood for this workspace."
-        }
+        description="Set the mood. Every workspace uses it."
       >
         <Row {...SETTINGS.theme.row}>
           <Segmented
@@ -1313,7 +1310,7 @@ function AppearancePage({
           scheme={appearance.colorScheme}
           accent={appearance.accent}
           selected={appearance.accentPreset}
-          scopeKey={`${appearance.profileId}:${appearance.colorScheme}`}
+          scopeKey={appearance.colorScheme}
           onPreset={appearance.onAccentPreset}
           onCustom={appearance.onCustomAccent}
           onPreviewCustom={appearance.onPreviewAccent}
@@ -1353,6 +1350,7 @@ function AppearancePage({
                 min={OPACITY_PERCENT_MIN}
                 max={OPACITY_PERCENT_MAX}
                 onChange={appearance.onOpacity}
+                onCommit={appearance.onGlassCommit}
                 disabled={glassDisabled}
               />
             </Row>
@@ -1373,6 +1371,7 @@ function AppearancePage({
                 min={TRANSLUCENCY_MIN}
                 max={TRANSLUCENCY_MAX}
                 onChange={appearance.onTranslucency}
+                onCommit={appearance.onGlassCommit}
                 disabled={
                   glassDisabled ||
                   appearance.opacityPercent >= OPACITY_PERCENT_MAX
@@ -1413,21 +1412,10 @@ function AppearancePage({
         <AutosaveRow />
       </SettingsGroup>
       <TypographyGroup />
-      <SettingsGroup
-        title="Workspaces"
-        description="Each workspace keeps its own look."
-      >
-        <Row {...SETTINGS.useForAllWorkspaces.row}>
-          <ApplyWorkspaceThemeButton
-            profileId={appearance.profileId}
-            label="Copy to all"
-          />
-        </Row>
-      </SettingsGroup>
       <div className="settings-reset">
         <p>
-          Reset this workspace’s theme, accent colour and glass, and this
-          device’s chat background and interface scale.
+          Reset the theme, accent colour and glass, and this device’s chat
+          background and interface scale.
         </p>
         <SecondaryButton onClick={appearance.restoreDefaults}>
           <RotateCcw className="size-3.5" aria-hidden />

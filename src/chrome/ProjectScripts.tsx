@@ -1,4 +1,5 @@
 import { SETTINGS } from "../lib/settings";
+import { saveSettingsProject } from "../lib/settingsProject";
 import {
   useEffect,
   useLayoutEffect,
@@ -37,6 +38,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Sparkles,
   Square,
   Terminal,
   Wrench,
@@ -51,10 +53,85 @@ type Props = {
   /** The copy the scripts run in. */
   cwd: string;
   active: boolean;
+  /** Opens a new terminal in a folder. */
   onOpenTerminal?: (cwd: string) => void;
+  /** Shows or hides the project's terminal panel. */
+  onToggleTerminal?: () => void;
+  /** Starts a new chat in the project with `prompt` in its message box. */
+  onStartChat?: (project: string, prompt: string) => void;
+  /** Opens Settings on the project's page. */
+  onOpenSettings?: (section: "project") => void;
 };
 
 type Pane = "setup" | "run";
+
+/**
+ * What a new chat asks for when there is no script yet. Scripts are kept in
+ * Aven, not in the project, so the agent finds the command and you add it.
+ */
+export const SCRIPT_PROMPTS: Record<Pane, string> = {
+  run: "Find the command that starts this project's dev server or app (check package.json scripts, a Makefile, the README and similar). Try it to make sure it starts, then stop it. Don't change any files. Reply with a short name and the exact command, like `Dev server: npm run dev`, so I can add it as a Run script in Aven's side panel.",
+  setup:
+    "Find what a fresh copy of this project needs before it can run: installing dependencies, and copying env files such as .env.example to .env. Don't change any files. Reply with one shell line that does it, like `npm install && cp .env.example .env`, so I can add it as the Setup script in Aven's side panel.",
+};
+
+const EMPTY: Record<Pane, { title: string; detail: string }> = {
+  run: {
+    title: "Add a run script",
+    detail:
+      "It starts your dev server or app. Each script opens in its own tab.",
+  },
+  setup: {
+    title: "Add a setup script",
+    detail:
+      "It runs in each new copy to install dependencies and copy env files.",
+  },
+};
+
+/** No script yet: what one does, an agent to find it, and the manual ways. */
+function ScriptEmpty({
+  pane,
+  onAsk,
+  onAdd,
+  onSettings,
+}: {
+  pane: Pane;
+  onAsk?: () => void;
+  onAdd: () => void;
+  onSettings?: () => void;
+}) {
+  const words = EMPTY[pane];
+  return (
+    <div className="inspector-empty project-scripts-empty">
+      <p className="inspector-empty-title">{words.title}</p>
+      <p className="inspector-empty-detail">{words.detail}</p>
+      {onAsk ? (
+        <button
+          type="button"
+          className="inspector-empty-action"
+          onClick={onAsk}
+        >
+          <Sparkles className="size-3" strokeWidth={1.75} />
+          Ask an agent to write it
+        </button>
+      ) : null}
+      <div className="project-scripts-links">
+        <button type="button" className="inspector-empty-link" onClick={onAdd}>
+          Add one yourself
+        </button>
+        {onSettings ? (
+          <button
+            type="button"
+            className="inspector-empty-link"
+            onClick={onSettings}
+          >
+            Open project settings
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 const OPEN_KEY = "aven.scriptsOpen";
 
 function loadOpen(): boolean {
@@ -199,6 +276,9 @@ export function ProjectScripts({
   cwd,
   active,
   onOpenTerminal,
+  onToggleTerminal,
+  onStartChat,
+  onOpenSettings,
 }: Props) {
   useScripts();
   const [open, setOpen] = useState(loadOpen);
@@ -289,6 +369,18 @@ export function ProjectScripts({
     saveRunScripts(project, next);
     setScripts(next);
   };
+  const ask = onStartChat
+    ? (which: Pane) => onStartChat(project, SCRIPT_PROMPTS[which])
+    : undefined;
+  const openSettings = onOpenSettings
+    ? () => {
+        saveSettingsProject(project);
+        onOpenSettings("project");
+      }
+    : undefined;
+  const terminal =
+    onToggleTerminal ??
+    (onOpenTerminal ? () => onOpenTerminal(cwd) : undefined);
 
   return (
     <section
@@ -326,30 +418,36 @@ export function ProjectScripts({
             )}
             Run
           </button>
-          {onOpenTerminal ? (
+          {terminal ? (
             <button
               type="button"
-              className="project-scripts-tab"
-              title="Open a terminal in this copy"
-              onClick={() => onOpenTerminal(cwd)}
+              className="project-scripts-tab project-scripts-glyph"
+              aria-label="Terminal"
+              title={
+                onToggleTerminal
+                  ? "Show or hide the project's terminal"
+                  : "Open a terminal in this copy"
+              }
+              onClick={terminal}
             >
-              <Terminal className="size-3" strokeWidth={1.75} />
-              Terminal
+              <Terminal className="size-3.5" strokeWidth={1.75} />
             </button>
           ) : null}
+          {onOpenTerminal ? (
+            <span className="project-scripts-rule" aria-hidden />
+          ) : null}
         </div>
-        <button
-          type="button"
-          className="project-scripts-icon"
-          aria-label="Add a run script"
-          title="Add a run script"
-          onClick={() => {
-            show("run");
-            setEditing("run");
-          }}
-        >
-          <Plus className="size-3.5" strokeWidth={1.75} />
-        </button>
+        {onOpenTerminal ? (
+          <button
+            type="button"
+            className="project-scripts-icon"
+            aria-label="New terminal"
+            title="New terminal in this copy"
+            onClick={() => onOpenTerminal(cwd)}
+          >
+            <Plus className="size-3.5" strokeWidth={1.75} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="project-scripts-icon"
@@ -367,26 +465,26 @@ export function ProjectScripts({
       {open ? (
         <div className="project-scripts-body" role="tabpanel">
           {pane === "setup" ? (
-            !setup || editing === "setup" ? (
-              <>
-                {!setup ? (
-                  <p className="project-scripts-note">
-                    Prepares each new copy of this project.
-                  </p>
-                ) : null}
-                <CommandForm
-                  key={`setup:${project}:${setupHint}`}
-                  withName={false}
-                  initialCommand={setup || setupHint}
-                  submitLabel="Save"
-                  onCancel={setup ? () => setEditing(null) : undefined}
-                  onSubmit={(_, command) => {
-                    saveSetupScript(project, command);
-                    setSetup(command);
-                    setEditing(null);
-                  }}
-                />
-              </>
+            editing === "setup" ? (
+              <CommandForm
+                key={`setup:${project}:${setupHint}`}
+                withName={false}
+                initialCommand={setup || setupHint}
+                submitLabel="Save"
+                onCancel={() => setEditing(null)}
+                onSubmit={(_, command) => {
+                  saveSetupScript(project, command);
+                  setSetup(command);
+                  setEditing(null);
+                }}
+              />
+            ) : !setup ? (
+              <ScriptEmpty
+                pane="setup"
+                onAsk={ask ? () => ask("setup") : undefined}
+                onAdd={() => setEditing("setup")}
+                onSettings={openSettings}
+              />
             ) : (
               <>
                 <div className="project-scripts-row">
@@ -410,13 +508,13 @@ export function ProjectScripts({
                 <Output run={setupRun} />
               </>
             )
-          ) : editing === "run" || scripts.length === 0 ? (
+          ) : editing === "run" ? (
             <CommandForm
               key={`run:${project}`}
               withName
               suggestions={runHints}
               submitLabel="Add"
-              onCancel={scripts.length ? () => setEditing(null) : undefined}
+              onCancel={() => setEditing(null)}
               onSubmit={(name, command) => {
                 const script = { id: crypto.randomUUID(), name, command };
                 saveScripts([
@@ -427,7 +525,14 @@ export function ProjectScripts({
                 setEditing(null);
               }}
             />
-          ) : current ? (
+          ) : scripts.length === 0 || !current ? (
+            <ScriptEmpty
+              pane="run"
+              onAsk={ask ? () => ask("run") : undefined}
+              onAdd={() => setEditing("run")}
+              onSettings={openSettings}
+            />
+          ) : (
             <>
               <div className="project-scripts-row">
                 <div className="project-scripts-chips">
@@ -449,6 +554,15 @@ export function ProjectScripts({
                       </button>
                     );
                   })}
+                  <button
+                    type="button"
+                    className="project-scripts-chip"
+                    aria-label="Add a run script"
+                    title="Add a run script"
+                    onClick={() => setEditing("run")}
+                  >
+                    <Plus className="size-3" strokeWidth={1.75} />
+                  </button>
                 </div>
                 {currentRun?.state !== "running" ? (
                   <button
@@ -476,7 +590,7 @@ export function ProjectScripts({
               </div>
               <Output run={currentRun} />
             </>
-          ) : null}
+          )}
         </div>
       ) : null}
     </section>

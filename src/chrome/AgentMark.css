@@ -3,17 +3,22 @@
    It is also a `.dot-mark`, so it takes the marks' sizes (15px when not
    set) and their colour tokens (`--dot-mark-tint`) from DotMark.css.
 
-   Its orb is in the agent's colour; what needs you is amber and what's
-   ready green. At rest a plain chat's orb is grey and still. The orb's own
+   Every orb is plain grey dots, whatever its project's or agent's colour,
+   as Super draws them: the text colour at 62% at rest and 70% while it
+   works or watches. Only status has colour: what needs you is amber,
+   what's ready green, a failure red. The colour menu's preview is the one
+   place a mark shows its colour. The orb's own
    script moves it; the only CSS motion is a reaction's one hop, by
    transform and opacity. */
 
 .agent-mark {
-  --agent-body: var(--dot-mark-tint, currentColor);
+  --agent-body: var(--agent-rest);
   --agent-face: var(--agent-body);
   /* At rest, grey: the text colour, a little quieter, so it reads on light
      and dark surfaces alike. */
   --agent-rest: color-mix(in srgb, var(--color-content) 62%, transparent);
+  /* Working or watching: grey, never the project's colour. */
+  --agent-busy: color-mix(in srgb, var(--color-content) 70%, transparent);
   --agent-ready: #5fd3a0;
   --agent-happy: #c4a0ff;
   --agent-failed: #ff6b6b;
@@ -29,8 +34,12 @@ html.theme-light .agent-mark {
 
 /* At rest a plain chat's orb is grey; an agent with a colour keeps it, so
    a Builder at rest still reads as the Builder. */
-.agent-mark:is([data-agent="resting"], [data-agent="still"]):not([data-tone]) {
-  --agent-face: var(--agent-rest);
+/* The colour menu shows the colour it offers. */
+.agent-mark.helm-critter-preview {
+  --agent-body: var(--dot-mark-tint, currentColor);
+}
+.agent-mark:is([data-agent="working"], [data-agent="watching"]) {
+  --agent-face: var(--agent-busy);
 }
 .agent-mark[data-agent="needs"] {
   --agent-face: var(--aven-needs-you);

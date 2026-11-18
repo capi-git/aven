@@ -5,10 +5,7 @@ import {
   projectlessProfileForCwd,
   projectlessWorkspacePaths,
 } from "./projectlessWorkspace";
-import {
-  resetWorkspaceTheme,
-  useActivateWorkspaceTheme,
-} from "./workspaceThemes";
+import { useActivateWorkspaceTheme } from "./workspaceThemes";
 import {
   looksLikeProject,
   normalizeProjectPath,
@@ -439,7 +436,6 @@ export function useWorkspaceProfiles(
       if (!cleanName) return stateRef.current.activeProfileId;
       const id = `workspace-${crypto.randomUUID()}`;
       const current = stateRef.current;
-      resetWorkspaceTheme(id);
       commit({
         ...current,
         profiles: [

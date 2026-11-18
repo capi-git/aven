@@ -104,10 +104,16 @@ export type WorkspaceThemePreset = {
   saturation: number;
   colors: Record<ColorScheme, WorkspaceColors>;
 };
+/**
+ * Every workspace shares one look: `fallback`. `shared` marks a store whose
+ * per-workspace looks were folded into it; `themes` stays empty after that,
+ * so an older Aven reading this key also shows the one look everywhere.
+ */
 type ThemeStore = {
   version: 1;
   fallback: WorkspaceTheme;
   themes: Record<string, WorkspaceTheme>;
+  shared?: true;
 };
 function preset(
   name: string,
@@ -512,7 +518,10 @@ function parseStore(raw: string | null): ThemeStore | null {
       ...legacyTheme(),
       colors: undefined,
     });
+    // Only an old, not yet folded store can hold the inherited stock
+    // fallback. Once every workspace shares `fallback`, it is a chosen look.
     const fallback =
+      parsed.shared !== true &&
       isHistoricalStockFallback(parsed.fallback) &&
       !hasLegacyAppearancePreferences()
         ? defaultWorkspaceTheme()
@@ -531,10 +540,42 @@ function parseStore(raw: string | null): ThemeStore | null {
           });
       }
     }
-    return { version: 1, fallback, themes };
+    return {
+      version: 1,
+      fallback,
+      themes,
+      ...(parsed.shared === true ? { shared: true as const } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+/** The workspace in front when Aven last saved, read without importing the
+ *  profiles module (it imports this one). */
+function savedActiveProfileId(): string | null {
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem("monocode.workspaceProfiles.v1") ?? "null",
+    ) as { activeProfileId?: unknown } | null;
+    return typeof raw?.activeProfileId === "string"
+      ? raw.activeProfileId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fold per-workspace looks into one: the look of the workspace in front,
+ *  else Personal's, else the old fallback. */
+function sharedStore(store: ThemeStore): ThemeStore {
+  if (store.shared) return store;
+  const active = savedActiveProfileId();
+  const look =
+    (active && validId(active) ? store.themes[active] : undefined) ??
+    store.themes.personal ??
+    store.fallback;
+  return { version: 1, fallback: look, themes: {}, shared: true };
 }
 
 /** Capture the legacy appearance once, so untouched workspaces do not inherit later edits. */
@@ -549,12 +590,14 @@ function themeSnapshot(): string {
   // Persist newly added fields once. Otherwise a legacy palette-only record
   // could keep inheriting changes to global glass settings on every read.
   const initial = JSON.stringify(
-    parseStore(raw) ??
-      ({
-        version: 1,
-        fallback: legacyTheme(),
-        themes: {},
-      } satisfies ThemeStore),
+    sharedStore(
+      parseStore(raw) ??
+        ({
+          version: 1,
+          fallback: legacyTheme(),
+          themes: {},
+        } satisfies ThemeStore),
+    ),
   );
   try {
     if (raw !== initial) localStorage.setItem(WORKSPACE_THEMES_KEY, initial);
@@ -567,17 +610,16 @@ function themeSnapshot(): string {
 function readThemeStore(): ThemeStore {
   return parseStore(themeSnapshot())!;
 }
-export function loadWorkspaceTheme(profileId: string): WorkspaceTheme {
-  const store = readThemeStore();
-  return store.themes[profileId] ?? store.fallback;
+/** Aven's look. Every workspace shares it. */
+export function loadWorkspaceTheme(): WorkspaceTheme {
+  return readThemeStore().fallback;
 }
+/** Changes Aven's look, in every workspace. */
 export function saveWorkspaceTheme(
-  profileId: string,
   patch: Partial<WorkspaceTheme>,
 ): WorkspaceTheme {
   const store = readThemeStore();
-  const current = store.themes[profileId] ?? store.fallback;
-  if (!validId(profileId)) return current;
+  const current = store.fallback;
   // Legacy tint sliders remain useful after an explicit palette selection.
   // Only the edited mode returns to tint colors; the other mode stays saved.
   let colors = patch.colors ?? current.colors;
@@ -598,10 +640,7 @@ export function saveWorkspaceTheme(
   try {
     localStorage.setItem(
       WORKSPACE_THEMES_KEY,
-      JSON.stringify({
-        ...store,
-        themes: { ...store.themes, [profileId]: next },
-      }),
+      JSON.stringify({ ...store, fallback: next, themes: {}, shared: true }),
     );
   } catch {
     /* A preference write must never block project navigation. */
@@ -610,63 +649,32 @@ export function saveWorkspaceTheme(
     window.dispatchEvent(new Event(THEME_CHANGED));
   return next;
 }
-/** Replace destination appearance as one preference write. This is a copy,
- * not a link: later edits stay local to their workspace. */
-export function copyWorkspaceTheme(
-  profileId: string,
-  targetProfileIds: readonly string[],
-): boolean {
-  if (!validId(profileId)) return false;
-  const store = readThemeStore();
-  const source = store.themes[profileId] ?? store.fallback;
-  const targets = [...new Set(targetProfileIds)].filter(
-    (id) => validId(id) && id !== profileId,
-  );
-  if (!targets.length) return true;
-  const themes = { ...store.themes };
-  // Full replacement also removes old destination palette overrides when
-  // the source uses tint colors. Patch/merge semantics cannot do that.
-  for (const id of targets) themes[id] = source;
-  const snapshot = JSON.stringify({ ...store, themes });
-  try {
-    localStorage.setItem(WORKSPACE_THEMES_KEY, snapshot);
-  } catch {
-    return false;
-  }
-  validatedSnapshot = snapshot;
-  if (typeof window !== "undefined")
-    window.dispatchEvent(new Event(THEME_CHANGED));
-  return true;
-}
-
-export function resetWorkspaceTheme(profileId: string) {
-  return saveWorkspaceTheme(profileId, defaultWorkspaceTheme());
+export function resetWorkspaceTheme() {
+  return saveWorkspaceTheme(defaultWorkspaceTheme());
 }
 
 export function saveWorkspaceColor(
-  profileId: string,
   scheme: ColorScheme,
   target: WorkspaceColorTarget,
   color: string | null,
 ): WorkspaceTheme {
-  const current = loadWorkspaceTheme(profileId);
+  const current = loadWorkspaceTheme();
   const normalized = normalizeThemeColor(color);
   if (color !== null && !normalized) return current;
   const palette = { ...current.colors?.[scheme] };
   if (normalized) palette[target] = normalized;
   else delete palette[target];
-  return saveWorkspaceTheme(profileId, {
+  return saveWorkspaceTheme({
     colors: { ...current.colors, [scheme]: palette },
   });
 }
 
 export function applyWorkspaceThemePreset(
-  profileId: string,
   selected: WorkspaceThemePreset,
   scheme: ColorScheme,
 ): WorkspaceTheme {
-  const current = loadWorkspaceTheme(profileId);
-  return saveWorkspaceTheme(profileId, {
+  const current = loadWorkspaceTheme();
+  return saveWorkspaceTheme({
     colors: { ...current.colors, [scheme]: selected.colors[scheme] },
   });
 }
@@ -681,16 +689,14 @@ function subscribeThemes(onChange: () => void) {
     window.removeEventListener("storage", onStorage);
   };
 }
-export function useWorkspaceTheme(profileId: string) {
+/** Aven's look, the same in every workspace. */
+export function useWorkspaceTheme() {
   const snapshot = useSyncExternalStore(
     subscribeThemes,
     themeSnapshot,
     themeSnapshot,
   );
-  return useMemo(() => {
-    const store = parseStore(snapshot)!;
-    return store.themes[profileId] ?? store.fallback;
-  }, [snapshot, profileId]);
+  return useMemo(() => parseStore(snapshot)!.fallback, [snapshot]);
 }
 function subscribeActiveTheme(onChange: () => void) {
   window.addEventListener(ACTIVE_THEME_CHANGED, onChange);
@@ -702,13 +708,13 @@ export function useActiveWorkspaceTheme() {
     () => activeThemeProfileId,
     () => "personal",
   );
-  const theme = useWorkspaceTheme(profileId);
+  const theme = useWorkspaceTheme();
   return { profileId, theme };
 }
 
 /** Selection applies the destination theme directly; it never writes the outgoing DOM theme back. */
 export function useActivateWorkspaceTheme(profileId: string) {
-  const theme = useWorkspaceTheme(profileId);
+  const theme = useWorkspaceTheme();
   const appliedPreference = useRef<ThemePreference | null>(null);
   const appliedBlur = useRef<number | null>(null);
   useLayoutEffect(() => {

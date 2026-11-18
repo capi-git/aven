@@ -20,7 +20,6 @@ import {
   resolvedWorkspaceColors,
   saveWorkspaceColor,
   defaultWorkspaceTheme,
-  copyWorkspaceTheme,
   SIDEBAR_TINT_STRENGTH_DEFAULT,
   SIDEBAR_TINT_STRENGTH_MAX,
 } from "./workspaceThemes";
@@ -89,59 +88,59 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const PROFILES_KEY = "monocode.workspaceProfiles.v1";
+function storedThemes() {
+  return JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!);
+}
+
 describe("workspace appearance migration and persistence", () => {
   it("always matches sidebars to the workspace, whatever an older version saved", () => {
     const matched = () =>
       document.documentElement.classList.contains("match-workspace-panels");
-    act(() => saveWorkspaceTheme("work", { matchPanels: false }));
-    act(() => saveWorkspaceTheme("personal", { matchPanels: true }));
+    act(() => saveWorkspaceTheme({ matchPanels: false }));
+    // The saved value is kept for older versions, never rewritten.
+    expect(storedThemes().fallback.matchPanels).toBe(false);
     render("work");
     expect(matched()).toBe(true);
+    act(() => saveWorkspaceTheme({ matchPanels: true }));
     render("personal");
     expect(matched()).toBe(true);
-    act(() => resetWorkspaceTheme("personal"));
+    act(() => resetWorkspaceTheme());
     expect(matched()).toBe(true);
-    // The saved value is kept for older versions, never rewritten.
-    expect(
-      JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!).themes.work
-        .matchPanels,
-    ).toBe(false);
   });
 
-  it("gives each workspace its own sidebar colour and clears it with Graphite", () => {
+  it("gives every workspace the same sidebar colour and clears it with Graphite", () => {
     const root = document.documentElement;
     render("personal");
     expect(root.classList.contains("has-sidebar-tint")).toBe(false);
-    act(() =>
-      saveWorkspaceTheme("personal", { sidebarTint: "#4F7CFF" as never }),
-    );
+    act(() => saveWorkspaceTheme({ sidebarTint: "#4F7CFF" as never }));
     expect(root.classList.contains("has-sidebar-tint")).toBe(true);
     expect(root.style.getPropertyValue("--sidebar-tint")).toBe("#4f7cff");
     expect(root.style.getPropertyValue("--sidebar-tint-strength")).toBe(
       `${SIDEBAR_TINT_STRENGTH_DEFAULT}%`,
     );
-    act(() => saveWorkspaceTheme("personal", { sidebarTintStrength: 500 }));
+    act(() => saveWorkspaceTheme({ sidebarTintStrength: 500 }));
     expect(root.style.getPropertyValue("--sidebar-tint-strength")).toBe(
       `${SIDEBAR_TINT_STRENGTH_MAX}%`,
     );
     render("work");
-    expect(root.classList.contains("has-sidebar-tint")).toBe(false);
-    act(() => saveWorkspaceTheme("work", { sidebarTint: "accent" }));
+    expect(root.style.getPropertyValue("--sidebar-tint")).toBe("#4f7cff");
+    act(() => saveWorkspaceTheme({ sidebarTint: "accent" }));
     expect(root.style.getPropertyValue("--sidebar-tint")).toBe(
       "var(--personal-accent)",
     );
     render("personal");
-    expect(root.style.getPropertyValue("--sidebar-tint")).toBe("#4f7cff");
-    act(() => saveWorkspaceTheme("personal", { sidebarTint: "none" }));
-    expect(root.classList.contains("has-sidebar-tint")).toBe(false);
-    expect(loadWorkspaceTheme("personal").sidebarTint).toBeUndefined();
-    act(() =>
-      saveWorkspaceTheme("personal", { sidebarTint: "url(evil)" as never }),
+    expect(root.style.getPropertyValue("--sidebar-tint")).toBe(
+      "var(--personal-accent)",
     );
+    act(() => saveWorkspaceTheme({ sidebarTint: "none" }));
+    expect(root.classList.contains("has-sidebar-tint")).toBe(false);
+    expect(loadWorkspaceTheme().sidebarTint).toBeUndefined();
+    act(() => saveWorkspaceTheme({ sidebarTint: "url(evil)" as never }));
     expect(root.classList.contains("has-sidebar-tint")).toBe(false);
   });
 
-  it("starts fresh workspaces with the Aven glass palette following the system and persists it", () => {
+  it("starts with the Aven glass palette following the system and persists it as the shared look", () => {
     const aven = defaultWorkspaceTheme();
     expect(WORKSPACE_THEME_PRESETS[0].name).toBe("Aven");
     expect(aven).toEqual({
@@ -166,26 +165,23 @@ describe("workspace appearance migration and persistence", () => {
         },
       },
     });
-    expect(loadWorkspaceTheme("personal")).toEqual(aven);
-    expect(loadWorkspaceTheme("work")).toEqual(aven);
-    expect(
-      JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!).fallback,
-    ).toEqual(aven);
-    expect(loadWorkspaceTheme("new-profile")).toEqual(aven);
+    expect(loadWorkspaceTheme()).toEqual(aven);
+    expect(storedThemes()).toEqual({
+      version: 1,
+      fallback: aven,
+      themes: {},
+      shared: true,
+    });
   });
 
-  it("keeps the saved Cove palette and custom workspaces unchanged across the rebrand", () => {
+  it("keeps a saved Cove look unchanged across the rebrand", () => {
     const cove = WORKSPACE_THEME_PRESETS.find(
       (theme) => theme.name === "Cove",
     )!;
-    const savedTheme = {
+    const custom = {
       ...defaultWorkspaceTheme(),
       hue: cove.hue,
       saturation: cove.saturation,
-      colors: cove.colors,
-    };
-    const custom = {
-      ...savedTheme,
       opacity: 0.37,
       blur: 12,
       bodyGlass: true,
@@ -194,8 +190,9 @@ describe("workspace appearance migration and persistence", () => {
     };
     const before = JSON.stringify({
       version: 1,
-      fallback: savedTheme,
-      themes: { work: custom },
+      fallback: custom,
+      themes: {},
+      shared: true,
     });
     localStorage.setItem(WORKSPACE_THEMES_KEY, before);
     localStorage.setItem(
@@ -203,29 +200,24 @@ describe("workspace appearance migration and persistence", () => {
       "/saved/background.png",
     );
 
-    expect(loadWorkspaceTheme("personal")).toEqual(savedTheme);
-    expect(loadWorkspaceTheme("work")).toEqual(custom);
+    expect(loadWorkspaceTheme()).toEqual(custom);
     expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(before);
     expect(localStorage.getItem("monocode.chatBackgroundPath")).toBe(
       "/saved/background.png",
     );
 
-    const next = applyWorkspaceThemePreset(
-      "work",
-      WORKSPACE_THEME_PRESETS[0],
-      "dark",
-    );
+    const next = applyWorkspaceThemePreset(WORKSPACE_THEME_PRESETS[0], "dark");
     expect(next).toEqual({
       ...custom,
       colors: { dark: WORKSPACE_THEME_PRESETS[0].colors.dark },
     });
-    expect(loadWorkspaceTheme("personal")).toEqual(savedTheme);
+    expect(loadWorkspaceTheme()).toEqual(next);
     expect(localStorage.getItem("monocode.chatBackgroundPath")).toBe(
       "/saved/background.png",
     );
   });
 
-  it("migrates only the complete inherited stock fallback and retains explicit workspace records", () => {
+  it("migrates only the complete inherited stock fallback", () => {
     const stock = {
       hue: 240,
       saturation: 8,
@@ -234,38 +226,18 @@ describe("workspace appearance migration and persistence", () => {
       blur: 0,
       bodyGlass: true,
     };
-    const custom = {
-      ...stock,
-      hue: 180,
-      opacity: 0.27,
-      blur: 17,
-      colors: { dark: { background: "#123456", accent: "#fedcba" } },
-    };
     localStorage.setItem(
       WORKSPACE_THEMES_KEY,
-      JSON.stringify({
-        version: 1,
-        fallback: stock,
-        themes: { personal: custom, work: stock },
-      }),
+      JSON.stringify({ version: 1, fallback: stock, themes: {} }),
     );
-    expect(loadWorkspaceTheme("inherited")).toEqual(defaultWorkspaceTheme());
-    expect(loadWorkspaceTheme("personal")).toEqual({
-      ...custom,
-      matchPanels: false,
-    });
-    // A saved per-workspace choice cannot safely be classified as untouched.
-    expect(loadWorkspaceTheme("work")).toEqual({
-      ...stock,
-      matchPanels: false,
-    });
+    expect(loadWorkspaceTheme()).toEqual(defaultWorkspaceTheme());
     const migrated = localStorage.getItem(WORKSPACE_THEMES_KEY);
     expect(JSON.parse(migrated!).fallback).toEqual(defaultWorkspaceTheme());
-    expect(loadWorkspaceTheme("inherited")).toEqual(defaultWorkspaceTheme());
+    expect(loadWorkspaceTheme()).toEqual(defaultWorkspaceTheme());
     expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(migrated);
   });
 
-  it("preserves an explicit old transparency preference and custom fallback but resets only the requested workspace", () => {
+  it("preserves an explicit old transparency preference and custom fallback until reset", () => {
     const custom = {
       hue: 240,
       saturation: 8,
@@ -283,20 +255,13 @@ describe("workspace appearance migration and persistence", () => {
         themes: {},
       }),
     );
-    expect(loadWorkspaceTheme("personal")).toEqual({
+    expect(loadWorkspaceTheme()).toEqual({
       ...custom,
       matchPanels: false,
     });
-    resetWorkspaceTheme("work");
-    expect(loadWorkspaceTheme("work")).toEqual(defaultWorkspaceTheme());
-    expect(loadWorkspaceTheme("personal")).toEqual({
-      ...custom,
-      matchPanels: false,
-    });
+    resetWorkspaceTheme();
+    expect(loadWorkspaceTheme()).toEqual(defaultWorkspaceTheme());
     expect(localStorage.getItem("monocode.sidebarOpacity")).toBe("0.15");
-    // The create-profile path uses Reset so new profiles do not inherit old glass.
-    resetWorkspaceTheme("new-profile");
-    expect(loadWorkspaceTheme("new-profile")).toEqual(defaultWorkspaceTheme());
   });
 
   it.each([
@@ -325,23 +290,18 @@ describe("workspace appearance migration and persistence", () => {
         themes: {},
       }),
     );
-    expect(loadWorkspaceTheme("personal")).toEqual({
-      ...custom,
-      matchPanels: false,
-    });
-    expect(loadWorkspaceTheme("work")).toEqual({
+    expect(loadWorkspaceTheme()).toEqual({
       ...custom,
       matchPanels: false,
     });
   });
 
   it("keeps tint-only customization after reload without reintroducing the Aven palette", () => {
-    saveWorkspaceTheme("personal", { hue: 85, saturation: 24 });
-    saveWorkspaceTheme("personal", { preference: "light", hue: 85 });
-    expect(loadWorkspaceTheme("personal").colors).toBeUndefined();
-    const persisted = JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!);
-    expect(persisted.themes.personal.colors).toBeUndefined();
-    expect(loadWorkspaceTheme("personal")).toEqual({
+    saveWorkspaceTheme({ hue: 85, saturation: 24 });
+    saveWorkspaceTheme({ preference: "light", hue: 85 });
+    expect(loadWorkspaceTheme().colors).toBeUndefined();
+    expect(storedThemes().fallback.colors).toBeUndefined();
+    expect(loadWorkspaceTheme()).toEqual({
       ...defaultGlass,
       hue: 85,
       saturation: 24,
@@ -372,44 +332,51 @@ describe("workspace appearance migration and persistence", () => {
     });
   });
 
-  it("moves a workspace saved with the former blue default to the neutral one", () => {
+  it("moves a look saved with the former blue default to the neutral one", () => {
     localStorage.setItem(
       WORKSPACE_THEMES_KEY,
       JSON.stringify({
         version: 1,
-        fallback: defaultWorkspaceTheme(),
-        themes: {
-          former: {
-            ...defaultWorkspaceTheme(),
-            opacity: 0.4,
-            colors: {
-              dark: {
-                background: "#000000",
-                accent: "#57B5FF",
-                highlight: "#57b5ff",
-              },
-              light: { ...AVEN_THEME_COLORS.light },
+        fallback: {
+          ...defaultWorkspaceTheme(),
+          opacity: 0.4,
+          colors: {
+            dark: {
+              background: "#000000",
+              accent: "#57B5FF",
+              highlight: "#57b5ff",
             },
-          },
-          // Blue on another background was a choice, not the default.
-          mist: {
-            ...defaultWorkspaceTheme(),
-            colors: {
-              dark: {
-                background: "#171b25",
-                accent: "#57b5ff",
-                highlight: "#57b5ff",
-              },
-            },
+            light: { ...AVEN_THEME_COLORS.light },
           },
         },
+        themes: {},
+        shared: true,
       }),
     );
-    expect(loadWorkspaceTheme("former")).toEqual({
+    expect(loadWorkspaceTheme()).toEqual({
       ...defaultWorkspaceTheme(),
       opacity: 0.4,
     });
-    expect(loadWorkspaceTheme("mist").colors?.dark?.accent).toBe("#57b5ff");
+    // Blue on another background was a choice, not the default.
+    localStorage.setItem(
+      WORKSPACE_THEMES_KEY,
+      JSON.stringify({
+        version: 1,
+        fallback: {
+          ...defaultWorkspaceTheme(),
+          colors: {
+            dark: {
+              background: "#171b25",
+              accent: "#57b5ff",
+              highlight: "#57b5ff",
+            },
+          },
+        },
+        themes: {},
+        shared: true,
+      }),
+    );
+    expect(loadWorkspaceTheme().colors?.dark?.accent).toBe("#57b5ff");
   });
 
   it("keeps the former monochrome default selectable as Mono", () => {
@@ -448,55 +415,47 @@ describe("workspace appearance migration and persistence", () => {
     });
   });
 
-  it("stores custom colors by workspace and mode while preserving legacy settings and glass", () => {
-    const original = loadWorkspaceTheme("personal");
+  it("stores custom colors by mode while preserving legacy settings and glass", () => {
+    const original = loadWorkspaceTheme();
     const light = resolvedWorkspaceColors(original, "light");
     const black = WORKSPACE_THEME_PRESETS.find(
       (preset) => preset.name === "Black",
     )!;
     expect(WORKSPACE_THEME_PRESETS).toHaveLength(22);
-    const next = applyWorkspaceThemePreset("personal", black, "dark");
+    const next = applyWorkspaceThemePreset(black, "dark");
     expect({ ...next, colors: original.colors }).toEqual(original);
     expect(next.colors?.dark?.background).toBe("#000000");
     expect(resolvedWorkspaceColors(next, "light")).toEqual(light);
-    expect(loadWorkspaceTheme("work")).toEqual(original);
-    saveWorkspaceColor("personal", "light", "accent", "#AbC");
-    expect(loadWorkspaceTheme("personal").colors?.light?.accent).toBe(
-      "#aabbcc",
-    );
-    expect(loadWorkspaceTheme("personal").colors?.dark).toEqual(
-      black.colors.dark,
-    );
+    saveWorkspaceColor("light", "accent", "#AbC");
+    expect(loadWorkspaceTheme().colors?.light?.accent).toBe("#aabbcc");
+    expect(loadWorkspaceTheme().colors?.dark).toEqual(black.colors.dark);
     const saved = localStorage.getItem(WORKSPACE_THEMES_KEY);
-    saveWorkspaceColor("personal", "dark", "background", "url(untrusted)");
+    saveWorkspaceColor("dark", "background", "url(untrusted)");
     expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(saved);
-    saveWorkspaceColor("personal", "light", "accent", null);
-    expect(loadWorkspaceTheme("personal").colors?.light).toEqual({
+    saveWorkspaceColor("light", "accent", null);
+    expect(loadWorkspaceTheme().colors?.light).toEqual({
       background: light.background,
       highlight: light.highlight,
     });
-    expect(loadWorkspaceTheme("personal").colors?.dark).toEqual(
-      black.colors.dark,
-    );
+    expect(loadWorkspaceTheme().colors?.dark).toEqual(black.colors.dark);
   });
 
   it("legacy tint edits clear only the resolved mode and reset restores Aven colors", () => {
-    const original = loadWorkspaceTheme("personal");
-    saveWorkspaceColor("personal", "dark", "background", "#000000");
-    saveWorkspaceColor("personal", "light", "background", "#ffffff");
-    saveWorkspaceTheme("personal", { hue: 155 });
-    expect(loadWorkspaceTheme("personal").colors?.dark).toBeUndefined();
-    expect(loadWorkspaceTheme("personal").colors?.light?.background).toBe(
-      "#ffffff",
-    );
-    saveWorkspaceColor("work", "dark", "background", "#123456");
-    saveWorkspaceTheme("work", { hue: NaN, saturation: Infinity });
-    expect(loadWorkspaceTheme("work").colors?.dark?.background).toBe("#123456");
-    resetWorkspaceTheme("personal");
-    expect(loadWorkspaceTheme("personal")).toEqual(original);
-    expect(loadWorkspaceTheme("work").colors?.dark?.background).toBe("#123456");
+    const original = loadWorkspaceTheme();
+    saveWorkspaceColor("dark", "background", "#000000");
+    saveWorkspaceColor("light", "background", "#ffffff");
+    saveWorkspaceTheme({ hue: 155 });
+    expect(loadWorkspaceTheme().colors?.dark).toBeUndefined();
+    expect(loadWorkspaceTheme().colors?.light?.background).toBe("#ffffff");
+    saveWorkspaceColor("dark", "background", "#123456");
+    // Non-finite tint values are not a tint edit.
+    saveWorkspaceTheme({ hue: NaN, saturation: Infinity });
+    expect(loadWorkspaceTheme().colors?.dark?.background).toBe("#123456");
+    resetWorkspaceTheme();
+    expect(loadWorkspaceTheme()).toEqual(original);
   });
-  it("captures the legacy theme once and preserves it for untouched workspaces", () => {
+
+  it("captures the legacy theme once and keeps it after the legacy setting changes", () => {
     localStorage.setItem("monocode.themeHue", "155");
     localStorage.setItem("monocode.themeSaturation", "22");
     localStorage.setItem("monocode.colorScheme", "light");
@@ -513,13 +472,12 @@ describe("workspace appearance migration and persistence", () => {
       preference: "light",
       ...legacyGlass,
     };
-    expect(loadWorkspaceTheme("personal")).toEqual(original);
-    saveWorkspaceTheme("personal", { hue: 260, preference: "dark" });
-    // A legacy consumer changing its setting must not migrate Personal into Work.
+    expect(loadWorkspaceTheme()).toEqual(original);
+    // A legacy consumer changing its setting must not change the saved look.
     localStorage.setItem("monocode.themeHue", "40");
-    expect(loadWorkspaceTheme("work")).toEqual(original);
-    expect(loadWorkspaceTheme("new-custom-profile")).toEqual(original);
-    expect(loadWorkspaceTheme("personal")).toEqual({
+    expect(loadWorkspaceTheme()).toEqual(original);
+    saveWorkspaceTheme({ hue: 260, preference: "dark" });
+    expect(loadWorkspaceTheme()).toEqual({
       ...legacyGlass,
       hue: 260,
       saturation: 22,
@@ -528,198 +486,196 @@ describe("workspace appearance migration and persistence", () => {
     expect(localStorage.getItem("monocode.colorScheme")).toBe("light");
   });
 
-  it("merges edits independently and resets only the chosen workspace", () => {
-    const original = loadWorkspaceTheme("personal");
-    saveWorkspaceTheme("personal", { hue: 265, preference: "dark" });
-    saveWorkspaceTheme("work", { saturation: 35, preference: "light" });
-    saveWorkspaceTheme("personal", { saturation: 18 });
-    expect(loadWorkspaceTheme("personal")).toEqual({
+  it("merges edits into the one look and reset restores Aven", () => {
+    const original = loadWorkspaceTheme();
+    saveWorkspaceTheme({ hue: 265, preference: "dark" });
+    saveWorkspaceTheme({ saturation: 35, preference: "light" });
+    saveWorkspaceTheme({ saturation: 18 });
+    expect(loadWorkspaceTheme()).toMatchObject({
       ...defaultGlass,
       hue: 265,
       saturation: 18,
-      preference: "dark",
-      colors: { light: original.colors!.light },
-    });
-    expect(loadWorkspaceTheme("work")).toEqual({
-      ...defaultGlass,
-      hue: original.hue,
-      saturation: 35,
       preference: "light",
-      colors: { dark: original.colors!.dark },
     });
-    resetWorkspaceTheme("work");
-    expect(loadWorkspaceTheme("work")).toEqual(original);
-    expect(loadWorkspaceTheme("personal").hue).toBe(265);
+    // Each tint edit cleared the palette of the mode it was made in.
+    expect(loadWorkspaceTheme().colors?.dark).toBeUndefined();
+    expect(loadWorkspaceTheme().colors?.light).toBeUndefined();
+    resetWorkspaceTheme();
+    expect(loadWorkspaceTheme()).toEqual(original);
   });
 
   it("rejects malformed preferences and clamps out-of-range values", () => {
     localStorage.setItem(WORKSPACE_THEMES_KEY, "broken");
-    expect(loadWorkspaceTheme("work")).toEqual(defaultWorkspaceTheme());
-    saveWorkspaceTheme("work", { hue: 990, saturation: -20 });
-    expect(loadWorkspaceTheme("work")).toEqual({
+    expect(loadWorkspaceTheme()).toEqual(defaultWorkspaceTheme());
+    saveWorkspaceTheme({ hue: 990, saturation: -20 });
+    expect(loadWorkspaceTheme()).toEqual({
       ...defaultGlass,
       hue: 360,
       saturation: 0,
       preference: "system",
       colors: { light: defaultWorkspaceTheme().colors!.light },
     });
-    const saved = JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!);
-    saved.themes.work = {
+    const saved = storedThemes();
+    saved.fallback = {
       hue: "invalid",
       saturation: null,
       preference: "unknown",
     };
     localStorage.setItem(WORKSPACE_THEMES_KEY, JSON.stringify(saved));
-    expect(loadWorkspaceTheme("work")).toEqual({
-      ...saved.fallback,
+    expect(loadWorkspaceTheme()).toEqual({
+      ...defaultWorkspaceTheme(),
       colors: undefined,
     });
   });
 });
 
-describe("copying workspace appearance", () => {
-  it("replaces both palettes, sidebar matching, and glass without changing other workspace data", () => {
-    saveWorkspaceTheme("personal", {
-      hue: 155,
-      saturation: 22,
-      preference: "system",
-      opacity: 0.37,
-      blur: 19,
-      bodyGlass: true,
-      matchPanels: true,
-      colors: {
-        dark: {
-          background: "#123456",
-          accent: "#789abc",
-          highlight: "#def012",
-        },
-        light: {
-          background: "#f1f2f3",
-          accent: "#456789",
-          highlight: "#abcdef",
-        },
-      },
+describe("one look for every workspace", () => {
+  const look = (hue: number) => ({
+    ...defaultWorkspaceTheme(),
+    hue,
+    colors: undefined,
+  });
+  function oldStore(themes: Record<string, unknown>) {
+    localStorage.setItem(
+      WORKSPACE_THEMES_KEY,
+      JSON.stringify({ version: 1, fallback: look(10), themes }),
+    );
+  }
+
+  it("migrates the look of the workspace that was in front", () => {
+    localStorage.setItem(
+      PROFILES_KEY,
+      JSON.stringify({ activeProfileId: "work" }),
+    );
+    oldStore({ personal: look(20), work: look(30) });
+    expect(loadWorkspaceTheme()).toEqual(look(30));
+    expect(storedThemes()).toEqual({
+      version: 1,
+      fallback: look(30),
+      themes: {},
+      shared: true,
     });
-    saveWorkspaceTheme("work", { preference: "light", opacity: 1 });
-    saveWorkspaceTheme("untouched", { hue: 45, blur: 6 });
+  });
+
+  it("keeps a chosen look that matches the old stock values", () => {
+    const stock = {
+      hue: 240,
+      saturation: 8,
+      preference: "dark",
+      opacity: 0.15,
+      blur: 0,
+      bodyGlass: true,
+    };
+    localStorage.setItem(
+      PROFILES_KEY,
+      JSON.stringify({ activeProfileId: "work" }),
+    );
+    oldStore({ work: stock });
+    const chosen = loadWorkspaceTheme();
+    expect(chosen).not.toEqual(defaultWorkspaceTheme());
+    expect(chosen).toMatchObject(stock);
+    // Read again from the folded store: still the chosen look.
+    expect(loadWorkspaceTheme()).toEqual(chosen);
+    saveWorkspaceTheme(stock as Partial<typeof chosen>);
+    expect(loadWorkspaceTheme()).toMatchObject(stock);
+  });
+
+  it("migrates Personal's look when the front workspace had none of its own", () => {
+    localStorage.setItem(
+      PROFILES_KEY,
+      JSON.stringify({ activeProfileId: "workspace-new" }),
+    );
+    oldStore({ personal: look(20), work: look(30) });
+    expect(loadWorkspaceTheme()).toEqual(look(20));
+    expect(storedThemes()).toEqual({
+      version: 1,
+      fallback: look(20),
+      themes: {},
+      shared: true,
+    });
+  });
+
+  it("migrates the old fallback when neither the front workspace nor Personal had a look", () => {
+    oldStore({ work: look(30) });
+    expect(loadWorkspaceTheme()).toEqual(look(10));
+    expect(storedThemes()).toEqual({
+      version: 1,
+      fallback: look(10),
+      themes: {},
+      shared: true,
+    });
+  });
+
+  it("ignores unreadable or unsafe front-workspace records", () => {
+    localStorage.setItem(PROFILES_KEY, "broken");
+    oldStore({ personal: look(20) });
+    expect(loadWorkspaceTheme()).toEqual(look(20));
+    localStorage.setItem(
+      PROFILES_KEY,
+      JSON.stringify({ activeProfileId: "__proto__" }),
+    );
+    oldStore({ work: look(30) });
+    expect(loadWorkspaceTheme()).toEqual(look(10));
+  });
+
+  it("migrates once: a shared store keeps its look even if workspace records come back", () => {
+    oldStore({ personal: look(20) });
+    expect(loadWorkspaceTheme()).toEqual(look(20));
+    // An older Aven may still write a per-workspace record into the store.
+    const shared = storedThemes();
+    shared.themes.personal = look(99);
+    localStorage.setItem(WORKSPACE_THEMES_KEY, JSON.stringify(shared));
+    localStorage.setItem(
+      PROFILES_KEY,
+      JSON.stringify({ activeProfileId: "personal" }),
+    );
+    expect(loadWorkspaceTheme()).toEqual(look(20));
+  });
+
+  it("shows an edit made in one workspace in every workspace", () => {
+    render("personal");
+    act(() => saveWorkspaceTheme({ hue: 120, opacity: 0.4 }));
+    render("work");
+    expect(activeSettings.profileId).toBe("work");
+    expect(activeSettings.theme).toMatchObject({ hue: 120, opacity: 0.4 });
+    expect(document.documentElement.style.getPropertyValue("--theme-hue")).toBe(
+      "120",
+    );
+    expect(storedThemes().themes).toEqual({});
+    expect(storedThemes().shared).toBe(true);
+  });
+
+  it("writes only the theme key and announces each edit once", () => {
     const otherStorage = {
-      "monocode.workspaceProfiles.v1": JSON.stringify({
+      [PROFILES_KEY]: JSON.stringify({
         activeProfileId: "personal",
         projectProfiles: { "/work/project": "work" },
-        lastProjectByProfile: { work: "/work/project" },
-      }),
-      "supermono.workspaceViews.v1": JSON.stringify({
-        work: { tabs: ["session-1"], draft: "Keep this draft" },
       }),
       "monocode.chatBackgroundPath": "/app-data/background.png",
-      "monocode.chatBackgroundOpacity": "0.35",
-      "monocode.chatBackgroundScope": "all",
-      "monocode:project-chat-backgrounds": JSON.stringify({
-        "/work/project": { path: "/app-data/project-background.png" },
-      }),
     };
     for (const [key, value] of Object.entries(otherStorage)) {
       localStorage.setItem(key, value);
     }
-    const before = JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!);
-    const source = loadWorkspaceTheme("personal");
-
-    expect(copyWorkspaceTheme("personal", ["personal", "work", "custom"])).toBe(
-      true,
-    );
-
-    expect(loadWorkspaceTheme("work")).toEqual(source);
-    expect(loadWorkspaceTheme("custom")).toEqual(source);
-    expect(loadWorkspaceTheme("personal")).toEqual(source);
-    const after = JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!);
-    expect(after.fallback).toEqual(before.fallback);
-    expect(after.themes.untouched).toEqual(before.themes.untouched);
-    for (const [key, value] of Object.entries(otherStorage)) {
-      expect(localStorage.getItem(key)).toBe(value);
-    }
-
-    // Copying is a one-time action; later edits remain independent.
-    saveWorkspaceColor("work", "light", "accent", "#ff0000");
-    expect(loadWorkspaceTheme("personal")).toEqual(source);
-    expect(loadWorkspaceTheme("custom")).toEqual(source);
-  });
-
-  it("clears every destination color override when the source uses tint-only colors", () => {
-    saveWorkspaceTheme("personal", {
-      preference: "dark",
-      hue: 85,
-      saturation: 24,
-    });
-    saveWorkspaceTheme("personal", { preference: "light", hue: 85 });
-    saveWorkspaceColor("work", "dark", "background", "#012345");
-    saveWorkspaceColor("work", "light", "highlight", "#fedcba");
-    const source = loadWorkspaceTheme("personal");
-    expect(source.colors).toBeUndefined();
-    expect(loadWorkspaceTheme("work").colors?.dark).toBeDefined();
-    expect(loadWorkspaceTheme("work").colors?.light).toBeDefined();
-
-    expect(copyWorkspaceTheme("personal", ["work"])).toBe(true);
-
-    expect(loadWorkspaceTheme("work")).toEqual(source);
-    expect(loadWorkspaceTheme("work").colors).toBeUndefined();
-    expect(
-      JSON.parse(localStorage.getItem(WORKSPACE_THEMES_KEY)!).themes.work
-        .colors,
-    ).toBeUndefined();
-  });
-
-  it("writes every destination together and notifies subscribers once after persistence", () => {
-    saveWorkspaceTheme("personal", {
-      opacity: 0.53,
-      blur: 13,
-      matchPanels: true,
-    });
-    saveWorkspaceTheme("work", { opacity: 0.75 });
-    saveWorkspaceTheme("custom", { opacity: 0.95 });
-    const source = loadWorkspaceTheme("personal");
+    loadWorkspaceTheme();
     const persist = vi.spyOn(localStorage, "setItem");
-    const onChange = vi.fn(() => {
-      expect(loadWorkspaceTheme("work")).toEqual(source);
-      expect(loadWorkspaceTheme("custom")).toEqual(source);
-    });
+    const onChange = vi.fn();
     window.addEventListener("monocode:workspace-theme-changed", onChange);
     try {
-      expect(copyWorkspaceTheme("personal", ["work", "custom", "work"])).toBe(
-        true,
-      );
+      saveWorkspaceTheme({ opacity: 0.53, blur: 13 });
       expect(persist).toHaveBeenCalledTimes(1);
       expect(persist.mock.calls[0][0]).toBe(WORKSPACE_THEMES_KEY);
       expect(onChange).toHaveBeenCalledTimes(1);
     } finally {
       window.removeEventListener("monocode:workspace-theme-changed", onChange);
     }
-  });
-
-  it("reports a storage failure without changing saved appearances or announcing success", () => {
-    saveWorkspaceTheme("personal", { opacity: 0.43, blur: 14 });
-    saveWorkspaceTheme("work", { opacity: 0.86, blur: 0 });
-    const before = localStorage.getItem(WORKSPACE_THEMES_KEY);
-    const source = loadWorkspaceTheme("personal");
-    const destination = loadWorkspaceTheme("work");
-    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
-      throw new Error("Storage unavailable");
-    });
-    const onChange = vi.fn();
-    window.addEventListener("monocode:workspace-theme-changed", onChange);
-    try {
-      expect(copyWorkspaceTheme("personal", ["work", "custom"])).toBe(false);
-      expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(before);
-      expect(loadWorkspaceTheme("personal")).toEqual(source);
-      expect(loadWorkspaceTheme("work")).toEqual(destination);
-      expect(onChange).not.toHaveBeenCalled();
-    } finally {
-      window.removeEventListener("monocode:workspace-theme-changed", onChange);
+    for (const [key, value] of Object.entries(otherStorage)) {
+      expect(localStorage.getItem(key)).toBe(value);
     }
   });
 });
 
 describe("workspace glass migration", () => {
-  it("migrates palette-only records once without replacing either workspace palette", () => {
+  it("migrates palette-only records once", () => {
     const palette = { hue: 240, saturation: 8, preference: "dark" };
     localStorage.setItem("monocode.sidebarOpacity", "0.07");
     localStorage.setItem("monocode.sidebarBlur", "10");
@@ -735,72 +691,55 @@ describe("workspace glass migration", () => {
         },
       }),
     );
-    expect(loadWorkspaceTheme("personal")).toEqual({
+    const expected = {
       ...palette,
       hue: 265,
       opacity: 0.07,
       blur: 10,
       bodyGlass: false,
       matchPanels: false,
-    });
+    };
+    expect(loadWorkspaceTheme()).toEqual(expected);
     const migrated = localStorage.getItem(WORKSPACE_THEMES_KEY);
     localStorage.setItem("monocode.sidebarOpacity", "0.9");
     localStorage.setItem("monocode.sidebarBlur", "30");
     localStorage.setItem("monocode.bodyGlass", "1");
-    expect(loadWorkspaceTheme("work")).toEqual({
-      ...palette,
-      hue: 155,
-      opacity: 0.07,
-      blur: 10,
-      bodyGlass: false,
-      matchPanels: false,
-    });
-    expect(loadWorkspaceTheme("new-profile").opacity).toBe(0.07);
+    expect(loadWorkspaceTheme()).toEqual(expected);
     expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(migrated);
   });
 
-  it("preserves fractional opacity and independently clamps or rejects glass values", () => {
-    saveWorkspaceTheme("personal", {
+  it("preserves fractional opacity and clamps or rejects glass values", () => {
+    saveWorkspaceTheme({
       opacity: 0.07,
       blur: 0,
       bodyGlass: false,
       matchPanels: false,
     });
-    saveWorkspaceTheme("work", { opacity: -10, blur: 88 });
-    expect(loadWorkspaceTheme("personal")).toMatchObject({
+    expect(loadWorkspaceTheme()).toMatchObject({
       opacity: 0.07,
       blur: 0,
       bodyGlass: false,
       matchPanels: false,
     });
-    expect(loadWorkspaceTheme("work")).toMatchObject({
-      opacity: 0.05,
-      blur: 64,
-      bodyGlass: true,
-      matchPanels: false,
-    });
-    saveWorkspaceTheme("personal", { opacity: Infinity, blur: NaN });
-    expect(loadWorkspaceTheme("personal")).toMatchObject({
-      opacity: 0.07,
-      blur: 0,
-    });
-    saveWorkspaceTheme("work", { opacity: 10, blur: -4 });
-    expect(loadWorkspaceTheme("work")).toMatchObject({ opacity: 1, blur: 0 });
-    resetWorkspaceTheme("work");
-    expect(loadWorkspaceTheme("work")).toMatchObject(defaultGlass);
-    expect(loadWorkspaceTheme("personal").opacity).toBe(0.07);
+    saveWorkspaceTheme({ opacity: Infinity, blur: NaN });
+    expect(loadWorkspaceTheme()).toMatchObject({ opacity: 0.07, blur: 0 });
+    saveWorkspaceTheme({ opacity: -10, blur: 88 });
+    expect(loadWorkspaceTheme()).toMatchObject({ opacity: 0.05, blur: 64 });
+    saveWorkspaceTheme({ opacity: 10, blur: -4 });
+    expect(loadWorkspaceTheme()).toMatchObject({ opacity: 1, blur: 0 });
+    resetWorkspaceTheme();
+    expect(loadWorkspaceTheme()).toMatchObject(defaultGlass);
   });
 });
 
 describe("workspace theme activation", () => {
-  it("switches between matching themes without repainting the root or repeating native work", () => {
-    saveWorkspaceTheme("personal", {
+  it("switches workspaces without repainting the root or repeating native work", () => {
+    saveWorkspaceTheme({
       hue: 210,
       opacity: 0.5,
       blur: 12,
       matchPanels: true,
     });
-    copyWorkspaceTheme("personal", ["work"]);
     render("personal");
     const setStyle = vi.spyOn(document.documentElement.style, "setProperty");
     const removeStyle = vi.spyOn(
@@ -808,102 +747,56 @@ describe("workspace theme activation", () => {
       "removeProperty",
     );
     vi.mocked(invoke).mockClear();
+    const saved = localStorage.getItem(WORKSPACE_THEMES_KEY);
     render("work");
     expect(activeSettings.profileId).toBe("work");
-    expect(activeSettings.theme).toEqual(loadWorkspaceTheme("work"));
+    expect(activeSettings.theme).toEqual(loadWorkspaceTheme());
     expect(setStyle).not.toHaveBeenCalled();
     expect(removeStyle).not.toHaveBeenCalled();
     expect(invoke).not.toHaveBeenCalled();
-    act(() => saveWorkspaceColor("work", "dark", "accent", "#123456"));
+    expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(saved);
+    act(() => saveWorkspaceColor("dark", "accent", "#123456"));
     expect(
       document.documentElement.style.getPropertyValue("--theme-accent-color"),
     ).toBe("#123456");
-    expect(loadWorkspaceTheme("personal").colors?.dark?.accent).not.toBe(
-      "#123456",
-    );
+    render("personal");
+    expect(
+      document.documentElement.style.getPropertyValue("--theme-accent-color"),
+    ).toBe("#123456");
   });
 
-  it("activates custom colors without leaking them to another workspace or mode", async () => {
-    saveWorkspaceColor("personal", "dark", "background", "#101010");
-    saveWorkspaceColor("personal", "light", "background", "#f0f0f0");
+  it("activates custom colors without leaking them to the other mode", async () => {
+    saveWorkspaceColor("dark", "background", "#101010");
+    saveWorkspaceColor("light", "background", "#f0f0f0");
     render("personal");
     const style = document.documentElement.style;
     expect(style.getPropertyValue("--theme-background-color")).toBe("#101010");
     vi.mocked(invoke).mockClear();
     act(() => {
-      saveWorkspaceColor("personal", "dark", "accent", "#aabbcc");
+      saveWorkspaceColor("dark", "accent", "#aabbcc");
     });
     expect(style.getPropertyValue("--theme-accent-color")).toBe("#aabbcc");
     expect(invoke).not.toHaveBeenCalled();
     act(() => {
-      saveWorkspaceTheme("personal", { preference: "light" });
+      saveWorkspaceTheme({ preference: "light" });
     });
     expect(style.getPropertyValue("--theme-background-color")).toBe("#f0f0f0");
     render("work");
-    expect(style.getPropertyValue("--theme-background-color")).toBe("#000000");
-    expect(style.getPropertyValue("--theme-accent-color")).toBe("#e8e8ea");
-  });
-  it("switches directly to each destination theme without overwriting either profile", () => {
-    saveWorkspaceTheme("personal", {
-      hue: 265,
-      saturation: 18,
-      preference: "dark",
-    });
-    saveWorkspaceTheme("work", {
-      hue: 155,
-      saturation: 22,
-      preference: "light",
-    });
-    const saved = localStorage.getItem(WORKSPACE_THEMES_KEY);
-    render("personal");
-    expect(document.documentElement.style.getPropertyValue("--theme-hue")).toBe(
-      "265",
-    );
-    expect(activeSettings.profileId).toBe("personal");
-    render("work");
-    expect(document.documentElement.style.getPropertyValue("--theme-hue")).toBe(
-      "155",
-    );
+    expect(style.getPropertyValue("--theme-background-color")).toBe("#f0f0f0");
     expect(document.documentElement.classList.contains("theme-light")).toBe(
       true,
     );
-    expect(activeSettings.profileId).toBe("work");
-    expect(activeSettings.theme.preference).toBe("light");
-    render("personal");
-    expect(document.documentElement.classList.contains("theme-light")).toBe(
-      false,
-    );
-    expect(document.documentElement.style.getPropertyValue("--theme-hue")).toBe(
-      "265",
-    );
-    expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(saved);
   });
 
-  it("editing an inactive workspace does not repaint or send native-window IPC", async () => {
-    // Start opaque so the later active edit is what reveals the desktop.
-    saveWorkspaceTheme("personal", { opacity: 1, blur: 0, bodyGlass: false });
-    render("personal");
+  it("an edit repaints at once and sends only the new translucency to the window", async () => {
+    // Start opaque so the later edit is what reveals the desktop.
+    saveWorkspaceTheme({ opacity: 1, blur: 0, bodyGlass: false });
+    render("work");
     activateWindowAppearance();
     await Promise.resolve();
     vi.mocked(invoke).mockClear();
     act(() => {
-      saveWorkspaceTheme("work", {
-        hue: 60,
-        preference: "light",
-        opacity: 0.8,
-        blur: 16,
-        bodyGlass: false,
-      });
-    });
-    expect(document.documentElement.style.getPropertyValue("--theme-hue")).toBe(
-      "207",
-    );
-    expect(document.documentElement.classList.contains("theme-light")).toBe(
-      false,
-    );
-    expect(invoke).not.toHaveBeenCalled();
-    act(() => {
-      saveWorkspaceTheme("personal", {
+      saveWorkspaceTheme({
         hue: 90,
         saturation: 30,
         opacity: 0.05,
@@ -922,9 +815,15 @@ describe("workspace theme activation", () => {
         { enabled: true, tint: { r: 10, g: 13, b: 7, alpha: 0.24 } },
       ],
     ]);
+    vi.mocked(invoke).mockClear();
+    render("personal");
+    expect(document.documentElement.style.getPropertyValue("--theme-hue")).toBe(
+      "90",
+    );
+    expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("system appearance follows the active workspace preference instead of the legacy global setting", () => {
+  it("system appearance follows the shared look's preference instead of the legacy global setting", () => {
     let changed: (() => void) | undefined;
     const media = {
       matches: false,
@@ -936,7 +835,7 @@ describe("workspace theme activation", () => {
       media as unknown as MediaQueryList,
     );
     localStorage.setItem("monocode.colorScheme", "dark");
-    saveWorkspaceTheme("work", { preference: "system" });
+    saveWorkspaceTheme({ preference: "system" });
     render("work");
     watchSystemColorScheme();
     act(() => {
@@ -947,6 +846,10 @@ describe("workspace theme activation", () => {
       true,
     );
     render("personal");
+    expect(document.documentElement.classList.contains("theme-light")).toBe(
+      true,
+    );
+    act(() => saveWorkspaceTheme({ preference: "dark" }));
     act(() => {
       changed?.();
     });
@@ -955,9 +858,8 @@ describe("workspace theme activation", () => {
     );
   });
 
-  it("restores the destination workspace glass values without unchanged-value IPC", async () => {
-    saveWorkspaceTheme("personal", { opacity: 0.06, blur: 0, bodyGlass: true });
-    saveWorkspaceTheme("work", { opacity: 0.7, blur: 13, bodyGlass: false });
+  it("keeps the glass when switching workspaces, without native-window IPC", async () => {
+    saveWorkspaceTheme({ opacity: 0.7, blur: 13, bodyGlass: false });
     render("personal");
     await Promise.resolve();
     vi.mocked(invoke).mockClear();
@@ -975,23 +877,7 @@ describe("workspace theme activation", () => {
     expect(document.documentElement.classList.contains("glass-body")).toBe(
       false,
     );
-    expect(invoke).toHaveBeenCalledExactlyOnceWith(
-      "set_window_background_blur",
-      { radius: 13 },
-    );
-    render("work");
-    expect(invoke).toHaveBeenCalledTimes(1);
-    render("personal");
-    expect(
-      document.documentElement.style.getPropertyValue("--sidebar-opacity"),
-    ).toBe("0.06");
-    expect(document.documentElement.classList.contains("glass-body")).toBe(
-      true,
-    );
-    expect(invoke).toHaveBeenLastCalledWith("set_window_background_blur", {
-      radius: 0,
-    });
-    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).not.toHaveBeenCalled();
     expect(localStorage.getItem(WORKSPACE_THEMES_KEY)).toBe(saved);
   });
 });

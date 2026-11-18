@@ -488,14 +488,37 @@ async function checkHelpers(get: () => Options, path: string): Promise<string> {
       .join(", ");
     if (files !== "hero.css, pricing.md")
       throw new Error(`The cards list these files: ${files || "none"}`);
-    const nested = document.querySelectorAll(
-      `[data-helper-family="${lead.id}"] [data-helper-row]`,
-    ).length;
-    if (nested !== 2)
-      throw new Error(
-        `The sidebar nests ${nested} helpers under the chat, not 2`,
+    // Finished helpers fold into one row under the chat; opening it shows
+    // both.
+    const family = () =>
+      document.querySelector<HTMLElement>(
+        `[data-helper-family="${CSS.escape(lead.id)}"]`,
       );
-    return `"${tab.textContent?.trim()}" tab; tasks from "${froms[0]!.from}"; 2 cards (${files}); woken once`;
+    const fold =
+      family()?.querySelector<HTMLButtonElement>("[data-helper-fold]");
+    const foldText = fold?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    if (!fold || foldText !== "2 helpers · finished")
+      throw new Error(
+        `The sidebar's helper fold reads "${foldText || "nothing"}"`,
+      );
+    const wasOpen = fold.getAttribute("aria-expanded") === "true";
+    if (!wasOpen) fold.click();
+    try {
+      await waitFor(
+        () =>
+          (family()?.querySelectorAll("[data-helper-row]").length ?? 0) === 2 ||
+          undefined,
+        5_000,
+        "the fold to show both finished helpers under the chat",
+      );
+    } finally {
+      // Leave the fold as it was; it is remembered for the session.
+      if (!wasOpen)
+        family()
+          ?.querySelector<HTMLButtonElement>("[data-helper-fold]")
+          ?.click();
+    }
+    return `"${tab.textContent?.trim()}" tab; tasks from "${froms[0]!.from}"; 2 cards (${files}); folded as "${foldText}"; woken once`;
   } catch (error) {
     throw new Error(await failedRunReport(get, lead.id, error));
   }

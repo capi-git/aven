@@ -240,7 +240,6 @@ describe("a saved appearance profile", () => {
         return showSettings
           ? createElement(SettingsView, {
               section: "appearance",
-              workspaceName: "Work",
               cwd: "~",
               sessions: [],
               besideRail: true,

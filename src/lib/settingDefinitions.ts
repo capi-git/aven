@@ -410,15 +410,6 @@ export const SETTINGS = {
     keywords: "wallpaper photo picture image visibility",
     rowDescription: "An image behind your chat panes. It stays on this device.",
   }),
-  useForAllWorkspaces: defineSetting({
-    section: "appearance",
-    label: "Use for all workspaces",
-    description:
-      "Copy this workspace's theme, accent colour and glass to your other workspaces.",
-    keywords: "same sync match copy apply every work personal identical",
-    rowDescription:
-      "Copy this workspace’s theme, accent colour and glass to your other workspaces. Each can still be changed later.",
-  }),
   keybindings: defineSetting({
     section: "keybindings",
     label: "Keyboard shortcuts",

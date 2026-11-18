@@ -151,3 +151,24 @@ it("gives a chat no mark of its own, and tags its time for the hover", async () 
     card.querySelector(".personal-task-status")?.hasAttribute("data-row-time"),
   ).toBe(true);
 });
+
+it("always shows a quiet time, and a running chat's grey working mark in its place", async () => {
+  await act(async () => root.render(createElement(Sidebar, props)));
+  const end = (id: string) =>
+    container.querySelector<HTMLElement>(
+      `[data-session-card='${id}'] .personal-task-status`,
+    )!;
+  // An idle chat's time is in the row at rest, not added on hover.
+  expect(end("idle").hasAttribute("data-row-time")).toBe(true);
+  expect(end("idle").textContent).toBe("2h");
+  // A running chat shows the working mark at its end instead, untinted.
+  const mark = end("work").querySelector<HTMLElement>(".agent-mark");
+  expect(end("work").hasAttribute("data-row-time")).toBe(false);
+  expect(mark?.dataset.agent).toBe("working");
+  expect(mark?.hasAttribute("data-tone")).toBe(false);
+  // Its title is regular weight, not semibold.
+  const title = container.querySelector(
+    "[data-session-card='idle'] .personal-task-title",
+  )!;
+  expect(title.classList.contains("font-semibold")).toBe(false);
+});

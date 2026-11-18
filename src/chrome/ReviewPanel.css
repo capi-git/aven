@@ -1,0 +1,150 @@
+/* The Review tab: comments waiting to be sent, then the pull request's
+   threads. Rows split by a hairline; tools show on hover or focus. */
+.review-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.review-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  padding: 4px 0 8px;
+}
+
+.review-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px;
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  color: var(--aven-muted);
+}
+
+.review-section-action {
+  margin-left: auto;
+  font-size: var(--text-ui-caption);
+  color: var(--aven-label-secondary);
+}
+.review-section-action:hover {
+  color: var(--color-content);
+}
+
+.review-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 8px 0 0;
+  border-top: var(--aven-hairline, 1px) solid var(--aven-line);
+}
+.review-item:hover {
+  background: var(--aven-hover);
+}
+.review-item[data-done] .review-item-main {
+  opacity: 0.6;
+}
+
+.review-item-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 0 7px 12px;
+  text-align: left;
+}
+
+.review-item-location {
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--aven-muted);
+}
+
+.review-item-quote {
+  overflow: hidden;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--aven-label-secondary);
+}
+
+.review-item-text {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-ui-body);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  color: var(--color-content);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.review-item-meta {
+  font-size: var(--text-ui-caption);
+  color: var(--aven-muted);
+}
+
+.review-item-actions {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  padding-top: 6px;
+}
+.review-item:hover .review-item-actions,
+.review-item:focus-within .review-item-actions {
+  display: flex;
+}
+
+.review-item-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--aven-radius-capsule);
+  font-size: var(--text-ui-caption);
+  font-weight: 500;
+  color: var(--color-content);
+  background: var(--aven-control-bg);
+}
+.review-item-send:hover {
+  background: var(--aven-control-hover);
+}
+
+.review-item-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: var(--aven-radius-sm);
+  color: var(--aven-label-secondary);
+}
+.review-item-icon:hover {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+
+.review-item-main:focus-visible,
+.review-item-send:focus-visible,
+.review-item-icon:focus-visible,
+.review-section-action:focus-visible {
+  outline: 2px solid var(--aven-focus-ring);
+  outline-offset: -2px;
+}

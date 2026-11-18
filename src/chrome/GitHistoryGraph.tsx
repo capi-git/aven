@@ -1,13 +1,6 @@
-import {
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
-import { ChevronDown, ChevronRight, GitBranch } from "./icons";
+import { useMemo, type CSSProperties } from "react";
+import { GitBranch } from "./icons";
 import { useGitHistory } from "../hooks/useGitHistory";
-import { setDragCursor, suppressTextSelection } from "../lib/drag";
 import type { GitHistoryCommit } from "../lib/fs";
 import { shortTimeAgo } from "../lib/gitChangesView";
 import {
@@ -24,11 +17,9 @@ import "./GitHistoryGraph.css";
 type Props = {
   cwd: string;
   enabled: boolean;
-  expanded: boolean;
   selectedSha?: string;
   /** The checked-out branch; null when the folder is not a Git repository. */
   branch?: string | null;
-  onToggleExpanded: () => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
 };
 
@@ -40,13 +31,11 @@ const REFS_SHOWN = 2;
 export function GitHistoryGraph({
   cwd,
   enabled,
-  expanded,
   selectedSha,
   branch,
-  onToggleExpanded,
   onOpenCommit,
 }: Props) {
-  const { commits, loaded } = useGitHistory(cwd, enabled && expanded);
+  const { commits, loaded } = useGitHistory(cwd, enabled);
   const rows = useMemo(() => layoutGitGraph(commits), [commits]);
   const showAuthors =
     new Set(commits.map((commit) => commit.author).filter(Boolean)).size > 1;
@@ -55,64 +44,33 @@ export function GitHistoryGraph({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggleExpanded}
-        aria-expanded={expanded}
-        aria-label={expanded ? "Collapse graph" : "Expand graph"}
-        className={`flex w-full shrink-0 items-center gap-1.5 px-3 text-left leading-none hover:bg-(--aven-hover) ${
-          expanded ? "h-7" : "h-full"
-        }`}
-      >
-        <span className="text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase">
-          History
-        </span>
-        {commits.length > 0 ? (
-          <span className="text-ui-micro tabular-nums text-content/35">
-            {commits.length >= 200 ? "200+" : commits.length}
-          </span>
-        ) : null}
-        {expanded ? (
-          <ChevronDown
-            className="ml-auto size-3.5 shrink-0 text-content/50"
-            strokeWidth={1.75}
-          />
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none">
+        {!cwd || cwd === "~" ? (
+          <p className="px-3 py-2 text-ui-label text-content/45">
+            No project folder
+          </p>
+        ) : commits.length === 0 ? (
+          <HistoryEmpty loaded={loaded} branch={branch} />
         ) : (
-          <ChevronRight
-            className="ml-auto size-3.5 shrink-0 text-content/50"
-            strokeWidth={1.75}
-          />
+          <ul className="min-w-0 max-w-full">
+            {commits.map((commit, index) => {
+              const row = rows[index];
+              if (!row) return null;
+              return (
+                <HistoryRow
+                  key={commit.sha}
+                  commit={commit}
+                  showAuthor={showAuthors}
+                  row={row}
+                  now={now}
+                  active={selectedSha === commit.sha}
+                  onOpen={() => onOpenCommit(commit)}
+                />
+              );
+            })}
+          </ul>
         )}
-      </button>
-      {expanded ? (
-        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-none">
-          {!cwd || cwd === "~" ? (
-            <p className="px-3 py-2 text-ui-label text-content/45">
-              No project folder
-            </p>
-          ) : commits.length === 0 ? (
-            <HistoryEmpty loaded={loaded} branch={branch} />
-          ) : (
-            <ul className="min-w-0 max-w-full">
-              {commits.map((commit, index) => {
-                const row = rows[index];
-                if (!row) return null;
-                return (
-                  <HistoryRow
-                    key={commit.sha}
-                    commit={commit}
-                    showAuthor={showAuthors}
-                    row={row}
-                    now={now}
-                    active={selectedSha === commit.sha}
-                    onOpen={() => onOpenCommit(commit)}
-                  />
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -144,8 +102,8 @@ function HistoryEmpty({
       </p>
       <p className="git-history-empty-detail">
         {noGit
-          ? "Changes and history appear once this folder uses Git."
-          : `Your first commit${branch ? ` on ${branch}` : ""} will start the history here.`}
+          ? "Commits appear once this folder uses Git."
+          : `Commits on ${branch ?? "this branch"} show up here.`}
       </p>
     </div>
   );
@@ -310,105 +268,5 @@ function RefPill({ refInfo }: { refInfo: GraphRef }) {
       ) : null}
       <span className="min-w-0 truncate">{refInfo.name}</span>
     </span>
-  );
-}
-
-export const GRAPH_PANEL_MIN = 120;
-export const GRAPH_PANEL_DEFAULT = 240;
-
-let graphPanelHeight = GRAPH_PANEL_DEFAULT;
-
-export function loadGraphPanelHeight(): number {
-  return graphPanelHeight;
-}
-
-export function saveGraphPanelHeight(height: number) {
-  graphPanelHeight = height;
-}
-
-export function GraphResizeSash({
-  height,
-  onHeightPaint,
-  onHeightCommit,
-  maxHeight,
-}: {
-  height: number;
-  onHeightPaint: (height: number) => void;
-  onHeightCommit: (height: number) => void;
-  maxHeight: () => number;
-}) {
-  const drag = useRef<{ start: number; size: number } | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const paintedRef = useRef(height);
-  paintedRef.current = height;
-  const paintRef = useRef(onHeightPaint);
-  paintRef.current = onHeightPaint;
-  const commitRef = useRef(onHeightCommit);
-  commitRef.current = onHeightCommit;
-  const maxRef = useRef(maxHeight);
-  maxRef.current = maxHeight;
-
-  const clamp = (value: number) =>
-    Math.min(maxRef.current(), Math.max(GRAPH_PANEL_MIN, Math.round(value)));
-
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const handle = event.currentTarget;
-    const pointerId = event.pointerId;
-    handle.setPointerCapture(pointerId);
-    drag.current = { start: event.clientY, size: paintedRef.current };
-    setDragging(true);
-    const restoreSelection = suppressTextSelection();
-    setDragCursor("row-resize");
-    document.documentElement.classList.add("is-resizing");
-
-    const onMove = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId || !drag.current) return;
-      const next = clamp(drag.current.size - (ev.clientY - drag.current.start));
-      paintedRef.current = next;
-      paintRef.current(next);
-    };
-
-    const stop = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      restoreSelection();
-      setDragCursor(null);
-      document.documentElement.classList.remove("is-resizing");
-      setDragging(false);
-      drag.current = null;
-      try {
-        handle.releasePointerCapture(pointerId);
-      } catch {
-        /* already released */
-      }
-      commitRef.current(clamp(paintedRef.current));
-    };
-
-    const onUp = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      stop();
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  };
-
-  return (
-    <div
-      role="separator"
-      aria-orientation="horizontal"
-      aria-label="Resize graph"
-      aria-valuenow={height}
-      className={`z-10 h-1.5 shrink-0 cursor-row-resize touch-none ${
-        dragging ? "bg-content/15" : "hover:bg-content/10"
-      }`}
-      onPointerDown={onPointerDown}
-      onDoubleClick={() => commitRef.current(clamp(GRAPH_PANEL_DEFAULT))}
-    />
   );
 }

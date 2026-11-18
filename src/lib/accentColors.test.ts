@@ -94,16 +94,16 @@ describe("accent colours", () => {
 
   it("keeps Blue and a custom blue as chosen; the former default turns neutral", () => {
     const theme = defaultWorkspaceTheme();
-    saveWorkspaceTheme("blue", {
+    saveWorkspaceTheme({
       colors: withAccentPreset(theme.colors, preset("Blue")),
     });
-    expect(selectedAccentPreset(loadWorkspaceTheme("blue"), "dark")?.name).toBe(
+    expect(selectedAccentPreset(loadWorkspaceTheme(), "dark")?.name).toBe(
       "Blue",
     );
-    expect(loadWorkspaceTheme("blue").colors?.dark?.accent).toBe("#57b5ff");
-    saveWorkspaceCustomAccent("custom", "#57b5ff");
-    expect(loadWorkspaceTheme("custom").colors?.dark?.accent).toBe("#57b5ff");
-    saveWorkspaceTheme("former", {
+    expect(loadWorkspaceTheme().colors?.dark?.accent).toBe("#57b5ff");
+    saveWorkspaceCustomAccent("#57b5ff");
+    expect(loadWorkspaceTheme().colors?.dark?.accent).toBe("#57b5ff");
+    saveWorkspaceTheme({
       colors: {
         dark: {
           background: "#000000",
@@ -112,16 +112,14 @@ describe("accent colours", () => {
         },
       },
     });
-    expect(loadWorkspaceTheme("former").colors?.dark).toEqual(
-      AVEN_THEME_COLORS.dark,
+    expect(loadWorkspaceTheme().colors?.dark).toEqual(AVEN_THEME_COLORS.dark);
+    expect(selectedAccentPreset(loadWorkspaceTheme(), "dark")?.name).toBe(
+      "Aven",
     );
-    expect(
-      selectedAccentPreset(loadWorkspaceTheme("former"), "dark")?.name,
-    ).toBe("Aven");
   });
 
   it("sets a palette accent in both modes and keeps the backgrounds", () => {
-    saveWorkspaceTheme("work", {
+    saveWorkspaceTheme({
       colors: {
         dark: {
           background: "#000000",
@@ -133,9 +131,9 @@ describe("accent colours", () => {
       opacity: 0.35,
       blur: 11,
     });
-    const next = saveWorkspaceAccentPreset("work", preset("Rose"));
+    const next = saveWorkspaceAccentPreset(preset("Rose"));
     expect(next).toMatchObject({ opacity: 0.35, blur: 11 });
-    expect(loadWorkspaceTheme("work").colors).toEqual({
+    expect(loadWorkspaceTheme().colors).toEqual({
       dark: {
         background: "#000000",
         accent: "#deb0c2",
@@ -150,7 +148,7 @@ describe("accent colours", () => {
   });
 
   it("uses one custom colour in both modes with the highlight following it", () => {
-    saveWorkspaceTheme("work", {
+    saveWorkspaceTheme({
       colors: {
         dark: {
           background: "#000000",
@@ -164,14 +162,14 @@ describe("accent colours", () => {
         },
       },
     });
-    saveWorkspaceCustomAccent("work", "#FF00AA");
-    expect(loadWorkspaceTheme("work").colors).toEqual({
+    saveWorkspaceCustomAccent("#FF00AA");
+    expect(loadWorkspaceTheme().colors).toEqual({
       dark: { background: "#000000", accent: "#ff00aa" },
       light: { background: "#ffffff", accent: "#ff00aa" },
     });
-    const before = loadWorkspaceTheme("work");
-    expect(saveWorkspaceCustomAccent("work", "not a colour")).toEqual(before);
-    expect(loadWorkspaceTheme("work")).toEqual(before);
+    const before = loadWorkspaceTheme();
+    expect(saveWorkspaceCustomAccent("not a colour")).toEqual(before);
+    expect(loadWorkspaceTheme()).toEqual(before);
   });
 
   it("adds an accent to a tint-only workspace without fixing its background", () => {

@@ -1,5 +1,6 @@
 /* Setup, Run and Terminal at the foot of the side panel: one row of quiet
-   tabs over the selected script's output. Grey; a spinner while it works. */
+   tabs over the selected script's output, about two fifths of the panel
+   while open. Grey; a spinner while it works. */
 .project-scripts {
   display: flex;
   flex-shrink: 0;
@@ -9,7 +10,8 @@
     var(--aven-separator, var(--aven-line));
 }
 .project-scripts[data-open] {
-  height: min(240px, 42%);
+  height: 40%;
+  min-height: 150px;
 }
 
 .project-scripts-bar {
@@ -28,13 +30,16 @@
   gap: 2px;
 }
 
+/* The same outlined capsule as the panel's own tabs. */
 .project-scripts-tab {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 5px;
   height: 24px;
-  padding: 0 8px;
-  border-radius: var(--aven-radius-sm);
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--aven-radius-capsule);
   font-size: var(--text-ui-label);
   font-weight: 500;
   color: var(--aven-label-secondary);
@@ -42,12 +47,28 @@
 }
 .project-scripts-tab[aria-selected="true"] {
   color: var(--color-content);
-  background: var(--aven-control-bg);
+  border-color: var(--aven-separator, var(--aven-line));
+  background: var(--aven-hover);
+}
+.project-scripts-glyph {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
 }
 .project-scripts-tab:hover:not([aria-selected="true"]),
 .project-scripts-icon:hover:enabled {
   color: var(--color-content);
+}
+.project-scripts-icon:hover:enabled {
   background: var(--aven-hover);
+}
+/* A short line between the tabs and +. */
+.project-scripts-rule {
+  flex-shrink: 0;
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--aven-separator, var(--aven-line));
 }
 
 .project-scripts-icon {
@@ -206,4 +227,15 @@
 }
 .project-scripts-form-actions button:disabled {
   opacity: 0.5;
+}
+
+/* No script yet: centred in the strip's room. */
+.project-scripts-empty {
+  padding: 8px 14px 14px;
+}
+.project-scripts-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  column-gap: 14px;
 }

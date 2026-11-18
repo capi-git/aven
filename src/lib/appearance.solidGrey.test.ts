@@ -219,7 +219,10 @@ describe("Solid window colour", () => {
     expect(windowColors()).toEqual([GREY]);
     expect(glassCalls()).toEqual([{ enabled: false }]);
     expect(root.classList.contains("native-glass-pending")).toBe(false);
-    expect(storage.get("monocode.personal.workspaceThemes.v1")).toBe(saved);
+    // The look is kept; the store only gains its one-look-for-all mark.
+    expect(
+      JSON.parse(storage.get("monocode.personal.workspaceThemes.v1")!),
+    ).toEqual({ ...JSON.parse(saved!), shared: true });
     act(() => reactRoot.unmount());
   });
 

@@ -137,17 +137,35 @@ html:not(.theme-light) .personal-shell .personal-user-bubble {
   outline-offset: -4px;
   border-radius: var(--aven-radius-sm);
 }
-/* Tool groups use a quiet surface; the original disclosure and live scroller
-   remain unchanged, including always-open pending approvals. */
+/* Tool groups are one quiet line, folded until you open them: no card, no
+   fill, no edge. Opened, the steps hang under the header as small grey
+   monospace lines on the rail. Pending approvals still hold a group open. */
 .personal-shell .personal-activity-phases {
   gap: 7px;
 }
 .personal-shell .personal-activity-phase {
-  padding: 6px 10px;
-  border: 1px solid var(--aven-glass-card-edge, transparent);
-  border-radius: var(--aven-radius-lg);
-  background: var(--aven-glass-card, var(--aven-hover));
-  box-shadow: var(--aven-glass-sheen, none);
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+/* The live group's working orb: grey, the text colour a little quieter,
+   never the project's colour. */
+.agent-mark.personal-activity-working {
+  --agent-face: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+.personal-shell .personal-activity-phase > .zen-phase-body {
+  padding-left: 20px;
+}
+.personal-shell .personal-activity-phase .personal-activity-step {
+  padding-block: 1px;
+}
+.personal-shell
+  .personal-activity-phase
+  .personal-activity-step
+  .font-mono:not(.text-red-400) {
+  font-size: var(--text-ui-label);
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
 }
 .personal-shell .personal-activity-phase > button {
   min-height: 30px;
@@ -166,13 +184,19 @@ html:not(.theme-light) .personal-shell .personal-user-bubble {
   color: color-mix(in srgb, var(--color-content) 70%, transparent);
 }
 .personal-shell
+  .personal-activity-phase[data-live]
+  > button
+  > :last-child:not(.shimmer-text) {
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.personal-shell
   .personal-activity-phase
   > button:hover
   > :last-child:not(.shimmer-text) {
   color: var(--color-content);
 }
 .personal-shell .personal-activity-line {
-  padding: 2px 10px;
+  padding-block: 2px;
 }
 .personal-shell .personal-tool-call > pre {
   margin-block: 6px;

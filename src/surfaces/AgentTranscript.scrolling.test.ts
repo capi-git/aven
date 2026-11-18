@@ -90,6 +90,18 @@ async function render(blocks: Block[], busy = true) {
   return container.querySelector<HTMLElement>(".agent-transcript")!;
 }
 
+/** A live group stays folded until you open it; open it to watch the trail. */
+async function openLiveTrail() {
+  const toggle = container.querySelector<HTMLButtonElement>(
+    '.personal-activity-phase > button[aria-expanded="false"]',
+  );
+  if (toggle)
+    await act(async () => {
+      toggle.click();
+    });
+  return container.querySelector<HTMLElement>(".zen-phase-live")!;
+}
+
 /** happy-dom does not lay out or clamp scroll offsets like a real scroller. */
 function scrollMetrics(
   el: HTMLElement,
@@ -380,7 +392,7 @@ describe("transcript native scrolling", () => {
     const el = await render(blocks);
     scrollMetrics(el, 400, 1200);
     await markAtBottom(el);
-    const trail = container.querySelector<HTMLElement>(".zen-phase-live")!;
+    const trail = await openLiveTrail();
     const trailMetrics = scrollMetrics(trail, 100, 500);
     await markAtBottom(trail);
     expect(trail.scrollTop).toBe(400);
@@ -411,7 +423,7 @@ describe("transcript native scrolling", () => {
     const el = await render(blocks);
     const outerMetrics = scrollMetrics(el, 400, 1200);
     await markAtBottom(el);
-    const trail = container.querySelector<HTMLElement>(".zen-phase-live")!;
+    const trail = await openLiveTrail();
     expect(trail).not.toBeNull();
     scrollMetrics(trail, 100, 500);
     trail.scrollTop = 200;
@@ -446,7 +458,7 @@ describe("transcript native scrolling", () => {
     const wheelListeners = countWheelListeners();
     await render([prompt, tool("one", "running")]);
     await render([prompt, tool("one", "running"), tool("two", "running")]);
-    const trail = container.querySelector<HTMLElement>(".zen-phase-live")!;
+    const trail = await openLiveTrail();
     expect(trail).not.toBeNull();
     // Upward input the trail can take stays with it.
     scrollMetrics(trail, 100, 500);

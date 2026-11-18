@@ -510,14 +510,36 @@
   .personal-task-agent
   .dot-mark.personal-task-agent-mark {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
 }
-/* Only projects get a mark and a heavier name. A chat is a quieter title, and
-   brightens when it's in front, working or needs you. Its time waits for the
-   pointer or the keyboard. */
+/* Only projects get a mark and a heavier name. A chat is a quieter title at
+   regular weight, as in Super, and brightens (without getting heavier, so
+   nothing moves) when it's in front, working or needs you. Its time always
+   shows at the row's end, in quiet grey; while it works, the grey working
+   mark takes the time's place. */
 .personal-shell .personal-project-tasks .personal-task-title {
   color: var(--personal-muted);
+  font-size: var(--text-ui-body);
+}
+.personal-shell
+  .personal-navigation
+  .personal-project-tasks
+  .personal-task-card[aria-current="true"]
+  .personal-task-title {
+  font-weight: 400;
+}
+/* The time and the working mark share one slot at the row's end, so a long
+   title stops short of it and doesn't jump when one replaces the other. */
+.personal-shell .personal-project-tasks .personal-task-status {
+  display: flex;
+  min-width: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+}
+.personal-shell .personal-navigation .personal-task-status[data-row-time] {
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
 }
 .personal-shell
   .personal-project-tasks
@@ -531,32 +553,7 @@
   .personal-task-title {
   color: var(--color-content);
 }
-.personal-shell .personal-navigation .personal-task-status[data-row-time] {
-  display: none;
-}
-.personal-shell
-  .personal-navigation
-  :is(.personal-other-task:hover, .personal-other-task:focus-visible)
-  > .personal-task-status[data-row-time] {
-  display: inline;
-}
-.personal-shell
-  .personal-navigation
-  :is(.personal-task-row:hover, .personal-task-row:has(:focus-visible))
-  .personal-task-status[data-row-time] {
-  display: flex;
-  opacity: 1;
-}
-/* The archive button sits where the time would end. */
-.personal-shell
-  .personal-navigation
-  :is(
-    .personal-task-row[data-has-archive="true"]:hover,
-    .personal-task-row[data-has-archive="true"]:has(:focus-visible)
-  )
-  .personal-task-status[data-row-time] {
-  padding-right: 24px;
-}
+/* The archive button takes the time's place on hover or keyboard focus. */
 .personal-shell .personal-navigation .personal-task-archive {
   right: 5px;
   bottom: 3px;
@@ -1134,7 +1131,7 @@ html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
   padding: 3px 7px 3px 26px;
   border-radius: var(--aven-radius-row);
   color: var(--personal-muted);
-  font-size: var(--text-ui-row);
+  font-size: var(--text-ui-body);
   text-align: left;
 }
 .personal-shell .personal-navigation .personal-helper-row:hover {
@@ -1151,4 +1148,38 @@ html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
 .personal-shell .personal-navigation .personal-helper-title {
   min-width: 0;
   flex: 1;
+}
+/* Finished helpers fold into one quieter row under their chat ("2 helpers ·
+   finished"); its arrow turns down while they show beneath it. */
+.personal-shell .personal-navigation .personal-helper-fold {
+  color: color-mix(in srgb, var(--color-content) 45%, transparent);
+}
+.personal-shell .personal-navigation .personal-helper-fold:hover {
+  color: var(--personal-muted);
+}
+.personal-shell .personal-navigation .personal-helper-fold:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--aven-focus-ring);
+}
+.personal-shell .personal-navigation .personal-helper-fold-chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+.personal-shell
+  .personal-navigation
+  .personal-helper-fold[aria-expanded="true"]
+  .personal-helper-fold-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .personal-shell .personal-navigation .personal-helper-fold-chevron {
+    transition: transform 0.16s ease;
+  }
+}
+.personal-shell .personal-navigation .personal-helper-finished {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }

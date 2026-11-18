@@ -6,11 +6,18 @@ import {
   WorkspaceInspector,
   type WorkspaceInspectorProps,
 } from "./WorkspaceInspector";
+import {
+  addReviewComment,
+  resetReviewQueueForTest,
+  reviewProject,
+} from "../lib/reviewQueue";
 
 const mocks = vi.hoisted(() => ({
   loadFiles: vi.fn(),
   loadChanges: vi.fn(),
   loadSearch: vi.fn(),
+  loadReview: vi.fn(),
+  review: vi.fn(),
   files: vi.fn(),
   changes: vi.fn(),
   search: vi.fn(),
@@ -69,6 +76,16 @@ vi.mock("./SourceControl", async () => {
         { "data-content": "changes" },
         "Changed files",
       );
+    },
+  };
+});
+
+vi.mock("./ReviewPanel", () => {
+  mocks.loadReview();
+  return {
+    ReviewPanel: (props: unknown) => {
+      mocks.review(props);
+      return createElement("div", { "data-content": "review" }, "Review");
     },
   };
 });
@@ -164,7 +181,7 @@ describe("WorkspaceInspector lifecycle", () => {
       [...container.querySelectorAll('[role="tab"]')].map(
         (tab) => tab.textContent,
       ),
-    ).toEqual(["Files", "Changes", "Checks"]);
+    ).toEqual(["Files", "Changes", "Review", "Checks"]);
   });
 
   it("mounts only the visible tree and replaces its Git subscription with search", async () => {
@@ -297,7 +314,7 @@ describe("WorkspaceInspector lifecycle", () => {
     );
   });
 
-  it("remounts content for a different worktree and supports keyboard tab switching and close", async () => {
+  it("remounts content for a different worktree and supports keyboard tab switching", async () => {
     await render({ tab: "changes" });
     await render({ gitCwd: "/another-worktree" });
     expect(mocks.unmountChanges).toHaveBeenCalledOnce();
@@ -316,12 +333,19 @@ describe("WorkspaceInspector lifecycle", () => {
     expect(document.activeElement).toBe(
       container.querySelector('[data-inspector-tab="files"]'),
     );
+    // The panel is hidden from the title bar, never by a button of its own.
+    expect(
+      container.querySelector('[aria-label="Hide side panel"]'),
+    ).toBeNull();
+    await render({ tab: "checks" });
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Hide side panel"]')!
-        .click(),
+        .querySelector<HTMLButtonElement>('[data-inspector-tab="checks"]')!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }),
+        ),
     );
-    expect(props.onClose).toHaveBeenCalledOnce();
+    expect(props.onTabChange).toHaveBeenLastCalledWith("review");
   });
 
   it("skips unchanged inspector content during unrelated parent updates", async () => {
@@ -331,5 +355,29 @@ describe("WorkspaceInspector lifecycle", () => {
     expect(mocks.changes).not.toHaveBeenCalled();
     await render({ selectedDiffPath: "/project-worktree/updated.ts" });
     expect(mocks.changes).toHaveBeenCalledOnce();
+  });
+
+  it("shows Review with the open comment count and files new comments under its project", async () => {
+    resetReviewQueueForTest();
+    await render({ tab: "review" });
+    expect(mocks.review).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cwd: "/project-worktree",
+        enabled: true,
+        onOpenDiff: props.onOpenDiff,
+        onOpenAllChanges: props.onOpenAllChanges,
+      }),
+    );
+    expect(reviewProject()).toBe("/project-worktree");
+    const review = () =>
+      container.querySelector('[data-inspector-tab="review"]')!.textContent;
+    expect(review()).toBe("Review");
+    await act(async () => {
+      addReviewComment({ path: "a.ts", text: "Why?", message: "Why?" });
+    });
+    expect(review()).toBe("Review1");
+    // Hidden, the panel still tells comments which project they belong to.
+    await render({ active: false, gitCwd: "/other" });
+    expect(reviewProject()).toBe("/other");
   });
 });

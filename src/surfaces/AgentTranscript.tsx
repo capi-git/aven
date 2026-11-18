@@ -30,6 +30,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { flushSync } from "react-dom";
+import { AgentMark } from "../chrome/AgentMark";
 import { AttachmentChip } from "../chrome/AttachmentChip";
 import { ChatReferenceText } from "../chrome/ChatReferenceText";
 import { FilePreview } from "../chrome/FilePreview";
@@ -2380,11 +2381,12 @@ function useLivePhaseScroll(
 
 /**
  * One phase: a header the whole group hangs off, and the steps under it on a
- * rail. Folding is automatic — the group opens while it is the live one and
- * closes when the agent moves on — until you click, after which it stays where
- * you put it. A step still waiting on you keeps the group open regardless.
- * While live, the open body stays a short scrolling window pinned to the
- * newest step; after the turn settles an opened group is full height again.
+ * rail. It stays folded to that one line, live or settled, until you click;
+ * after that it stays where you put it. While it is the live one a grey
+ * working orb stands in for its kind's icon. A step still waiting on you
+ * keeps the group open regardless. A live group you open stays a short
+ * scrolling window pinned to the newest step; after the turn settles an
+ * opened group is full height again.
  */
 function ActivityPhaseGroup({
   phase,
@@ -2406,7 +2408,9 @@ function ActivityPhaseGroup({
 }) {
   const [override, setOverride] = useState<boolean | null>(null);
   const waiting = phase.steps.some(needsApproval);
-  const open = waiting || (override ?? active);
+  // Folded unless you open it: a live group is one quiet line, not a card
+  // of every command it runs.
+  const open = waiting || (override ?? false);
   const [liveScroller, setLiveScroller] = useState<HTMLDivElement | null>(null);
   const onLiveWheel = useLivePhaseScroll(
     liveScroller,
@@ -2415,8 +2419,8 @@ function ActivityPhaseGroup({
   );
   const title = activityPhaseTitle(phase, active);
   // Opening a group on purpose is also how you read the line that titled it,
-  // whole. The auto-open while it runs is a live view, not a reading one, and
-  // a one-line note the header already shows in full has nothing to add.
+  // whole. A group a waiting step holds open is not a reading view, and a
+  // one-line note the header already shows in full has nothing to add.
   const headline =
     override === true && phase.headline && headlineHasMore(phase.headline)
       ? phase.headline
@@ -2487,7 +2491,10 @@ function ActivityPhaseGroup({
   }
 
   return (
-    <div className="personal-activity-phase flex min-w-0 flex-col">
+    <div
+      className="personal-activity-phase flex min-w-0 flex-col"
+      data-live={active || undefined}
+    >
       <button
         type="button"
         aria-expanded={open}
@@ -2502,10 +2509,19 @@ function ActivityPhaseGroup({
          * between them leaves both half-drawn on top of each other.
          */}
         <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <ActivityPhaseIcon
-            kind={phase.kind}
-            className="group-hover:opacity-0"
-          />
+          {active ? (
+            // The orb says it is working, so the line itself stays still:
+            // no shimmer on the text, which WebKit repaints every frame.
+            <AgentMark
+              state="working"
+              className="personal-activity-working size-3.5 group-hover:opacity-0"
+            />
+          ) : (
+            <ActivityPhaseIcon
+              kind={phase.kind}
+              className="group-hover:opacity-0"
+            />
+          )}
           <ChevronRight
             className={`absolute size-3.5 text-content/45 opacity-0 transition-transform duration-200 group-hover:opacity-100 ${
               open ? "rotate-90" : ""
@@ -2513,7 +2529,13 @@ function ActivityPhaseGroup({
             strokeWidth={1.75}
           />
         </span>
-        {label}
+        {active ? (
+          <span className="min-w-0 flex-1 truncate font-sans text-sm">
+            {title}
+          </span>
+        ) : (
+          label
+        )}
       </button>
       <div className="zen-phase-body" data-open={open}>
         {open ? (
@@ -2832,7 +2854,7 @@ function ActivityToolRow({
     <div className="flex min-w-0 flex-col">
       <div
         aria-label={`Tool call: ${displayAppData(label)}`}
-        className="flex min-w-0 items-center gap-1.5 py-1"
+        className="personal-activity-step flex min-w-0 items-center gap-1.5 py-1"
       >
         {bare ? null : <ActivityToolIcon state={state} live={live} />}
         <ToolCallSummary

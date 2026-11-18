@@ -12704,7 +12704,6 @@ export default function App({
                           <SettingsView
                             section={settingsSection}
                             onSelectSection={onSelectSettingsSection}
-                            workspaceName={profiles.activeProfile.name}
                             cwd={sidebarCwd}
                             sessions={sidebarHistory}
                             besideRail={sidebarOpen}
@@ -12737,6 +12736,12 @@ export default function App({
                       onClose={onCloseInspector}
                       onOpenFile={onOpenFile}
                       onOpenTerminal={onOpenTerminal}
+                      onToggleTerminal={
+                        profileHome ? undefined : onToggleProjectTerminal
+                      }
+                      onStartChat={startProjectChat}
+                      onOpenSettings={openSettings}
+                      sessionId={active?.id}
                       onFileMoved={onFileMoved}
                       onFileDeleted={onFileDeleted}
                       onOpenDiff={onOpenWorkingTreeDiff}

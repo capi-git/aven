@@ -1,3 +1,4 @@
+import { ask } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import { useMergePath } from "../hooks/useMergePath";
 import { usePrChecks } from "../hooks/usePrChecks";
@@ -9,6 +10,7 @@ import {
   notifyGitChanged,
   type GitDiffIndex,
 } from "../lib/fs";
+import { gitPrSquashMerge } from "../lib/gitHousekeeping";
 import { generateCommitMessage, generatePrContent } from "../lib/harness";
 import { openInAppUrl } from "../lib/inAppLinks";
 import {
@@ -130,7 +132,7 @@ export function MergePath({ cwd, enabled, textHarness }: Props) {
   );
   const openPr = pr?.state === "open" ? pr : null;
   const checks = usePrChecks(cwd, openPr?.number ?? null, enabled);
-  const [busy, setBusy] = useState<MergeAction | "pull" | null>(null);
+  const [busy, setBusy] = useState<MergeAction | "pull" | "merge" | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
   if (!index)
@@ -140,12 +142,22 @@ export function MergePath({ cwd, enabled, textHarness }: Props) {
       </p>
     );
 
-  const act = async (action: MergeAction | "pull") => {
+  const act = async (action: MergeAction | "pull" | "merge") => {
     if (busy) return;
+    if (action === "merge") {
+      if (!openPr) return;
+      const base = index.defaultBranch ?? "the default branch";
+      const ok = await ask(
+        `Squash and merge PR #${openPr.number} into ${base}? Its commits become one commit, and GitHub deletes the branch afterwards.`,
+        { title: "Aven", kind: "warning", okLabel: "Squash and merge" },
+      );
+      if (!ok) return;
+    }
     setBusy(action);
     setFailure(null);
     try {
-      await runAction(action, cwd, index, textHarness);
+      if (action === "merge") await gitPrSquashMerge(cwd, openPr!.number);
+      else await runAction(action, cwd, index, textHarness);
     } catch (cause) {
       logError(`Checks tab: ${action}`, cause);
       setFailure(errorText(cause));
@@ -197,6 +209,16 @@ export function MergePath({ cwd, enabled, textHarness }: Props) {
                     onClick={() => void act(step.action!)}
                   >
                     {MERGE_ACTION_LABEL[step.action]}
+                  </button>
+                ) : step.id === "pr" && openPr?.state === "open" ? (
+                  <button
+                    type="button"
+                    className="merge-path-action"
+                    disabled={!!busy}
+                    title={`Squash this pull request into one commit on ${index.defaultBranch ?? "the default branch"}`}
+                    onClick={() => void act("merge")}
+                  >
+                    {busy === "merge" ? "Merging…" : "Squash and merge"}
                   </button>
                 ) : null}
               </div>
