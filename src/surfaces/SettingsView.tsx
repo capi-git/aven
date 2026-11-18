@@ -235,6 +235,7 @@ import {
   subscribeUpdater,
 } from "../lib/updater";
 import { SkillsSettings } from "./SkillsSettings";
+import { PromptsPage } from "./SettingsPrompts";
 import { AccentColorSetting } from "./AccentColorSetting";
 import { ProviderConnections } from "./ProviderConnections";
 import { ProviderSetup } from "./ProviderSetup";
@@ -432,6 +433,7 @@ export function SettingsView({
               </div>
             ) : null}
             {section === "skills" ? <SkillsSettings cwd={cwd} /> : null}
+            {section === "prompts" ? <PromptsPage /> : null}
             {section === "connections" ? (
               <ProviderConnections cwd={cwd} />
             ) : null}

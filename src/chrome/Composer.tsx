@@ -10,6 +10,7 @@ import {
   Play,
   Race,
   Share,
+  Sparkles,
   StickyNote,
   MessageSquare,
   Trash2,
@@ -201,6 +202,8 @@ import { resizeComposer } from "../lib/composerResize";
 import { useTurnNoteHint } from "../lib/turnNotes";
 import { useDictation } from "../hooks/useDictation";
 import { useSpokenBrief } from "../hooks/useSpokenBrief";
+import { enhancePrompt } from "../lib/enhancePrompt";
+import { DotSpinner } from "./DotSpinner";
 import { takeOffSentText } from "../lib/sendFlight";
 import {
   canDictate,
@@ -1121,6 +1124,80 @@ function ComposerComponent({
     [canSpeak, dictation.state, toggleDictation],
   );
   const briefAction = dictation.active ? null : brief.action(draft);
+
+  // Prompt enhancement: adds to the draft and keeps every word of it. The
+  // result replaces the field as one edit, so Cmd+Z brings the draft back.
+  const [enhancing, setEnhancing] = useState(false);
+  const enhanceToken = useRef(0);
+  const toggleEnhance = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const token = ++enhanceToken.current;
+    if (enhancing) {
+      setEnhancing(false);
+      return;
+    }
+    const before = el.value;
+    if (!before.trim()) return;
+    setCommandNotice(null);
+    setEnhancing(true);
+    void enhancePrompt(before).then((result) => {
+      if (enhanceToken.current !== token) return;
+      setEnhancing(false);
+      const field = ref.current;
+      if (!result.ok) {
+        setCommandNotice(result.error);
+        return;
+      }
+      if (!field || field.value !== before) return;
+      // Still read-only until React catches up; the edit needs it writable.
+      field.readOnly = false;
+      field.focus();
+      field.select();
+      if (!document.execCommand("insertText", false, result.text))
+        writeField(result.text);
+    });
+  }, [enhancing, writeField]);
+  const canEnhance = !dictation.active && !brief.tidying && !!draft.trim();
+  const enhanceButton = useMemo(
+    () =>
+      canEnhance || enhancing ? (
+        <button
+          type="button"
+          className="helm-enhance"
+          aria-label={enhancing ? "Stop enhancing" : "Enhance prompt"}
+          title={
+            enhancing
+              ? "Stop enhancing"
+              : "Enhance prompt: adds detail and keeps your words"
+          }
+          data-helm-enhance={enhancing ? "working" : "idle"}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={toggleEnhance}
+        >
+          {enhancing ? (
+            <DotSpinner size={14} />
+          ) : (
+            <Sparkles aria-hidden className="helm-enhance-art" />
+          )}
+        </button>
+      ) : null,
+    [canEnhance, enhancing, toggleEnhance],
+  );
+  // One node for the helm, kept while its parts hold, so typing never
+  // renders the helm again.
+  const helmTools = useMemo(
+    () =>
+      enhanceButton ? (
+        <>
+          {enhanceButton}
+          {micButton}
+        </>
+      ) : (
+        micButton
+      ),
+    [enhanceButton, micButton],
+  );
 
   const addAttachments = useCallback(
     (incoming: Attachment[]) => {
@@ -2509,7 +2586,7 @@ function ComposerComponent({
               spellCheck={false}
               defaultValue={mountDraft}
               // The brief replaces these words when it arrives.
-              readOnly={brief.tidying}
+              readOnly={brief.tidying || enhancing}
               placeholder={
                 dictation.active
                   ? "Listening…"
@@ -2617,7 +2694,7 @@ function ComposerComponent({
         recentSkills={hasValue || busy ? NO_SKILLS : recentSkillChips}
         onPickSkill={pickRecentSkill}
         hasValue={hasValue}
-        mic={micButton}
+        mic={helmTools}
         sendLabel={actionLabel}
         onSend={sendFromHelm}
         stopInBar={stopInBar}

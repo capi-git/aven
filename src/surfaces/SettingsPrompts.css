@@ -1,0 +1,97 @@
+/* Settings › Prompts: one row per instruction, opened in place. */
+.settings-prompt + .settings-prompt {
+  border-top: var(--aven-hairline, 1px) solid
+    var(--aven-separator, var(--aven-line));
+}
+
+.settings-prompt-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: var(--aven-cursor-pointer);
+}
+
+.settings-prompt-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-prompt-label {
+  color: var(--color-content);
+  font-size: var(--text-ui-body);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.settings-prompt-use {
+  overflow: hidden;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+  line-height: 1.5;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.settings-prompt-state {
+  flex-shrink: 0;
+  color: var(--aven-muted);
+  font-size: var(--text-ui-label);
+}
+
+.settings-prompt-chevron {
+  flex-shrink: 0;
+  color: var(--aven-muted);
+  transition: transform 160ms ease-out;
+}
+.settings-prompt[data-open] .settings-prompt-chevron {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-prompt-chevron {
+    transition: none;
+  }
+}
+
+.settings-prompt-head:focus-visible {
+  outline: none;
+}
+.settings-prompt-head:focus-visible .settings-prompt-label {
+  text-decoration: underline;
+}
+
+.settings-prompt-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 0 14px;
+}
+
+.settings-prompt-text {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88px;
+  padding: 8px 10px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-control-bg);
+  color: var(--color-content);
+  font-family: inherit;
+  font-size: var(--text-ui-label);
+  line-height: 1.55;
+  resize: vertical;
+}
+.settings-prompt-text:focus {
+  border-color: color-mix(in srgb, var(--color-content) 28%, transparent);
+  outline: none;
+}
