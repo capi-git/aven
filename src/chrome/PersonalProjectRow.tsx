@@ -45,6 +45,8 @@ import { SETTINGS } from "../lib/settingDefinitions";
 import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { CrewCritter } from "./CrewCritter";
+import { useHoverCard } from "./HoverCard";
+import { ProjectPeekCard } from "./HoverPeeks";
 
 /** A chat in its own copy: its own folder and branch, beside the others. */
 export const NEW_CHAT_IN_COPY_LABEL = "New chat in a copy";
@@ -72,6 +74,10 @@ type Props = {
   botOn?: boolean;
   /** Turn the project's bot on, or open its settings. */
   onBotSettings?: () => void;
+  /** Its chats, counted on its hover card only once the card opens. */
+  chats?: readonly { updatedAt: number; archived?: boolean }[];
+  /** No hover card, as in the floating sidebar's own window. */
+  peekDisabled?: boolean;
 };
 
 export function PersonalProjectRow({
@@ -92,6 +98,8 @@ export function PersonalProjectRow({
   visible = true,
   botOn = false,
   onBotSettings,
+  chats,
+  peekDisabled = false,
 }: Props) {
   const labels = useProjectLabels();
   const tiles = useSetting(SETTINGS.sidebarStyle) === "tiles";
@@ -108,6 +116,7 @@ export function PersonalProjectRow({
   const [customizing, setCustomizing] = useState(false);
   const [editingMemory, setEditingMemory] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
+  const openRef = useRef<HTMLButtonElement>(null);
   const labelRef = useRef<HTMLSpanElement>(null);
   // The full name joins the tooltip only while the row cuts it off.
   const [nameCut, setNameCut] = useState(false);
@@ -193,6 +202,11 @@ export function PersonalProjectRow({
   ]
     .filter(Boolean)
     .join(", ");
+  // The hover card says all of this for a mouse: while it shows, the
+  // tooltip steps aside so the two never stack.
+  const peek = useHoverCard({
+    disabled: peekDisabled || !visible || !!menu || customizing,
+  });
   const tooltip = [
     nameCut ? label : "",
     describeProjectStatus(status),
@@ -211,12 +225,18 @@ export function PersonalProjectRow({
         data-tour={active ? "project-active" : "project"}
       >
         <button
+          ref={openRef}
           type="button"
           className="personal-project-open"
-          title={tooltip}
+          title={peek.open ? undefined : tooltip}
           aria-label={`Open ${label} project${summary ? `, ${summary}` : ""}`}
           onClick={onSelect}
-          onPointerEnter={() => setNameCut(isTextTruncated(labelRef.current))}
+          onPointerEnter={(event) => {
+            setNameCut(isTextTruncated(labelRef.current));
+            peek.triggerProps.onPointerEnter(event);
+          }}
+          onPointerLeave={peek.triggerProps.onPointerLeave}
+          onPointerDown={peek.close}
           onContextMenu={(event) => {
             event.preventDefault();
             setMenu({ x: event.clientX, y: event.clientY });
@@ -301,6 +321,15 @@ export function PersonalProjectRow({
           <MoreHorizontal className="size-3.5" />
         </button>
       </div>
+      <ProjectPeekCard
+        state={peek}
+        anchor={openRef}
+        path={path}
+        name={label}
+        status={status}
+        chats={chats}
+        note={memoryNote || undefined}
+      />
       {menu ? (
         <ExplorerMenu
           x={menu.x}

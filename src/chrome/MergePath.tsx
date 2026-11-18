@@ -1,4 +1,3 @@
-import { ask } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import { useMergePath } from "../hooks/useMergePath";
 import { usePrChecks } from "../hooks/usePrChecks";
@@ -7,6 +6,7 @@ import { notifyGitChanged } from "../lib/fs";
 import { gitPrSquashMerge } from "../lib/gitHousekeeping";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { runMergeGitStep } from "../lib/mergeActions";
+import { confirmSquashMerge } from "../lib/prMerge";
 import {
   checkDuration,
   MERGE_ACTION_LABEL,
@@ -104,12 +104,8 @@ export function MergePath({ cwd, enabled, textHarness }: Props) {
     if (busy) return;
     if (action === "merge") {
       if (!openPr) return;
-      const base = index.defaultBranch ?? "the default branch";
-      const ok = await ask(
-        `Squash and merge PR #${openPr.number} into ${base}? Its commits become one commit, and GitHub deletes the branch afterwards.`,
-        { title: "Aven", kind: "warning", okLabel: "Squash and merge" },
-      );
-      if (!ok) return;
+      if (!(await confirmSquashMerge(openPr.number, index.defaultBranch)))
+        return;
     }
     setBusy(action);
     setFailure(null);

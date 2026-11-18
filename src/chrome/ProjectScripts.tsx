@@ -9,11 +9,14 @@ import {
   type FormEvent,
 } from "react";
 import { listDir, readTextFile } from "../lib/fs";
+import { projectAppearance } from "../lib/projectAppearance";
 import {
   clearScriptRun,
   isValidScriptCommand,
+  lastEndedRun,
   loadSetupScript,
   plainScriptOutput,
+  runningRowEnd,
   runScript,
   saveSetupScript,
   scriptKey,
@@ -45,6 +48,8 @@ import {
   X,
 } from "./icons";
 import { DotSpinner } from "./DotSpinner";
+import { HoverCard, useHoverCard } from "./HoverCard";
+import { shortTimeAgo } from "../lib/gitChangesView";
 import "./ProjectScripts.css";
 
 type Props = {
@@ -270,6 +275,89 @@ function RunButton({
   );
 }
 
+const TICK = (
+  <svg width="8" height="8" viewBox="0 0 10 10" aria-hidden>
+    <path
+      d="M2 5.2l2 2 4-4.4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+/** What runs in this copy, each with Stop, and how the last run ended. */
+export function RunCardBody({
+  project,
+  running,
+  last,
+  now,
+}: {
+  project: string;
+  running: readonly ScriptRun[];
+  last: ScriptRun | undefined;
+  now: number;
+}) {
+  const ended =
+    last && (last.state === "done" || last.state === "failed") ? last : null;
+  return (
+    <div className="hover-card-body">
+      {running.length ? (
+        <>
+          <div className="hover-card-heading">
+            Running in {projectAppearance(project).label}
+          </div>
+          {running.map((run) => (
+            <div className="hover-card-row" key={run.key}>
+              <span className="hover-card-dot" aria-hidden />
+              <span
+                className="hover-card-mono project-scripts-card-command"
+                title={run.command}
+              >
+                {run.command}
+              </span>
+              <span className="hover-card-row-end">
+                {runningRowEnd(run, now)}
+              </span>
+              <button
+                type="button"
+                className="hover-card-button"
+                data-size="small"
+                aria-label={`Stop ${run.name}`}
+                onClick={() => void stopScript(run.key)}
+              >
+                Stop
+              </button>
+            </div>
+          ))}
+        </>
+      ) : null}
+      {running.length && ended ? (
+        <div className="hover-card-separator" />
+      ) : null}
+      {ended ? (
+        <div className="hover-card-row">
+          {ended.state === "done" ? (
+            <span className="hover-card-ok" data-size="small" aria-hidden>
+              {TICK}
+            </span>
+          ) : (
+            <span className="hover-card-dot" data-state="failed" aria-hidden />
+          )}
+          <span>
+            {ended.state === "done" ? "Last run passed" : "Last run failed"}
+          </span>
+          <span className="hover-card-row-end">
+            {shortTimeAgo(ended.endedAt ?? 0, now)}
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** Setup, Run and Terminal at the foot of the side panel. */
 export function ProjectScripts({
   project,
@@ -345,7 +433,12 @@ export function ProjectScripts({
   const setupRun = scriptRun(scriptKey("setup", cwd, "Setup"));
   const runRuns = scriptRunsIn(cwd, "run");
   const setupBusy = setupRun?.state === "running";
-  const runBusy = runRuns.some((run) => run.state === "running");
+  const running = runRuns.filter((run) => run.state === "running");
+  const runBusy = running.length > 0;
+  const lastRun = lastEndedRun(runRuns);
+  const lastRunShown = lastRun?.state === "done" || lastRun?.state === "failed";
+  const runCard = useHoverCard({ disabled: !runBusy && !lastRunShown });
+  const runTab = useRef<HTMLButtonElement>(null);
   const current =
     scripts.find((script) => script.id === selected) ?? scripts[0] ?? null;
   const currentRun = current
@@ -405,11 +498,16 @@ export function ProjectScripts({
             Setup
           </button>
           <button
+            ref={runTab}
             type="button"
             role="tab"
             aria-selected={open && pane === "run"}
             className="project-scripts-tab"
-            onClick={() => show("run")}
+            onClick={() => {
+              runCard.close();
+              show("run");
+            }}
+            {...runCard.triggerProps}
           >
             {runBusy ? (
               <DotSpinner state="background" />
@@ -418,6 +516,21 @@ export function ProjectScripts({
             )}
             Run
           </button>
+          <HoverCard
+            state={runCard}
+            anchor={runTab}
+            side="bottom"
+            align="start"
+            width={340}
+            label="Run scripts"
+          >
+            <RunCardBody
+              project={project}
+              running={running}
+              last={lastRun}
+              now={Date.now()}
+            />
+          </HoverCard>
           {terminal ? (
             <button
               type="button"

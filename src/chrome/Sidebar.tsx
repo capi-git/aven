@@ -20,6 +20,7 @@ import {
 import {
   createContext,
   memo,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -168,6 +169,7 @@ import {
 } from "../lib/projectBots";
 import { crewChatIds, useCrewsStore } from "../lib/crews";
 import { useAutomationChatIds } from "../hooks/useAutomationChats";
+import { SidebarChatPeek, type ChatPeekRow } from "./HoverPeeks";
 import "./PersonalNavigation.css";
 
 const MIN_WIDTH = 190;
@@ -533,6 +535,44 @@ function SidebarComponent({
     DEFAULT_WORKSPACE_PROFILES[0];
   const projects = projectRailItems(recents, onSelectProfile ? "~" : cwd);
   const asideRef = useRef<HTMLElement | null>(null);
+  // The chat card reads the lists only once open, through this ref, so it
+  // never adds work to the sidebar's own renders.
+  const peekLists = useRef({
+    sessions,
+    openSessions,
+    projectSessions,
+    standaloneSessions,
+    approvalSessionIds,
+    chatStatus,
+  });
+  peekLists.current = {
+    sessions,
+    openSessions,
+    projectSessions,
+    standaloneSessions,
+    approvalSessionIds,
+    chatStatus,
+  };
+  const findPeekChat = useCallback((id: string): ChatPeekRow | undefined => {
+    const lists = peekLists.current;
+    const all = [
+      lists.sessions,
+      lists.openSessions,
+      lists.standaloneSessions,
+      ...Object.values(lists.projectSessions),
+    ];
+    for (const list of all) {
+      const found = list.find((session) => session.id === id);
+      if (found) return found;
+    }
+    return undefined;
+  }, []);
+  const peekNeedsYou = useCallback(
+    (id: string) =>
+      peekLists.current.chatStatus[id] === "needs-you" ||
+      peekLists.current.approvalSessionIds.has(id),
+    [],
+  );
   const profileViewportRef = useRef<HTMLDivElement | null>(null);
   const profileContentRef = useRef<HTMLDivElement | null>(null);
   const profileSnapshots = useRef(new Map<string, HTMLElement>());
@@ -2001,6 +2041,7 @@ function SidebarComponent({
                                   key={session.id}
                                   type="button"
                                   className="personal-other-task personal-task-card"
+                                  data-chat-peek={session.id}
                                   onPointerEnter={(event) =>
                                     syncTruncatedTitle(event.currentTarget)
                                   }
@@ -2169,6 +2210,10 @@ function SidebarComponent({
                           refreshProjects((revision) => revision + 1)
                         }
                         visible={open && documentVisible}
+                        chats={
+                          active ? sessions : projectSessions[project.path]
+                        }
+                        peekDisabled={floating || settingsOpen}
                       />
                       {active ? (
                         currentProjectTasks
@@ -2232,6 +2277,7 @@ function SidebarComponent({
                                     key={session.id}
                                     type="button"
                                     className="personal-other-task personal-task-card"
+                                    data-chat-peek={session.id}
                                     onPointerEnter={(event) =>
                                       syncTruncatedTitle(event.currentTarget)
                                     }
@@ -2439,6 +2485,13 @@ function SidebarComponent({
         <ChatStatuses.Provider value={chatStatus}>
           <ChatStatusHints.Provider value={chatStatusHints}>
             {sidebarContent}
+            <SidebarChatPeek
+              container={asideRef}
+              disabled={floating || !sidebarVisible || settingsOpen}
+              find={findPeekChat}
+              busy={busySessionIds}
+              needsYou={peekNeedsYou}
+            />
           </ChatStatusHints.Provider>
         </ChatStatuses.Provider>
       </TeamNeeds.Provider>
@@ -3101,6 +3154,7 @@ function SessionCard({
           <button
             type="button"
             data-session-select
+            data-chat-peek={session.id}
             data-tauri-drag-region="false"
             aria-current={isActive ? "true" : undefined}
             aria-pressed={isSelected}
@@ -3178,6 +3232,7 @@ function SessionCard({
         aria-current={isActive ? "true" : undefined}
         aria-pressed={isSelected}
         data-session-card={session.id}
+        data-chat-peek={session.id}
         data-sortable-motion
         data-discussion-row={talk ? session.id : undefined}
         data-session-selected={isSelected ? "true" : undefined}

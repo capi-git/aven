@@ -127,6 +127,8 @@ import { playMotion } from "../lib/motion";
 import { revealTab, tabInView } from "../lib/tabStripReveal";
 import { setWindowStripZone, windowStripZone } from "../lib/windowStripDrop";
 import { isSpaceKey } from "../lib/workspaceSpaces";
+import { useHoverCard } from "./HoverCard";
+import { TabPeekCard } from "./HoverPeeks";
 import "./TitleBar.css";
 
 export type Tab = {
@@ -165,6 +167,8 @@ export type Tab = {
   botPath?: string;
   /** The chats in this tab, whose finished turns flash it. */
   sessionIds?: string[];
+  /** The chat in front, which the tab's hover card quotes. */
+  focusedSessionId?: string;
   /** The tab is a project's board. */
   board?: boolean;
   dirty?: boolean;
@@ -649,7 +653,14 @@ function TitleTabItem({
   const { headline: ownName, tooltip } = tabCopy(tab, projectless);
   const headline = shownName ?? ownName;
   const tabRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   useTurnEndFlash(tabRef, tab.sessionIds);
+  // A chat's tab peeks at its last reply; other tabs have nothing to add.
+  const chatTab =
+    !!tab.focusedSessionId && !tab.fileFocused && !tab.board && !tab.terminal;
+  const peek = useHoverCard({
+    disabled: !chatTab || !!sortable.draggingId,
+  });
   const identity = pinned ? (
     <PinnedIdentity tab={tab} active={active} sigil={pinSigil} />
   ) : (
@@ -736,8 +747,9 @@ function TitleTabItem({
         {deck ? <TabDeck>{identity}</TabDeck> : null}
         {/* A lone title row is a group of controls, not a list of tabs. */}
         <button
+          ref={buttonRef}
           type="button"
-          title={tooltip}
+          title={peek.open ? undefined : tooltip}
           aria-label={tooltip}
           role={deck ? undefined : "tab"}
           tabIndex={tabStop ? 0 : -1}
@@ -753,6 +765,7 @@ function TitleTabItem({
           data-tauri-drag-region="false"
           data-morph={combineInto ? undefined : `tab:${tab.id}`}
           className="personal-title-tab-button aven-tab-button relative flex min-w-0 flex-1 cursor-default items-center text-left"
+          {...peek.triggerProps}
         >
           <span className="personal-title-tab-number" aria-hidden>
             {index + 1}
@@ -819,6 +832,13 @@ function TitleTabItem({
             }
           />
         ) : null}
+        <TabPeekCard
+          state={peek}
+          anchor={buttonRef}
+          sessionId={tab.focusedSessionId}
+          title={headline}
+          project={projectless ? "" : tab.project}
+        />
       </div>
     </div>
   );

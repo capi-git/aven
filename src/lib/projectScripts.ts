@@ -1,4 +1,4 @@
-import { stripAnsi } from "./devServerUrls";
+import { createDevOutputScanner, stripAnsi } from "./devServerUrls";
 import { logError } from "./errors";
 import type { FsEntry } from "./fs";
 import { IS_WIN } from "./platform";
@@ -24,6 +24,9 @@ export type ScriptRun = {
   code: number | null;
   /** Raw terminal output, newest kept when it grows past the budget. */
   output: string;
+  /** When it started, and when it ended once it has. */
+  startedAt?: number;
+  endedAt?: number;
 };
 
 const SETUP_KEY = "aven.setupScripts";
@@ -217,6 +220,7 @@ export async function runScript(
     state: "running",
     code: null,
     output: "",
+    startedAt: Date.now(),
   });
   if (kind === "setup") markSetupRan(cwd);
   notify();
@@ -237,7 +241,11 @@ export async function runScript(
       unsubscribe();
       if (ptys.get(key) !== id) return;
       ptys.delete(key);
-      patch(key, { state: code === 0 ? "done" : "failed", code });
+      patch(key, {
+        state: code === 0 ? "done" : "failed",
+        code,
+        endedAt: Date.now(),
+      });
     },
   );
   try {
@@ -249,6 +257,7 @@ export async function runScript(
     logError(`Couldn't start the ${name} script`, error);
     patch(key, {
       state: "failed",
+      endedAt: Date.now(),
       output: `${runs.get(key)?.output ?? ""}${error instanceof Error ? error.message : String(error)}\n`,
     });
   }
@@ -258,7 +267,7 @@ export async function stopScript(key: string): Promise<void> {
   const id = ptys.get(key);
   if (!id) return;
   ptys.delete(key);
-  patch(key, { state: "stopped" });
+  patch(key, { state: "stopped", endedAt: Date.now() });
   await killPty(id);
 }
 
@@ -266,4 +275,56 @@ export async function stopScript(key: string): Promise<void> {
 export function clearScriptRun(key: string) {
   if (runs.get(key)?.state === "running") return;
   if (runs.delete(key)) notify();
+}
+
+/** The terminals of scripts still running, for telling their work apart. */
+export function runningScriptPtys(): string[] {
+  return [...ptys.entries()]
+    .filter(([key]) => runs.get(key)?.state === "running")
+    .map(([, id]) => id);
+}
+
+/**
+ * The port a run announced (Vite's `Local: http://localhost:5173/`), the
+ * app's own page first; null when its output names none.
+ */
+export function scriptRunPort(run: Pick<ScriptRun, "output">): number | null {
+  if (!run.output) return null;
+  const scanner = createDevOutputScanner();
+  const signals = [...scanner.push(run.output), ...scanner.finish()].flatMap(
+    (signal) => (signal.kind === "address" ? [signal.address] : []),
+  );
+  const page =
+    signals.find((address) => address.strength === "strong") ?? signals[0];
+  return page?.port ?? null;
+}
+
+/** The run in `cwd` that ended last, if any. */
+export function lastEndedRun(
+  runs: readonly ScriptRun[],
+): ScriptRun | undefined {
+  return runs
+    .filter((run) => run.state !== "running" && run.endedAt != null)
+    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))[0];
+}
+
+/** "41m", "2h 5m", "30s": how long a run has gone on. */
+export function runDuration(
+  startedAt: number | undefined,
+  now: number,
+): string {
+  if (startedAt == null || !Number.isFinite(startedAt)) return "";
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
+}
+
+/** The end of a running command's row: ":5173 · 41m", or just "12m". */
+export function runningRowEnd(run: ScriptRun, now: number): string {
+  const port = scriptRunPort(run);
+  const duration = runDuration(run.startedAt, now);
+  return [port != null ? `:${port}` : "", duration].filter(Boolean).join(" · ");
 }

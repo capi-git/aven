@@ -239,3 +239,10 @@
   justify-content: center;
   column-gap: 14px;
 }
+
+/* Something runs: a small green dot after Run. */
+.project-scripts-card-command {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

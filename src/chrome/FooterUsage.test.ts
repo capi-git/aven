@@ -183,19 +183,11 @@ describe("footer usage", () => {
     );
   });
 
-  it("shows the task context beside the account usage", async () => {
-    await render({
-      providers: ["claude"],
-      context: { used: 50_000, window: 200_000 },
-    });
-    const context = container.querySelector(".footer-usage-context")!;
-    expect(context.textContent).toBe("Context25%");
-    expect(context.querySelector(".footer-usage-meter")).not.toBeNull();
-    expect(context.getAttribute("title")).toBe(
-      "Context: 25% of this chat's context used (50K of 200K tokens)",
-    );
-    expect(button(/Show usage details/).getAttribute("aria-label")).toContain(
-      "Context: 25% of this chat's context used (50K of 200K tokens). Claude: 2% of your 5-hour limit used",
+  it("leaves this chat's context to its own button", async () => {
+    await render({ providers: ["claude"] });
+    expect(container.querySelector(".footer-usage-context")).toBeNull();
+    expect(button(/Show usage details/).getAttribute("aria-label")).toMatch(
+      /^Claude: 2% of your 5-hour limit used/,
     );
   });
 
@@ -282,7 +274,7 @@ describe("footer usage", () => {
     api.claude.mockRejectedValueOnce(new Error("offline"));
     await render({ providers: ["claude"] });
     expect(container.textContent).toContain("Usage unavailable");
-    await render({ providers: [], context: null });
+    await render({ providers: [] });
     expect(container.textContent).toBe("");
   });
 });

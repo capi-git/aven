@@ -27,10 +27,9 @@
   background: color-mix(in srgb, var(--color-content) 8%, transparent);
 }
 
-/* One compact reading per account and for the chat's context: a mark or
-   label, a small bar and a percentage. Hover says the rest in plain words. */
-.footer-usage-account,
-.footer-usage-context {
+/* One compact reading per account: a mark, a small bar and a percentage.
+   Hover says the rest in plain words. */
+.footer-usage-account {
   display: flex;
   align-items: center;
   gap: 5px;
@@ -136,14 +135,8 @@
   }
 }
 
-/* Narrower footers shed detail in steps: context, then the bars, then the
-   refresh button. Hover and the details panel keep everything. */
-@container workspace-footer (max-width: 480px) {
-  .footer-usage-context,
-  .footer-usage-context + .footer-usage-account > .footer-usage-divider {
-    display: none;
-  }
-}
+/* Narrower footers shed detail in steps: the bars, then the refresh
+   button. Hover and the details panel keep everything. */
 @container workspace-footer (max-width: 300px) {
   .footer-usage-meter {
     display: none;
@@ -156,13 +149,10 @@
 }
 
 /* A small mark, a thin bar and each limit with its reset,
-   no tile, no divider. The chat's context is in the message box and the details. */
+   no tile, no divider. The chat's context has its own button after these. */
 .footer-usage-summary {
   gap: 12px;
   color: color-mix(in srgb, var(--color-content) 62%, transparent);
-}
-.footer-usage-context {
-  display: none;
 }
 .footer-usage-meter {
   width: 28px;

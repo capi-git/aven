@@ -14,6 +14,8 @@ import type { OpenFileFn } from "../lib/search";
 import type { HarnessId } from "../lib/session";
 import { PanelRight } from "./icons";
 import { ProjectScripts } from "./ProjectScripts";
+import { useHoverCard } from "./HoverCard";
+import { ChangesPeekCard } from "./HoverPeeks";
 import { SurfaceBoundary } from "./SurfaceBoundary";
 import "./WorkspaceInspector.css";
 
@@ -110,8 +112,11 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
   const id = useId();
   const active = props.active;
   // How many files wait in Changes, shown on its tab while there are any.
-  const changedFiles =
-    useProjectDiffStats(props.gitCwd || props.cwd, active)?.files ?? 0;
+  const diffStats = useProjectDiffStats(props.gitCwd || props.cwd, active);
+  const changedFiles = diffStats?.files ?? 0;
+  const changesTab = useRef<HTMLButtonElement>(null);
+  // Pointing at Changes lists its files; only while there are some.
+  const changesPeek = useHoverCard({ disabled: !active || changedFiles === 0 });
   // A comment left on a diff is filed under the project the panel shows,
   // even while the panel is hidden.
   const shownRoot = props.gitCwd || props.cwd;
@@ -179,6 +184,9 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
               data-inspector-tab={tab}
               className="workspace-inspector-tab"
               onClick={() => props.onTabChange(tab)}
+              {...(tab === "changes"
+                ? { ref: changesTab, ...changesPeek.triggerProps }
+                : {})}
             >
               {LABELS[tab]}
               {tab === "changes" && changedFiles > 0 ? (
@@ -193,6 +201,12 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
             </button>
           ))}
         </div>
+        <ChangesPeekCard
+          state={changesPeek}
+          anchor={changesTab}
+          cwd={props.gitCwd || props.cwd}
+          stats={diffStats}
+        />
         {props.onPin ? (
           <button
             type="button"

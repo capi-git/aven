@@ -391,6 +391,7 @@ import { hasWorkspaceOverlay } from "./lib/workspaceKeyboard";
 import { WorkspaceStatusBar, dragStatusBar } from "./chrome/WorkspaceStatusBar";
 import { WorkspaceFooter } from "./chrome/WorkspaceFooter";
 import { FooterUsage } from "./chrome/FooterUsage";
+import { FooterContext, FooterCost } from "./chrome/FooterHoverButtons";
 import {
   WorkspaceActionDialog,
   type WorkspaceActionKind,
@@ -634,7 +635,7 @@ import {
 } from "./lib/workspaceTabGroups";
 import { runSessionRemoval } from "./lib/sessionRemoval";
 import { resolvePaneCloseTab } from "./lib/sessionPaneClose";
-import { sessionModelIdentity } from "./lib/sessionLabels";
+import { sessionModelIdentity, sessionModelName } from "./lib/sessionLabels";
 import {
   HARNESS_LABEL,
   HARNESS_TITLE,
@@ -916,6 +917,7 @@ import {
   type ChatStatusWord,
 } from "./lib/chatStatus";
 import { holdUpHint, sessionHoldUps } from "./lib/sessionHoldUp";
+import { provideChatPeek } from "./lib/chatPeek";
 import { useChatReviewTracker } from "./hooks/useChatReviewTracker";
 import { useWorkBoardPublisher } from "./hooks/useWorkBoardPublisher";
 import {
@@ -2922,6 +2924,14 @@ export default function App({
   // One word per chat, for its sidebar row and the project boards: what its
   // turns, teams, unreviewed changes and ships say (see chatStatus).
   useChatReviewTracker(sessionsRef);
+  // Hover cards peek into an open chat (its copy, step and last reply) by id.
+  useEffect(
+    () =>
+      provideChatPeek((id) =>
+        sessionsRef.current.find((session) => session.id === id),
+      ),
+    [sessionsRef],
+  );
   const chatReviews = useChatReviews();
   const shippedChats = useShippedChats();
   const nextChatStatus = useMemo(
@@ -8824,6 +8834,19 @@ export default function App({
     return () => window.clearTimeout(timer);
   }, [autoContinueKey, onSubmit]);
 
+  // The footer's spend card names chats only while it is open.
+  const footerChatTitle = useCallback(
+    (chatId: string) => {
+      const session =
+        sessionsRef.current.find((item) => item.id === chatId) ??
+        historyRef.current.find((item) => item.id === chatId);
+      return session
+        ? sessionDisplayTitle(session.title, session.harness)
+        : undefined;
+    },
+    [sessionsRef, historyRef],
+  );
+
   const onCompactContext = useCallback(
     (sessionId: string) => {
       const current = sessionsRef.current.find(
@@ -12778,11 +12801,25 @@ export default function App({
                       if (!profileHome) onToggleProjectTerminal();
                     }}
                     terminalOpen={!profileHome && dockVisible}
-                    usage={
-                      <FooterUsage
-                        providers={usageProviders}
-                        context={profileHome ? null : active?.context}
-                      />
+                    usage={<FooterUsage providers={usageProviders} />}
+                    chat={
+                      <>
+                        <FooterCost chatTitle={footerChatTitle} />
+                        {!profileHome && active ? (
+                          <FooterContext
+                            context={active.context}
+                            model={sessionModelName(
+                              sessionModelIdentity(active),
+                            )}
+                            onCompact={
+                              !active.busy &&
+                              canCompactHarnessContext(active.harness)
+                                ? () => onCompactContext(active.id)
+                                : undefined
+                            }
+                          />
+                        ) : null}
+                      </>
                     }
                   />
                 </div>
@@ -13200,6 +13237,7 @@ function toTitleTab(
     more,
     sessionCount: tabSessions.length,
     sessionIds: tabSessions.map((session) => session.id),
+    ...(focused ? { focusedSessionId: focused.id } : {}),
     models: ordered.map(sessionModelIdentity),
     harnesses,
     busyHarnesses,

@@ -221,6 +221,12 @@ impl PtyHost {
             })
     }
 
+    /// The shell's process id, for telling its work apart in the footer's
+    /// This Mac card.
+    pub(crate) fn pid_of(&self, id: &str) -> Option<u32> {
+        self.get(id).map(|live| live.pid)
+    }
+
     fn remove(&self, id: &str) -> Option<Arc<LivePty>> {
         let removed = self.lock_sessions().remove(id);
         self.settled.notify_all();

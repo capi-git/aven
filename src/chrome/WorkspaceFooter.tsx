@@ -1,4 +1,5 @@
 import { memo, type ReactNode } from "react";
+import { FooterMachine, FooterOpenIn } from "./FooterHoverButtons";
 import { Terminal } from "./icons";
 import "./WorkspaceFooter.css";
 
@@ -10,6 +11,8 @@ export type WorkspaceFooterProps = {
   terminalOpen?: boolean;
   /** Account usage for the agents in use. */
   usage?: ReactNode;
+  /** The open chat's spend and context, after a divider. */
+  chat?: ReactNode;
   /**
    * The window's shrunk teams (see `TeamWatchPills`): a slot of their own,
    * so they never float over the work area or the side panel.
@@ -18,9 +21,9 @@ export type WorkspaceFooterProps = {
 };
 
 /**
- * Agents, their teams and the terminal only. Branch, changes and pull
- * requests live in the file sidebar's Changes tab, beside the diff they
- * describe.
+ * Agents, their teams, this chat's spend and context, this Mac, Open in
+ * and the terminal. Branch, changes and pull requests live in the file
+ * sidebar's Changes tab, beside the diff they describe.
  */
 export const WorkspaceFooter = memo(function WorkspaceFooter({
   active,
@@ -28,6 +31,7 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
   onToggleTerminal,
   terminalOpen = false,
   usage,
+  chat,
   teams,
 }: WorkspaceFooterProps) {
   if (!active) return null;
@@ -35,10 +39,17 @@ export const WorkspaceFooter = memo(function WorkspaceFooter({
 
   return (
     <footer className="workspace-footer" aria-label="Workspace status">
-      <div className="workspace-footer-usage">{usage}</div>
+      <div className="workspace-footer-usage">
+        {usage}
+        {chat ? <div className="workspace-footer-chat">{chat}</div> : null}
+      </div>
       {teams ? <div className="workspace-footer-teams">{teams}</div> : null}
 
       <div className="workspace-footer-tools">
+        <div className="workspace-footer-machine">
+          <FooterMachine />
+          <FooterOpenIn cwd={cwd} />
+        </div>
         <button
           type="button"
           className="workspace-footer-icon"
