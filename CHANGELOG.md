@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Tiles sidebar style.** Settings › General › Sidebar style › Tiles puts a small tile before each project, as in Super: its first letter in the project's colour, or its logo. New chat stays in view.
+
+### Changed
+
+- **Project names are no longer bold.** They are grey, and the open project is white.
+
 ## [0.1.191] - 2026-11-18
 
 ### Added

@@ -254,13 +254,76 @@
   border-radius: var(--aven-radius-row);
   text-align: left;
   font-size: var(--text-ui-row);
-  font-weight: 600;
-  color: var(--color-content);
+  font-weight: 400;
+  color: var(--personal-muted);
 }
 .personal-shell
   .personal-navigation
-  .personal-project-open:is(:hover, [aria-current], [aria-expanded="true"]) {
+  :is(
+    .personal-project-open:is(:hover, [aria-current], [aria-expanded="true"]),
+    .personal-project-row[data-active] .personal-project-open
+  ) {
   color: var(--color-content);
+}
+/* Tiles style, as in Super: a small tile with the project's logo, or its
+   first letter in its colour, before its name; New chat stays in view; its chats line up with the
+   name. */
+.personal-shell .personal-navigation .personal-project-tile {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  overflow: hidden;
+  border-radius: var(--aven-radius-sm);
+  /* The project's colour, toned down so the tile stays quiet. */
+  background: color-mix(
+    in srgb,
+    var(--project-tile-color, var(--aven-control-bg)) 42%,
+    var(--aven-control-bg)
+  );
+  color: var(--color-content);
+}
+.personal-shell .personal-navigation .personal-project-tile > * {
+  grid-area: 1 / 1;
+}
+.personal-shell .personal-navigation .personal-project-tile .project-mark,
+.personal-shell .personal-navigation .personal-project-tile .project-mark img {
+  width: 22px;
+  height: 22px;
+}
+.personal-shell .personal-navigation .personal-project-tile-letter {
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  line-height: 1;
+  opacity: 0.85;
+}
+.personal-shell
+  .personal-navigation
+  .personal-project-tile:has(.project-mark)
+  .personal-project-tile-letter {
+  display: none;
+}
+.personal-shell
+  .personal-navigation[data-sidebar-style="tiles"]
+  .personal-project-open {
+  gap: 10px;
+}
+.personal-shell
+  .personal-navigation[data-sidebar-style="tiles"]
+  .personal-project-row-action:not(
+    .personal-project-disclosure,
+    .personal-project-more
+  ) {
+  width: 24px;
+  opacity: 1;
+  pointer-events: auto;
+}
+.personal-shell
+  .personal-navigation[data-sidebar-style="tiles"]
+  .personal-project-group
+  .personal-project-tasks {
+  padding-left: 14px;
 }
 .personal-shell .personal-project-open > .personal-project-label {
   min-width: 0;
@@ -1099,7 +1162,7 @@ html.is-mac.has-native-glass.has-native-glass-tint:not(.theme-light)
   .personal-sessions-heading {
   color: var(--color-content);
   font-size: var(--text-ui-row);
-  font-weight: 600;
+  font-weight: 500;
 }
 /* A chat's helpers sit under its row, along a faint line, as its chats
    sit under a project. Each is a quieter title that brightens when it's
