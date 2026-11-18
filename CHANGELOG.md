@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+## [0.1.191] - 2026-11-18
+
+### Added
+
+- **A Review tab in the side panel.** Comments you leave on a diff wait here, with your pull request's review threads, until you send them to a chat. Open shows what is left; Done shows what you sent.
+- **Changes shows All, Turns or Commits.** Turns groups changed files under the message that changed them; Commits holds the history. Files you opened go dim until they change again, and Unviewed hides them. J and K move, Space marks a file viewed, N finds the next one and Return opens it.
+- **A commit box at the foot of Changes.** Write a message, or let Aven write it, and Commit and push. ··· opens the full Ship card.
+- **Ask an agent to write a run or setup script.** An empty Run or Setup offers it, with a link to the project's settings.
+
+### Changed
+
+- **Work in a chat is one line while it runs.** "Running 2 commands" with grey dots, and no box. Click the line to see the commands as small grey lines.
+- **Agent marks are grey dots.** They no longer take the project's colour; only Needs you, Ready and Failed have colour.
+- **Quieter sidebar rows.** Chat names are lighter and the time always shows at the end of the row; grey dots show there while a chat works.
+- **Finished helpers fold away.** Under a chat, done helpers become one "2 helpers · finished" row. Click it to see them again.
+- **The side panel looks like Super's.** Files, Changes, Review and Checks, with the open tab outlined. The project card, Ship it bar and close button are gone. Setup and Run sit lower and taller, and + opens a new terminal.
+- **One look for every workspace.** Theme, accent colour and glass are now the same in all workspaces. Aven keeps the look of the workspace you had in front.
+
+### Fixed
+
+- **The Opacity and Translucency sliders no longer jitter.** A drag now saves once, when you let go.
+- **History no longer hides your changes in a short window,** and no longer covers the Changes buttons.
+
 ## [0.1.190] - 2026-11-17
 
 ### Added
