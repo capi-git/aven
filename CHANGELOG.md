@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.1.193] - 2026-11-18
+
+### Added
+
+- **Hover cards.** Rest the pointer on a chat, a project, a tab, the Changes or Run tab, or the activity check, and a small card shows what is going on there: the branch and pull request, what the agent does now, changed files, checks, or what runs.
+- **Buttons in the bottom bar:** what you spent today, how full the chat's context is (with Compact), this Mac's processor and memory use, and Open in, which opens the project folder in Finder, a terminal or an editor.
+- **A merge line under the message box.** It shows where the chat's branch is and offers the next step: Commit and push, Push, Create pull request, or Merge.
+- **Git actions for the agent and Settings › Prompts.** Ask the agent to commit, open a pull request or fix review comments, and change the words of each of these instructions in Settings › Prompts. A sparkle in the message box improves your draft; ⌘Z puts it back.
+
+### Changed
+
+- **A split's panes are named tabs joined by a short line,** with no box around them. Drag a pane's mark to move that pane alone; hold Option to move the whole split.
+- **A divider's grip follows the pointer** along the divider, as in Super Engineering. The sidebar and side panel edges show the grip too.
+- **The project bot (the Fixer) is no longer in the sidebar.** Open it from the project's menu.
+
 ## [0.1.192] - 2026-11-18
 
 ### Added
