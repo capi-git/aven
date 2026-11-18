@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [0.1.193] - 2026-11-18
+
+### Added
+
+- **Hover cards.** Rest the pointer on a chat, a project, a tab, the Changes or Run tab, or the activity check, and a small card shows what is going on there: the branch and pull request, what the agent does now, changed files, checks, or what runs.
+- **Buttons in the bottom bar:** what you spent today, how full the chat's context is (with Compact), this Mac's processor and memory use, and Open in, which opens the project folder in Finder, a terminal or an editor.
+- **A merge line under the message box.** It shows where the chat's branch is and offers the next step: Commit and push, Push, Create pull request, or Merge.
+- **Git actions for the agent and Settings › Prompts.** Ask the agent to commit, open a pull request or fix review comments, and change the words of each of these instructions in Settings › Prompts. A sparkle in the message box improves your draft; ⌘Z puts it back.
+
+### Changed
+
+- **A split's panes are named tabs joined by a short line,** with no box around them. Drag a pane's mark to move that pane alone; hold Option to move the whole split.
+- **No grip on dividers.** Pointing at or dragging a divider between panes, or the sidebar and side panel edges, changes only the pointer. Keyboard focus still shows a line.
+- **The side panel opens smoothly.** Web pages no longer tear while it slides open, its first open no longer shows "Loading files…", and it reads Git and GitHub only after the slide.
+- **The project bot (the Fixer) is no longer in the sidebar.** Open it from the project's menu.
+
+### Fixed
+
+- **The merge line uses less power.** It reads GitHub once a minute in place of every 15 seconds, it keeps its place while it loads so the message box does not jump, and an old error goes away when the branch moves on.
+- **Smaller fixes:** New chat stays in its place in the Tiles sidebar, Forward remembers the chosen chat, @chat names stay with their own chat, orbs hold still with Reduce motion, a divider drag never leaves a stuck pointer, and each project's settings page keeps its own text.
+
 ## [0.1.192] - 2026-11-18
 
 ### Added
