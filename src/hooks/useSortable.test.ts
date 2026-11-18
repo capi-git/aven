@@ -1139,6 +1139,28 @@ describe("useSortable external drops and cancellation", () => {
       );
     });
 
+    it("moves on its own along the strip when it is alone", async () => {
+      partOf = (id) =>
+        id === "browser-a" ? { ...page, alone: true } : undefined;
+      await act(async () => root.render(createElement(Harness)));
+      const handle = container.querySelector<HTMLButtonElement>(
+        '[data-id="browser-a"]',
+      )!;
+      await pointer(handle, "pointerdown", 150, 15);
+      await pointer(window, "pointermove", 10, 15);
+      await flushFrame();
+      await pointer(window, "pointerup", 10, 15);
+      expect(options.onDragEnd).toHaveBeenCalledExactlyOnceWith(
+        "browser-a",
+        10,
+        15,
+        false,
+        { screenX: 0, screenY: 0 },
+        { part: "page", torn: true, inStrip: true },
+      );
+      expect(onReorder).not.toHaveBeenCalled();
+    });
+
     it("is torn off once the pointer leaves the strip, and never reorders it", async () => {
       await start();
       expect(options.onDragMove).toHaveBeenLastCalledWith(

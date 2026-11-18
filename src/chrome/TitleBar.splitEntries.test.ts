@@ -391,7 +391,13 @@ describe("dragging with splits", () => {
     box(segment("page"), 300, 98);
     strip().getBoundingClientRect = () => new DOMRect(0, 0, 500, 30);
   }
-  const pointer = (target: EventTarget, type: string, x: number, y = 15) =>
+  const pointer = (
+    target: EventTarget,
+    type: string,
+    x: number,
+    y = 15,
+    altKey = false,
+  ) =>
     act(async () => {
       target.dispatchEvent(
         new PointerEvent(type, {
@@ -400,6 +406,7 @@ describe("dragging with splits", () => {
           button: 0,
           clientX: x,
           clientY: y,
+          altKey,
         }),
       );
     });
@@ -480,10 +487,11 @@ describe("dragging with splits", () => {
       "hero",
     );
 
-    // Pressing a segment and moving along the strip moves the whole split.
+    // Pressing a segment with Option held and moving along the strip moves
+    // the whole split.
     await render();
     layOut();
-    await pointer(segment("page"), "pointerdown", 350);
+    await pointer(segment("page"), "pointerdown", 350, 15, true);
     await pointer(window, "pointermove", 300);
     await frame();
     await pointer(window, "pointermove", 20);
@@ -524,6 +532,23 @@ describe("dragging with splits", () => {
     expect(props.onReorderSurfaces).not.toHaveBeenCalled();
     expect(props.onDetachFromSplit).not.toHaveBeenCalled();
     expect(segment("page").dataset.sortableTornPart).toBeUndefined();
+  });
+
+  it("moves a segment's tab on its own along the strip", async () => {
+    await render();
+    layOut();
+    // No need to leave the strip: dragging a pane's mark sideways takes it out.
+    await pointer(segment("page"), "pointerdown", 350);
+    await pointer(window, "pointermove", 300);
+    await frame();
+    await pointer(window, "pointermove", 110);
+    await frame();
+    await pointer(window, "pointerup", 110);
+    expect(props.onDetachFromSplit).toHaveBeenCalledExactlyOnceWith(
+      "page",
+      "checkout",
+    );
+    expect(props.onReorderSurfaces).not.toHaveBeenCalled();
   });
 
   it("leaves a segment's tab on the strip, alone, when let go back there", async () => {
@@ -705,8 +730,8 @@ describe("dragging with splits", () => {
     it("gives a tab let go on a split's middle to the split as a pane", async () => {
       await render();
       layOut();
-      // Moving the whole split along the strip onto hero's middle.
-      await pointer(segment("signup"), "pointerdown", 250);
+      // Moving the whole split (Option held) along the strip onto hero's middle.
+      await pointer(segment("signup"), "pointerdown", 250, 15, true);
       await pointer(window, "pointermove", 200);
       await frame();
       await pointer(window, "pointermove", 50);
@@ -759,7 +784,7 @@ describe("dragging with splits", () => {
   });
 });
 
-it("sizes a split on the window's row to its marks, with no empty room after them", () => {
+it("sizes a split on the window's row to its panes' names, with no empty room after them", () => {
   const css = readFileSync("src/chrome/TitleBar.css", "utf8").replace(
     /\s+/g,
     " ",
@@ -772,11 +797,15 @@ it("sizes a split on the window's row to its marks, with no empty room after the
   const split = css.match(
     /\.workspace-status-strip \.aven-tab-strip\[data-tab-track\] \.aven-tab-slot\.aven-split-entry \{([^}]*)\}/,
   );
-  // Each pane names itself in its own card, so the row shows marks only.
-  expect(split?.[1]).toContain("flex: 0 0 auto;");
+  expect(split?.[1]).toContain("flex: 0 1 auto;");
   expect(split?.[1]).toContain("width: auto;");
   expect(split?.[1]).not.toContain("200px");
-  expect(css).toMatch(
+  // Each pane is a tab there: its mark and its name, at most a tab's width.
+  const segment = css.match(
+    /\.workspace-status-strip \.aven-split-segment \{([^}]*)\}/,
+  );
+  expect(segment?.[1]).toContain("max-width: 224px;");
+  expect(css).not.toMatch(
     /\.workspace-status-strip \.aven-split-segment \.aven-split-label \{ display: none; \}/,
   );
 });

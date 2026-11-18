@@ -1316,29 +1316,71 @@ html.theme-light .personal-shell {
 }
 
 /* A split's panes each name themselves, in their own card's top row: plain
-   words with no pill, and you can drag the pane by them. The top row shows
-   the split by its panes' marks only, so no name is said twice. */
+   words with no pill, and you can drag the pane by them. */
 .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
   .personal-tab-strip,
 [data-pane-strip] > .aven-tab-strip {
   opacity: 1;
 }
+/* On the window's row a split's panes are tabs like the ones beside it, each
+   its mark and name, with no box round them. A short line under the pair
+   joins them in place of the line that parts tabs; the pane in front has
+   the brighter name, and pointing at one brightens it, as a tab does. */
 .workspace-status-strip .aven-tab-strip .aven-split-entry {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   width: auto;
   min-width: 0;
   max-width: none;
 }
-/* A segment is a size container, so it cannot take its width from its
-   mark: it gets one mark's room. */
-.workspace-status-strip .aven-split-segment {
-  flex: 0 0 28px;
-  width: 28px;
-  justify-content: center;
+.workspace-status-strip .aven-split {
+  overflow: visible;
   padding: 0;
 }
-.workspace-status-strip .aven-split-segment .aven-split-label {
+.workspace-status-strip .aven-split::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: -2px;
+  left: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-content) 22%, transparent);
+  pointer-events: none;
+}
+/* A segment is as wide as its name, up to a tab's width; not a size
+   container here, so it can take its width from its name. */
+.workspace-status-strip .aven-split-segment {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 72px;
+  max-width: 224px;
+  padding: 0 8px;
+  container-type: normal;
+  color: var(--aven-label-secondary);
+  font-size: var(--text-ui-body);
+}
+.workspace-status-strip .aven-split-fill,
+.workspace-status-strip .aven-split-entry[data-active="true"] .aven-split-fill {
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-status-strip
+  .aven-tab-strip:has(.aven-split-entry[data-active="true"])
+  > .aven-tab-highlight {
+  box-shadow: none;
+}
+.workspace-status-strip .aven-split-divider {
   display: none;
+}
+.workspace-status-strip .aven-split-segment:hover,
+.workspace-status-strip .aven-split-entry .aven-split-segment[data-lit="true"] {
+  background: transparent;
+  color: var(--color-content);
+}
+.workspace-status-strip
+  .aven-split-entry[data-active="true"]
+  .aven-split-segment:not([data-lit="true"]):not(.aven-split-segment:hover) {
+  color: var(--aven-label-secondary);
 }
 .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
   .personal-tab-strip
@@ -1384,14 +1426,14 @@ html.theme-light .personal-shell {
 .workspace-status-strip .aven-tab-strip[data-tab-track] .aven-tab-label {
   flex: 0 1 auto;
 }
-/* A split shows its panes' marks only (each pane names itself in its own
-   card), so it is as wide as its marks. Its slot class also matches the
-   single-tab rule above, which is as specific as this one without the
+/* A split is as wide as its panes' names, each held to a tab's width, and
+   shrinks with the tabs once the row is full. Its slot class also matches
+   the single-tab rule above, which is as specific as this one without the
    second class and would hold it to one tab's width. */
 .workspace-status-strip
   .aven-tab-strip[data-tab-track]
   .aven-tab-slot.aven-split-entry {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   width: auto;
   min-width: 0;
   max-width: none;
@@ -1403,7 +1445,7 @@ html.theme-light .personal-shell {
   min-height: 28px;
 }
 .workspace-status-strip .aven-split-segment {
-  height: 24px;
+  height: 28px;
 }
 .workspace-status-strip .aven-tab-highlight {
   top: calc(50% - 14px);
