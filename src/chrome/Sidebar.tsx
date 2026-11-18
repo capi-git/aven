@@ -161,12 +161,7 @@ import type { ChatStatusWord } from "../lib/chatStatus";
 import { AgentMark } from "./AgentMark";
 import { CrewCritter } from "./CrewCritter";
 import { ChatStatusPill } from "./ChatStatusPill";
-import { BotCritter, BotStatusPill } from "./BotCritter";
-import {
-  botsAvailable,
-  DEFAULT_BOT_NAME,
-  type BotStatus,
-} from "../lib/projectBots";
+import { botsAvailable } from "../lib/projectBots";
 import { crewChatIds, useCrewsStore } from "../lib/crews";
 import { useAutomationChatIds } from "../hooks/useAutomationChats";
 import { SidebarChatPeek, type ChatPeekRow } from "./HoverPeeks";
@@ -261,12 +256,10 @@ export type SidebarProps = {
   /** Show a discussion in the team panel; its connector opens it. */
   onOpenDiscussion?: (id: string) => void;
   /**
-   * Projects' bots that are on, listed in their own Bots section below the
-   * projects; a bot's chat is not listed with its project's chats.
+   * Projects' bots that are on. The sidebar does not list them, and a bot's
+   * chat is not listed with its project's chats; its project's menu opens it.
    */
   bots?: readonly SidebarBot[];
-  /** Open a project's bot chat. */
-  onOpenBot?: (path: string) => void;
   /** Turn a project's bot on, or change its settings. */
   onBotSettings?: (path: string) => void;
   /** Chats editing another working chat's files or running a second dev server. */
@@ -309,16 +302,10 @@ export type SidebarProps = {
   onDismissUpdate?: () => void;
 };
 
-/** A project's bot as its sidebar row shows it. */
+/** A project's bot that is on: its project, and its chat once it has one. */
 export type SidebarBot = {
   path: string;
   sessionId?: string;
-  name: string;
-  /** Its project's name, shown when the row is hovered. */
-  project: string;
-  status: BotStatus;
-  /** Its latest one-line post, for the row's tooltip. */
-  headline: string;
 };
 
 const NO_BOTS: readonly SidebarBot[] = [];
@@ -414,7 +401,6 @@ function SidebarComponent({
   discussions = NO_DISCUSSIONS,
   onOpenDiscussion,
   bots = NO_BOTS,
-  onOpenBot,
   onBotSettings,
   teams = NO_TEAMS,
   teamNeedIds = NO_TEAM_NEEDS,
@@ -1215,39 +1201,6 @@ function SidebarComponent({
       ?.map((team) => <SidebarTeamBadge key={team.id} team={team} />) ?? null;
   const talkRow = (sessionId: string) =>
     talks.has(sessionId) ? { "data-discussion-row": sessionId } : undefined;
-  /** A bot's row: mark, name, its project on hover, and its word. */
-  const botRow = (bot: SidebarBot) => {
-    return (
-      <button
-        key={`bot:${bot.path}`}
-        type="button"
-        className="personal-other-task personal-task-card personal-bot-row"
-        data-bot-row={bot.path}
-        // Called by its role alone ("Fixer"), it shows its project at rest.
-        data-role-name={bot.name === DEFAULT_BOT_NAME || undefined}
-        title={`${bot.name} · ${bot.project}'s bot\n${bot.headline}`}
-        aria-current={
-          bot.sessionId && bot.sessionId === activeSessionId
-            ? "true"
-            : undefined
-        }
-        onClick={() => onOpenBot?.(bot.path)}
-        onContextMenu={(event) => {
-          if (!onBotSettings) return;
-          event.preventDefault();
-          event.stopPropagation();
-          onBotSettings(bot.path);
-        }}
-      >
-        <BotCritter path={bot.path} status={bot.status} />
-        <FadeText className="personal-task-title">{bot.name}</FadeText>
-        <span className="personal-bot-project">{bot.project}</span>
-        <span className="personal-task-status">
-          <BotStatusPill status={bot.status} />
-        </span>
-      </button>
-    );
-  };
   const plainRowProps = (sessionId: string) =>
     onRenameSession
       ? {
@@ -1528,11 +1481,6 @@ function SidebarComponent({
     });
   };
 
-  // Bots of this profile's projects, in their own section below the
-  // projects.
-  const profileBots = bots.filter((bot) =>
-    projects.some((project) => sameProjectPath(project.path, bot.path)),
-  );
   const sessionSearchInput = (
     <input
       ref={searchInputRef}
@@ -2337,20 +2285,6 @@ function SidebarComponent({
                   <p className="personal-tasks-empty">
                     Add a project to {activeProfile.name}.
                   </p>
-                ) : null}
-                {profileBots.length ? (
-                  <section
-                    className="personal-bots-group"
-                    aria-label="Bots"
-                    data-sidebar-bots=""
-                  >
-                    <div className="personal-projects-heading">
-                      <span>Bots</span>
-                    </div>
-                    <div className="personal-project-tasks">
-                      {profileBots.map(botRow)}
-                    </div>
-                  </section>
                 ) : null}
               </div>
             </div>

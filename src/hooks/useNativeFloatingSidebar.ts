@@ -82,7 +82,6 @@ const WORKSPACE_ACTIONS = new Set([
   "onGoBack",
   "onGoForward",
   "openWorkerDetails",
-  "onOpenBot",
   "onBotSettings",
 ]);
 

@@ -642,7 +642,6 @@ import {
   canReplaceSessionTitle,
   formatSessionTitle,
   sessionIsWaitingForInput,
-  sessionNeedsInput,
   newDefaultSession,
   newSession,
   newSplitSession,
@@ -945,9 +944,7 @@ import {
   botChatInCopy,
   botForChat,
   botsAvailable,
-  botHeadline,
   botName,
-  botStatus,
   getProjectBot,
   isBotChat,
   updateProjectBot,
@@ -11349,34 +11346,11 @@ export default function App({
       ? Object.values(botStore).filter((bot) => bot.on)
       : [];
     if (!on.length) return NO_SIDEBAR_BOTS;
-    const now = Date.now();
-    return on.map((bot) => {
-      const chat = bot.sessionId ? sessionById.get(bot.sessionId) : undefined;
-      const status = botStatus(
-        bot,
-        chat
-          ? { busy: !!chat.busy, needsInput: sessionNeedsInput(chat) }
-          : undefined,
-        now,
-      );
-      const appearance = projectAppearance(bot.path);
-      return {
-        path: bot.path,
-        ...(bot.sessionId ? { sessionId: bot.sessionId } : {}),
-        name: botName(bot),
-        project: appearance.label,
-        status,
-        headline: botHeadline(bot, status, now),
-      };
-    });
-  }, [botStore, sessionById]);
-  const onOpenBot = useCallback(
-    (path: string) => {
-      closeUtilityViews();
-      void openBotChat(path);
-    },
-    [closeUtilityViews, openBotChat],
-  );
+    return on.map((bot) => ({
+      path: bot.path,
+      ...(bot.sessionId ? { sessionId: bot.sessionId } : {}),
+    }));
+  }, [botStore]);
   /**
    * Add a bot: it turns on at once, with its defaults, and shows its chat. A
    * project that isn't using Git yet first offers to set it up.
@@ -11478,7 +11452,6 @@ export default function App({
     liveAgents,
     discussions: discussions.sidebar,
     bots: sidebarBots,
-    onOpenBot,
     onBotSettings: onBotAction,
     teams: sidebarTeamRows,
     onOpenDiscussion: openDiscussionView,
