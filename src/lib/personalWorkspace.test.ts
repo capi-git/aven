@@ -132,6 +132,20 @@ describe("personal panel persistence", () => {
     });
   });
 
+  it("restores the Review tab and falls back to Files for a tab it doesn't know", () => {
+    savePersonalInspector({ open: true, tab: "review", width: 300 });
+    expect(loadPersonalInspector().tab).toBe("review");
+    localStorage.setItem(
+      "monocode.personal.inspector",
+      JSON.stringify({ open: false, tab: "history", width: 300 }),
+    );
+    expect(loadPersonalInspector()).toEqual({
+      open: false,
+      tab: "files",
+      width: 300,
+    });
+  });
+
   it("recovers malformed browser and inspector storage without blocking startup", () => {
     localStorage.setItem("monocode.personal.browser", "broken{");
     localStorage.setItem("monocode.personal.inspector", "broken{");

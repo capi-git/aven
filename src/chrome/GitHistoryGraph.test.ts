@@ -65,9 +65,7 @@ async function render(enabled = true, branch?: string | null) {
       createElement(GitHistoryGraph, {
         cwd,
         enabled,
-        expanded: true,
         branch,
-        onToggleExpanded: vi.fn(),
         onOpenCommit: vi.fn(),
       }),
     ),
@@ -198,7 +196,6 @@ describe("history rows", () => {
     // Two chips, then a count for the rest.
     expect(row.querySelectorAll(".git-history-ref")).toHaveLength(2);
     expect(row.querySelector(".git-history-more")?.textContent).toBe("+1");
-    expect(container.textContent).toContain("History");
   });
 
   it("explains an empty history in plain words", async () => {
@@ -213,7 +210,7 @@ describe("history rows", () => {
     expect(container.textContent).toContain("Loading history");
     await act(async () => finish({ head: null, commits: [] }));
     expect(container.textContent).toContain("No commits yet");
-    expect(container.textContent).toContain("Your first commit on main");
+    expect(container.textContent).toContain("Commits on main show up here");
     await render(true, null);
     expect(container.textContent).toContain("Not a Git repository");
   });

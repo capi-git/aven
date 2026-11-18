@@ -20,6 +20,7 @@ import {
   memo,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1106,27 +1107,18 @@ function SidebarComponent({
   const talks = useMemo(() => sidebarTalks(discussions), [discussions]);
   const discussionLayer = useRef<HTMLDivElement>(null);
   const discussionLinks = useDiscussionLinks(discussionLayer, discussions);
-  /** A plain row's leading mark: talking, working, or a spacer. */
-  const plainLead = (session: SessionSummary, runningLabel: string) => {
+  /** A plain row's leading mark: talking, ready, or a spacer. */
+  const plainLead = (session: SessionSummary) => {
     const talk = talks.get(session.id);
     // One 16px slot before every title, so titles line up with the project
     // names above them. Only projects get a mark; a chat's stays empty unless
-    // it's talking or working.
+    // it's talking or its work is ready. Working shows at the row's end.
     return (
       <span className="personal-task-lead">
         {talk ? (
           <DiscussionTalkMark harness={session.harness} talk={talk} />
-        ) : busySessionIds.has(session.id) ? (
-          // Its agent's little screen, working, in the project's colour.
-          <span className="personal-task-agent" aria-label={runningLabel}>
-            <CrewCritter
-              path={session.cwd}
-              role="lead"
-              state="working"
-              className="personal-task-agent-mark"
-            />
-          </span>
-        ) : chatStatus[session.id] === "review" ? (
+        ) : !busySessionIds.has(session.id) &&
+          chatStatus[session.id] === "review" ? (
           // Done, with something for you to look at: its screen, ready.
           <span className="personal-task-agent" aria-label="Ready for you">
             <CrewCritter
@@ -1147,14 +1139,31 @@ function SidebarComponent({
       <DiscussionTalkBadge talk={talk} />
     ) : null;
   };
-  /** A plain row's one-word status, if it has one. */
-  const plainStatus = (sessionId: string) => {
-    const word = chatStatus[sessionId];
-    return word === "needs-you" ? (
-      <span className="personal-task-status">
-        <ChatStatusPill word={word} holdUp={chatStatusHints[sessionId]} />
+  /**
+   * A plain row's end: Needs you, the grey working mark while it runs, or
+   * else its time, always shown, in quiet grey.
+   */
+  const plainStatus = (session: SessionSummary) => {
+    const word = chatStatus[session.id];
+    if (word === "needs-you")
+      return (
+        <span className="personal-task-status">
+          <ChatStatusPill word={word} holdUp={chatStatusHints[session.id]} />
+        </span>
+      );
+    if (busySessionIds.has(session.id))
+      return (
+        <span className="personal-task-status" title="Working">
+          <span className="personal-task-agent" aria-label="Working">
+            <AgentMark state="working" className="personal-task-agent-mark" />
+          </span>
+        </span>
+      );
+    return (
+      <span className="personal-task-status" data-row-time>
+        {formatRelative(session.updatedAt, now)}
       </span>
-    ) : null;
+    );
   };
   /** The races this row stands for: their lanes' mascots and status. */
   const teamBadge = (sessionId: string) =>
@@ -1995,7 +2004,7 @@ function SidebarComponent({
                                   {...plainRowProps(session.id)}
                                   {...talkRow(session.id)}
                                 >
-                                  {plainLead(session, "Working")}
+                                  {plainLead(session)}
                                   <FadeText className="personal-task-title">
                                     {sessionDisplayTitle(
                                       session.title,
@@ -2007,7 +2016,7 @@ function SidebarComponent({
                                   <WorkConflictMark
                                     conflict={workConflicts[session.id]}
                                   />
-                                  {plainStatus(session.id)}
+                                  {plainStatus(session)}
                                 </button>
                               ))
                             ),
@@ -2237,7 +2246,7 @@ function SidebarComponent({
                                         : undefined
                                     }
                                   >
-                                    {plainLead(session, "Working")}
+                                    {plainLead(session)}
                                     <FadeText className="personal-task-title">
                                       {sessionDisplayTitle(
                                         session.title,
@@ -2252,14 +2261,7 @@ function SidebarComponent({
                                     {session.pinned ? (
                                       <Pin className="size-2.5 shrink-0 opacity-55" />
                                     ) : null}
-                                    {plainStatus(session.id) ?? (
-                                      <span
-                                        className="personal-task-status"
-                                        data-row-time
-                                      >
-                                        {formatRelative(session.updatedAt, now)}
-                                      </span>
-                                    )}
+                                    {plainStatus(session)}
                                   </button>
                                 ))
                               ),
@@ -2828,11 +2830,10 @@ function SessionCard({
     teamNeeds.has(session.id) || session.orchestration
       ? approvalLabel
       : "Needs you: approve an action or answer a question";
+  // The time is quiet grey, and so is the working mark that takes its place.
   const statusClass = needsApproval
     ? "text-[color:var(--aven-needs-you)]"
-    : busy
-      ? "text-accent"
-      : "text-content/45";
+    : "text-content/45";
   // A row names only what needs you; anything else keeps the list quiet.
   const word = useContext(ChatStatuses)[session.id];
   const holdUp = useContext(ChatStatusHints)[session.id];
@@ -3186,7 +3187,7 @@ function SessionCard({
         onContextMenu={onContextMenu}
         onKeyDown={onKeyDown}
         className={`personal-task-card relative border flex w-full touch-none flex-col rounded-md px-2.5 text-left ${
-          compact ? "py-1.5" : "py-2"
+          compact ? "py-1" : "py-2"
         } ${
           dropTarget
             ? "text-content border-transparent"
@@ -3253,7 +3254,7 @@ function SessionCard({
           ) : compact ? (
             <span className="personal-task-lead" />
           ) : null}
-          <span className="personal-task-title min-w-0 flex-1 line-clamp-1 text-ui-body font-semibold leading-snug text-content">
+          <span className="personal-task-title min-w-0 flex-1 line-clamp-1 text-ui-body font-normal leading-snug text-content">
             {title}
           </span>
           {talk && !talkLinked ? <DiscussionTalkBadge talk={talk} /> : null}
@@ -3314,6 +3315,7 @@ function SessionCard({
     <div className="personal-task-family" data-helper-family={session.id}>
       {row}
       <SidebarHelperRows
+        parentId={session.id}
         helpers={helpers}
         activeId={activeSessionId}
         onSelect={onSelect}
@@ -3322,56 +3324,135 @@ function SessionCard({
   );
 }
 
+type SidebarHelper = NonNullable<
+  SessionSummary["orchestration"]
+>["tasks"][number];
+
 /**
- * The helpers a chat started, under its row: each a quiet row with its
- * name, its working mark or Needs you, opening its pane.
+ * Chats whose finished helpers are open in the sidebar, by parent chat. Kept
+ * for the session only, so a fold stays as it was left while rows remount.
+ */
+const openHelperFamilies = new Set<string>();
+
+/** Whether a helper is done with: completed or stopped, and asking nothing. */
+function helperFinished(helper: SidebarHelper): boolean {
+  return (
+    !helper.needsInput &&
+    (helper.status === "completed" || helper.status === "cancelled")
+  );
+}
+
+/**
+ * The fold's words: "2 helpers · finished" when every helper is done,
+ * otherwise how many of them are ("1 finished").
+ */
+function helperFoldLabel(finished: number, total: number): string {
+  return finished === total
+    ? `${finished} ${finished === 1 ? "helper" : "helpers"} · finished`
+    : `${finished} finished`;
+}
+
+/**
+ * The helpers a chat started, under its row. One shows while it works,
+ * waits to start, needs you or failed; finished ones fold into one quiet
+ * row ("2 helpers · finished") that opens them, as Super keeps its
+ * launched agents under their chat. The chat in front opens its family.
  */
 function SidebarHelperRows({
+  parentId,
   helpers,
   activeId,
   onSelect,
 }: {
-  helpers: NonNullable<SessionSummary["orchestration"]>["tasks"];
+  parentId: string;
+  helpers: readonly SidebarHelper[];
   activeId?: string | null;
   onSelect: (
     sessionId: string,
     event: ReactMouseEvent<HTMLButtonElement>,
   ) => void;
 }) {
+  const finished = helpers.filter(helperFinished);
+  const showing = helpers.filter((helper) => !helperFinished(helper));
+  const finishedInFront =
+    !!activeId && finished.some((helper) => helper.sessionId === activeId);
+  const [open, setOpen] = useState(
+    () => openHelperFamilies.has(parentId) || finishedInFront,
+  );
+  // Opening a finished helper elsewhere (a tab, search) opens its family.
+  const [seenFront, setSeenFront] = useState(finishedInFront);
+  if (finishedInFront !== seenFront) {
+    setSeenFront(finishedInFront);
+    if (finishedInFront && !open) {
+      openHelperFamilies.add(parentId);
+      setOpen(true);
+    }
+  }
+  const foldId = useId();
+  const toggle = () => {
+    const next = !open;
+    if (next) openHelperFamilies.add(parentId);
+    else openHelperFamilies.delete(parentId);
+    setOpen(next);
+  };
+  const helperRow = (helper: SidebarHelper) => {
+    const working =
+      helper.status === "running" || helper.status === "cancelling";
+    const failed = helper.status === "failed";
+    return (
+      <button
+        key={helper.sessionId}
+        type="button"
+        className="personal-helper-row"
+        data-helper-row={helper.sessionId}
+        data-working={working || undefined}
+        data-failed={failed || undefined}
+        aria-current={helper.sessionId === activeId ? "true" : undefined}
+        title={failed ? `${helper.title} · Failed` : helper.title}
+        onClick={(event) => onSelect(helper.sessionId, event)}
+      >
+        <FadeText className="personal-helper-title">{helper.title}</FadeText>
+        {helper.needsInput ? (
+          <span className="personal-task-status flex shrink-0 items-center">
+            <ChatStatusPill word="needs-you" />
+          </span>
+        ) : working ? (
+          <span className="personal-task-agent" aria-hidden>
+            <AgentMark state="working" className="personal-task-agent-mark" />
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+  const label = helperFoldLabel(finished.length, helpers.length);
   return (
     <div className="personal-helper-rows" role="group" aria-label="Helpers">
-      {helpers.map((helper) => {
-        const working =
-          helper.status === "running" || helper.status === "cancelling";
-        return (
+      {showing.map(helperRow)}
+      {finished.length ? (
+        <>
           <button
-            key={helper.sessionId}
             type="button"
-            className="personal-helper-row"
-            data-helper-row={helper.sessionId}
-            data-working={working || undefined}
-            aria-current={helper.sessionId === activeId ? "true" : undefined}
-            title={helper.title}
-            onClick={(event) => onSelect(helper.sessionId, event)}
+            className="personal-helper-row personal-helper-fold"
+            data-helper-fold={parentId}
+            aria-expanded={open}
+            aria-controls={open ? foldId : undefined}
+            title={open ? "Hide finished helpers" : "Show finished helpers"}
+            onClick={toggle}
           >
-            <FadeText className="personal-helper-title">
-              {helper.title}
-            </FadeText>
-            {helper.needsInput ? (
-              <span className="personal-task-status flex shrink-0 items-center">
-                <ChatStatusPill word="needs-you" />
-              </span>
-            ) : working ? (
-              <span className="personal-task-agent" aria-hidden>
-                <AgentMark
-                  state="working"
-                  className="personal-task-agent-mark"
-                />
-              </span>
-            ) : null}
+            <span className="personal-helper-title">{label}</span>
+            <ChevronRight
+              className="personal-helper-fold-chevron"
+              strokeWidth={1.75}
+              aria-hidden
+            />
           </button>
-        );
-      })}
+          {open ? (
+            <div id={foldId} className="personal-helper-finished">
+              {finished.map(helperRow)}
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }

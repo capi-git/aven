@@ -15,6 +15,8 @@ type Props = {
   onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
   onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
+  /** The chat in front, whose turns group the changes. */
+  sessionId?: string;
 };
 
 export function SourceControl({
@@ -29,6 +31,7 @@ export function SourceControl({
   onOpenAllChanges,
   onOpenCommit,
   onOpenBranchPicker,
+  sessionId,
 }: Props) {
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -44,6 +47,7 @@ export function SourceControl({
         onOpenAllChanges={onOpenAllChanges}
         onOpenCommit={onOpenCommit}
         onOpenBranchPicker={onOpenBranchPicker}
+        sessionId={sessionId}
       />
     </div>
   );

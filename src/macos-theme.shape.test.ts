@@ -82,11 +82,6 @@ describe("the pro look's shapes", () => {
       ],
       ["src/chrome/AgentPill.css", ".agent-segmented", ".agent-segment"],
       [
-        "src/chrome/WorkspaceInspector.css",
-        ".workspace-inspector-tabs",
-        ".workspace-inspector-tab",
-      ],
-      [
         "src/chrome/ShipFlow.css",
         ".ship-flow-modes",
         ".ship-flow-modes > button",
@@ -99,6 +94,22 @@ describe("the pro look's shapes", () => {
         /border-radius: var\(--aven-radius-thumb(, 5px)?\);/,
       );
     }
+  });
+
+  it("draws the side panel's open tab as an outlined capsule on no track", () => {
+    const css = read("src/chrome/WorkspaceInspector.css");
+    expect(
+      rule("src/chrome/WorkspaceInspector.css", ".workspace-inspector-tabs"),
+    ).not.toMatch(/background:/);
+    expect(css).toMatch(
+      /\.workspace-inspector-tab\[aria-selected="true"\],[\s\S]*?\{[^}]*border-color: var\(--aven-separator[^}]*background: var\(--aven-hover\);/,
+    );
+    expect(
+      rule(
+        "src/chrome/ProjectScripts.css",
+        '.project-scripts-tab[aria-selected="true"]',
+      ),
+    ).toContain("border-color: var(--aven-separator");
   });
 
   it("rounds the conversation: the message box, messages and its cards", () => {

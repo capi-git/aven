@@ -122,22 +122,58 @@ describe("project rows at rest and on hover", () => {
     );
   });
 
-  it("hides a chat's time until the row is hovered or reached by keyboard", () => {
-    const body = (selector: string) =>
-      nav.find((rule) => rule.selectors.includes(selector))?.body;
+  it("always shows a chat's time at the row's end, in quiet grey", () => {
+    // As in Super: the time is there at rest, not only on hover.
+    for (const rule of nav)
+      if (
+        rule.selectors.some((selector) =>
+          lastCompound(selector).includes("[data-row-time]"),
+        )
+      ) {
+        expect(rule.body.get("display")).not.toBe("none");
+        expect(rule.body.get("opacity")).not.toBe("0");
+      }
     expect(
-      body(`${ROW} .personal-task-status[data-row-time]`)?.get("display"),
-    ).toBe("none");
+      ruleFor(nav, `${ROW} .personal-task-status[data-row-time]`).get("color"),
+    ).toBe("color-mix(in srgb, var(--color-content) 45%, transparent)");
+    // The time and the working mark share one slot, so titles don't jump.
+    const slot = ruleFor(
+      nav,
+      ".personal-shell .personal-project-tasks .personal-task-status",
+    );
+    expect(slot.get("min-width")).toBe("24px");
+    expect(slot.get("justify-content")).toBe("flex-end");
+  });
+
+  it("draws a chat's title at 13px and regular weight, in front too", () => {
     expect(
-      body(
-        `${ROW} :is(.personal-other-task:hover, .personal-other-task:focus-visible) > .personal-task-status[data-row-time]`,
-      )?.get("display"),
-    ).toBe("inline");
+      ruleFor(
+        nav,
+        ".personal-shell .personal-project-tasks .personal-task-title",
+      ).get("font-size"),
+    ).toBe("var(--text-ui-body)");
     expect(
-      body(
-        `${ROW} :is(.personal-task-row:hover, .personal-task-row:has(:focus-visible)) .personal-task-status[data-row-time]`,
-      )?.get("display"),
-    ).toBe("flex");
+      ruleFor(
+        nav,
+        `${ROW} .personal-project-tasks .personal-task-card[aria-current="true"] .personal-task-title`,
+      ).get("font-weight"),
+    ).toBe("400");
+  });
+
+  it("turns a helper fold's arrow by transform only, and only without Reduce motion", () => {
+    const css = readFileSync(NAV, "utf8");
+    const motion = css.lastIndexOf(
+      "@media (prefers-reduced-motion: no-preference)",
+    );
+    expect(css.indexOf("transition: transform 0.16s ease")).toBeGreaterThan(
+      motion,
+    );
+    expect(
+      ruleFor(
+        nav,
+        `${ROW} .personal-helper-fold[aria-expanded="true"] .personal-helper-fold-chevron`,
+      ).get("transform"),
+    ).toBe("rotate(90deg)");
   });
 
   it("keeps the waiting dot and the unread count at rest, small and grey or amber", () => {

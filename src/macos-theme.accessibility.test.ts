@@ -231,10 +231,6 @@ describe("switches, focus and hit targets", () => {
       ],
       ["src/chrome/AgentPill.css", '.agent-segment[aria-checked="true"]'],
       [
-        "src/chrome/WorkspaceInspector.css",
-        '.workspace-inspector-tab[aria-selected="true"]',
-      ],
-      [
         "src/chrome/ShipFlow.css",
         '.ship-flow-modes > button[aria-checked="true"]',
       ],

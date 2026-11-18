@@ -79,6 +79,24 @@ describe("AgentMark", () => {
     expect((await draw({ tone: "grey" })).dataset.tone).toBeUndefined();
   });
 
+  it("draws a working or watching orb in plain grey, whatever its colour", async () => {
+    // As in Super: working dots are the text colour at 70%, never a tint.
+    expect(css).toMatch(
+      /--agent-busy: color-mix\(in srgb, var\(--color-content\) 70%, transparent\);/,
+    );
+    expect(css).toMatch(
+      /\.agent-mark:is\(\[data-agent="working"\], \[data-agent="watching"\]\) \{\s*--agent-face: var\(--agent-busy\);\s*\}/,
+    );
+    // It outranks no status: needs you, ready and a reaction come later.
+    const busy = css.indexOf('[data-agent="working"], [data-agent="watching"]');
+    expect(busy).toBeLessThan(css.indexOf('.agent-mark[data-agent="needs"]'));
+    expect(busy).toBeLessThan(
+      css.indexOf('.agent-mark[data-reaction="cheer"]'),
+    );
+    const mark = await draw({ state: "working", tone: "purple" });
+    expect(mark.dataset.agent).toBe("working");
+  });
+
   it("holds its orb still for a reaction, and times the hop", async () => {
     const mark = await draw({ state: "working", reaction: "cheer" });
     expect(mark.dataset.reaction).toBe("cheer");

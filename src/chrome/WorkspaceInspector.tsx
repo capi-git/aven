@@ -1,15 +1,23 @@
-import { memo, Suspense, useId, useRef, type KeyboardEvent } from "react";
+import {
+  memo,
+  Suspense,
+  useEffect,
+  useId,
+  useRef,
+  type KeyboardEvent,
+} from "react";
 import type { GitFileDiffKind, GitHistoryCommit } from "../lib/fs";
 import { useProjectDiffStats } from "../hooks/useProjectDiffStats";
 import { retryableLazy } from "../lib/retryableLazy";
+import { setReviewProject, useReviewComments } from "../lib/reviewQueue";
 import type { OpenFileFn } from "../lib/search";
 import type { HarnessId } from "../lib/session";
-import { PanelRight, X } from "./icons";
+import { PanelRight } from "./icons";
 import { ProjectScripts } from "./ProjectScripts";
 import { SurfaceBoundary } from "./SurfaceBoundary";
 import "./WorkspaceInspector.css";
 
-export type WorkspaceInspectorTab = "files" | "changes" | "checks";
+export type WorkspaceInspectorTab = "files" | "changes" | "review" | "checks";
 
 export type WorkspaceInspectorProps = {
   /** False pauses work while retaining the last visible view for instant peeks. */
@@ -18,11 +26,20 @@ export type WorkspaceInspectorProps = {
   gitCwd?: string;
   tab: WorkspaceInspectorTab;
   onTabChange: (tab: WorkspaceInspectorTab) => void;
-  onClose: () => void;
+  /** Hides the panel; the title bar's button and shortcut call it, not the panel. */
+  onClose?: () => void;
   /** A temporary hover panel can become a persistent split. */
   onPin?: () => void;
   onOpenFile: OpenFileFn;
   onOpenTerminal?: (cwd: string) => void;
+  /** Shows or hides the project's terminal panel. */
+  onToggleTerminal?: () => void;
+  /** Starts a new chat in a project with `prompt` in its message box. */
+  onStartChat?: (project: string, prompt: string) => void;
+  /** Opens Settings on the project's page. */
+  onOpenSettings?: (section: "project") => void;
+  /** The chat in front, whose turns group the changes. */
+  sessionId?: string;
   onFileMoved?: (from: string, to: string) => void;
   onFileDeleted?: (path: string) => void;
   onOpenDiff: (path: string, kind?: GitFileDiffKind) => void;
@@ -67,6 +84,10 @@ const InspectorChanges = retryableLazy(() =>
   import("./SourceControl").then(({ SourceControl }) => SourceControl),
 );
 
+const InspectorReview = retryableLazy(() =>
+  import("./ReviewPanel").then(({ ReviewPanel }) => ReviewPanel),
+);
+
 const InspectorChecks = retryableLazy(() =>
   import("./MergePath").then(({ MergePath }) => MergePath),
 );
@@ -75,10 +96,11 @@ const InspectorSearch = retryableLazy(() =>
   import("./ProjectSearch").then(({ ProjectSearch }) => ProjectSearch),
 );
 
-const TABS = ["files", "changes", "checks"] as const;
+const TABS = ["files", "changes", "review", "checks"] as const;
 const LABELS: Record<WorkspaceInspectorTab, string> = {
   files: "Files",
   changes: "Changes",
+  review: "Review",
   checks: "Checks",
 };
 
@@ -90,6 +112,13 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
   // How many files wait in Changes, shown on its tab while there are any.
   const changedFiles =
     useProjectDiffStats(props.gitCwd || props.cwd, active)?.files ?? 0;
+  // A comment left on a diff is filed under the project the panel shows,
+  // even while the panel is hidden.
+  const shownRoot = props.gitCwd || props.cwd;
+  useEffect(() => setReviewProject(shownRoot), [shownRoot]);
+  const openComments = useReviewComments(shownRoot).filter(
+    (comment) => !comment.sentAt,
+  ).length;
   const lastVisible = useRef<WorkspaceInspectorProps | null>(null);
   if (active) lastVisible.current = props;
   // Keep the warmed view and scroll position, as the left sidebar does. Hidden
@@ -156,6 +185,10 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
                 <span className="workspace-inspector-count">
                   {changedFiles}
                 </span>
+              ) : tab === "review" && openComments > 0 ? (
+                <span className="workspace-inspector-count">
+                  {openComments}
+                </span>
               ) : null}
             </button>
           ))}
@@ -171,15 +204,6 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
             <PanelRight className="size-3.5" strokeWidth={1.75} aria-hidden />
           </button>
         ) : null}
-        <button
-          type="button"
-          className="workspace-inspector-close"
-          aria-label="Hide side panel"
-          title="Hide side panel"
-          onClick={props.onClose}
-        >
-          <X className="size-3.5" strokeWidth={1.75} aria-hidden />
-        </button>
       </header>
       <div
         id={`${id}-panel`}
@@ -217,6 +241,15 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
                   onOpenAllChanges={props.onOpenAllChanges}
                   onOpenCommit={props.onOpenCommit}
                   onOpenBranchPicker={props.onOpenBranchPicker}
+                  sessionId={props.sessionId}
+                />
+              ) : props.tab === "review" ? (
+                <InspectorReview
+                  key={root}
+                  cwd={root}
+                  enabled={active}
+                  onOpenDiff={props.onOpenDiff}
+                  onOpenAllChanges={props.onOpenAllChanges}
                 />
               ) : props.tab === "checks" ? (
                 <InspectorChecks
@@ -256,6 +289,9 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
           cwd={root}
           active={active}
           onOpenTerminal={props.onOpenTerminal}
+          onToggleTerminal={props.onToggleTerminal}
+          onStartChat={props.onStartChat}
+          onOpenSettings={props.onOpenSettings}
         />
       ) : null}
     </section>

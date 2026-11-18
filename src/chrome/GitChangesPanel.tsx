@@ -4,56 +4,39 @@ import {
   imageViewerAvailable,
   openImageViewer,
 } from "../lib/imageViewer";
-import { openInAppUrl } from "../lib/inAppLinks";
 import {
-  ArrowUp,
   ChevronDown,
   ChevronRight,
-  CloudUpload,
-  ExternalLink,
   FileDiff,
   FolderTree,
-  GitMerge,
-  GitPullRequest,
   ListBullet,
-  Loader,
   Minus,
   Plus,
-  RefreshCw,
   Undo2,
   Ungroup,
 } from "./icons";
 import {
   useCallback,
+  useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { FadeText, MiddleText } from "./FadeText";
 import { FileTypeIcon } from "./FileTypeIcon";
-import {
-  GitHistoryGraph,
-  GraphResizeSash,
-  GRAPH_PANEL_DEFAULT,
-  GRAPH_PANEL_MIN,
-  loadGraphPanelHeight,
-  saveGraphPanelHeight,
-} from "./GitHistoryGraph";
+import { GitHistoryGraph } from "./GitHistoryGraph";
 import {
   basename,
   gitDiffIndex,
   gitDiffFiles,
   gitDiscardAll,
   gitDiscardFile,
-  gitPrCreate,
   gitPrStatus,
-  gitPush,
   gitStageAll,
   gitStageFile,
-  gitSync,
   gitUnstageAll,
   gitUnstageFile,
   notifyGitChanged,
@@ -70,12 +53,10 @@ import {
   saveChangesView,
   type ChangesView,
 } from "../lib/appearance";
-import { generatePrContent } from "../lib/harness";
 import { invalidateWatchedFiles } from "../lib/fileWatch";
 import { applyProjectDiffStats } from "../hooks/useProjectDiffStats";
-import { currentCopyLabel, GitCopies } from "./GitCopies";
+import { GitCopies } from "./GitCopies";
 import { GitHousekeeping } from "./GitHousekeeping";
-import { gitPrSquashMerge } from "../lib/gitHousekeeping";
 import {
   isWindowActive,
   isWindowVisible,
@@ -84,19 +65,29 @@ import {
   type RefreshReason,
 } from "../lib/windowActivity";
 import { errorText, logError } from "../lib/errors";
-import { headCommit, useGitHistory } from "../hooks/useGitHistory";
+import { useGitHistory } from "../hooks/useGitHistory";
 import {
   changeKindFor,
   churnBar,
   discardPrompt,
-  filesLabel,
   largestChurn,
   lineTotals,
   loadShowStaging,
   saveShowStaging,
 } from "../lib/gitChangesView";
 import { subscribeShipRequests, takeShipRequest } from "../lib/shipRequest";
-import { ChangesHeader, CleanState } from "./GitChangesHeader";
+import { LiveSessionsContext } from "../lib/liveSessions";
+import { sessionWorkCwd } from "../lib/session";
+import { chatForChanges, groupChangesByTurn } from "../lib/changeTurns";
+import {
+  isViewed,
+  markViewed,
+  pruneViewed,
+  toggleViewed,
+  useViewedChanges,
+} from "../lib/viewedChanges";
+import { setUpProjectGit, gitSetupError } from "../lib/projectGitSetup";
+import { CommitBox } from "./CommitBox";
 import { ShipFlow } from "./ShipFlow";
 import "./GitChangesPanel.css";
 
@@ -117,17 +108,28 @@ function confirmNative(message: string, okLabel?: string): Promise<boolean> {
   });
 }
 
-/** An open Ship flow, and the conversation it describes when one was named. */
+/** An open Ship card, and the conversation it describes when one was named. */
 type ShipState = {
   sessionId?: string;
-  /** When Ship it was pressed: each press starts the flow afresh. */
+  /** When it was opened: each opening starts the flow afresh. */
   opened?: number;
+};
+
+/** Every changed file, the files under the turn that changed them, or the history. */
+export type ChangesMode = "all" | "turns" | "commits";
+const CHANGES_MODES: readonly ChangesMode[] = ["all", "turns", "commits"];
+const MODE_LABEL: Record<ChangesMode, string> = {
+  all: "All",
+  turns: "Turns",
+  commits: "Commits",
 };
 
 let stagedOpen = true;
 let changesOpen = true;
-let graphOpen = true;
 let changesView: ChangesView = loadChangesView();
+/** The Changes tab's view and filter, kept while Aven runs. */
+let changesMode: ChangesMode = "all";
+let unviewedOnly = false;
 /** Folders the user collapsed in tree view, keyed `<kind>:<dir>`. */
 const collapsedDirs = new Set<string>();
 const indexByCwd = new Map<string, GitDiffIndex>();
@@ -140,14 +142,16 @@ type Props = {
   selectedPath?: string;
   selectedKind?: GitFileDiffKind;
   selectedSha?: string;
-  /** The project folder, for its name and mark when `cwd` is another copy. */
+  /** The project folder when `cwd` is another copy of it. */
   projectCwd?: string;
   onOpenFile: (path: string, kind: GitFileDiffKind) => void;
   /** Stacks the changes in one review: one side of them, or all without a kind. */
   onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onOpenCommit: (commit: GitHistoryCommit) => void;
-  /** Opens the branch switcher anchored to the header's branch button. */
+  /** Opens the branch switcher anchored to the commit box's branch. */
   onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
+  /** The chat in front, whose turns group the changes. */
+  sessionId?: string;
 };
 
 export function GitChangesPanel({
@@ -162,51 +166,61 @@ export function GitChangesPanel({
   onOpenAllChanges,
   onOpenCommit,
   onOpenBranchPicker,
+  sessionId,
 }: Props) {
   const { index, reload } = useDiffIndex(cwd, enabled);
-  // Shared with the graph below, so the header's last commit adds no read.
+  // Tells a folder without Git from an empty one; shared with Commits.
   const history = useGitHistory(cwd, enabled);
-  const lastCommit = headCommit(history);
-  // Ages are worked out when the panel renders; nothing ticks on a clock.
-  const now = Date.now();
-  const [copyLabel, setCopyLabel] = useState<string | null>(null);
-  const onWorktrees = useCallback(
-    (worktrees: Parameters<typeof currentCopyLabel>[0]) =>
-      setCopyLabel(currentCopyLabel(worktrees)),
-    [],
-  );
   const files = useMemo(() => index?.files ?? [], [index]);
+  const viewed = useViewedChanges(cwd);
+  // Marks on files that are no longer changed are forgotten.
+  useEffect(() => {
+    if (index) pruneViewed(cwd, files);
+  }, [cwd, files, index]);
   // A changed picture opens in the image viewer, beside the others changed
   // with it (in its section, or every one from the single list); everything
-  // else opens its diff.
+  // else opens its diff. Opening a file marks it viewed.
   const openChange = useCallback(
     (path: string, kind: GitFileDiffKind, everyFile?: boolean) => {
+      const file = files.find((candidate) => candidate.path === path);
+      if (file) markViewed(cwd, file);
       const group = imageViewerAvailable()
         ? changedImageGroup(files, path, everyFile ? undefined : kind)
         : null;
       if (!group || !openImageViewer(group)) onOpenFile(path, kind);
     },
-    [files, onOpenFile],
+    [cwd, files, onOpenFile],
   );
-  // Nothing to commit: the history takes the space the file list would use.
-  const clean = index !== null && files.length === 0;
   // No branch and no commits: not a Git repository, so there is no history.
   const noGit =
-    clean && index?.branch === null && history.loaded && !history.head;
-  const paneRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<HTMLDivElement>(null);
-  const [graphHeight, setGraphHeight] = useState(loadGraphPanelHeight);
-  const [graphExpanded, setGraphExpanded] = useState(graphOpen);
-  // Ship it: open from the button here, or from a request elsewhere (a
+    index !== null &&
+    files.length === 0 &&
+    index.branch === null &&
+    history.loaded &&
+    !history.head;
+  const [mode, setModeState] = useState<ChangesMode>(changesMode);
+  const setMode = (next: ChangesMode) => {
+    changesMode = next;
+    setModeState(next);
+  };
+  const [unviewed, setUnviewedState] = useState(unviewedOnly);
+  const setUnviewed = (next: boolean) => {
+    unviewedOnly = next;
+    setUnviewedState(next);
+  };
+  const { pr, reload: reloadPr } = usePrStatus(cwd, index?.branch, enabled);
+  // The commit message, kept while the Ship card opens and closes.
+  const [message, setMessage] = useState("");
+  // Off: one list of every changed file. On: Staged and Changes sections,
+  // with buttons to stage and unstage.
+  const [showStaging, setShowStaging] = useState(loadShowStaging);
+  const [shipping, setShipping] = useState(false);
+  const [rowBusy, setRowBusy] = useState(false);
+  // The Ship card: from More ways to ship, or a request elsewhere (a
   // finished turn's changes in the chat) for this folder.
-  const [ship, setShipState] = useState<ShipState | null>(null);
-  // The Ship card takes the history's room when it opens, until the history
-  // is opened again; the history's own setting is left as it was.
-  const [historyYields, setHistoryYields] = useState(false);
-  const setShip = useCallback((next: ShipState | null) => {
-    setShipState(next);
-    setHistoryYields(next !== null);
-  }, []);
+  const [ship, setShip] = useState<ShipState | null>(null);
+  const shipKey = useRef(0);
+  if (ship && !shipping) shipKey.current = ship.opened ?? 0;
   useEffect(() => {
     if (!enabled) return;
     const pick = () => {
@@ -218,28 +232,17 @@ export function GitChangesPanel({
     };
     pick();
     return subscribeShipRequests(pick);
-  }, [cwd, enabled, setShip, reload]);
-  const historyShown = graphExpanded && !(ship && historyYields);
-  const showHistory = useCallback(() => {
-    graphOpen = true;
-    setGraphExpanded(true);
-    setHistoryYields(false);
-    window.requestAnimationFrame(() => {
-      const graph = graphRef.current;
-      graph?.scrollIntoView({ block: "nearest" });
-      graph?.querySelector<HTMLButtonElement>(".git-history-item")?.focus();
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    const pane = paneRef.current;
-    if (!pane || pane.clientHeight < GRAPH_PANEL_MIN + 160) return;
-    const max = pane.clientHeight - 160;
-    if (graphHeight > max) {
-      setGraphHeight(max);
-      saveGraphPanelHeight(max);
-    }
-  }, [graphHeight]);
+  }, [cwd, enabled, reload]);
+  const onMutated = useCallback(
+    (paths?: string[]) => {
+      reload();
+      notifyGitChanged(cwd);
+      invalidateWatchedFiles(paths);
+      window.setTimeout(() => invalidateWatchedFiles(paths), 150);
+    },
+    [cwd, reload],
+  );
+  const onShipBusy = useCallback((busy: boolean) => setShipping(busy), []);
 
   if (!cwd || cwd === "~") {
     return (
@@ -249,89 +252,157 @@ export function GitChangesPanel({
     );
   }
 
+  if (noGit) return <NoGitState cwd={cwd} onReady={() => onMutated()} />;
+
   return (
-    <div
-      ref={paneRef}
-      className="git-changes flex h-full min-h-0 flex-1 flex-col overflow-hidden"
-    >
-      <ChangesHeader
-        cwd={cwd}
-        projectCwd={projectCwd}
-        index={index}
-        lastCommit={lastCommit}
-        copyLabel={copyLabel}
-        now={now}
-        onOpenBranchPicker={onOpenBranchPicker}
-        onOpenCommit={onOpenCommit}
-      />
-      <ChangedFiles
-        cwd={cwd}
-        projectCwd={projectCwd}
-        textHarness={textHarness}
-        index={index}
-        files={files}
-        selected={selectedPath}
-        selectedKind={selectedKind}
-        enabled={enabled}
-        fill={!clean}
-        lastCommit={lastCommit}
-        now={now}
-        noGit={noGit}
-        ship={ship}
-        onShipChange={setShip}
-        onShowHistory={showHistory}
-        onOpenBranchPicker={onOpenBranchPicker}
-        onWorktrees={onWorktrees}
-        onOpenFile={openChange}
-        onOpenAllChanges={onOpenAllChanges}
-        onMutated={(paths) => {
-          reload();
-          notifyGitChanged(cwd);
-          invalidateWatchedFiles(paths);
-          window.setTimeout(() => invalidateWatchedFiles(paths), 150);
-        }}
-      />
-      {historyShown && !clean ? (
-        <GraphResizeSash
-          height={graphHeight}
-          onHeightPaint={setGraphHeight}
-          onHeightCommit={(next) => {
-            setGraphHeight(next);
-            saveGraphPanelHeight(next);
-          }}
-          maxHeight={() => {
-            const pane = paneRef.current;
-            if (!pane) return GRAPH_PANEL_DEFAULT * 2;
-            return Math.max(GRAPH_PANEL_MIN, pane.clientHeight - 160);
-          }}
-        />
-      ) : null}
-      <div
-        ref={graphRef}
-        hidden={noGit}
-        className={`overflow-hidden border-t border-content/10 ${
-          !historyShown
-            ? "h-7 shrink-0"
-            : clean
-              ? "min-h-40 flex-1"
-              : "min-h-0 shrink-0"
-        }`}
-        style={historyShown && !clean ? { height: graphHeight } : undefined}
-      >
-        <GitHistoryGraph
-          cwd={cwd}
-          enabled={enabled}
-          expanded={historyShown}
-          selectedSha={selectedSha}
-          branch={index ? index.branch : undefined}
-          onToggleExpanded={() => {
-            graphOpen = !historyShown;
-            setGraphExpanded(graphOpen);
-            setHistoryYields(false);
-          }}
-          onOpenCommit={onOpenCommit}
-        />
+    <div className="git-changes flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="inspector-switch" role="tablist" aria-label="Show">
+        {CHANGES_MODES.map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mode === value}
+            className="inspector-pill"
+            onClick={() => setMode(value)}
+          >
+            {MODE_LABEL[value]}
+          </button>
+        ))}
+        {mode !== "commits" ? (
+          <button
+            type="button"
+            className="inspector-pill git-unviewed-toggle"
+            aria-pressed={unviewed}
+            title={
+              unviewed
+                ? "Show every changed file"
+                : "Hide the files you have opened"
+            }
+            onClick={() => setUnviewed(!unviewed)}
+          >
+            Unviewed
+          </button>
+        ) : null}
       </div>
+      {mode === "commits" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <GitHistoryGraph
+            cwd={cwd}
+            enabled={enabled}
+            selectedSha={selectedSha}
+            branch={index ? index.branch : undefined}
+            onOpenCommit={onOpenCommit}
+          />
+        </div>
+      ) : (
+        <ChangedFiles
+          cwd={cwd}
+          projectCwd={projectCwd}
+          textHarness={textHarness}
+          index={index}
+          files={files}
+          viewed={viewed}
+          unviewedOnly={unviewed}
+          turns={mode === "turns"}
+          sessionId={sessionId}
+          selected={selectedPath}
+          selectedKind={selectedKind}
+          enabled={enabled}
+          locked={shipping}
+          showStaging={showStaging}
+          onShowStagingChange={(next) => {
+            saveShowStaging(next);
+            setShowStaging(next);
+          }}
+          onBusyChange={setRowBusy}
+          onOpenFile={openChange}
+          onOpenAllChanges={onOpenAllChanges}
+          onMutated={onMutated}
+        />
+      )}
+      {index ? (
+        ship ? (
+          <div className="git-ship-foot">
+            <ShipFlow
+              key={shipKey.current}
+              cwd={cwd}
+              index={index}
+              files={files}
+              pr={pr}
+              enabled={enabled}
+              textHarness={textHarness}
+              sessionId={ship.sessionId ?? sessionId}
+              stagingShown={showStaging}
+              message={message}
+              onMessageChange={setMessage}
+              onBusyChange={onShipBusy}
+              onMutated={onMutated}
+              onPrChanged={reloadPr}
+              onClose={() => setShip(null)}
+            />
+          </div>
+        ) : (
+          <CommitBox
+            cwd={cwd}
+            index={index}
+            files={files}
+            pr={pr}
+            textHarness={textHarness}
+            sessionId={sessionId}
+            stagingShown={showStaging}
+            message={message}
+            onMessageChange={setMessage}
+            locked={rowBusy}
+            onBusyChange={onShipBusy}
+            onMutated={onMutated}
+            onPrChanged={reloadPr}
+            onOpenBranchPicker={onOpenBranchPicker}
+            onMore={() => setShip({ opened: Date.now() })}
+          />
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/** A folder without Git: one way to start, as bots offer it. */
+function NoGitState({ cwd, onReady }: { cwd: string; onReady: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const start = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await setUpProjectGit(cwd);
+      onReady();
+    } catch (error) {
+      logError("Set up Git", error);
+      setProblem(gitSetupError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="inspector-empty" role="status">
+      <p className="inspector-empty-title">No Git here yet</p>
+      <p className="inspector-empty-detail">
+        Set up Git to see changes and commits here.
+      </p>
+      <button
+        type="button"
+        className="inspector-empty-action"
+        disabled={busy}
+        title="Turns on Git for this folder and saves its files in a first commit, on this computer. Nothing is uploaded."
+        onClick={() => void start()}
+      >
+        {busy ? "Setting up Git…" : "Set up Git"}
+      </button>
+      {problem ? (
+        <p className="inspector-empty-hint" role="alert">
+          {problem}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -342,18 +413,17 @@ function ChangedFiles({
   textHarness,
   index,
   files,
+  viewed,
+  unviewedOnly,
+  turns,
+  sessionId,
   selected,
   selectedKind,
   enabled,
-  fill,
-  lastCommit,
-  now,
-  noGit,
-  ship,
-  onShipChange,
-  onShowHistory,
-  onOpenBranchPicker,
-  onWorktrees,
+  locked,
+  showStaging,
+  onShowStagingChange,
+  onBusyChange,
   onOpenFile,
   onOpenAllChanges,
   onMutated,
@@ -363,70 +433,57 @@ function ChangedFiles({
   textHarness?: HarnessId;
   index: GitDiffIndex | null;
   files: GitChangedFile[];
+  viewed: Record<string, string> | undefined;
+  unviewedOnly: boolean;
+  /** Group the files under the turn of the chat that changed them. */
+  turns: boolean;
+  sessionId?: string;
   selected?: string;
   selectedKind?: GitFileDiffKind;
   enabled: boolean;
-  fill: boolean;
-  lastCommit: GitHistoryCommit | null;
-  now: number;
-  noGit: boolean;
-  ship: ShipState | null;
-  onShipChange: (ship: ShipState | null) => void;
-  onShowHistory: () => void;
-  onOpenBranchPicker?: (anchor: HTMLButtonElement) => void;
-  onWorktrees: (worktrees: Parameters<typeof currentCopyLabel>[0]) => void;
+  /** A commit or push is running: rows wait. */
+  locked: boolean;
+  showStaging: boolean;
+  onShowStagingChange: (show: boolean) => void;
+  onBusyChange: (busy: boolean) => void;
   onOpenFile: OpenChange;
   onOpenAllChanges: (kind?: GitFileDiffKind) => void;
   onMutated: (paths?: string[]) => void;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  // Ship it's commit message. It is kept here, so a draft is still there when
-  // Ship it is closed and opened again.
-  const [message, setMessage] = useState("");
+  const live = useContext(LiveSessionsContext);
+  const [busyState, setBusyState] = useState<string | null>(null);
+  const busy = busyState ?? (locked ? "ship" : null);
+  const setBusy = (next: string | null) => {
+    setBusyState(next);
+    onBusyChange(next !== null);
+  };
   const [stagedExpanded, setStagedExpanded] = useState(stagedOpen);
   const [changesExpanded, setChangesExpanded] = useState(changesOpen);
   const [view, setView] = useState<ChangesView>(changesView);
-  // Off: one list of every changed file. On: Staged and Changes sections,
-  // with buttons to stage and unstage.
-  const [showStaging, setShowStaging] = useState(loadShowStaging);
-  const { pr, reload: reloadPr } = usePrStatus(cwd, index?.branch, enabled);
-  const staged = useMemo(() => files.filter((file) => file.staged), [files]);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Unviewed hides the files you have opened since they last changed.
+  const shown = useMemo(
+    () =>
+      unviewedOnly ? files.filter((file) => !isViewed(viewed, file)) : files,
+    [files, unviewedOnly, viewed],
+  );
+  const staged = useMemo(() => shown.filter((file) => file.staged), [shown]);
   const unstaged = useMemo(
-    () => files.filter((file) => file.unstaged),
-    [files],
+    () => shown.filter((file) => file.unstaged),
+    [shown],
   );
   const largest = useMemo(() => largestChurn(files), [files]);
-  const totals = useMemo(() => lineTotals(files), [files]);
-  // A new Ship it starts a fresh flow, replacing a finished one's "Shipped"
-  // card, but never interrupts a ship that is still running.
-  const shipKey = useRef(0);
-  if (ship && busy !== "ship") shipKey.current = ship.opened ?? 0;
-  const onShipBusy = useCallback((shipping: boolean) => {
-    setBusy((current) =>
-      shipping ? (current ?? "ship") : current === "ship" ? null : current,
+  const totals = useMemo(() => lineTotals(shown), [shown]);
+  // Read from the chat when the files change, not on every streamed token.
+  const groups = useMemo(() => {
+    if (!turns) return null;
+    const session = chatForChanges(live?.list() ?? [], cwd, sessionId);
+    return groupChangesByTurn(
+      session?.blocks ?? [],
+      session ? sessionWorkCwd(session) : cwd,
+      shown,
     );
-  }, []);
-  const hasRemote = Boolean(index?.remote);
-  const hasOpenPr = pr?.state === "open";
-  const diverged = (index?.ahead ?? 0) > 0 && (index?.behind ?? 0) > 0;
-  const onDefault =
-    !!index?.branch &&
-    !!index.defaultBranch &&
-    index.branch === index.defaultBranch;
-  const canCreatePr =
-    hasRemote &&
-    !hasOpenPr &&
-    !onDefault &&
-    !diverged &&
-    files.length === 0 &&
-    (index?.aheadOfDefault ?? 0) > 0 &&
-    (index?.behind ?? 0) === 0;
-  const canViewPr = hasOpenPr && !!pr?.url;
-  const canPublish = hasRemote && !index?.upstream;
-  const canSync =
-    hasRemote &&
-    Boolean(index?.upstream) &&
-    ((index?.ahead ?? 0) > 0 || (index?.behind ?? 0) > 0);
+  }, [turns, live, cwd, sessionId, shown]);
 
   const toggleView = () => {
     changesView = view === "tree" ? "list" : "tree";
@@ -434,24 +491,9 @@ function ChangedFiles({
     setView(changesView);
   };
 
-  const toggleStaging = () => {
-    saveShowStaging(!showStaging);
-    setShowStaging(!showStaging);
-  };
-
   const fail = (error: unknown) => {
     logError("source control", error);
     window.alert(errorText(error));
-  };
-
-  const confirmDefault = async (kind: "push" | "pr") => {
-    if (!onDefault || !index?.branch) return true;
-    const branch = index.branch;
-    return confirmNative(
-      kind === "pr"
-        ? `Create a pull request from default branch "${branch}"?`
-        : `Push to default branch "${branch}"?`,
-    );
   };
 
   /**
@@ -497,7 +539,7 @@ function ChangedFiles({
     if (busy) return;
     // The single list discards every file; the Changes section only what
     // is unstaged.
-    const discarded = whole ? files : unstaged;
+    const discarded = whole ? files : files.filter((file) => file.unstaged);
     if (action === "discard") {
       const prompt = discardPrompt(discarded, whole);
       if (!prompt || !(await confirmNative(prompt.message, prompt.okLabel)))
@@ -522,77 +564,49 @@ function ChangedFiles({
     }
   };
 
-  const sync = async () => {
-    if (!index || !(canSync || canPublish)) return;
-    setBusy("sync");
-    try {
-      await gitSync(cwd);
-      onMutated();
-      reloadPr();
-    } catch (error) {
-      fail(error);
-      onMutated();
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const openCreatedPr = async () => {
-    const content = await generatePrContent(cwd, textHarness);
-    if (!content) throw new Error("Could not prepare pull request content");
-    const url = await gitPrCreate(
-      cwd,
-      content.title,
-      content.body,
-      content.base,
-      content.head,
-    );
-    await openInAppUrl(url.trim());
-  };
-
-  const mergePr = async () => {
-    if (!hasOpenPr || !pr || busy) return;
-    const base = index?.defaultBranch ?? "the default branch";
-    const ok = await confirmNative(
-      `Squash and merge PR #${pr.number} into ${base}? Its commits become one commit, and GitHub deletes the branch afterwards.`,
-      "Squash and merge",
-    );
-    if (!ok) return;
-    setBusy("merge");
-    try {
-      await gitPrSquashMerge(cwd, pr.number);
-      onMutated();
-      notifyGitChanged(cwd);
-      reloadPr();
-    } catch (error) {
-      fail(error);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const createPr = async () => {
-    if (!canCreatePr) return;
-    if (!(await confirmDefault("pr"))) return;
-    setBusy("pr");
-    try {
-      if ((index?.ahead ?? 0) > 0) await gitPush(cwd);
-      await openCreatedPr();
-      onMutated();
-      reloadPr();
-    } catch (error) {
-      fail(error);
-      onMutated();
-    } finally {
-      setBusy(null);
-    }
+  // The list's keys, as in Super: ↓/J and ↑/K move, Space marks viewed,
+  // N goes to the next unviewed file, Return opens.
+  const onListKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const list = listRef.current;
+    const target = event.target as HTMLElement;
+    if (!list) return;
+    const onRow = target.hasAttribute("data-change-open");
+    if (!onRow && target !== list) return;
+    const rows = [
+      ...list.querySelectorAll<HTMLButtonElement>("[data-change-open]"),
+    ];
+    if (rows.length === 0) return;
+    const at = onRow ? rows.indexOf(target as HTMLButtonElement) : -1;
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    let next: HTMLButtonElement | undefined;
+    if (key === "ArrowDown" || key === "j")
+      next = rows[Math.min(at + 1, rows.length - 1)];
+    else if (key === "ArrowUp" || key === "k") next = rows[Math.max(at - 1, 0)];
+    else if (key === "n") {
+      const order = [...rows.slice(at + 1), ...rows.slice(0, at + 1)];
+      next = order.find(
+        (row) => !row.closest("[data-change-row]")?.hasAttribute("data-viewed"),
+      );
+      if (!next) return;
+    } else if (key === " ") {
+      event.preventDefault();
+      const relative = rows[at]?.dataset.changeOpen;
+      const file = files.find((candidate) => candidate.relative === relative);
+      if (file) toggleViewed(cwd, file);
+      return;
+    } else if (key === "Enter" && at < 0) next = rows[0];
+    else return;
+    event.preventDefault();
+    next?.focus();
+    next?.scrollIntoView({ block: "nearest" });
   };
 
   const stagingToggle: SectionAction = {
     title: showStaging ? "Hide staging" : "Show staging",
     icon: <Ungroup className="size-3.5" strokeWidth={1.75} />,
     pressed: showStaging,
-    onClick: toggleStaging,
+    onClick: () => onShowStagingChange(!showStaging),
   };
   const rowProps = {
     view,
@@ -600,207 +614,199 @@ function ChangedFiles({
     selected,
     selectedKind,
     busy,
+    viewed,
     onOpenFile,
   };
+  const allList = (list: GitChangedFile[]) => (
+    <ChangeList
+      files={list}
+      kind="all"
+      {...rowProps}
+      onAction={(file, action) => void run(file, action, true)}
+    />
+  );
 
   return (
-    <aside
-      className={`flex min-h-0 min-w-0 flex-col ${fill ? "flex-1" : "shrink"}`}
+    <div
+      ref={listRef}
+      tabIndex={files.length > 0 ? 0 : -1}
+      aria-label="Changed files"
+      onKeyDown={onListKey}
+      onKeyUp={(event) => {
+        // Space marks the row viewed; it must not also press the row.
+        if (
+          event.key === " " &&
+          (event.target as HTMLElement).hasAttribute("data-change-open")
+        )
+          event.preventDefault();
+      }}
+      className="git-changes-list flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none py-1 outline-none"
     >
-      <div className="flex shrink-0 flex-col gap-2 border-b border-content/10 p-2">
-        {ship && index ? (
-          <ShipFlow
-            key={shipKey.current}
-            cwd={cwd}
-            index={index}
-            files={files}
-            pr={pr}
-            enabled={enabled}
-            textHarness={textHarness}
-            sessionId={ship.sessionId}
-            stagingShown={showStaging}
-            message={message}
-            onMessageChange={setMessage}
-            onBusyChange={onShipBusy}
-            onMutated={onMutated}
-            onPrChanged={reloadPr}
-            onClose={() => onShipChange(null)}
-          />
-        ) : files.length === 0 && index ? (
-          <CleanState
-            cwd={cwd}
-            projectCwd={projectCwd}
-            {...gitStatusSummary(index)}
-            noGit={noGit}
-            lastCommit={lastCommit}
-            now={now}
-            onShowHistory={onShowHistory}
-            onOpenBranchPicker={onOpenBranchPicker}
-          />
-        ) : files.length > 0 ? (
-          <ShipBar
-            files={files.length}
-            additions={totals.additions}
-            deletions={totals.deletions}
-            disabled={!!busy}
-            onShip={() => onShipChange({ opened: Date.now() })}
-          />
-        ) : null}
-        {index && !ship ? (
-          <GitSyncActions
-            index={index}
-            dirty={files.length > 0}
-            pr={pr}
-            busy={busy}
-            hasRemote={hasRemote}
-            hasOpenPr={hasOpenPr}
-            onDefault={onDefault}
-            canSync={canSync}
-            canPublish={canPublish}
-            canCreatePr={canCreatePr}
-            canViewPr={canViewPr}
-            onSync={() => void sync()}
-            onCreatePr={() => void createPr()}
-            onMergePr={() => void mergePr()}
-            onViewPr={() => {
-              if (pr?.url) void openInAppUrl(pr.url);
-            }}
-          />
-        ) : null}
-      </div>
-      <div
-        className={`min-h-0 overflow-y-auto overscroll-none py-1 ${
-          fill ? "flex-1" : "shrink"
-        }`}
-      >
-        {files.length === 0 ? (
-          index ? null : (
-            <p className="px-3 py-2 text-ui-label text-content/45">
-              Loading changes…
-            </p>
-          )
-        ) : showStaging ? (
-          <>
-            {staged.length > 0 ? (
-              <FileSection
-                title="Staged"
-                count={staged.length}
-                totals={lineTotals(staged)}
-                open={stagedExpanded}
-                onToggle={() => {
-                  stagedOpen = !stagedExpanded;
-                  setStagedExpanded(stagedOpen);
-                }}
-                view={view}
-                onToggleView={toggleView}
-                headerActions={[
-                  stagingToggle,
-                  {
-                    title: "Open All Changes",
-                    icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
-                    onClick: () => onOpenAllChanges("staged"),
-                  },
-                  {
-                    title: "Unstage All Changes",
-                    icon: <Minus className="size-3.5" strokeWidth={1.75} />,
-                    onClick: () => void runAll("unstage"),
-                  },
-                ]}
-              >
-                <ChangeList
-                  files={staged}
-                  kind="staged"
-                  {...rowProps}
-                  onAction={(file, action) => void run(file, action)}
-                />
-              </FileSection>
-            ) : null}
-            {unstaged.length > 0 ? (
-              <FileSection
-                title="Changes"
-                count={unstaged.length}
-                totals={lineTotals(unstaged)}
-                open={changesExpanded}
-                onToggle={() => {
-                  changesOpen = !changesExpanded;
-                  setChangesExpanded(changesOpen);
-                }}
-                view={view}
-                onToggleView={toggleView}
-                headerActions={[
-                  // The toggle sits in the first section's header.
-                  ...(staged.length > 0 ? [] : [stagingToggle]),
-                  {
-                    title: "Open All Changes",
-                    icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
-                    onClick: () => onOpenAllChanges("unstaged"),
-                  },
-                  {
-                    title: "Discard All Changes",
-                    icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
-                    onClick: () => void runAll("discard"),
-                  },
-                  {
-                    title: "Stage All Changes",
-                    icon: <Plus className="size-3.5" strokeWidth={1.75} />,
-                    onClick: () => void runAll("stage"),
-                  },
-                ]}
-              >
-                <ChangeList
-                  files={unstaged}
-                  kind="unstaged"
-                  {...rowProps}
-                  onAction={(file, action) => void run(file, action)}
-                />
-              </FileSection>
-            ) : null}
-          </>
-        ) : (
-          <FileSection
-            title="Changes"
-            count={files.length}
-            totals={totals}
-            open={changesExpanded}
-            onToggle={() => {
-              changesOpen = !changesExpanded;
-              setChangesExpanded(changesOpen);
-            }}
-            view={view}
-            onToggleView={toggleView}
-            headerActions={[
-              stagingToggle,
-              {
-                title: "Open All Changes",
-                icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
-                onClick: () => onOpenAllChanges(),
-              },
-              {
-                title: "Discard All Changes",
-                icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
-                onClick: () => void runAll("discard", true),
-              },
-            ]}
-          >
-            <ChangeList
-              files={files}
-              kind="all"
-              {...rowProps}
-              onAction={(file, action) => void run(file, action, true)}
-            />
-          </FileSection>
-        )}
-        <GitCopies
-          cwd={cwd}
-          enabled={enabled}
-          projectCwd={projectCwd}
-          base={index?.defaultBranch ?? undefined}
-          textHarness={textHarness}
-          onWorktrees={onWorktrees}
-        />
-        <GitHousekeeping cwd={cwd} enabled={enabled} />
-      </div>
-    </aside>
+      {!index ? (
+        <p className="px-3 py-2 text-ui-label text-content/45">
+          Loading changes…
+        </p>
+      ) : files.length === 0 ? (
+        <div className="inspector-empty" role="status">
+          <p className="inspector-empty-title">No changes</p>
+          <p className="inspector-empty-detail">
+            Edits you or your agents make show up here.
+          </p>
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="inspector-empty" role="status">
+          <p className="inspector-empty-title">All viewed</p>
+          <p className="inspector-empty-detail">
+            You’ve opened every changed file.
+          </p>
+        </div>
+      ) : groups ? (
+        <>
+          {groups.turns.map((turn) => (
+            <FileSection
+              key={turn.id}
+              title={turn.label}
+              plain
+              count={turn.files.length}
+              totals={lineTotals(turn.files)}
+              open
+              view={view}
+              onToggleView={toggleView}
+              headerActions={[]}
+            >
+              {allList(turn.files)}
+            </FileSection>
+          ))}
+          {groups.other.length > 0 ? (
+            <FileSection
+              title="Other changes"
+              plain
+              count={groups.other.length}
+              totals={lineTotals(groups.other)}
+              open
+              view={view}
+              onToggleView={toggleView}
+              headerActions={[]}
+            >
+              {allList(groups.other)}
+            </FileSection>
+          ) : null}
+        </>
+      ) : showStaging ? (
+        <>
+          {staged.length > 0 ? (
+            <FileSection
+              title="Staged"
+              count={staged.length}
+              totals={lineTotals(staged)}
+              open={stagedExpanded}
+              onToggle={() => {
+                stagedOpen = !stagedExpanded;
+                setStagedExpanded(stagedOpen);
+              }}
+              view={view}
+              onToggleView={toggleView}
+              headerActions={[
+                stagingToggle,
+                {
+                  title: "Open All Changes",
+                  icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                  onClick: () => onOpenAllChanges("staged"),
+                },
+                {
+                  title: "Unstage All Changes",
+                  icon: <Minus className="size-3.5" strokeWidth={1.75} />,
+                  onClick: () => void runAll("unstage"),
+                },
+              ]}
+            >
+              <ChangeList
+                files={staged}
+                kind="staged"
+                {...rowProps}
+                onAction={(file, action) => void run(file, action)}
+              />
+            </FileSection>
+          ) : null}
+          {unstaged.length > 0 ? (
+            <FileSection
+              title="Changes"
+              count={unstaged.length}
+              totals={lineTotals(unstaged)}
+              open={changesExpanded}
+              onToggle={() => {
+                changesOpen = !changesExpanded;
+                setChangesExpanded(changesOpen);
+              }}
+              view={view}
+              onToggleView={toggleView}
+              headerActions={[
+                // The toggle sits in the first section's header.
+                ...(staged.length > 0 ? [] : [stagingToggle]),
+                {
+                  title: "Open All Changes",
+                  icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+                  onClick: () => onOpenAllChanges("unstaged"),
+                },
+                {
+                  title: "Discard All Changes",
+                  icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
+                  onClick: () => void runAll("discard"),
+                },
+                {
+                  title: "Stage All Changes",
+                  icon: <Plus className="size-3.5" strokeWidth={1.75} />,
+                  onClick: () => void runAll("stage"),
+                },
+              ]}
+            >
+              <ChangeList
+                files={unstaged}
+                kind="unstaged"
+                {...rowProps}
+                onAction={(file, action) => void run(file, action)}
+              />
+            </FileSection>
+          ) : null}
+        </>
+      ) : (
+        <FileSection
+          title="Changes"
+          count={shown.length}
+          totals={totals}
+          open={changesExpanded}
+          onToggle={() => {
+            changesOpen = !changesExpanded;
+            setChangesExpanded(changesOpen);
+          }}
+          view={view}
+          onToggleView={toggleView}
+          headerActions={[
+            stagingToggle,
+            {
+              title: "Open All Changes",
+              icon: <FileDiff className="size-3.5" strokeWidth={1.75} />,
+              onClick: () => onOpenAllChanges(),
+            },
+            {
+              title: "Discard All Changes",
+              icon: <Undo2 className="size-3.5" strokeWidth={1.75} />,
+              onClick: () => void runAll("discard", true),
+            },
+          ]}
+        >
+          {allList(shown)}
+        </FileSection>
+      )}
+      <GitCopies
+        cwd={cwd}
+        enabled={enabled}
+        projectCwd={projectCwd}
+        base={index?.defaultBranch ?? undefined}
+        textHarness={textHarness}
+      />
+      <GitHousekeeping cwd={cwd} enabled={enabled} />
+    </div>
   );
 }
 
@@ -860,271 +866,6 @@ function cachedPr(
   return prByCwd.get(cwd) ?? null;
 }
 
-/** One-line state of a folder with nothing to commit. */
-export function gitStatusSummary(index: GitDiffIndex): {
-  tone: "ok" | "info" | "neutral";
-  title: string;
-  detail: string;
-} {
-  const branch = index.branch ?? "This copy";
-  if (!index.remote)
-    return { tone: "neutral", title: "Nothing to commit", detail: branch };
-  if (!index.upstream)
-    return {
-      tone: "info",
-      title: `${branch} isn't on ${index.remote} yet`,
-      detail: "Nothing to commit. Publish it to share it.",
-    };
-  if (index.ahead > 0 || index.behind > 0)
-    return {
-      tone: "info",
-      title: syncStatusLabel(index),
-      detail: `${branch} · nothing to commit`,
-    };
-  return {
-    tone: "ok",
-    title: `${branch} is clean and up to date`,
-    detail: `Matches ${index.upstream}`,
-  };
-}
-
-function syncStatusLabel(index: GitDiffIndex): string {
-  if (index.ahead > 0 && index.behind > 0) {
-    return `Diverged from ${index.upstream ?? "upstream"}`;
-  }
-  if (index.ahead > 0) {
-    const n = index.ahead;
-    return `${n} unpushed commit${n === 1 ? "" : "s"}`;
-  }
-  if (index.behind > 0) {
-    const n = index.behind;
-    return `${n} incoming commit${n === 1 ? "" : "s"}`;
-  }
-  return "No files";
-}
-
-function GitSyncActions({
-  index,
-  dirty,
-  pr,
-  busy,
-  hasRemote,
-  hasOpenPr,
-  onDefault,
-  canSync,
-  canPublish,
-  canCreatePr,
-  canViewPr,
-  onSync,
-  onCreatePr,
-  onMergePr,
-  onViewPr,
-}: {
-  index: GitDiffIndex;
-  /**
-   * Uncommitted files. Ship it then commits and opens the pull request, so
-   * Create PR waits for them. Publishing and syncing stay offered: commits
-   * already made can be pushed without committing the files first.
-   */
-  dirty: boolean;
-  pr: GitPr | null;
-  busy: string | null;
-  hasRemote: boolean;
-  hasOpenPr: boolean;
-  onDefault: boolean;
-  canSync: boolean;
-  canPublish: boolean;
-  canCreatePr: boolean;
-  canViewPr: boolean;
-  onSync: () => void;
-  onCreatePr: () => void;
-  onMergePr: () => void;
-  onViewPr: () => void;
-}) {
-  if (!hasRemote) return null;
-  const ahead = index.ahead;
-  const behind = index.behind;
-  const dest =
-    index.upstream ?? `${index.remote ?? "origin"}/${index.branch ?? "HEAD"}`;
-  const syncing = busy === "sync";
-  const syncTitle = syncing
-    ? "Synchronising changes…"
-    : canPublish
-      ? index.branch
-        ? `Publish Branch "${index.branch}"`
-        : "Publish Branch"
-      : behind > 0 && ahead > 0
-        ? `Pull ${behind} and push ${ahead} commits between ${dest}`
-        : behind > 0
-          ? `Pull ${behind} commit${behind === 1 ? "" : "s"} from ${dest}`
-          : `Push ${ahead} commit${ahead === 1 ? "" : "s"} to ${dest}`;
-  const createTitle = index.defaultBranch
-    ? `Create a pull request into ${index.defaultBranch}`
-    : "Create pull request";
-  const viewTitle = pr?.title
-    ? `View PR #${pr.number}: ${pr.title}`
-    : "View pull request";
-  const btn =
-    "flex h-7 w-full min-w-0 items-center justify-center gap-1.5 rounded-md px-3 text-ui-label font-medium disabled:opacity-40";
-  const secondary = `${btn} bg-(--aven-control-bg) text-content hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)`;
-  const showPublish = canPublish;
-  const showSync = canSync;
-  const showCreatePr = !hasOpenPr && !onDefault && !dirty;
-  const showViewPr = hasOpenPr;
-  if (!showPublish && !showSync && !showCreatePr && !showViewPr) return null;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      {showPublish ? (
-        <button
-          type="button"
-          title={syncTitle}
-          disabled={!!busy}
-          onClick={onSync}
-          className={secondary}
-        >
-          {syncing ? (
-            <Loader
-              className="size-3.5 shrink-0 animate-spin"
-              strokeWidth={1.75}
-            />
-          ) : (
-            <CloudUpload className="size-3.5 shrink-0" strokeWidth={1.75} />
-          )}
-          <span className="min-w-0 truncate">Publish Branch</span>
-        </button>
-      ) : showSync ? (
-        <button
-          type="button"
-          title={syncTitle}
-          disabled={!!busy}
-          onClick={onSync}
-          className={secondary}
-        >
-          <RefreshCw
-            className={`size-3.5 shrink-0 ${syncing ? "animate-spin" : ""}`}
-            strokeWidth={1.75}
-          />
-          <span className="min-w-0 truncate">Sync Changes</span>
-          {behind > 0 ? (
-            <span className="shrink-0 tabular-nums text-content/55">
-              ↓{behind}
-            </span>
-          ) : null}
-          {ahead > 0 ? (
-            <span className="shrink-0 tabular-nums text-content/55">
-              ↑{ahead}
-            </span>
-          ) : null}
-        </button>
-      ) : null}
-      {showCreatePr ? (
-        <button
-          type="button"
-          title={createTitle}
-          disabled={!canCreatePr || !!busy}
-          onClick={onCreatePr}
-          className={secondary}
-        >
-          {busy === "pr" ? (
-            <Loader
-              className="size-3.5 shrink-0 animate-spin"
-              strokeWidth={1.75}
-            />
-          ) : (
-            <GitPullRequest className="size-3.5 shrink-0" strokeWidth={1.75} />
-          )}
-          Create PR
-        </button>
-      ) : null}
-      {showViewPr ? (
-        <button
-          type="button"
-          title={viewTitle}
-          disabled={!canViewPr || !!busy}
-          onClick={onViewPr}
-          className={secondary}
-        >
-          <ExternalLink className="size-3.5 shrink-0" strokeWidth={1.75} />
-          <span className="min-w-0 truncate">
-            {pr?.number ? `View PR #${pr.number}` : "View PR"}
-          </span>
-        </button>
-      ) : null}
-      {showViewPr ? (
-        <button
-          type="button"
-          title={
-            index.defaultBranch
-              ? `Squash this pull request into one commit on ${index.defaultBranch}`
-              : "Squash and merge this pull request"
-          }
-          disabled={!!busy}
-          onClick={onMergePr}
-          className={secondary}
-        >
-          {busy === "merge" ? (
-            <Loader
-              className="size-3.5 shrink-0 animate-spin"
-              strokeWidth={1.75}
-            />
-          ) : (
-            <GitMerge className="size-3.5 shrink-0" strokeWidth={1.75} />
-          )}
-          <span className="min-w-0 truncate">Squash and merge</span>
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-/** What changed in this copy, and the way to ship it. */
-function ShipBar({
-  files,
-  additions,
-  deletions,
-  disabled,
-  onShip,
-}: {
-  files: number;
-  additions: number;
-  deletions: number;
-  disabled: boolean;
-  onShip: () => void;
-}) {
-  const lines = additions + deletions;
-  return (
-    <div className="git-ship-bar">
-      <div className="git-ship-stats">
-        <span
-          className="git-ship-stats-line"
-          aria-label={`${filesLabel(files)} changed, ${additions} added lines, ${deletions} deleted lines`}
-        >
-          <span>{filesLabel(files)}</span>
-          <span className="git-add">+{additions}</span>
-          <span className="git-del">−{deletions}</span>
-        </span>
-        {lines > 0 ? (
-          <span className="git-ship-meter" aria-hidden>
-            <span style={{ flexGrow: additions }} />
-            <span style={{ flexGrow: deletions }} />
-          </span>
-        ) : null}
-      </div>
-      <button
-        type="button"
-        className="git-ship-button"
-        disabled={disabled}
-        title="Commit these changes, and choose whether to push them or open a pull request"
-        onClick={onShip}
-      >
-        <ArrowUp className="size-3.5" strokeWidth={2} />
-        Ship it
-      </button>
-    </div>
-  );
-}
-
 /** A button in a file section's header; `pressed` marks a toggle that is on. */
 type SectionAction = {
   title: string;
@@ -1135,6 +876,7 @@ type SectionAction = {
 
 function FileSection({
   title,
+  plain,
   count,
   totals,
   open,
@@ -1145,10 +887,12 @@ function FileSection({
   children,
 }: {
   title: string;
+  /** A turn's message: its own words, in sentence case. */
+  plain?: boolean;
   count: number;
   totals: { additions: number; deletions: number };
   open: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
   view: ChangesView;
   onToggleView: () => void;
   headerActions: SectionAction[];
@@ -1160,9 +904,11 @@ function FileSection({
         <button
           type="button"
           onClick={onToggle}
+          disabled={!onToggle}
+          title={plain ? title : undefined}
           className="flex min-w-0 flex-1 items-center gap-1 text-left"
         >
-          {open ? (
+          {!onToggle ? null : open ? (
             <ChevronDown
               className="size-3.5 shrink-0 text-content/50"
               strokeWidth={1.75}
@@ -1173,7 +919,13 @@ function FileSection({
               strokeWidth={1.75}
             />
           )}
-          <span className="min-w-0 truncate text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase">
+          <span
+            className={
+              plain
+                ? "min-w-0 truncate pl-1 text-ui-label font-medium text-content/60"
+                : "min-w-0 truncate text-ui-micro font-semibold tracking-[0.04em] text-content/55 uppercase"
+            }
+          >
             {title}
           </span>
           <span className="ml-1 grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-content/12 px-1 text-ui-micro tabular-nums text-content/75">
@@ -1244,6 +996,8 @@ type ChangeRowProps = {
   selected?: string;
   selectedKind?: GitFileDiffKind;
   busy: string | null;
+  /** Files opened since they last changed, by path. */
+  viewed?: Record<string, string>;
   onOpenFile: OpenChange;
   onAction: (
     file: GitChangedFile,
@@ -1264,6 +1018,7 @@ function ChangeList({ files, view, ...rest }: ChangeRowProps) {
           file={file}
           active={isActive(file, rest.selected, rest.selectedKind, rest.kind)}
           busy={rest.busy === file.relative}
+          viewed={isViewed(rest.viewed, file)}
           kind={rest.kind}
           largest={rest.largest}
           onOpenFile={rest.onOpenFile}
@@ -1282,6 +1037,7 @@ function ChangeDirChildren({
   selected,
   selectedKind,
   busy,
+  viewed,
   onOpenFile,
   onAction,
 }: Omit<ChangeRowProps, "files" | "view"> & {
@@ -1300,6 +1056,7 @@ function ChangeDirChildren({
           selected={selected}
           selectedKind={selectedKind}
           busy={busy}
+          viewed={viewed}
           onOpenFile={onOpenFile}
           onAction={onAction}
         />
@@ -1310,6 +1067,7 @@ function ChangeDirChildren({
           file={file}
           active={isActive(file, selected, selectedKind, kind)}
           busy={busy === file.relative}
+          viewed={isViewed(viewed, file)}
           kind={kind}
           largest={largest}
           depth={depth}
@@ -1441,6 +1199,7 @@ function ChangeRow({
   file,
   active,
   busy,
+  viewed,
   kind,
   largest,
   depth,
@@ -1450,6 +1209,8 @@ function ChangeRow({
   file: GitChangedFile;
   active: boolean;
   busy: boolean;
+  /** Opened since it last changed: the row is dimmed. */
+  viewed: boolean;
   kind: ListKind;
   largest: number;
   /** Set in tree view: nesting level, and the folder path moves to the tree. */
@@ -1471,7 +1232,7 @@ function ChangeRow({
   const stagedNote =
     !single || !file.staged ? "" : file.unstaged ? "partly staged" : "staged";
   return (
-    <li>
+    <li data-change-row="" data-viewed={viewed || undefined}>
       <div
         style={tree ? { paddingLeft: 8 + depth * 12 } : undefined}
         className={`group flex h-6.5 w-full items-center gap-1 pr-2 leading-none ${
@@ -1484,6 +1245,7 @@ function ChangeRow({
       >
         <button
           type="button"
+          data-change-open={file.relative}
           title={
             stagedNote ? `${file.relative} (${stagedNote})` : file.relative
           }
@@ -1513,6 +1275,7 @@ function ChangeRow({
             {stagedNote ? (
               <span className="sr-only">, {stagedNote}</span>
             ) : null}
+            {viewed ? <span className="sr-only">, viewed</span> : null}
           </span>
         </button>
         {file.additions > 0 || file.deletions > 0 ? (

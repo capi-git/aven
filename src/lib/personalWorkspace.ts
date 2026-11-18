@@ -387,18 +387,21 @@ export function browserIdForTab(project: string, tabId: string): string {
 const INSPECTOR_KEY = "monocode.personal.inspector";
 export type PersonalInspector = {
   open: boolean;
-  tab: "files" | "changes" | "checks";
+  tab: "files" | "changes" | "review" | "checks";
   width: number;
 };
+const INSPECTOR_TABS: readonly PersonalInspector["tab"][] = [
+  "files",
+  "changes",
+  "review",
+  "checks",
+];
 export function loadPersonalInspector(): PersonalInspector {
   try {
     const value = JSON.parse(localStorage.getItem(INSPECTOR_KEY) ?? "null");
     return {
       open: value?.open !== false,
-      tab:
-        value?.tab === "changes" || value?.tab === "checks"
-          ? value.tab
-          : "files",
+      tab: INSPECTOR_TABS.includes(value?.tab) ? value.tab : "files",
       width:
         typeof value?.width === "number" && Number.isFinite(value.width)
           ? Math.min(380, Math.max(260, value.width))

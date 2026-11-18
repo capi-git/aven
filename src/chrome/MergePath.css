@@ -19,7 +19,7 @@ html.theme-light .merge-path {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: none;
-  padding: 14px 12px 12px;
+  padding: 14px 12px 12px 22px;
 }
 
 .merge-path-heading {
