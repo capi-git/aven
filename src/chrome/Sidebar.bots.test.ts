@@ -50,14 +50,7 @@ function summary(id: string, title: string, updatedAt: number): SessionSummary {
   };
 }
 
-const jelly: SidebarBot = {
-  path: cwd,
-  sessionId: "bot-chat",
-  name: "Jelly",
-  project: "sidebar-bots",
-  status: "fix-ready",
-  headline: "Fix ready: 2 files",
-};
+const jelly: SidebarBot = { path: cwd, sessionId: "bot-chat" };
 
 let container: HTMLDivElement;
 let root: Root;
@@ -119,47 +112,22 @@ const button = (label: string) =>
       item.textContent === label || item.getAttribute("aria-label") === label,
   );
 
-it("lists bots in their own section below the projects, not with their project's chats", async () => {
-  const onOpenBot = vi.fn();
-  const onBotSettings = vi.fn();
+it("lists no bot, and keeps a bot's chat out of its project's chats", async () => {
   await act(async () =>
     root.render(
       createElement(Sidebar, {
         ...props,
         bots: [jelly],
-        onOpenBot,
-        onBotSettings,
+        onBotSettings: vi.fn(),
       }),
     ),
   );
   expect(chatRows()).toEqual(["Claude Code · Login bug", "Claude Code · Docs"]);
-  const section = botsSection()!;
-  expect(section.querySelector(".personal-projects-heading")?.textContent).toBe(
-    "Bots",
-  );
-  // Below every project group.
-  const groups = container.querySelectorAll(".personal-project-group");
-  expect(
-    groups[groups.length - 1]!.compareDocumentPosition(section) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    container.querySelectorAll(".personal-project-group [data-bot-row]"),
-  ).toHaveLength(0);
-  const row = section.querySelector<HTMLButtonElement>("[data-bot-row]")!;
-  // Critter, name and its word; the project shows on hover.
-  expect(row.querySelector(".personal-task-title")?.textContent).toBe("Jelly");
-  expect(row.querySelector(".personal-bot-project")?.textContent).toBe(
-    "sidebar-bots",
-  );
-  expect(row.querySelector("[data-bot-status]")?.textContent).toBe("Fix ready");
-  expect(row.title).toContain("sidebar-bots's bot");
-  await act(async () => row.click());
-  expect(onOpenBot).toHaveBeenCalledWith(cwd);
-  await act(async () => {
-    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-  });
-  expect(onBotSettings).toHaveBeenCalledWith(cwd);
+  expect(botsSection()).toBeNull();
+  expect(container.querySelector("[data-bot-row]")).toBeNull();
+  // Its project's menu still opens it.
+  const row = rows.props.find((row) => row.botOn === true);
+  expect(row?.onBotSettings).toBeTypeOf("function");
 });
 
 it("lists the chat as usual once the bot is off", async () => {
