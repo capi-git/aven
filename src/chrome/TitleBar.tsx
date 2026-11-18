@@ -1047,10 +1047,10 @@ function SplitSegment({
 }
 
 /**
- * A split's entry on the window's strip. Pressing a segment and moving
- * along the strip moves the whole split; pulling a segment out of the strip
- * takes that tab out of the split (see `SortablePart`). Clicking a segment
- * brings the split forward with that pane focused.
+ * A split's entry on the window's strip. Dragging a segment takes that tab
+ * out of the split, to stand alone on the strip, join another entry or go
+ * to a pane (see `SortablePart`); dragging with Option held moves the whole
+ * split. Clicking a segment brings the split forward with that pane focused.
  */
 function SplitEntryItem({
   split,
@@ -1150,8 +1150,10 @@ function SplitEntryItem({
         sortable.onItemPointerDown(
           split.id,
           event,
-          segment && pressed.current
-            ? { id: pressed.current, element: segment }
+          // A pane's mark moves that pane on its own; with Option held (or
+          // from the entry's edge) the whole split moves.
+          segment && pressed.current && !event.altKey
+            ? { id: pressed.current, element: segment, alone: true }
             : undefined,
         );
       }}

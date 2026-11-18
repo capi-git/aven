@@ -1340,6 +1340,41 @@ html.theme-light .personal-shell {
 .workspace-status-strip .aven-split-segment .aven-split-label {
   display: none;
 }
+/* On the window's row a split is its panes' marks side by side, with no box
+   round them: like the tabs beside it, the one in front is told by a
+   brighter mark, not a frame. No line parts its own marks, as one parts
+   tabs, so the pair still reads as one; pointing at it shows its extent. */
+.workspace-status-strip .aven-split-fill,
+.workspace-status-strip .aven-split-entry[data-active="true"] .aven-split-fill {
+  background: transparent;
+  box-shadow: none;
+}
+.workspace-status-strip
+  .aven-tab-strip:has(.aven-split-entry[data-active="true"])
+  > .aven-tab-highlight {
+  box-shadow: none;
+}
+.workspace-status-strip .aven-split-entry:hover .aven-split-fill {
+  background: var(--aven-fill-quaternary);
+}
+.workspace-status-strip .aven-split-divider {
+  display: none;
+}
+.workspace-status-strip .aven-split {
+  gap: 2px;
+}
+.workspace-status-strip .aven-split-segment[data-lit="true"] {
+  background: transparent;
+}
+.workspace-status-strip .aven-split-segment:hover {
+  background: var(--aven-control-bg);
+}
+.workspace-status-strip
+  .aven-split-segment:not([data-lit="true"]):not(.aven-split-segment:hover)
+  > * {
+  opacity: 0.65;
+  transition: opacity 120ms var(--aven-tab-ease);
+}
 .personal-titlebar[data-title-layout="lone"][data-pane-local="true"]
   .personal-tab-strip
   .aven-tab

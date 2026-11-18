@@ -57,8 +57,14 @@ export type SortablePointerPosition = { screenX: number; screenY: number };
  * split entry's segment. Moving along the strip still moves the whole
  * item; once the pointer leaves the strip the part is torn off, the
  * floating copy shows only it, and the drop is the consumer's to place.
+ * An `alone` part is torn off as soon as the drag starts: it moves on its
+ * own along the strip too.
  */
-export type SortablePart = { id: string; element: HTMLElement };
+export type SortablePart = {
+  id: string;
+  element: HTMLElement;
+  alone?: boolean;
+};
 
 /**
  * A drag that started on a part, for the consumer's move and end callbacks
@@ -844,7 +850,11 @@ export function useSortable(
         current.at = null;
         const at = pointInRects(current, stripScale);
         current.inStrip = inStrip(at.x, at.y, readBounds);
-        if (current.part && !current.inStrip && !current.torn) {
+        if (
+          current.part &&
+          (current.part.alone || !current.inStrip) &&
+          !current.torn
+        ) {
           current.torn = true;
           setDraggingPartId(current.part.id);
           if (animate) motion.current.tearOff(current.part.element, current);
