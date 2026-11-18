@@ -26,10 +26,19 @@ export type MergePathState = {
 
 /**
  * The copy's Git state and its pull request for the Checks tab. Reads when
- * shown, when Git changes, and every MERGE_PATH_REFRESH_S seconds while
- * `enabled` and the window is visible. A hidden window pauses the countdown.
+ * shown, when Git changes, and every `refreshS` seconds (MERGE_PATH_REFRESH_S
+ * by default) while `enabled` and the window is visible. A hidden window
+ * pauses the countdown. Without `countdown`, `nextIn` stays null, so a caller
+ * that shows no "Refreshing in" does not draw again every second.
  */
-export function useMergePath(cwd: string, enabled: boolean): MergePathState {
+export function useMergePath(
+  cwd: string,
+  enabled: boolean,
+  {
+    refreshS = MERGE_PATH_REFRESH_S,
+    countdown = true,
+  }: { refreshS?: number; countdown?: boolean } = {},
+): MergePathState {
   const [index, setIndex] = useState<GitDiffIndex | null>(null);
   const [localIndex, setLocalIndex] = useState<GitDiffIndex | null>(null);
   const [pr, setPr] = useState<GitPr | null>(null);
@@ -54,7 +63,7 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
     }
     let cancelled = false;
     let inFlight = false;
-    let left = MERGE_PATH_REFRESH_S;
+    let left = refreshS;
     const load = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
@@ -90,8 +99,8 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
         inFlight = false;
         if (!cancelled) {
           setLoading(false);
-          left = MERGE_PATH_REFRESH_S;
-          setNextIn(document.hidden ? null : left);
+          left = refreshS;
+          setNextIn(document.hidden || !countdown ? null : left);
         }
       }
     };
@@ -99,7 +108,7 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
       if (document.hidden || inFlight) return;
       left -= 1;
       if (left <= 0) void load();
-      else setNextIn(left);
+      else if (countdown) setNextIn(left);
     }, 1000);
     const onVisibility = () => {
       if (document.hidden) setNextIn(null);
@@ -114,7 +123,7 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
       document.removeEventListener("visibilitychange", onVisibility);
       unsubscribe();
     };
-  }, [cwd, enabled, nonce]);
+  }, [cwd, enabled, nonce, refreshS, countdown]);
 
   const refresh = useCallback(() => setNonce((value) => value + 1), []);
   return { index, localIndex, pr, error, loading, nextIn, refresh };

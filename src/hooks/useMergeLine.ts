@@ -5,6 +5,12 @@ import { gitPrChecks, type PrChecks } from "../lib/prChecks";
 import { mergeLineState, type MergeLineDetails } from "../lib/mergeLine";
 import { useMergePath, type MergePathState } from "./useMergePath";
 
+/**
+ * Every visible chat shows a merge line, so it reads GitHub far less often
+ * than the Checks tab: once a minute, and at once when Git changes here.
+ */
+const MERGE_LINE_REFRESH_S = 60;
+
 /** Review threads cost a GraphQL read: once a minute is plenty. */
 const THREADS_TTL_MS = 60_000;
 
@@ -50,7 +56,7 @@ const openNumber = (pr: MergePathState["pr"]) =>
 
 /**
  * What the merge line needs: the branch's Git state and pull request (read
- * as the Checks tab does, every MERGE_PATH_REFRESH_S while shown), and for
+ * as the Checks tab does, but once a minute and with no countdown), and for
  * an open pull request its checks, merge state and unresolved threads.
  * Nothing reads while `enabled` is false.
  */
@@ -60,7 +66,10 @@ export function useMergeLine(cwd: string, enabled: boolean): MergeLineData {
     localIndex,
     pr,
     refresh: refreshPath,
-  } = useMergePath(cwd, enabled);
+  } = useMergePath(cwd, enabled, {
+    refreshS: MERGE_LINE_REFRESH_S,
+    countdown: false,
+  });
   const number = openNumber(pr);
   const [details, setDetails] = useState<MergeLineDetails | null>(null);
   const threadsRef = useRef<{

@@ -72,8 +72,16 @@ export const MergeLine = memo(function MergeLine({
     enabled,
   );
   const [running, setRunning] = useState<string | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
+  // A failed step's error belongs to the state it failed in: once the branch
+  // moves on (pushed elsewhere, merged on GitHub), the old error goes.
+  const [failure, setFailure] = useState<{ text: string; key: string } | null>(
+    null,
+  );
   const state = mergeLineState(index, pr, details);
+  const stateKey = state
+    ? `${state.tone}|${state.action?.id ?? ""}|${pr?.number ?? ""}|${pr?.state ?? ""}`
+    : "";
+  const failureText = failure?.key === stateKey ? failure.text : null;
   if (!enabled) return null;
   // Local Git already says the line applies: hold its height while GitHub is
   // read, so the message box above never jumps.
@@ -128,7 +136,7 @@ export const MergeLine = memo(function MergeLine({
       else await runMergeGitStep(action.id, cwd, index, textHarness);
     } catch (cause) {
       logError(`Merge line: ${action.id}`, cause);
-      setFailure(errorText(cause));
+      setFailure({ text: errorText(cause), key: stateKey });
     } finally {
       setRunning(null);
       notifyGitChanged(cwd);
@@ -142,14 +150,14 @@ export const MergeLine = memo(function MergeLine({
   return (
     <div className="merge-line" data-merge-line data-tone={state.tone}>
       <div className="merge-line-status">
-        {failure ? (
+        {failureText ? (
           <span
             className="merge-line-word"
             data-tone="danger"
-            title={failure}
+            title={failureText}
             role="alert"
           >
-            {failure}
+            {failureText}
           </span>
         ) : state.status ? (
           <span className="merge-line-word" data-tone={state.tone}>
