@@ -47,6 +47,24 @@ describe("balanced browser memory", () => {
     expect(a.sleep).not.toHaveBeenCalled();
     expect(b.sleep).toHaveBeenCalledOnce();
   });
+  it("sleeps a hidden tab at once when the person asks, but never one on screen or in use", async () => {
+    const hidden = add("hidden");
+    const shown = add("shown", true);
+    const busy = add("busy", false, true);
+    expect(await pool.sleepNow("hidden")).toBe(true);
+    expect(hidden.sleep).toHaveBeenCalledExactlyOnceWith({ manual: true });
+    expect(await pool.sleepNow("shown")).toBe(false);
+    expect(await pool.sleepNow("busy")).toBe(false);
+    expect(await pool.sleepNow("missing")).toBe(false);
+    expect(shown.sleep).not.toHaveBeenCalled();
+    expect(busy.sleep).not.toHaveBeenCalled();
+  });
+  it("sleeps a tab on request even with Memory saver off", async () => {
+    pool.enabled = false;
+    const page = add("a");
+    expect(await pool.sleepNow("a")).toBe(true);
+    expect(page.sleep).toHaveBeenCalledOnce();
+  });
   it("never sleeps visible or protected pages", async () => {
     const visible = add("visible", true);
     const protectedPage = add("protected", false, true);

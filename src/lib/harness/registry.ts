@@ -1,5 +1,11 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { forgetAgentBrowser } from "../agentBrowser";
+import {
+  isChatAwake,
+  noteChatAsleep,
+  noteChatAwake,
+  resetSleepCenter,
+} from "../sleepCenter";
 import type { Block, HarnessId, TaskListMeta } from "../session";
 import type { PrContent } from "../gitText";
 import type { HarnessDescriptor } from "./descriptors";
@@ -196,6 +202,8 @@ function beginRuntimeActivity<T extends CompactContextInput>(
     runtimeActivity.set(input.sessionId, activity);
   }
   activity.turns += 1;
+  // The adapter starts the provider process for a turn when none runs.
+  noteChatAwake(input.sessionId);
   const current = activity;
   return {
     activity,
@@ -232,6 +240,7 @@ function beginRuntimeActivity<T extends CompactContextInput>(
         if (event.type === "turn.selfStarted") current.selfTurn = true;
         if (event.type === "turn.selfEnded") current.selfTurn = false;
         if (event.type === "session.ended") {
+          noteChatAsleep(input.sessionId);
           // Nothing of the ended process is left to keep warm.
           current.shells = 0;
           current.selfTurn = false;
@@ -386,6 +395,7 @@ export function resetHarnessIdlePark(): void {
   runtimeActivity.clear();
   turnStops.clear();
   compactions.clear();
+  resetSleepCenter();
 }
 
 export function registerHarness(adapter: HarnessAdapter): void {
@@ -567,10 +577,38 @@ export async function stopHarnessSession(
     ]);
     if (activity && runtimeActivity.get(sessionId) === activity)
       runtimeActivity.delete(sessionId);
+    noteChatAsleep(sessionId);
   } catch (error) {
     if (activity) activity.stopping = false;
     throw error;
   }
+}
+
+export type SleepChatResult = "slept" | "asleep" | "working" | "shells";
+
+/**
+ * The person put a chat to sleep: park it now, as an idle chat parks after
+ * a while. A chat that works is left alone. Parking ends the provider's whole
+ * process group, so a chat that runs a background command such as a dev
+ * server is left alone too unless `withShells` says the person agreed.
+ */
+export async function sleepHarnessSession(
+  harness: HarnessId,
+  sessionId: string,
+  { withShells = false }: { withShells?: boolean } = {},
+): Promise<SleepChatResult> {
+  const activity = runtimeActivity.get(sessionId);
+  if (!isChatAwake(sessionId) || activity?.stopping) return "asleep";
+  if (activity && activity.harness !== harness) return "asleep";
+  if (childWorking(activity)) return "working";
+  if (!withShells && (activity?.shells ?? 0) > 0) return "shells";
+  await stopHarnessSession(harness, sessionId);
+  return "slept";
+}
+
+/** Whether a chat runs a background command that sleeping would end. */
+export function harnessSessionRunsShells(sessionId: string): boolean {
+  return (runtimeActivity.get(sessionId)?.shells ?? 0) > 0;
 }
 
 export async function forgetHarnessSession(
@@ -599,6 +637,7 @@ export async function forgetHarnessSession(
     ]);
     if (activity && runtimeActivity.get(sessionId) === activity)
       runtimeActivity.delete(sessionId);
+    noteChatAsleep(sessionId);
   } catch (error) {
     if (activity) activity.stopping = false;
     throw error;

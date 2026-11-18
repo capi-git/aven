@@ -24,11 +24,13 @@ import {
   registerHarness,
   resetHarnessIdlePark,
   sendHarnessTurn,
+  sleepHarnessSession,
   stopHarnessSession,
   type HarnessAdapter,
 } from "./registry";
 import type { HarnessEvent, SendTurnInput, SteerTurnInput } from "./types";
 import { registerBuiltinHarnesses } from "./register";
+import { isChatAwake } from "../sleepCenter";
 
 const control = vi.hoisted(() => ({
   isTauri: vi.fn(() => false),
@@ -571,6 +573,73 @@ describe("harness registry", () => {
     expect(stopSession).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(stopSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("counts a chat awake from its first turn until it is parked", async () => {
+    vi.useFakeTimers();
+    const stopSession = vi.fn(async () => undefined);
+    registerHarness(stub("claude", { stopSession }));
+    expect(isChatAwake("nap")).toBe(false);
+    await sendHarnessTurn(turnInput("claude", "nap"));
+    expect(isChatAwake("nap")).toBe(true);
+    await vi.advanceTimersByTimeAsync(HARNESS_IDLE_PARK_MS);
+    expect(stopSession).toHaveBeenCalledWith("nap");
+    expect(isChatAwake("nap")).toBe(false);
+  });
+
+  it("counts a chat asleep when its provider process ends by itself", async () => {
+    let emit!: (event: HarnessEvent) => void;
+    registerHarness(
+      stub("claude", {
+        sendTurn: async (input) => {
+          emit = input.onEvent;
+        },
+      }),
+    );
+    await sendHarnessTurn(turnInput("claude", "crash"));
+    expect(isChatAwake("crash")).toBe(true);
+    emit({ type: "session.ended", code: 1 });
+    expect(isChatAwake("crash")).toBe(false);
+  });
+
+  it("puts an idle chat to sleep on request, and leaves working or dev-server chats alone", async () => {
+    const stopSession = vi.fn(async () => undefined);
+    const emitters = new Map<string, (event: HarnessEvent) => void>();
+    let finishBusy!: () => void;
+    registerHarness(
+      stub("claude", {
+        stopSession,
+        sendTurn: (input) => {
+          emitters.set(input.sessionId, input.onEvent);
+          return input.sessionId === "busy"
+            ? new Promise<void>((resolve) => {
+                finishBusy = resolve;
+              })
+            : Promise.resolve();
+        },
+      }),
+    );
+    expect(await sleepHarnessSession("claude", "never")).toBe("asleep");
+
+    await sendHarnessTurn(turnInput("claude", "idle"));
+    expect(await sleepHarnessSession("claude", "idle")).toBe("slept");
+    expect(stopSession).toHaveBeenCalledExactlyOnceWith("idle");
+    expect(isChatAwake("idle")).toBe(false);
+    expect(await sleepHarnessSession("claude", "idle")).toBe("asleep");
+
+    const busy = sendHarnessTurn(turnInput("claude", "busy"));
+    expect(await sleepHarnessSession("claude", "busy")).toBe("working");
+    finishBusy();
+    await busy;
+
+    await sendHarnessTurn(turnInput("claude", "dev"));
+    emitters.get("dev")!({ type: "shells.updated", running: 1 });
+    expect(await sleepHarnessSession("claude", "dev")).toBe("shells");
+    expect(stopSession).not.toHaveBeenCalledWith("dev");
+    expect(
+      await sleepHarnessSession("claude", "dev", { withShells: true }),
+    ).toBe("slept");
+    expect(stopSession).toHaveBeenCalledWith("dev");
   });
 
   it("keeps a settled child warm through a half-hour break", async () => {

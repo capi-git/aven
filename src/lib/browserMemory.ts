@@ -19,7 +19,8 @@ const CHECK_INTERVAL_MS = 30_000;
 type Page = {
   visible: boolean;
   protected: boolean;
-  sleep(): Promise<boolean>;
+  /** `manual`: the person asked, so it sleeps even with Memory saver off. */
+  sleep(options?: { manual?: boolean }): Promise<boolean>;
 };
 type Entry = Page & {
   lastUsed: number;
@@ -88,6 +89,24 @@ export class BrowserMemoryPool {
         this.syncTimer();
       },
     };
+  }
+
+  /**
+   * The person put a tab to sleep: release it now, whatever its age and
+   * whether or not Memory saver is on. A tab on screen or in use stays awake.
+   */
+  async sleepNow(id: string): Promise<boolean> {
+    const entry = this.pages.get(id);
+    if (!entry || entry.visible || entry.protected || entry.pending)
+      return false;
+    entry.pending = true;
+    try {
+      return await entry.sleep({ manual: true });
+    } catch {
+      return false;
+    } finally {
+      entry.pending = false;
+    }
   }
 
   /**
@@ -170,6 +189,11 @@ export class BrowserMemoryPool {
 
 const pool = new BrowserMemoryPool();
 let unsubscribe: (() => void) | undefined;
+
+/** Put one browser tab to sleep now. False when it is on screen or in use. */
+export function sleepBrowserTab(id: string): Promise<boolean> {
+  return pool.sleepNow(id);
+}
 
 export function registerBrowserMemoryPage(id: string, page: Page) {
   if (!unsubscribe) {

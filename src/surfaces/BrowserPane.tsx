@@ -17,6 +17,7 @@ import {
 } from "../lib/browserUpdateState";
 import { registerBrowserMemoryPage } from "../lib/browserMemory";
 import { loadBrowserMemorySaver } from "../lib/settings";
+import { forgetTabSleep, noteTabSleeping } from "../lib/sleepCenter";
 import {
   useCallback,
   useEffect,
@@ -643,11 +644,11 @@ function BrowserPaneSession({
     if (!readyId) return;
     const registration = registerBrowserMemoryPage(id, {
       ...memoryState.current,
-      sleep: async () => {
+      sleep: async ({ manual = false } = {}) => {
         if (
           !mounted.current ||
           browserUpdatePaused() ||
-          !loadBrowserMemorySaver() ||
+          (!manual && !loadBrowserMemorySaver()) ||
           memoryState.current.visible ||
           memoryState.current.protected ||
           isAgentBrowserPageProtected(id) ||
@@ -672,7 +673,7 @@ function BrowserPaneSession({
             !browserUpdatePaused() &&
             (wakeRequested.current ||
               memoryState.current.visible ||
-              !loadBrowserMemorySaver());
+              (!manual && !loadBrowserMemorySaver()));
           setSleeping(!reopen);
           // Also restart when hide/show was batched while native close completed.
           setRetryGeneration((generation) => generation + 1);
@@ -697,6 +698,8 @@ function BrowserPaneSession({
   useEffect(() => {
     memoryRegistration.current?.update(memoryState.current);
   }, [visible, sleepProtection, readyId]);
+  useEffect(() => noteTabSleeping(id, sleeping), [id, sleeping]);
+  useEffect(() => () => forgetTabSleep(id), [id]);
 
   const performNavigation = async (
     nativeId: string,
