@@ -71,6 +71,9 @@ export const ThinkingOrb = memo(function ThinkingOrb({
   heldRef.current = held;
   const state = look.state;
   const variant = look.variant;
+  // The library reads the system's Reduce motion once, as it mounts: mount
+  // again when it changes, so an orb doesn't stay still after it is off.
+  const reduced = hold.reduced;
 
   useEffect(() => {
     const svg = ref.current;
@@ -96,14 +99,14 @@ export const ThinkingOrb = memo(function ThinkingOrb({
       handle.current = null;
       orb.destroy();
     };
-  }, [state, variant, speed, label]);
+  }, [state, variant, speed, label, reduced]);
 
   useEffect(() => {
     const orb = handle.current;
     if (!orb) return;
     if (held || !shown.current) orb.pause();
     else orb.play();
-  }, [held, state, variant, speed, label]);
+  }, [held, state, variant, speed, label, reduced]);
 
   return (
     <svg

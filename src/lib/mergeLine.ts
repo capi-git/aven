@@ -36,8 +36,12 @@ export type MergeLineState = {
 /** What the line knows about an open pull request beyond `GitPr`. */
 export type MergeLineDetails = {
   checks: PrChecks | null;
-  /** Unresolved review threads, or null while not read. */
-  unresolvedThreads: number | null;
+  /**
+   * Unresolved review threads; null until the first read settles, and
+   * "unavailable" when they can't be read (the review decision alone
+   * decides then).
+   */
+  unresolvedThreads: number | "unavailable" | null;
 };
 
 function plural(count: number, word: string): string {
@@ -144,7 +148,11 @@ export function mergeLineState(
       action: agent("fix-checks", "Fix"),
     };
   const decision = (checks.reviewDecision ?? "").toUpperCase();
-  if (decision === "CHANGES_REQUESTED" || (details?.unresolvedThreads ?? 0) > 0)
+  const threads = details?.unresolvedThreads ?? null;
+  if (
+    decision === "CHANGES_REQUESTED" ||
+    (typeof threads === "number" && threads > 0)
+  )
     return {
       status: "Changes requested",
       tone: "warning",
@@ -153,7 +161,13 @@ export function mergeLineState(
   if (checks.checks.some((check) => check.state === "pending"))
     return { status: "Checks running", tone: "muted", action: null };
   // GitHub works mergeability out in the background after a push.
-  if (mergeable === "UNKNOWN" || mergeState === "UNKNOWN" || !mergeState)
+  // Unread review threads may still hold requested changes: no green yet.
+  if (
+    mergeable === "UNKNOWN" ||
+    mergeState === "UNKNOWN" ||
+    !mergeState ||
+    threads === null
+  )
     return { status: "Checking", tone: "muted", action: null };
   if (
     mergeable === "MERGEABLE" &&

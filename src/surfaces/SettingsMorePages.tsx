@@ -221,7 +221,16 @@ function CommandField({
   );
 }
 
+/**
+ * One project's settings. Each project gets its own page, so what was typed
+ * but not added for one (a Run command's draft) never follows you to the
+ * next or is added there.
+ */
 export function ProjectPage({ path }: { path: string | null }) {
+  return <ProjectPageFor key={path ?? ""} path={path} />;
+}
+
+function ProjectPageFor({ path }: { path: string | null }) {
   const customiseRef = useRef<HTMLDivElement>(null);
   const [customising, setCustomising] = useState(false);
   const [memory, setMemory] = useState(false);

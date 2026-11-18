@@ -37,11 +37,16 @@ function PromptRow({ prompt }: { prompt: PromptDefinition }) {
   const pending = useRef<number | null>(null);
   const textRef = useRef(text);
   textRef.current = text;
+  // While the field has focus it keeps exactly what is typed: a save trims
+  // the text (and an empty one goes back to the default), and copying that
+  // back would eat a trailing space or newline mid-sentence.
+  const editing = useRef(false);
   const bodyId = useId();
 
   // Another window, or Reset, changed it: show what is saved now.
   useEffect(() => {
-    if (pending.current === null) setText(custom ?? prompt.defaultText);
+    if (pending.current === null && !editing.current)
+      setText(custom ?? prompt.defaultText);
   }, [custom, prompt.defaultText]);
 
   const flush = () => {
@@ -49,6 +54,12 @@ function PromptRow({ prompt }: { prompt: PromptDefinition }) {
     window.clearTimeout(pending.current);
     pending.current = null;
     savePrompt(prompt.id, textRef.current);
+  };
+  // Leaving the field saves, then shows what was saved.
+  const leave = () => {
+    editing.current = false;
+    flush();
+    setText(loadCustomPrompt(prompt.id) ?? prompt.defaultText);
   };
   // Leaving the page keeps what was typed.
   const id = prompt.id;
@@ -110,7 +121,10 @@ function PromptRow({ prompt }: { prompt: PromptDefinition }) {
             rows={Math.min(14, Math.max(4, text.split("\n").length + 1))}
             spellCheck={false}
             onChange={(event) => edit(event.target.value)}
-            onBlur={flush}
+            onFocus={() => {
+              editing.current = true;
+            }}
+            onBlur={leave}
           />
           {custom ? (
             <button

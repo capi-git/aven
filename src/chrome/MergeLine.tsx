@@ -67,7 +67,10 @@ export const MergeLine = memo(function MergeLine({
   textHarness,
   onSendToAgent,
 }: Props) {
-  const { index, pr, details, refresh } = useMergeLine(cwd, enabled);
+  const { index, pr, details, refresh, reserve, stale } = useMergeLine(
+    cwd,
+    enabled,
+  );
   const [running, setRunning] = useState<string | null>(null);
   // A failed step's error belongs to the state it failed in: once the branch
   // moves on (pushed elsewhere, merged on GitHub), the old error goes.
@@ -79,7 +82,12 @@ export const MergeLine = memo(function MergeLine({
     ? `${state.tone}|${state.action?.id ?? ""}|${pr?.number ?? ""}|${pr?.state ?? ""}`
     : "";
   const failureText = failure?.key === stateKey ? failure.text : null;
-  if (!enabled || !index || !state) return null;
+  if (!enabled) return null;
+  // Local Git already says the line applies: hold its height while GitHub is
+  // read, so the message box above never jumps.
+  if (reserve && !state)
+    return <div className="merge-line" data-merge-line aria-hidden />;
+  if (!index || !state) return null;
   const openPr =
     pr && (pr.state === "open" || pr.state === "merged") ? pr : null;
 
@@ -174,7 +182,7 @@ export const MergeLine = memo(function MergeLine({
           className="merge-line-action"
           data-tone={state.tone === "success" ? "success" : undefined}
           data-merge-action={action.id}
-          disabled={!!running}
+          disabled={!!running || stale}
           title={
             action.kind === "agent"
               ? "Ask this chat's agent to do it"

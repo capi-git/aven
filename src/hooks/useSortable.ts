@@ -1209,7 +1209,11 @@ export function useSortable(
             return;
           }
           current.active = true;
-          if (animate) motion.current.activate(current);
+          if (animate)
+            motion.current.activate(
+              current,
+              current.part?.alone ? current.part.element : undefined,
+            );
           setGrabbing(true);
           setDraggingId(id);
           setToIndex(from);

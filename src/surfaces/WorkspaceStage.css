@@ -368,8 +368,8 @@ html.has-chat-background:not(.chat-background-empty-only)
   touch-action: none;
   outline: none;
 }
-/* The gap between two cards, in a 9px target: pointing at it or dragging
-   shows a small grip in it. Beside a native page the target is kept clear of the page
+/* The gap between two cards, in a 9px target: pointing at it shows only the
+   resize cursor. Beside a native page the target is kept clear of the page
    (data-native-hit-margin, browserHitMargins.ts). */
 .workspace-stage-sash[data-direction="right"] {
   width: 9px;
@@ -404,7 +404,7 @@ html.has-chat-background:not(.chat-background-empty-only)
   top: calc(50% - var(--aven-hairline) / 2);
   height: var(--aven-hairline);
 }
-/* Pointed at or dragged, the grip shows (below). Keyboard focus shows a line
+/* Pointed at or dragged, only the cursor changes. Keyboard focus shows a line
    in the focus ring's colour, as nothing else shows where the focus is. A drag
    focuses the divider too, so it is left out. */
 .workspace-stage:not([data-resizing="true"])
@@ -482,8 +482,8 @@ html.has-chat-background:not(.chat-background-empty-only)
 }
 
 /* Between panes the gap is the divider and nothing is drawn in it (DESIGN.md):
-   no line at rest, while pointed at or while dragged; the grip shows instead.
-   Only keyboard focus draws a line (above). */
+   no line at rest, while pointed at or while dragged; only the cursor
+   changes. Only keyboard focus draws a line (above). */
 .workspace-stage-sash[data-direction="right"]::after {
   left: calc(50% - 0.5px);
   width: 1px;
@@ -503,56 +503,6 @@ html.has-chat-background:not(.chat-background-empty-only)
   border: 1px solid var(--aven-pane-edge, transparent);
   border-radius: var(--aven-radius-pane-card, 10px);
   background: var(--aven-pane-fill, transparent);
-}
-
-/* The gap between two panes is the divider: nothing is drawn in it at rest.
-   Pointed at or dragged, a small grip shows in the gap where the pointer is,
-   as in Super Engineering (--aven-grip-at, gripFollow.ts), clear of the ends.
-   Before the pointer comes, it sits in the middle. */
-.aven-pane-seam::before,
-.workspace-stage-sash::before {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--color-content) 40%, transparent);
-  border-radius: 3px;
-  background: var(--aven-control-bg);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--aven-motion-fast) ease;
-}
-.aven-pane-seam[data-direction="right"]::before,
-.workspace-stage-sash[data-direction="right"]::before {
-  left: 50%;
-  top: clamp(18px, var(--aven-grip-at, 50%), calc(100% - 18px));
-  width: 5px;
-  height: 28px;
-  transform: translate(-50%, -50%);
-}
-.aven-pane-seam[data-direction="down"]::before,
-.workspace-stage-sash[data-direction="down"]::before {
-  left: clamp(18px, var(--aven-grip-at, 50%), calc(100% - 18px));
-  top: 50%;
-  width: 28px;
-  height: 5px;
-  transform: translate(-50%, -50%);
-}
-.aven-pane-seam:hover::before,
-.workspace-stage-sash:hover::before {
-  opacity: 1;
-}
-.aven-pane-seam:active::before,
-.workspace-stage-sash:active::before,
-.workspace-stage[data-resizing="true"] .workspace-stage-sash:focus::before {
-  opacity: 1;
-  border-color: color-mix(in srgb, var(--color-content) 70%, transparent);
-}
-@media (prefers-reduced-motion: reduce) {
-  .aven-pane-seam::before,
-  .workspace-stage-sash::before {
-    transition: none;
-  }
 }
 
 /* Folding or opening a pane during a drag: panes glide to their new places. */

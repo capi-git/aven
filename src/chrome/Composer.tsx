@@ -1058,14 +1058,14 @@ function ComposerComponent({
 
   /** Put `text` in the field as if typed, with the caret at `caret`. */
   const writeField = useCallback(
-    (text: string, caret = text.length) => {
+    (text: string, caret: number | null = text.length) => {
       const el = ref.current;
       if (!el) return;
       el.value = text;
       resizeComposer(el);
       updateDraft(text);
       syncHasValue(text, attachmentsRef.current);
-      el.setSelectionRange(caret, caret);
+      if (caret !== null) el.setSelectionRange(caret, caret);
     },
     [syncHasValue, updateDraft],
   );
@@ -1150,9 +1150,15 @@ function ComposerComponent({
         return;
       }
       if (!field || field.value !== before) return;
+      // Typing moved to another field (another chat's, say) while it worked:
+      // update this draft quietly, without taking focus, selecting, or
+      // making this chat the active one.
+      if (document.activeElement !== field) {
+        writeField(result.text, null);
+        return;
+      }
       // Still read-only until React catches up; the edit needs it writable.
       field.readOnly = false;
-      field.focus();
       field.select();
       if (!document.execCommand("insertText", false, result.text))
         writeField(result.text);

@@ -396,11 +396,20 @@ export class SortableMotion {
     this.velocity.reset();
   }
 
-  /** Delay cloning until pickup, keeping ordinary tab clicks inexpensive. */
-  activate(point: Point) {
+  /**
+   * Delay cloning until pickup, keeping ordinary tab clicks inexpensive.
+   * `alone` is a part pressed that moves on its own from the start (a
+   * split's segment): its own copy is built at once, never the whole item's
+   * first.
+   */
+  activate(point: Point, alone?: HTMLElement) {
     if (!this.source || this.preview) return;
     const entry = this.entries.get(this.source.id);
     if (!entry) return;
+    if (alone && entry.visual.contains(alone)) {
+      this.liftPart(alone, entry, point);
+      return;
+    }
     this.showPreview(entry.visual, entry.zoom, point);
     // Keep the real focused tab mounted and focusable throughout pickup.
     this.hide(entry.visual);
@@ -509,6 +518,39 @@ export class SortableMotion {
         instant: motionReduced(),
       },
     );
+  }
+
+  /**
+   * A part that moves alone lifts straight from where it is drawn: its
+   * copy starts exactly over it and catches up with the pointer. The rest
+   * of the item stays in place with the part faded, as after `tearOff`.
+   */
+  private liftPart(part: HTMLElement, entry: MotionEntry, point: Point) {
+    const source = this.source;
+    if (!source) return;
+    const bounds = part.getBoundingClientRect();
+    const { start } = source;
+    source.grab = {
+      x: Math.max(0, Math.min(bounds.width, start.x - bounds.left)),
+      y: Math.max(0, Math.min(bounds.height, start.y - bounds.top)),
+    };
+    this.showPreview(part, entry.zoom, point, false);
+    for (const element of this.stands) this.hide(element);
+    entry.visual.dataset.sortableTorn = "true";
+    part.dataset.sortableTornPart = "true";
+    this.torn = part;
+    const preview = this.preview as Preview | null;
+    if (!preview) return;
+    preview.springs.to(
+      { lift: 1, dx: 0, dy: 0, compact: 1, tiny: 1 },
+      {
+        from: { dx: start.x - point.x, dy: start.y - point.y },
+        velocity: { dx: 0, dy: 0 },
+        springs: { dx: TAB_SPRING.pop, dy: TAB_SPRING.pop },
+        instant: motionReduced(),
+      },
+    );
+    this.velocity.add(point.x, point.y, performance.now());
   }
 
   /** The left edge of a copy's chip in the viewport, before its offsets. */

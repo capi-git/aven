@@ -196,3 +196,70 @@ describe("chat mentions in a sent message", () => {
     ]);
   });
 });
+
+describe("chat mentions after a restart", () => {
+  const stubStorage = () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+  };
+
+  it("still open the chat that was picked, whatever else shares its name", async () => {
+    stubStorage();
+    const { resolveChatLabel, setChatReferenceSource } =
+      await import("./chatMentions");
+    const picked = session("picked", { title: "Fix tests", cwd: "/work/a" });
+    const label = chatMentionLabel(picked);
+    // Aven restarts: this run's memory is gone, the saved labels are not.
+    resetChatMentionLabels();
+    const other = session("other", { title: "Fix tests", cwd: "/work/b" });
+    setChatReferenceSource({
+      session: (id) => (id === "other" ? other : undefined),
+      list: () => [other],
+      load: async () => null,
+    });
+    expect(resolveChatLabel(label, "/work/b")).toEqual({
+      id: "picked",
+      title: "Fix tests",
+      harness: "claude",
+    });
+    // A new chat with that name gets a label of its own.
+    expect(chatMentionLabel(other)).toBe("chat/fix-tests-2");
+    setChatReferenceSource(null);
+    vi.unstubAllGlobals();
+  });
+
+  it("resolve an old label only in the message's project, and never a guess", async () => {
+    stubStorage();
+    const { resolveChatLabel, setChatReferenceSource } =
+      await import("./chatMentions");
+    const here = session("here", { title: "Plan", cwd: "/work/a" });
+    const there = session("there", { title: "Plan", cwd: "/work/b" });
+    const list: Session[] = [here, there];
+    setChatReferenceSource({
+      session: (id) => list.find((chat) => chat.id === id),
+      list: () => list,
+      load: async () => null,
+    });
+    expect(resolveChatLabel("chat/plan", "/work/a")?.id).toBe("here");
+    expect(resolveChatLabel("chat/plan", "/work/b")?.id).toBe("there");
+    expect(resolveChatLabel("chat/plan", "/work/c")).toBeUndefined();
+    // A chat working in a copy of /work/a still reads in /work/a.
+    list.push(
+      session("copy", {
+        title: "In a copy",
+        cwd: "/work/a",
+        worktreeCwd: "/copies/a-1",
+      }),
+    );
+    expect(resolveChatLabel("chat/plan", "/copies/a-1")?.id).toBe("here");
+    // Two chats in one project share the name: plain text, not a guess.
+    list.push(session("twin", { title: "Plan", cwd: "/work/a" }));
+    expect(resolveChatLabel("chat/plan", "/work/a")).toBeUndefined();
+    setChatReferenceSource(null);
+    vi.unstubAllGlobals();
+  });
+});
