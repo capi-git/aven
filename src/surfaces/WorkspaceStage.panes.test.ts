@@ -64,7 +64,7 @@ describe("panes as cards", () => {
     );
   });
 
-  it("divides panes by their gap: no line, and a grip while pointed at or dragged", () => {
+  it("divides panes by their gap: no line and no grip, only the cursor", () => {
     const line = rule(
       "src/surfaces/WorkspaceStage.css",
       ".workspace-stage-sash::after",
@@ -83,12 +83,12 @@ describe("panes as cards", () => {
       ),
     ).toContain("height: 9px;");
     const css = readFileSync("src/surfaces/WorkspaceStage.css", "utf8");
-    // The grip is hidden at rest and shows only while pointed at or used.
-    expect(
-      rule("src/surfaces/WorkspaceStage.css", ".workspace-stage-sash::before"),
-    ).toContain("opacity: 0;");
-    expect(css).toMatch(/\.workspace-stage-sash:hover::before/);
-    expect(css).toMatch(/\.aven-pane-seam:active::before/);
+    // No grip: nothing is drawn in the gap or on a panel's edge.
+    expect(css).not.toMatch(/\.workspace-stage-sash[^{]*::before/);
+    expect(css).not.toMatch(/\.aven-pane-seam[^{]*::before/);
+    expect(readFileSync("src/personal-shell.css", "utf8")).not.toMatch(
+      /\.personal-panel-resizer[^{]*::before/,
+    );
     // Pointing at it never draws the keyboard's line.
     expect(css).not.toMatch(/\.workspace-stage-sash[^{,]*:hover::after/);
     // Grabbing one focuses it, which must not draw the keyboard's line.
