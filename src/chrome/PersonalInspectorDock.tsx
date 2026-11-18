@@ -1,5 +1,6 @@
 import { useEffect, type CSSProperties } from "react";
 import { useDragResize } from "../hooks/useDragResize";
+import { followGrip } from "../lib/gripFollow";
 import {
   WorkspaceInspector,
   type WorkspaceInspectorProps,
@@ -51,6 +52,7 @@ export function PersonalInspectorDock({
           className="personal-panel-resizer personal-inspector-divider"
           data-native-hit-margin=""
           data-resizing={resize.dragging || undefined}
+          onPointerMove={(event) => followGrip(event, true)}
           onPointerDown={resize.onPointerDown}
           onDoubleClick={resize.onDoubleClick}
           onKeyDown={(event) => {

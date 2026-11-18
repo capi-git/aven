@@ -51,6 +51,7 @@ import {
 import { paneDropFromPoint, setExternalPaneDrop } from "../lib/paneDrop";
 import type { PaneEdge } from "../lib/layout";
 import { suppressTextSelection } from "../lib/drag";
+import { followGrip } from "../lib/gripFollow";
 import { SortableMotion } from "../lib/sortableMotion";
 import {
   compareSessionSummaries,
@@ -2402,6 +2403,7 @@ function SidebarComponent({
         className="personal-panel-resizer personal-sidebar-divider"
         data-native-hit-margin=""
         data-resizing={resize.dragging || undefined}
+        onPointerMove={(event) => followGrip(event, true)}
         onPointerDown={resize.onPointerDown}
         onDoubleClick={resize.onDoubleClick}
         onKeyDown={(event) => {

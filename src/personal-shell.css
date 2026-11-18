@@ -713,6 +713,43 @@ html.theme-light.is-mac
   background: transparent;
   outline: none;
 }
+/* Pointed at or dragged, a docked panel's edge shows the same grip as the gap
+   between panes, where the pointer is along it (WorkspaceStage.css). A
+   floating sidebar's edge shows only the cursor, as in Arc. */
+.personal-shell .personal-panel-resizer::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: 4.5px;
+  top: clamp(18px, var(--aven-grip-at, 50%), calc(100% - 18px));
+  width: 5px;
+  height: 28px;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in srgb, var(--color-content) 40%, transparent);
+  border-radius: 3px;
+  background: var(--aven-control-bg);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--aven-motion-fast) ease;
+}
+.personal-shell .personal-panel-resizer:hover::before {
+  opacity: 1;
+}
+.personal-shell .personal-panel-resizer[data-resizing="true"]::before {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-content) 70%, transparent);
+}
+.personal-shell
+  .personal-sidebar-slot[data-floating="true"]
+  .personal-sidebar-divider::before {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .personal-shell .personal-panel-resizer::before {
+    transition: none;
+  }
+}
 
 /* Design A: a single window toolbar over the workspace. The native window
    supplies the outer curve; each pane is its own card, 6px from the next
