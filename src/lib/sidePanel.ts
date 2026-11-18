@@ -44,7 +44,10 @@ const SLIDE_END_SLACK_MS = 60;
 /** A read the panel made this recently is not made again when it opens. */
 export const SIDE_PANEL_FRESH_MS = 30_000;
 
-let opening: { waiting: Set<() => void>; timer: number } | null = null;
+let opening: {
+  waiting: Set<() => void>;
+  timer: ReturnType<typeof setTimeout>;
+} | null = null;
 
 /**
  * The panel starts sliding in. It ends with `endSidePanelOpen` (the slide's
@@ -53,10 +56,10 @@ let opening: { waiting: Set<() => void>; timer: number } | null = null;
  */
 export function beginSidePanelOpen() {
   const waiting = opening?.waiting ?? new Set<() => void>();
-  if (opening) window.clearTimeout(opening.timer);
+  if (opening) clearTimeout(opening.timer);
   opening = {
     waiting,
-    timer: window.setTimeout(
+    timer: setTimeout(
       endSidePanelOpen,
       SIDE_PANEL_SLIDE_MS + SLIDE_END_SLACK_MS,
     ),
@@ -68,7 +71,7 @@ export function endSidePanelOpen() {
   if (!opening) return;
   const { waiting, timer } = opening;
   opening = null;
-  window.clearTimeout(timer);
+  clearTimeout(timer);
   for (const task of waiting) task();
 }
 
@@ -102,7 +105,7 @@ export function afterSidePanelOpens(task: () => void): () => void {
 
 /** Only for tests: forget the open state and any slide in progress. */
 export function resetSidePanelForTest() {
-  if (opening) window.clearTimeout(opening.timer);
+  if (opening) clearTimeout(opening.timer);
   opening = null;
   open = null;
   listeners.clear();

@@ -7,8 +7,15 @@ import {
   peekDir,
   refreshCachedDirs,
   refreshDir,
+  resetFileTreeForTest,
   subscribeDirsChanged,
 } from "./fileTree";
+import {
+  beginSidePanelOpen,
+  endSidePanelOpen,
+  resetSidePanelForTest,
+  SIDE_PANEL_FRESH_MS,
+} from "./sidePanel";
 
 const root = "/tmp/empty-project";
 
@@ -33,11 +40,13 @@ vi.mock("./fs", async (importOriginal) => {
 
 describe("fileTree cache", () => {
   beforeEach(() => {
+    resetFileTreeForTest();
     forgetDir(root);
     listDir.mockReset();
   });
 
   afterEach(() => {
+    resetSidePanelForTest();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -80,7 +89,7 @@ describe("fileTree cache", () => {
     stop();
   });
 
-  it("invalidates without disk reads when no explorer is subscribed", async () => {
+  it("reads nothing while no explorer is open, and re-reads once one opens", async () => {
     vi.useFakeTimers();
     listDir.mockResolvedValueOnce([]);
     await listCachedDir(root);
@@ -89,12 +98,18 @@ describe("fileTree cache", () => {
     notifyDirsChanged();
     await vi.runAllTimersAsync();
     expect(listDir).toHaveBeenCalledTimes(1);
-    expect(peekDir(root)).toBeNull();
     expect(onChange).toHaveBeenCalledOnce();
-
+    // The folder still shows at once when an explorer opens...
+    expect(peekDir(root)).toEqual([]);
+    const explorer = vi.fn();
+    const close = subscribeDirsChanged(explorer);
+    // ...and is read again, the change having gone unread.
+    expect(peekDir(root)).toBeNull();
+    expect(explorer).toHaveBeenCalledOnce();
     listDir.mockResolvedValueOnce([entry("new.ts")]);
     expect(await listCachedDir(root)).toEqual([entry("new.ts")]);
     expect(listDir).toHaveBeenCalledTimes(2);
+    close();
     stop();
   });
 
@@ -107,19 +122,65 @@ describe("fileTree cache", () => {
     stop();
     await vi.runAllTimersAsync();
     expect(listDir).toHaveBeenCalledTimes(1);
+    expect(peekDir(root)).toEqual([]);
+    // The scan it skipped is owed when an explorer opens again.
+    const again = subscribeDirsChanged(vi.fn());
     expect(peekDir(root)).toBeNull();
+    again();
   });
 
-  it("drops directory snapshots on close so reopening lists current contents", async () => {
+  it("keeps folders across a quick close and reopen", async () => {
+    vi.useFakeTimers();
     listDir.mockResolvedValueOnce([]);
+    const first = subscribeDirsChanged(vi.fn());
     await listCachedDir(root);
-    const stop = subscribeDirsChanged(vi.fn());
-    stop();
-    expect(peekDir(root)).toBeNull();
+    first();
+    expect(peekDir(root)).toEqual([]);
+    vi.advanceTimersByTime(SIDE_PANEL_FRESH_MS - 1_000);
+    const second = subscribeDirsChanged(vi.fn());
+    expect(peekDir(root)).toEqual([]);
+    expect(await listCachedDir(root)).toEqual([]);
     expect(listDir).toHaveBeenCalledTimes(1);
-    listDir.mockResolvedValueOnce([entry("after-close.ts")]);
-    expect(await listCachedDir(root)).toEqual([entry("after-close.ts")]);
-    expect(listDir).toHaveBeenCalledTimes(2);
+    second();
+  });
+
+  it("re-reads after a long close once the side panel has slid in", async () => {
+    vi.useFakeTimers();
+    listDir.mockResolvedValueOnce([]);
+    const first = subscribeDirsChanged(vi.fn());
+    await listCachedDir(root);
+    first();
+    vi.advanceTimersByTime(SIDE_PANEL_FRESH_MS);
+    beginSidePanelOpen();
+    const explorer = vi.fn();
+    const second = subscribeDirsChanged(explorer);
+    // During the slide the old folder shows and nothing is read.
+    expect(peekDir(root)).toEqual([]);
+    expect(explorer).not.toHaveBeenCalled();
+    endSidePanelOpen();
+    expect(peekDir(root)).toBeNull();
+    expect(explorer).toHaveBeenCalledOnce();
+    second();
+  });
+
+  it("lets go of other projects' folders on a refresh instead of reading them", async () => {
+    vi.useFakeTimers();
+    const other = "/tmp/other-project";
+    listDir.mockResolvedValue([]);
+    await listCachedDir(root);
+    await listCachedDir(`${root}/src`);
+    await listCachedDir(other);
+    const stop = subscribeDirsChanged(vi.fn(), { root });
+    listDir.mockClear();
+    notifyDirsChanged();
+    await vi.runAllTimersAsync();
+    expect(listDir.mock.calls.map(([path]) => path).sort()).toEqual([
+      root,
+      `${root}/src`,
+    ]);
+    expect(peekDir(other)).toBeNull();
+    stop();
+    listDir.mockReset();
   });
 
   it("does not repopulate an invalidated cache with a stale in-flight listing", async () => {
@@ -130,11 +191,14 @@ describe("fileTree cache", () => {
           finish = resolve;
         }),
     );
+    const stop = subscribeDirsChanged(vi.fn());
     const pending = listCachedDir(root);
+    vi.stubGlobal("document", { hidden: true });
     notifyDirsChanged();
     finish([entry("old.ts")]);
     await pending;
     expect(peekDir(root)).toBeNull();
+    stop();
   });
 
   it("skips a queued scan if the document hides before the debounce ends", async () => {
