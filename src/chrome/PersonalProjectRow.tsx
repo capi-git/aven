@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
 import { isTextTruncated } from "../lib/truncatedTitle";
 import { basename, revealPath } from "../lib/fs";
 import { projectName } from "../lib/paths";
@@ -33,6 +39,9 @@ import {
 } from "./ExplorerMenu";
 import { ProjectCustomizePopover } from "./ProjectCustomizePopover";
 import { ProjectMark } from "./ProjectMark";
+import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import { useSetting } from "../hooks/useSetting";
+import { SETTINGS } from "../lib/settingDefinitions";
 import { ProjectMemoryDialog } from "./ProjectMemoryDialog";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { CrewCritter } from "./CrewCritter";
@@ -85,6 +94,8 @@ export function PersonalProjectRow({
   onBotSettings,
 }: Props) {
   const labels = useProjectLabels();
+  const tiles = useSetting(SETTINGS.sidebarStyle) === "tiles";
+  const appearance = useProjectAppearance(tiles ? path : null);
   const [pinned, setPinned] = useState(loadPinnedProjects);
   // The actions button anchors its menu, so pressing it again closes the menu
   // instead of counting as an outside click that the click then reopens.
@@ -212,11 +223,32 @@ export function PersonalProjectRow({
           }}
           onKeyDown={contextKey}
         >
-          <ProjectMark
-            path={path}
-            logoOnly
-            className="personal-project-symbol"
-          />
+          {tiles ? (
+            // Tiles style, as in Super: the project's logo, or the first
+            // letter of its name on a tile in its colour.
+            <span
+              className="personal-project-tile"
+              style={
+                appearance
+                  ? ({
+                      "--project-tile-color": appearance.color,
+                    } as CSSProperties)
+                  : undefined
+              }
+              aria-hidden
+            >
+              <ProjectMark path={path} logoOnly />
+              <span className="personal-project-tile-letter">
+                {Array.from(label.trim())[0]?.toUpperCase() ?? ""}
+              </span>
+            </span>
+          ) : (
+            <ProjectMark
+              path={path}
+              logoOnly
+              className="personal-project-symbol"
+            />
+          )}
           <span ref={labelRef} className="personal-project-label">
             {label}
           </span>
