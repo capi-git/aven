@@ -1,3 +1,5 @@
+import { SETTINGS } from "../lib/settingDefinitions";
+import { useSetting } from "../hooks/useSetting";
 import { useFloatingSidebarClip } from "../hooks/useFloatingSidebarClip";
 import { setDockedSidebarWidth } from "../lib/dockedSidebarWidth";
 import { usePanelDockHandoff } from "../hooks/usePanelDockHandoff";
@@ -20,7 +22,6 @@ import {
   memo,
   useContext,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -511,6 +512,7 @@ function SidebarComponent({
     filtersKey: sessionFiltersKey,
     profileIds: profiles.map((profile) => profile.id),
   });
+  const sidebarStyle = useSetting(SETTINGS.sidebarStyle);
   const [, refreshProjects] = useState(0);
   // Projects other than the open one that the user unfolded with the arrow.
   // Opening a project does not add it: the project you leave folds again.
@@ -1801,6 +1803,7 @@ function SidebarComponent({
       data-native-browser-occluded={floating && open ? "true" : undefined}
       data-native-browser-edge={floating && open ? "left" : undefined}
       data-navigation-header={navigation ? "true" : undefined}
+      data-sidebar-style={sidebarStyle}
       className="personal-navigation personal-sidebar sidebar-glass relative flex h-full min-h-0 shrink-0 flex-col"
     >
       <div
@@ -3315,7 +3318,6 @@ function SessionCard({
     <div className="personal-task-family" data-helper-family={session.id}>
       {row}
       <SidebarHelperRows
-        parentId={session.id}
         helpers={helpers}
         activeId={activeSessionId}
         onSelect={onSelect}
@@ -3328,12 +3330,6 @@ type SidebarHelper = NonNullable<
   SessionSummary["orchestration"]
 >["tasks"][number];
 
-/**
- * Chats whose finished helpers are open in the sidebar, by parent chat. Kept
- * for the session only, so a fold stays as it was left while rows remount.
- */
-const openHelperFamilies = new Set<string>();
-
 /** Whether a helper is done with: completed or stopped, and asking nothing. */
 function helperFinished(helper: SidebarHelper): boolean {
   return (
@@ -3343,28 +3339,17 @@ function helperFinished(helper: SidebarHelper): boolean {
 }
 
 /**
- * The fold's words: "2 helpers · finished" when every helper is done,
- * otherwise how many of them are ("1 finished").
- */
-function helperFoldLabel(finished: number, total: number): string {
-  return finished === total
-    ? `${finished} ${finished === 1 ? "helper" : "helpers"} · finished`
-    : `${finished} finished`;
-}
-
-/**
- * The helpers a chat started, under its row. One shows while it works,
- * waits to start, needs you or failed; finished ones fold into one quiet
- * row ("2 helpers · finished") that opens them, as Super keeps its
- * launched agents under their chat. The chat in front opens its family.
+ * The helpers a chat started, under its row, only while they matter: one
+ * shows while it works, waits to start, needs you or failed. A finished
+ * helper leaves the sidebar, as Super's launched agents do; the helper
+ * cards in its chat still open it. The chat in front keeps its row, so an
+ * open helper is never missing from the list.
  */
 function SidebarHelperRows({
-  parentId,
   helpers,
   activeId,
   onSelect,
 }: {
-  parentId: string;
   helpers: readonly SidebarHelper[];
   activeId?: string | null;
   onSelect: (
@@ -3372,88 +3357,55 @@ function SidebarHelperRows({
     event: ReactMouseEvent<HTMLButtonElement>,
   ) => void;
 }) {
-  const finished = helpers.filter(helperFinished);
-  const showing = helpers.filter((helper) => !helperFinished(helper));
-  const finishedInFront =
-    !!activeId && finished.some((helper) => helper.sessionId === activeId);
-  const [open, setOpen] = useState(
-    () => openHelperFamilies.has(parentId) || finishedInFront,
-  );
-  // Opening a finished helper elsewhere (a tab, search) opens its family.
-  const [seenFront, setSeenFront] = useState(finishedInFront);
-  if (finishedInFront !== seenFront) {
-    setSeenFront(finishedInFront);
-    if (finishedInFront && !open) {
-      openHelperFamilies.add(parentId);
-      setOpen(true);
-    }
-  }
-  const foldId = useId();
-  const toggle = () => {
-    const next = !open;
-    if (next) openHelperFamilies.add(parentId);
-    else openHelperFamilies.delete(parentId);
-    setOpen(next);
-  };
-  const helperRow = (helper: SidebarHelper) => {
-    const working =
-      helper.status === "running" || helper.status === "cancelling";
-    const failed = helper.status === "failed";
-    return (
-      <button
-        key={helper.sessionId}
-        type="button"
-        className="personal-helper-row"
-        data-helper-row={helper.sessionId}
-        data-working={working || undefined}
-        data-failed={failed || undefined}
-        aria-current={helper.sessionId === activeId ? "true" : undefined}
-        title={failed ? `${helper.title} · Failed` : helper.title}
-        onClick={(event) => onSelect(helper.sessionId, event)}
-      >
-        <FadeText className="personal-helper-title">{helper.title}</FadeText>
-        {helper.needsInput ? (
-          <span className="personal-task-status flex shrink-0 items-center">
-            <ChatStatusPill word="needs-you" />
-          </span>
-        ) : working ? (
-          <span className="personal-task-agent" aria-hidden>
-            <AgentMark state="working" className="personal-task-agent-mark" />
-          </span>
-        ) : null}
-      </button>
-    );
-  };
-  const label = helperFoldLabel(finished.length, helpers.length);
+  const showing = visibleHelpers(helpers, activeId);
+  if (!showing.length) return null;
   return (
     <div className="personal-helper-rows" role="group" aria-label="Helpers">
-      {showing.map(helperRow)}
-      {finished.length ? (
-        <>
+      {showing.map((helper) => {
+        const working =
+          helper.status === "running" || helper.status === "cancelling";
+        const failed = helper.status === "failed";
+        return (
           <button
+            key={helper.sessionId}
             type="button"
-            className="personal-helper-row personal-helper-fold"
-            data-helper-fold={parentId}
-            aria-expanded={open}
-            aria-controls={open ? foldId : undefined}
-            title={open ? "Hide finished helpers" : "Show finished helpers"}
-            onClick={toggle}
+            className="personal-helper-row"
+            data-helper-row={helper.sessionId}
+            data-working={working || undefined}
+            data-failed={failed || undefined}
+            aria-current={helper.sessionId === activeId ? "true" : undefined}
+            title={failed ? `${helper.title} · Failed` : helper.title}
+            onClick={(event) => onSelect(helper.sessionId, event)}
           >
-            <span className="personal-helper-title">{label}</span>
-            <ChevronRight
-              className="personal-helper-fold-chevron"
-              strokeWidth={1.75}
-              aria-hidden
-            />
+            <FadeText className="personal-helper-title">
+              {helper.title}
+            </FadeText>
+            {helper.needsInput ? (
+              <span className="personal-task-status flex shrink-0 items-center">
+                <ChatStatusPill word="needs-you" />
+              </span>
+            ) : working ? (
+              <span className="personal-task-agent" aria-hidden>
+                <AgentMark
+                  state="working"
+                  className="personal-task-agent-mark"
+                />
+              </span>
+            ) : null}
           </button>
-          {open ? (
-            <div id={foldId} className="personal-helper-finished">
-              {finished.map(helperRow)}
-            </div>
-          ) : null}
-        </>
-      ) : null}
+        );
+      })}
     </div>
+  );
+}
+
+/** The helpers that keep a row: unfinished ones, and the chat in front. */
+export function visibleHelpers(
+  helpers: readonly SidebarHelper[],
+  activeId?: string | null,
+): SidebarHelper[] {
+  return helpers.filter(
+    (helper) => !helperFinished(helper) || helper.sessionId === activeId,
   );
 }
 

@@ -488,37 +488,20 @@ async function checkHelpers(get: () => Options, path: string): Promise<string> {
       .join(", ");
     if (files !== "hero.css, pricing.md")
       throw new Error(`The cards list these files: ${files || "none"}`);
-    // Finished helpers fold into one row under the chat; opening it shows
-    // both.
-    const family = () =>
-      document.querySelector<HTMLElement>(
-        `[data-helper-family="${CSS.escape(lead.id)}"]`,
-      );
-    const fold =
-      family()?.querySelector<HTMLButtonElement>("[data-helper-fold]");
-    const foldText = fold?.textContent?.replace(/\s+/g, " ").trim() ?? "";
-    if (!fold || foldText !== "2 helpers · finished")
+    // Finished helpers leave the sidebar; the cards above still open them.
+    const left = await waitFor(
+      () =>
+        document.querySelectorAll(
+          `[data-helper-family="${CSS.escape(lead.id)}"] [data-helper-row]`,
+        ).length === 0 || undefined,
+      5_000,
+      "the finished helpers to leave the sidebar",
+    ).catch(() => false);
+    if (!left)
       throw new Error(
-        `The sidebar's helper fold reads "${foldText || "nothing"}"`,
+        "The sidebar still lists finished helpers under the chat",
       );
-    const wasOpen = fold.getAttribute("aria-expanded") === "true";
-    if (!wasOpen) fold.click();
-    try {
-      await waitFor(
-        () =>
-          (family()?.querySelectorAll("[data-helper-row]").length ?? 0) === 2 ||
-          undefined,
-        5_000,
-        "the fold to show both finished helpers under the chat",
-      );
-    } finally {
-      // Leave the fold as it was; it is remembered for the session.
-      if (!wasOpen)
-        family()
-          ?.querySelector<HTMLButtonElement>("[data-helper-fold]")
-          ?.click();
-    }
-    return `"${tab.textContent?.trim()}" tab; tasks from "${froms[0]!.from}"; 2 cards (${files}); folded as "${foldText}"; woken once`;
+    return `"${tab.textContent?.trim()}" tab; tasks from "${froms[0]!.from}"; 2 cards (${files}); helpers left the sidebar; woken once`;
   } catch (error) {
     throw new Error(await failedRunReport(get, lead.id, error));
   }
