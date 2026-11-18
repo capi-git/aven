@@ -7,7 +7,6 @@ import {
 } from "react";
 import { useDragResize } from "../hooks/useDragResize";
 import { useSidePanelOpen } from "../hooks/useSidePanelOpen";
-import { followGrip } from "../lib/gripFollow";
 import { motionReduced } from "../lib/motion";
 import { beginSidePanelOpen, endSidePanelOpen } from "../lib/sidePanel";
 import {
@@ -88,7 +87,6 @@ export function PersonalInspectorDock({
           className="personal-panel-resizer personal-inspector-divider"
           data-native-hit-margin=""
           data-resizing={resize.dragging || undefined}
-          onPointerMove={(event) => followGrip(event, true)}
           onPointerDown={resize.onPointerDown}
           onDoubleClick={resize.onDoubleClick}
           onKeyDown={(event) => {
