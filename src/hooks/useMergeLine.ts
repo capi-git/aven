@@ -63,9 +63,11 @@ export function useMergeLine(cwd: string, enabled: boolean): MergeLineData {
   } = useMergePath(cwd, enabled);
   const number = openNumber(pr);
   const [details, setDetails] = useState<MergeLineDetails | null>(null);
-  const threadsRef = useRef<{ key: string; at: number; count: number } | null>(
-    null,
-  );
+  const threadsRef = useRef<{
+    key: string;
+    at: number;
+    count: number;
+  } | null>(null);
   const forceRef = useRef(false);
   const key = `${cwd}#${number ?? ""}`;
   const keyRef = useRef(key);
@@ -120,6 +122,12 @@ export function useMergeLine(cwd: string, enabled: boolean): MergeLineData {
       } catch (cause) {
         // No thread access: the review decision alone decides.
         logError("merge line: review threads", cause);
+        if (cancelled) return;
+        setDetails((current) =>
+          current && current.unresolvedThreads === null
+            ? { ...current, unresolvedThreads: "unavailable" }
+            : current,
+        );
       }
     })();
     return () => {
