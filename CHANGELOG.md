@@ -14,8 +14,14 @@
 ### Changed
 
 - **A split's panes are named tabs joined by a short line,** with no box around them. Drag a pane's mark to move that pane alone; hold Option to move the whole split.
-- **A divider's grip follows the pointer** along the divider, as in Super Engineering. The sidebar and side panel edges show the grip too.
+- **No grip on dividers.** Pointing at or dragging a divider between panes, or the sidebar and side panel edges, changes only the pointer. Keyboard focus still shows a line.
+- **The side panel opens smoothly.** Web pages no longer tear while it slides open, its first open no longer shows "Loading files…", and it reads Git and GitHub only after the slide.
 - **The project bot (the Fixer) is no longer in the sidebar.** Open it from the project's menu.
+
+### Fixed
+
+- **The merge line uses less power.** It reads GitHub once a minute in place of every 15 seconds, it keeps its place while it loads so the message box does not jump, and an old error goes away when the branch moves on.
+- **Smaller fixes:** New chat stays in its place in the Tiles sidebar, Forward remembers the chosen chat, @chat names stay with their own chat, orbs hold still with Reduce motion, a divider drag never leaves a stuck pointer, and each project's settings page keeps its own text.
 
 ## [0.1.192] - 2026-11-18
 
