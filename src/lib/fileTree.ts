@@ -1,18 +1,28 @@
 import { listDir, type FsEntry } from "./fs";
 import { pathSegments } from "./fileName";
 import { joinPath, parentPath } from "./paths";
+import { afterSidePanelOpens, SIDE_PANEL_FRESH_MS } from "./sidePanel";
 
 const expandedByProject = new Map<string, Set<string>>();
 const selectedByProject = new Map<string, string | null>();
 const dirs = new Map<string, FsEntry[]>();
 const listeners = new Set<() => void>();
-const refreshSubscribers = new Set<() => void>();
+/** Open explorers, each with the folder it shows when it names one. */
+const refreshSubscribers = new Map<() => void, string | undefined>();
 let cacheEpoch = 0;
 
 const REFRESH_MS = 150;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshing = false;
 let refreshAgain = false;
+/**
+ * A closed explorer keeps its folders, so opening it again draws them at
+ * once. When the last one closed (null while one is open), and whether a
+ * change was reported since that nobody re-read.
+ */
+let closedAt: number | null = null;
+let changedWhileClosed = false;
+let cancelReopenCheck: (() => void) | null = null;
 
 export function loadExpanded(cwd: string): Set<string> {
   const saved = expandedByProject.get(cwd);
@@ -72,10 +82,23 @@ export async function refreshCachedDirs(): Promise<void> {
 
 export function subscribeDirsChanged(
   listener: () => void,
-  { refreshCache = true }: { refreshCache?: boolean } = {},
+  {
+    refreshCache = true,
+    root,
+  }: {
+    refreshCache?: boolean;
+    /**
+     * The folder an explorer shows. Folders kept from other projects are
+     * then let go on its next refresh rather than read again.
+     */
+    root?: string;
+  } = {},
 ): () => void {
   listeners.add(listener);
-  if (refreshCache) refreshSubscribers.add(listener);
+  if (refreshCache) {
+    refreshSubscribers.set(listener, root);
+    if (refreshSubscribers.size === 1) explorerOpened();
+  }
   return () => {
     listeners.delete(listener);
     const removedExplorer = refreshSubscribers.delete(listener);
@@ -83,12 +106,39 @@ export function subscribeDirsChanged(
       const hadPendingChange = refreshTimer !== null;
       if (refreshTimer !== null) clearTimeout(refreshTimer);
       refreshTimer = null;
-      invalidateCachedDirs();
+      refreshAgain = false;
+      closedAt = Date.now();
+      // A check still waiting for the panel's slide is owed next time.
+      if (cancelReopenCheck) {
+        cancelReopenCheck();
+        cancelReopenCheck = null;
+        changedWhileClosed = true;
+      }
       if (hadPendingChange) {
+        changedWhileClosed = true;
         for (const subscriber of listeners) subscriber();
       }
     }
   };
+}
+
+/**
+ * The first explorer opened. Its folders show as they were; if they may
+ * have changed while it was closed (a change was reported, or it was closed
+ * a while: changes made outside Aven are only seen by reading), the open
+ * folders are read again once the side panel has slid in.
+ */
+function explorerOpened() {
+  const changed =
+    changedWhileClosed ||
+    (closedAt !== null && Date.now() - closedAt >= SIDE_PANEL_FRESH_MS);
+  closedAt = null;
+  changedWhileClosed = false;
+  if (!changed || dirs.size === 0) return;
+  cancelReopenCheck = afterSidePanelOpens(() => {
+    cancelReopenCheck = null;
+    if (refreshSubscribers.size > 0) invalidateAndNotify();
+  });
 }
 
 function canRefresh() {
@@ -99,8 +149,9 @@ function canRefresh() {
 }
 
 function invalidateCachedDirs() {
-  // A closed explorer needs no disk reads. Drop stale snapshots synchronously
-  // so its next mount/list request cannot reuse pre-write directory contents.
+  // Drop stale snapshots synchronously so the next list request cannot
+  // reuse pre-write directory contents. Open rows keep what they show until
+  // their folder's new listing arrives.
   cacheEpoch += 1;
   dirs.clear();
   refreshAgain = false;
@@ -111,10 +162,23 @@ function invalidateAndNotify() {
   for (const listener of listeners) listener();
 }
 
+/**
+ * A change nobody can re-read now. With no explorer open, its folders are
+ * kept and read again when one opens; a hidden window drops them.
+ */
+function changeUnread() {
+  if (refreshSubscribers.size > 0) {
+    invalidateAndNotify();
+    return;
+  }
+  changedWhileClosed = true;
+  for (const listener of listeners) listener();
+}
+
 /** Reload the explorer cache after an agent/shell write (debounced). */
 export function notifyDirsChanged() {
   if (!canRefresh()) {
-    invalidateAndNotify();
+    changeUnread();
     return;
   }
   scheduleRefresh();
@@ -130,7 +194,7 @@ function scheduleRefresh() {
 
 async function runRefresh() {
   if (!canRefresh()) {
-    invalidateAndNotify();
+    changeUnread();
     return;
   }
   if (refreshing) {
@@ -139,6 +203,7 @@ async function runRefresh() {
   }
   refreshing = true;
   try {
+    forgetDirsOutsideExplorers();
     await refreshCachedDirs();
     for (const listener of listeners) listener();
   } finally {
@@ -147,6 +212,35 @@ async function runRefresh() {
     refreshAgain = false;
     if (pending && canRefresh()) scheduleRefresh();
   }
+}
+
+/**
+ * Kept folders outside every open explorer's own folder are dropped, not
+ * read again: a closed panel keeps its folders, so they would otherwise
+ * pile up across projects and each be re-read on every refresh.
+ */
+function forgetDirsOutsideExplorers() {
+  const roots = [...refreshSubscribers.values()];
+  if (!roots.length || roots.some((root) => root === undefined)) return;
+  for (const path of [...dirs.keys()]) {
+    const shown = roots.some(
+      (root) => path === root || path.startsWith(`${root}/`),
+    );
+    if (!shown) dirs.delete(path);
+  }
+}
+
+/** Only for tests: forget every folder and what happened while closed. */
+export function resetFileTreeForTest() {
+  cancelReopenCheck?.();
+  cancelReopenCheck = null;
+  if (refreshTimer !== null) clearTimeout(refreshTimer);
+  refreshTimer = null;
+  closedAt = null;
+  changedWhileClosed = false;
+  invalidateCachedDirs();
+  listeners.clear();
+  refreshSubscribers.clear();
 }
 
 /** Folder to create into, given the explorer selection. */

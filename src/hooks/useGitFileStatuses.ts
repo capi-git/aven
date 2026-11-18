@@ -6,6 +6,7 @@ import {
 } from "../lib/fs";
 import { subscribeDirsChanged } from "../lib/fileTree";
 import { parentPath } from "../lib/paths";
+import { noteSidePanelRead, readAsSidePanelShows } from "../lib/sidePanelReads";
 
 export type GitStatusMap = {
   files: Map<string, string>;
@@ -30,6 +31,8 @@ type Entry = {
   unsubscribeGit: (() => void) | null;
   unsubscribeDirs: (() => void) | null;
   onResume: (() => void) | null;
+  /** The first read of a showing, waiting for the side panel's slide. */
+  cancelFirstRead: (() => void) | null;
 };
 
 const entries = new Map<string, Entry>();
@@ -46,6 +49,7 @@ function entryFor(cwd: string): Entry {
     unsubscribeGit: null,
     unsubscribeDirs: null,
     onResume: null,
+    cancelFirstRead: null,
   };
   entries.set(cwd, entry);
   return entry;
@@ -102,8 +106,10 @@ async function load(entry: Entry) {
   entry.inFlight = true;
   try {
     const index = await gitDiffIndex(entry.cwd);
-    if (entry.listeners.size > 0 && !document.hidden)
+    if (entry.listeners.size > 0 && !document.hidden) {
       publish(entry, buildStatusMaps(index, entry.cwd));
+      noteSidePanelRead(readKey(entry));
+    }
   } catch {
     if (entry.listeners.size > 0 && !document.hidden) publish(entry, EMPTY);
   } finally {
@@ -115,9 +121,18 @@ async function load(entry: Entry) {
   }
 }
 
+function readKey(entry: Entry) {
+  return `file-statuses:${entry.cwd}`;
+}
+
 function start(entry: Entry) {
   if (entry.onResume) return;
-  void load(entry);
+  // Shown again soon after a read, its colours stand; otherwise they are
+  // read once the side panel has slid in.
+  entry.cancelFirstRead = readAsSidePanelShows(readKey(entry), () => {
+    entry.cancelFirstRead = null;
+    void load(entry);
+  });
   entry.onResume = () => {
     void load(entry);
   };
@@ -131,6 +146,8 @@ function start(entry: Entry) {
 
 function stop(entry: Entry) {
   entry.pending = false;
+  entry.cancelFirstRead?.();
+  entry.cancelFirstRead = null;
   if (entry.onResume) {
     window.removeEventListener("focus", entry.onResume);
     document.removeEventListener("visibilitychange", entry.onResume);

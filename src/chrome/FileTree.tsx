@@ -566,7 +566,9 @@ export const FileTree = memo(function FileTree({
 
   useEffect(() => {
     if (!enabled) return;
-    const unsub = subscribeDirsChanged(() => setEpoch((n) => n + 1));
+    const unsub = subscribeDirsChanged(() => setEpoch((n) => n + 1), {
+      root: cwd,
+    });
     const onResume = () => {
       if (!document.hidden) notifyDirsChanged();
     };
@@ -577,7 +579,7 @@ export const FileTree = memo(function FileTree({
       window.removeEventListener("focus", onResume);
       document.removeEventListener("visibilitychange", onResume);
     };
-  }, [enabled]);
+  }, [enabled, cwd]);
 
   useEffect(() => {
     if (!enabled) return;

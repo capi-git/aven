@@ -202,3 +202,28 @@ describe("the work group's look", () => {
     expect(text).toContain("var(--color-content) 45%");
   });
 });
+
+describe("a work line opening and closing", () => {
+  const index = readFileSync("src/index.css", "utf8");
+  const body = (selector: string) => {
+    const start = index.indexOf(`${selector} {`);
+    return start < 0 ? "" : index.slice(start, index.indexOf("}", start));
+  };
+
+  it("takes its height at once both ways, and only fades its steps in", () => {
+    // No layout property animates: the transcript is laid out once.
+    expect(index).not.toMatch(/\.zen-phase-body[^{]*\{[^}]*grid-template-rows/);
+    expect(body(".zen-phase-body")).toBe("");
+    // The opened steps fade in as one block, on Aven's motion token, which
+    // Reduce motion zeroes.
+    expect(body(".zen-phase-body > *")).toContain(
+      "animation: zen-step-in var(--aven-motion-base) ease-out both;",
+    );
+    const fade = index.slice(
+      index.indexOf("@keyframes zen-step-in"),
+      index.indexOf("}\n}", index.indexOf("@keyframes zen-step-in")),
+    );
+    expect(fade).toContain("opacity: 0;");
+    expect(fade).not.toMatch(/transform|height|grid/);
+  });
+});

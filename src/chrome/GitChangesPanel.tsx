@@ -89,6 +89,8 @@ import {
 import { setUpProjectGit, gitSetupError } from "../lib/projectGitSetup";
 import { CommitBox } from "./CommitBox";
 import { ShipFlow } from "./ShipFlow";
+import { afterSidePanelOpens } from "../lib/sidePanel";
+import { noteSidePanelRead, sidePanelReadFresh } from "../lib/sidePanelReads";
 import "./GitChangesPanel.css";
 
 const GIT_POLL_MS = 2000;
@@ -818,6 +820,8 @@ function usePrStatus(
   const [pr, setPr] = useState<GitPr | null>(() => cachedPr(cwd, branch));
   const [nonce, setNonce] = useState(0);
   const reload = useCallback(() => setNonce((value) => value + 1), []);
+  // The reload last asked for; a newer one reads even when fresh.
+  const readNonce = useRef(nonce);
 
   useEffect(() => {
     if (!enabled) return;
@@ -826,6 +830,9 @@ function usePrStatus(
       return;
     }
     setPr(cachedPr(cwd, branch));
+    const reloaded = readNonce.current !== nonce;
+    readNonce.current = nonce;
+    const key = `pull-request:${cwd}:${branch}`;
     let cancelled = false;
     let request = 0;
     // Opening the panel and a reload (after Ship it) read while the window is
@@ -839,6 +846,7 @@ function usePrStatus(
         .then((next) => {
           if (stale()) return;
           prByCwd.set(cwd, next);
+          noteSidePanelRead(key);
           setPr(next);
         })
         .catch(() => {
@@ -848,9 +856,15 @@ function usePrStatus(
         });
     };
     const unsubscribe = subscribeWindowActivity(() => load("poll"));
-    load("event");
+    // Showing the panel asks GitHub only when the last answer is old or Git
+    // changed since, and only once the panel has slid in.
+    const cancelFirstRead =
+      !reloaded && prByCwd.has(cwd) && sidePanelReadFresh(key)
+        ? () => undefined
+        : afterSidePanelOpens(() => load("event"));
     return () => {
       cancelled = true;
+      cancelFirstRead();
       unsubscribe();
     };
   }, [branch, cwd, enabled, nonce]);
@@ -1411,11 +1425,16 @@ function useDiffIndex(
   const reload = useCallback(() => setNonce((value) => value + 1), []);
   const indexRef = useRef(index);
   indexRef.current = index;
+  // The reload last asked for; a newer one reads even when fresh.
+  const readNonce = useRef(nonce);
 
   useEffect(() => {
     if (!enabled || !cwd || cwd === "~") {
       return;
     }
+    const reloaded = readNonce.current !== nonce;
+    readNonce.current = nonce;
+    const key = `changes:${cwd}`;
     const cached = cachedIndex(cwd);
     if (cached && !sameIndex(indexRef.current, cached)) {
       indexRef.current = cached;
@@ -1474,6 +1493,7 @@ function useDiffIndex(
           if (cancelled || !mayRefresh(reason)) return;
           lastSync = Date.now();
         }
+        noteSidePanelRead(key);
         if (sameIndex(prev, next)) {
           quietPolls += 1;
           return;
@@ -1561,10 +1581,17 @@ function useDiffIndex(
       // Notify sibling panels without feeding our own poll back into a full refresh.
       if (!publishing) checkNow();
     });
-    // Opening (or reloading) the panel reads once if the window is on screen.
-    if (visible) checkNow();
+    // Opening the panel reads once if the window is on screen, after the
+    // panel has slid in; not when the list was read moments ago with no Git
+    // change since. A reload always reads.
+    let cancelFirstRead = () => {};
+    if (visible) {
+      if (!reloaded && indexRef.current && sidePanelReadFresh(key)) schedule();
+      else cancelFirstRead = afterSidePanelOpens(checkNow);
+    }
     return () => {
       cancelled = true;
+      cancelFirstRead();
       pending = false;
       pendingSync = false;
       stopPolling();

@@ -1,20 +1,51 @@
-import { useEffect, type CSSProperties } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type CSSProperties,
+  type TransitionEvent,
+} from "react";
 import { useDragResize } from "../hooks/useDragResize";
-import { followGrip } from "../lib/gripFollow";
+import { useSidePanelOpen } from "../hooks/useSidePanelOpen";
+import { motionReduced } from "../lib/motion";
+import { beginSidePanelOpen, endSidePanelOpen } from "../lib/sidePanel";
 import {
   WorkspaceInspector,
   type WorkspaceInspectorProps,
 } from "./WorkspaceInspector";
 
-type Props = WorkspaceInspectorProps & {
+type Props = Omit<WorkspaceInspectorProps, "active"> & {
+  /** The workspace is on screen; the panel shows while it is and is open. */
+  workspaceVisible: boolean;
   width: number;
   onWidthChange: (width: number) => void;
 };
 export function PersonalInspectorDock({
+  workspaceVisible,
   width,
   onWidthChange,
-  ...props
+  ...rest
 }: Props) {
+  const open = useSidePanelOpen();
+  const active = workspaceVisible && open;
+  const props: WorkspaceInspectorProps = { ...rest, active };
+  const shown = useRef(active);
+  useLayoutEffect(() => {
+    const opened = active && !shown.current;
+    shown.current = active;
+    // The reads the panel starts wait for its slide to end (sidePanel.ts).
+    // Before paint, so its contents' first effects already see the slide.
+    if (opened && !motionReduced()) beginSidePanelOpen();
+    else if (!active) endSidePanelOpen();
+    // Publish the panel's new width before paint: native browser pages
+    // beside it can throttle WebKit's animation frames, so their resize
+    // observers alone trail a toggle.
+    window.dispatchEvent(new Event("supermono:workspace-layout"));
+  }, [active]);
+  useEffect(() => endSidePanelOpen, []);
+  const onTransitionEnd = (event: TransitionEvent<HTMLElement>) => {
+    if (event.target === event.currentTarget && active) endSidePanelOpen();
+  };
   const resize = useDragResize({
     enabled: props.active,
     min: 260,
@@ -40,7 +71,11 @@ export function PersonalInspectorDock({
       inert={!props.active || undefined}
       style={{ "--inspector-width": `${resize.width}px` } as CSSProperties}
     >
-      <aside ref={resize.setPaneRef} className="personal-inspector-dock">
+      <aside
+        ref={resize.setPaneRef}
+        className="personal-inspector-dock"
+        onTransitionEnd={onTransitionEnd}
+      >
         <div
           role="separator"
           aria-label="Resize side panel"
@@ -52,7 +87,6 @@ export function PersonalInspectorDock({
           className="personal-panel-resizer personal-inspector-divider"
           data-native-hit-margin=""
           data-resizing={resize.dragging || undefined}
-          onPointerMove={(event) => followGrip(event, true)}
           onPointerDown={resize.onPointerDown}
           onDoubleClick={resize.onDoubleClick}
           onKeyDown={(event) => {

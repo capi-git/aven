@@ -92,3 +92,25 @@ it("asks for a project when none is chosen", async () => {
   );
   expect(host.textContent).toContain("Choose a project");
 });
+
+it("doesn't carry an unfinished Run command to another project's page", async () => {
+  await act(async () =>
+    root.render(createElement(ProjectPage, { path: "/work/a" })),
+  );
+  await type("Run command name", "Build A");
+  await type("Run command", "./build-a.sh");
+  // Another project's settings, in the same section.
+  await act(async () =>
+    root.render(createElement(ProjectPage, { path: "/work/b" })),
+  );
+  const field = (label: string) =>
+    host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+  expect(field("Run command name").value).toBe("");
+  expect(field("Run command").value).toBe("");
+  const add = [...host.querySelectorAll("button")].find(
+    (button) => button.textContent === "Add",
+  )!;
+  await act(async () => add.click());
+  expect(loadRunScripts("/work/b")).toEqual([]);
+  expect(loadRunScripts("/work/a")).toEqual([]);
+});

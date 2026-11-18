@@ -4,6 +4,7 @@ import {
   subscribeGitChanged,
   type GitHistoryCommit,
 } from "../lib/fs";
+import { noteSidePanelRead, readAsSidePanelShows } from "../lib/sidePanelReads";
 
 export type GitHistorySnapshot = {
   commits: GitHistoryCommit[];
@@ -98,6 +99,7 @@ function load(cwd: string) {
             head: next.head,
             loaded: true,
           });
+          noteSidePanelRead(`git-history:${cwd}`);
         },
         () => {
           if (current !== entry.request) return;
@@ -123,9 +125,14 @@ function subscribe(cwd: string, listener: () => void): () => void {
       document.removeEventListener("visibilitychange", onResume);
     };
   }
-  // Every newly visible reader refreshes; same-tick readers share the read.
-  load(cwd);
+  // A newly visible reader refreshes, unless the rows were read moments ago
+  // with no change since, and only once the side panel has slid in;
+  // same-tick readers share the read.
+  const cancelFirstRead = readAsSidePanelShows(`git-history:${cwd}`, () =>
+    load(cwd),
+  );
   return () => {
+    cancelFirstRead();
     entry.listeners.delete(listener);
     if (entry.listeners.size > 0) return;
     entry.stop?.();

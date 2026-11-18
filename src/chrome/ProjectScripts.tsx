@@ -9,6 +9,8 @@ import {
   type FormEvent,
 } from "react";
 import { listDir, readTextFile } from "../lib/fs";
+import { afterSidePanelOpens } from "../lib/sidePanel";
+import { noteSidePanelRead, sidePanelReadFresh } from "../lib/sidePanelReads";
 import { projectAppearance } from "../lib/projectAppearance";
 import {
   clearScriptRun,
@@ -53,7 +55,10 @@ import { shortTimeAgo } from "../lib/gitChangesView";
 import "./ProjectScripts.css";
 
 type Props = {
-  /** The project's main folder: scripts are saved for the whole project. */
+  /**
+   * The project's main folder: scripts are saved for the whole project. Its
+   * scripts are read as the strip mounts, so callers key it by project.
+   */
   project: string;
   /** The copy the scripts run in. */
   cwd: string;
@@ -145,6 +150,40 @@ function loadOpen(): boolean {
   } catch {
     return true;
   }
+}
+
+type ScriptHints = {
+  setup: string;
+  run: { name: string; command: string }[];
+};
+/** The last hints read for each project, shown again at once. */
+const scriptHints = new Map<string, ScriptHints>();
+
+/**
+ * Commands the project's root suggests: one listing of it, and its
+ * package.json scripts when it has one, before what its other files
+ * suggest (a build script, a Swift package, an Xcode project…).
+ */
+async function readScriptHints(project: string): Promise<ScriptHints> {
+  const entries = await listDir(project).catch(() => []);
+  const hasPackage = entries.some(
+    (entry) => !entry.isDir && entry.name === "package.json",
+  );
+  const fromNpm = hasPackage
+    ? await readTextFile(`${project}/package.json`)
+        .then((raw) => {
+          const pkg = JSON.parse(raw) as { scripts?: Record<string, unknown> };
+          if (!pkg.scripts || typeof pkg.scripts !== "object") return [];
+          return Object.keys(pkg.scripts)
+            .filter((key) => /^[\w][\w:-]*$/.test(key))
+            .map((key) => ({ name: key, command: `npm run ${key}` }));
+        })
+        .catch(() => [])
+    : [];
+  return {
+    setup: suggestSetupCommand(entries),
+    run: [...fromNpm, ...suggestRunCommands(entries)].slice(0, 6),
+  };
 }
 
 function useScripts() {
@@ -382,12 +421,6 @@ export function ProjectScripts({
     [],
   );
 
-  useEffect(() => {
-    setSetup(loadSetupScript(project));
-    setScripts(loadRunScripts(project));
-    setEditing(null);
-  }, [project]);
-
   // A new copy runs its setup by itself the first time it is shown.
   useEffect(() => {
     if (!active || !setup || cwd === project || setupRanIn(cwd)) return;
@@ -396,37 +429,31 @@ export function ProjectScripts({
     setPane("setup");
   }, [active, setup, cwd, project]);
 
-  // Suggestions only while there is something to fill in.
+  // Suggestions only while there is something to fill in. Read once the
+  // side panel has slid in, and not again while the last read is fresh.
   useEffect(() => {
-    if (!active) return;
+    const wantSetup = !setup;
+    const wantRun = !scripts.length || editing === "run";
+    if (!active || (!wantSetup && !wantRun)) return;
+    const show = (hints: ScriptHints) => {
+      if (wantSetup) setSetupHint(hints.setup);
+      if (wantRun) setRunHints(hints.run);
+    };
+    const known = scriptHints.get(project);
+    if (known) show(known);
+    const key = `script-hints:${project}`;
+    if (known && sidePanelReadFresh(key)) return;
     let cancelled = false;
-    if (!setup)
-      listDir(project)
-        .then(
-          (entries) => !cancelled && setSetupHint(suggestSetupCommand(entries)),
-        )
-        .catch(() => undefined);
-    if (!scripts.length || editing === "run") {
-      // package.json scripts first, then what the root's files suggest (a
-      // build script, a Swift package, an Xcode project…).
-      const npm = readTextFile(`${project}/package.json`)
-        .then((raw) => {
-          const pkg = JSON.parse(raw) as { scripts?: Record<string, unknown> };
-          if (!pkg.scripts || typeof pkg.scripts !== "object") return [];
-          return Object.keys(pkg.scripts)
-            .filter((key) => /^[\w][\w:-]*$/.test(key))
-            .map((key) => ({ name: key, command: `npm run ${key}` }));
-        })
-        .catch(() => []);
-      const files = listDir(project)
-        .then((entries) => suggestRunCommands(entries))
-        .catch(() => []);
-      void Promise.all([npm, files]).then(([fromNpm, fromFiles]) => {
-        if (!cancelled) setRunHints([...fromNpm, ...fromFiles].slice(0, 6));
+    const cancelRead = afterSidePanelOpens(() => {
+      void readScriptHints(project).then((hints) => {
+        scriptHints.set(project, hints);
+        noteSidePanelRead(key);
+        if (!cancelled) show(hints);
       });
-    }
+    });
     return () => {
       cancelled = true;
+      cancelRead();
     };
   }, [active, project, setup, scripts.length, editing]);
 

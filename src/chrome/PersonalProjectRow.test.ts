@@ -471,3 +471,36 @@ it("names a cut-off project in its tooltip", async () => {
   );
   expect(open.title).toBe(`aven-project\n${PATH}`);
 });
+
+it("keeps New chat in the last slot in Tiles style, so hover reveals the others to its left", async () => {
+  data.set("aven.sidebarStyle", "tiles");
+  await act(async () =>
+    root.render(
+      createElement(PersonalProjectRow, {
+        path: PATH,
+        active: false,
+        expanded: false,
+        profiles: DEFAULT_WORKSPACE_PROFILES,
+        activeProfileId: "personal",
+        onSelect: vi.fn(),
+        onToggle: vi.fn(),
+        onNew: vi.fn(),
+      }),
+    ),
+  );
+  const row = host.querySelector<HTMLElement>(".personal-project-row")!;
+  const labels = [...row.querySelectorAll<HTMLButtonElement>("button")].map(
+    (button) => button.getAttribute("aria-label"),
+  );
+  expect(labels.slice(1)).toEqual([
+    "Expand aven-project chats",
+    "Actions for aven-project",
+    "New chat in aven-project",
+  ]);
+  // The stylesheet keeps only New chat open at rest; the ones that grow on
+  // hover come before it, so it never shifts.
+  const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
+  expect(css).toMatch(
+    /\[data-sidebar-style="tiles"\]\s*\.personal-project-row-action:not\(\s*\.personal-project-disclosure,\s*\.personal-project-more\s*\)\s*\{\s*width: 24px;/,
+  );
+});

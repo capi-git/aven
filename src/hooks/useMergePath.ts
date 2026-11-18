@@ -11,6 +11,11 @@ import { MERGE_PATH_REFRESH_S } from "../lib/mergePath";
 
 export type MergePathState = {
   index: GitDiffIndex | null;
+  /**
+   * The copy's local Git state as soon as it is read, before the pull
+   * request read (a network call) finishes. Set only until `index` is.
+   */
+  localIndex: GitDiffIndex | null;
   pr: GitPr | null;
   error: string | null;
   loading: boolean;
@@ -21,11 +26,21 @@ export type MergePathState = {
 
 /**
  * The copy's Git state and its pull request for the Checks tab. Reads when
- * shown, when Git changes, and every MERGE_PATH_REFRESH_S seconds while
- * `enabled` and the window is visible. A hidden window pauses the countdown.
+ * shown, when Git changes, and every `refreshS` seconds (MERGE_PATH_REFRESH_S
+ * by default) while `enabled` and the window is visible. A hidden window
+ * pauses the countdown. Without `countdown`, `nextIn` stays null, so a caller
+ * that shows no "Refreshing in" does not draw again every second.
  */
-export function useMergePath(cwd: string, enabled: boolean): MergePathState {
+export function useMergePath(
+  cwd: string,
+  enabled: boolean,
+  {
+    refreshS = MERGE_PATH_REFRESH_S,
+    countdown = true,
+  }: { refreshS?: number; countdown?: boolean } = {},
+): MergePathState {
   const [index, setIndex] = useState<GitDiffIndex | null>(null);
+  const [localIndex, setLocalIndex] = useState<GitDiffIndex | null>(null);
   const [pr, setPr] = useState<GitPr | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,6 +51,7 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
 
   useEffect(() => {
     setIndex(null);
+    setLocalIndex(null);
     setPr(null);
     setError(null);
   }, [cwd]);
@@ -47,15 +63,25 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
     }
     let cancelled = false;
     let inFlight = false;
-    let left = MERGE_PATH_REFRESH_S;
+    let left = refreshS;
     const load = async () => {
       if (cancelled || inFlight) return;
       inFlight = true;
       setLoading(true);
       setNextIn(null);
       try {
+        const indexRead = gitDiffIndex(cwd);
+        // Local Git answers long before GitHub: say what it shows at once,
+        // once, so a line that applies can hold its place.
+        void indexRead.then(
+          (read) => {
+            if (!cancelled && cwdRef.current === cwd)
+              setLocalIndex((current) => current ?? read);
+          },
+          () => {},
+        );
         const [nextIndex, nextPr] = await Promise.all([
-          gitDiffIndex(cwd),
+          indexRead,
           // No remote means no pull request to look for.
           gitPrStatus(cwd).catch((cause) => {
             logError("pull request status", cause);
@@ -73,8 +99,8 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
         inFlight = false;
         if (!cancelled) {
           setLoading(false);
-          left = MERGE_PATH_REFRESH_S;
-          setNextIn(document.hidden ? null : left);
+          left = refreshS;
+          setNextIn(document.hidden || !countdown ? null : left);
         }
       }
     };
@@ -82,7 +108,7 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
       if (document.hidden || inFlight) return;
       left -= 1;
       if (left <= 0) void load();
-      else setNextIn(left);
+      else if (countdown) setNextIn(left);
     }, 1000);
     const onVisibility = () => {
       if (document.hidden) setNextIn(null);
@@ -97,8 +123,8 @@ export function useMergePath(cwd: string, enabled: boolean): MergePathState {
       document.removeEventListener("visibilitychange", onVisibility);
       unsubscribe();
     };
-  }, [cwd, enabled, nonce]);
+  }, [cwd, enabled, nonce, refreshS, countdown]);
 
   const refresh = useCallback(() => setNonce((value) => value + 1), []);
-  return { index, pr, error, loading, nextIn, refresh };
+  return { index, localIndex, pr, error, loading, nextIn, refresh };
 }

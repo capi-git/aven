@@ -106,6 +106,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
+import { SidePanelOpen } from "./chrome/SidePanelOpen";
 import type { WorkspaceInspectorTab } from "./chrome/WorkspaceInspector";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useProjectStatus } from "./hooks/useProjectStatus";
@@ -187,8 +188,15 @@ import {
   holdMotionPages,
   refreshMotionImages,
   panesMoved,
+  releaseMotionPages,
   releaseMotionPagesAfter,
+  releaseMotionPagesWhen,
 } from "./lib/browserMotion";
+import {
+  afterSidePanelOpens,
+  setSidePanelOpen,
+  sidePanelOpen,
+} from "./lib/sidePanel";
 import {
   addStripPane,
   combineStripTabs,
@@ -2266,19 +2274,22 @@ export default function App({
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
-  const [inspector, setInspector] = useState(loadPersonalInspector);
-  // File, search and change actions open the side panel on their tab.
-  const showInspectorTab = useCallback((tab: "files" | "changes") => {
-    setInspector((previous) => ({ ...previous, open: true, tab }));
-  }, []);
+  // The side panel's tab and width. Whether it is open is kept apart
+  // (sidePanel.ts), so showing or hiding it redraws only it and its toggles.
+  const [inspector, setInspector] = useState(() => {
+    const { tab, width } = loadPersonalInspector();
+    return { tab, width };
+  });
   const onInspectorTab = useCallback((tab: WorkspaceInspectorTab) => {
-    setInspector((previous) => ({ ...previous, tab }));
+    setInspector((previous) =>
+      previous.tab === tab ? previous : { ...previous, tab },
+    );
   }, []);
   const onInspectorWidth = useCallback((width: number) => {
     setInspector((previous) => ({ ...previous, width }));
   }, []);
   useEffect(() => {
-    savePersonalInspector(inspector);
+    savePersonalInspector({ ...inspector, open: sidePanelOpen() });
   }, [inspector]);
   const [filesSearchOpen, setFilesSearchOpen] = useState(false);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
@@ -2337,23 +2348,64 @@ export default function App({
   // Remounts the workspace's own sidebar so it reloads what the native
   // floating sidebar saved (folders, filters, width) before it shows again.
   const [sidebarGeneration, setSidebarGeneration] = useState(0);
-  const inspectorVisible = workspaceVisible && inspector.open;
   useLayoutEffect(() => {
     // Publish the committed panel geometry before paint. Native browser children
     // can throttle WK animation frames, so ResizeObserver alone trails toggles.
+    // The side panel publishes its own (PersonalInspectorDock).
     window.dispatchEvent(new Event("supermono:workspace-layout"));
-  }, [sidebarOpen, sidebarHover.visible, inspector.open, inspectorVisible]);
-  const onToggleInspector = useCallback(() => {
-    setInspector((previous) => ({ ...previous, open: !previous.open }));
+  }, [sidebarOpen, sidebarHover.visible]);
+  /**
+   * Show or hide the side panel. The pages beside it can't follow its edge
+   * in the frame it moves (a native page resizes a frame or more later and
+   * would cover the panel), so as it opens each page on screen stands in as
+   * a picture of itself, at its own size, until the slide ends.
+   */
+  // Where a toggle is taking the panel while its pages are being held.
+  const sidePanelTarget = useRef<boolean | null>(null);
+  const showSidePanel = useCallback((open: boolean) => {
+    if ((sidePanelTarget.current ?? sidePanelOpen()) === open) return;
+    const pages = [...onScreenBrowsersRef.current];
+    if (!open || !pages.length || motionReduced()) {
+      sidePanelTarget.current = null;
+      setSidePanelOpen(open);
+      return;
+    }
+    sidePanelTarget.current = true;
+    const opening = (held: readonly string[]) => {
+      // Hidden again before its pages were held: nothing moves.
+      if (!sidePanelTarget.current) {
+        releaseMotionPages(held);
+        return;
+      }
+      sidePanelTarget.current = null;
+      flushSync(() => setSidePanelOpen(true));
+      releaseMotionPagesWhen(held, afterSidePanelOpens);
+    };
+    void holdMotionPages(pages, [], undefined, { keepSize: true }).then(
+      opening,
+      () => opening([]),
+    );
   }, []);
+  // File, search and change actions open the side panel on their tab.
+  const showInspectorTab = useCallback(
+    (tab: "files" | "changes") => {
+      onInspectorTab(tab);
+      showSidePanel(true);
+    },
+    [onInspectorTab, showSidePanel],
+  );
+  const onToggleInspector = useCallback(
+    () => showSidePanel(!(sidePanelTarget.current ?? sidePanelOpen())),
+    [showSidePanel],
+  );
   const onCloseInspector = useCallback(() => {
-    setInspector((previous) => ({ ...previous, open: false }));
+    showSidePanel(false);
     requestAnimationFrame(() =>
       document
         .querySelector<HTMLButtonElement>("[data-inspector-toggle]")
         ?.focus(),
     );
-  }, []);
+  }, [showSidePanel]);
   const inspectorRef = useRef(inspector);
   inspectorRef.current = inspector;
   // The tour may open the side panel on Changes to point at it, and puts it
@@ -2361,22 +2413,20 @@ export default function App({
   const tourPrepare = useMemo<TourPrepare>(
     () => ({
       changes: () => {
-        const before = inspectorRef.current;
+        const before = {
+          open: sidePanelOpen(),
+          tab: inspectorRef.current.tab,
+        };
         if (before.open && before.tab === "changes") return;
-        setInspector((previous) => ({
-          ...previous,
-          open: true,
-          tab: "changes",
-        }));
-        return () =>
-          setInspector((previous) => ({
-            ...previous,
-            open: before.open,
-            tab: before.tab,
-          }));
+        onInspectorTab("changes");
+        setSidePanelOpen(true);
+        return () => {
+          onInspectorTab(before.tab);
+          setSidePanelOpen(before.open);
+        };
       },
     }),
-    [],
+    [onInspectorTab],
   );
   useEffect(() => {
     const onStart = () => {
@@ -11698,141 +11748,145 @@ export default function App({
   const paneBar = (owner: string, extra: Partial<TitleBarProps>) => {
     const members = view.groups[owner] ?? [owner];
     return (
-      <TitleBar
-        tabs={titleTabs.filter((tab) => members.includes(tab.id))}
-        totalSessionTabs={titleTabs.length}
-        onOpenRaceOverview={openRaceOverview}
-        paneLocal
-        paneFocused={owner === view.focusedId}
-        activeId={owner}
-        cwd={sidebarCwd}
-        projectRailOpen={projectRailOpen}
-        sidebarOpen={sidebarOpen}
-        inspectorOpen={inspector.open && workspaceVisible}
-        onToggleInspector={onToggleInspector}
-        browserTabs={browserTabsFor(members)}
-        browserOpen={browserState.open}
-        browserActive={browserFocused}
-        visibleIds={visibleSurfaceIds}
-        surfaceOrder={members}
-        onReorderSurfaces={(ids, movedId) => {
-          onWorkspaceIntent({
-            type: "reorder",
-            group: owner,
-            ids,
-          });
-          onReorderTabs(
-            ids.filter((id) => tabs.some((tab) => tab.id === id)),
-            movedId && tabs.some((tab) => tab.id === movedId)
-              ? movedId
-              : undefined,
-          );
-        }}
-        onSplitTab={(id, edge, beside) =>
-          onWorkspaceIntent({
-            type: "split",
-            id,
-            edge,
-            beside,
-          })
-        }
-        onUnsplit={() =>
-          onWorkspaceIntent({
-            type: "unsplit",
-            group: owner,
-          })
-        }
-        combineTargets={neighborCombineTargets(view, owner)}
-        onCombineWith={(into) =>
-          onWorkspaceIntent({
-            type: "combine",
-            group: owner,
-            into,
-          })
-        }
-        groupId={owner}
-        onReopenClosedTab={() => {
-          void onReopenClosedTab();
-        }}
-        canReopenClosedTab={recovery.closed.some(
-          (entry) => entry.cwd === projectCwd,
+      <SidePanelOpen>
+        {(inspectorOpen) => (
+          <TitleBar
+            tabs={titleTabs.filter((tab) => members.includes(tab.id))}
+            totalSessionTabs={titleTabs.length}
+            onOpenRaceOverview={openRaceOverview}
+            paneLocal
+            paneFocused={owner === view.focusedId}
+            activeId={owner}
+            cwd={sidebarCwd}
+            projectRailOpen={projectRailOpen}
+            sidebarOpen={sidebarOpen}
+            inspectorOpen={inspectorOpen && workspaceVisible}
+            onToggleInspector={onToggleInspector}
+            browserTabs={browserTabsFor(members)}
+            browserOpen={browserState.open}
+            browserActive={browserFocused}
+            visibleIds={visibleSurfaceIds}
+            surfaceOrder={members}
+            onReorderSurfaces={(ids, movedId) => {
+              onWorkspaceIntent({
+                type: "reorder",
+                group: owner,
+                ids,
+              });
+              onReorderTabs(
+                ids.filter((id) => tabs.some((tab) => tab.id === id)),
+                movedId && tabs.some((tab) => tab.id === movedId)
+                  ? movedId
+                  : undefined,
+              );
+            }}
+            onSplitTab={(id, edge, beside) =>
+              onWorkspaceIntent({
+                type: "split",
+                id,
+                edge,
+                beside,
+              })
+            }
+            onUnsplit={() =>
+              onWorkspaceIntent({
+                type: "unsplit",
+                group: owner,
+              })
+            }
+            combineTargets={neighborCombineTargets(view, owner)}
+            onCombineWith={(into) =>
+              onWorkspaceIntent({
+                type: "combine",
+                group: owner,
+                into,
+              })
+            }
+            groupId={owner}
+            onReopenClosedTab={() => {
+              void onReopenClosedTab();
+            }}
+            canReopenClosedTab={recovery.closed.some(
+              (entry) => entry.cwd === projectCwd,
+            )}
+            onUndoLayout={onUndoLayout}
+            canUndoLayout={recovery.layouts.some(
+              (entry) => entry.cwd === workspaceKey,
+            )}
+            onSurfaceDragMove={onSurfaceDragMove}
+            onSurfaceDragEnd={onSurfaceDragEnd}
+            onNewBrowser={() => {
+              workspaceViews.select(owner);
+              onNewBrowserTab();
+            }}
+            onOpenBoard={
+              looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
+                ? () => {
+                    workspaceViews.select(owner);
+                    onOpenBoard();
+                  }
+                : undefined
+            }
+            onOpenIphone={
+              iphoneAvailability === "ready"
+                ? () => {
+                    workspaceViews.select(owner);
+                    openIphoneRef.current(owner);
+                  }
+                : undefined
+            }
+            iphoneHint={
+              iphoneAvailability === "needs-xcode"
+                ? "Install Xcode to run iPhone apps"
+                : undefined
+            }
+            onNewView={
+              members.length > 1 || visibleSurfaceIds.length > 1
+                ? (id) =>
+                    onWorkspaceIntent({
+                      type: "split",
+                      id,
+                      edge: "right",
+                      beside: owner,
+                    })
+                : undefined
+            }
+            onSelectBrowser={onSelectBrowserTab}
+            onKeepBrowser={onKeepBrowser}
+            onKeepAgentPage={onKeepAgentPage}
+            browserPreviewId={
+              browserState.activeTabId
+                ? browserIdForTab(projectCwd, browserState.activeTabId)
+                : null
+            }
+            onCloseBrowser={onCloseBrowserTab}
+            onToggleSidebar={onToggleSidebar}
+            onSelect={(id) => {
+              workspaceViews.select(id);
+              activateTab(id);
+            }}
+            onNew={() => {
+              workspaceViews.select(owner);
+              onNew();
+            }}
+            onShowTerminal={undefined}
+            projectTerminalActive={
+              !!currentProjectDock && currentProjectDock.pane.files.length > 0
+            }
+            onOpenSettings={onOpenSettings}
+            onOpenInbox={onOpenInbox}
+            onOpenAutomations={onOpenAutomations}
+            onOpenNotes={notesEnabled ? onOpenNotes : undefined}
+            onClose={onCloseTitleTab}
+            onCloseMany={onCloseTabs}
+            onReorder={onReorderTabs}
+            onGoToFile={onGoToFile}
+            recents={recents}
+            onSelectProject={onSelectProject}
+            {...extra}
+          />
         )}
-        onUndoLayout={onUndoLayout}
-        canUndoLayout={recovery.layouts.some(
-          (entry) => entry.cwd === workspaceKey,
-        )}
-        onSurfaceDragMove={onSurfaceDragMove}
-        onSurfaceDragEnd={onSurfaceDragEnd}
-        onNewBrowser={() => {
-          workspaceViews.select(owner);
-          onNewBrowserTab();
-        }}
-        onOpenBoard={
-          looksLikeProject(projectCwd) && !isProjectlessCwd(projectCwd)
-            ? () => {
-                workspaceViews.select(owner);
-                onOpenBoard();
-              }
-            : undefined
-        }
-        onOpenIphone={
-          iphoneAvailability === "ready"
-            ? () => {
-                workspaceViews.select(owner);
-                openIphoneRef.current(owner);
-              }
-            : undefined
-        }
-        iphoneHint={
-          iphoneAvailability === "needs-xcode"
-            ? "Install Xcode to run iPhone apps"
-            : undefined
-        }
-        onNewView={
-          members.length > 1 || visibleSurfaceIds.length > 1
-            ? (id) =>
-                onWorkspaceIntent({
-                  type: "split",
-                  id,
-                  edge: "right",
-                  beside: owner,
-                })
-            : undefined
-        }
-        onSelectBrowser={onSelectBrowserTab}
-        onKeepBrowser={onKeepBrowser}
-        onKeepAgentPage={onKeepAgentPage}
-        browserPreviewId={
-          browserState.activeTabId
-            ? browserIdForTab(projectCwd, browserState.activeTabId)
-            : null
-        }
-        onCloseBrowser={onCloseBrowserTab}
-        onToggleSidebar={onToggleSidebar}
-        onSelect={(id) => {
-          workspaceViews.select(id);
-          activateTab(id);
-        }}
-        onNew={() => {
-          workspaceViews.select(owner);
-          onNew();
-        }}
-        onShowTerminal={undefined}
-        projectTerminalActive={
-          !!currentProjectDock && currentProjectDock.pane.files.length > 0
-        }
-        onOpenSettings={onOpenSettings}
-        onOpenInbox={onOpenInbox}
-        onOpenAutomations={onOpenAutomations}
-        onOpenNotes={notesEnabled ? onOpenNotes : undefined}
-        onClose={onCloseTitleTab}
-        onCloseMany={onCloseTabs}
-        onReorder={onReorderTabs}
-        onGoToFile={onGoToFile}
-        recents={recents}
-        onSelectProject={onSelectProject}
-        {...extra}
-      />
+      </SidePanelOpen>
     );
   };
   // The toolbar draws the strip's place; the strip renders into it, so the
@@ -12142,30 +12196,34 @@ export default function App({
               data-sidebar-card={floatingSidebar.revealed ? "open" : undefined}
               data-unified-toolbar
             >
-              <WorkspaceStatusBar
-                settingsView={
-                  settingsOpen
-                    ? { section: settingsSection, onClose: onCloseSettings }
-                    : undefined
-                }
-                sessions={profileSessions}
-                onSelectSession={onOpenApprovalSession}
-                onToggleSidebar={onToggleSidebar}
-                sidebarOpen={sidebarOpen}
-                onSearch={onOpenSearch}
-                onNewBrowser={
-                  workspaceVisible && visibleSurfaceIds.length > 0
-                    ? undefined
-                    : onGlobalNewBrowser
-                }
-                onGoBack={onRailBack}
-                onGoForward={onRailForward}
-                canGoBack={tabVisitNav.canBack}
-                canGoForward={tabVisitNav.canForward}
-                onToggleInspector={onToggleInspector}
-                inspectorOpen={inspector.open}
-                stripHost={setWindowStripHost}
-              />
+              <SidePanelOpen>
+                {(inspectorOpen) => (
+                  <WorkspaceStatusBar
+                    settingsView={
+                      settingsOpen
+                        ? { section: settingsSection, onClose: onCloseSettings }
+                        : undefined
+                    }
+                    sessions={profileSessions}
+                    onSelectSession={onOpenApprovalSession}
+                    onToggleSidebar={onToggleSidebar}
+                    sidebarOpen={sidebarOpen}
+                    onSearch={onOpenSearch}
+                    onNewBrowser={
+                      workspaceVisible && visibleSurfaceIds.length > 0
+                        ? undefined
+                        : onGlobalNewBrowser
+                    }
+                    onGoBack={onRailBack}
+                    onGoForward={onRailForward}
+                    canGoBack={tabVisitNav.canBack}
+                    canGoForward={tabVisitNav.canForward}
+                    onToggleInspector={onToggleInspector}
+                    inspectorOpen={inspectorOpen}
+                    stripHost={setWindowStripHost}
+                  />
+                )}
+              </SidePanelOpen>
               {windowStripHost && windowStrip
                 ? createPortal(
                     <div
@@ -12722,7 +12780,7 @@ export default function App({
                     </div>
 
                     <PersonalInspectorDock
-                      active={inspectorVisible}
+                      workspaceVisible={workspaceVisible}
                       width={inspector.width}
                       onWidthChange={onInspectorWidth}
                       cwd={sidebarCwd}
