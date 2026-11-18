@@ -12,6 +12,7 @@ export type SettingsSectionId =
   | "provider-setup"
   | "tasks"
   | "skills"
+  | "prompts"
   | "git"
   | "connections"
   | "browser"
@@ -91,6 +92,12 @@ export const SETTINGS_SECTIONS: {
     label: "Skills",
     description:
       "Reusable instructions, browser tools, and optional desktop control.",
+  },
+  {
+    id: "prompts",
+    group: "Agents",
+    label: "Prompts",
+    description: "The instructions behind each AI action.",
   },
   {
     id: "browser",

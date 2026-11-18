@@ -1,0 +1,96 @@
+/* The merge line under the message box: the branch's status at the left,
+   its one next step at the right. Grey; colour only on the status word, and
+   on the button for a pull request that is ready. */
+.merge-line {
+  --merge-line-ok: var(--aven-git-add);
+  --merge-line-bad: var(--aven-danger-text, var(--aven-git-del));
+  --merge-line-warn: var(--color-warning, #d99c45);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 6px 4px 0 10px;
+  font-size: var(--text-ui-label);
+  color: var(--aven-muted);
+}
+html.theme-light .merge-line {
+  --merge-line-warn: #a8620c;
+}
+
+.merge-line-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.merge-line-word {
+  overflow: hidden;
+  min-width: 0;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--aven-muted);
+}
+.merge-line-word[data-tone="success"] {
+  color: var(--merge-line-ok);
+}
+.merge-line-word[data-tone="danger"] {
+  color: var(--merge-line-bad);
+}
+.merge-line-word[data-tone="warning"] {
+  color: var(--merge-line-warn);
+}
+
+.merge-line-pr {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--aven-radius-sm);
+  background: transparent;
+  font: inherit;
+  color: var(--aven-muted);
+  cursor: var(--aven-cursor-pointer);
+}
+.merge-line-pr:hover {
+  background: var(--aven-hover);
+  color: var(--color-content);
+}
+
+.merge-line-action {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--aven-line);
+  border-radius: var(--aven-radius-sm);
+  background: var(--aven-control-bg);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--color-content);
+  cursor: var(--aven-cursor-pointer);
+}
+.merge-line-action:hover:enabled {
+  background: var(--aven-control-hover, var(--aven-hover));
+}
+.merge-line-action:disabled {
+  opacity: 0.6;
+}
+/* Ready: the one place the line's colour reaches the button, faintly. */
+.merge-line-action[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--merge-line-ok) 30%, transparent);
+  background: color-mix(in srgb, var(--merge-line-ok) 10%, transparent);
+  color: var(--merge-line-ok);
+}
+.merge-line-action[data-tone="success"]:hover:enabled {
+  background: color-mix(in srgb, var(--merge-line-ok) 16%, transparent);
+}

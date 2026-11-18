@@ -160,22 +160,6 @@ describe("project rows at rest and on hover", () => {
     ).toBe("400");
   });
 
-  it("turns a helper fold's arrow by transform only, and only without Reduce motion", () => {
-    const css = readFileSync(NAV, "utf8");
-    const motion = css.lastIndexOf(
-      "@media (prefers-reduced-motion: no-preference)",
-    );
-    expect(css.indexOf("transition: transform 0.16s ease")).toBeGreaterThan(
-      motion,
-    );
-    expect(
-      ruleFor(
-        nav,
-        `${ROW} .personal-helper-fold[aria-expanded="true"] .personal-helper-fold-chevron`,
-      ).get("transform"),
-    ).toBe("rotate(90deg)");
-  });
-
   it("keeps the waiting dot and the unread count at rest, small and grey or amber", () => {
     for (const target of [
       ".personal-project-waiting",

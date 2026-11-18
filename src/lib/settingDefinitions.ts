@@ -26,6 +26,22 @@ export const SETTINGS = {
     keywords:
       "pull request pr commit push branch finish done review automatic turn off",
   }),
+  promptsGit: defineSetting({
+    section: "prompts",
+    label: "Git prompts",
+    description:
+      "Instructions for pull requests, commits and the merge line's fixes.",
+    keywords:
+      "prompt instruction create pr pull request commit push resolve conflicts fix checks ci investigate blocked review changes requested agent action custom default",
+  }),
+  promptsActions: defineSetting({
+    section: "prompts",
+    label: "Action prompts",
+    description:
+      "Instructions for commit messages, prompt enhancement and review replies.",
+    keywords:
+      "prompt instruction commit message wand enhance improve draft sparkle review replies reply thread custom default",
+  }),
   installedSkills: defineSetting({
     section: "skills",
     label: "Installed skills",
@@ -386,6 +402,22 @@ export const SETTINGS = {
     keywords:
       "orb bot face dots spinner working busy mascot indicator thinking",
     rowDescription: "What the message box shows while an agent works.",
+  }),
+  sidebarStyle: defineSetting({
+    ...defineStoredSetting<"simple" | "tiles">({
+      key: "aven.sidebarStyle",
+      defaultValue: "simple",
+      parse: (raw) => (raw === "tiles" ? "tiles" : "simple"),
+      serialize: (value) => value,
+      changeEvent: "aven:sidebar-style-change",
+      storageChanges: true,
+    }),
+    section: "general",
+    label: "Sidebar style",
+    description:
+      "Show projects as names alone, or with a logo and a New chat button.",
+    keywords: "sidebar projects logo icon tile super compact simple look",
+    rowDescription: "Tiles show each project's logo and a New chat button.",
   }),
   reduceMotion: defineSetting({
     ...defineStoredSetting<boolean>({

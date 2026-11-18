@@ -25,6 +25,7 @@ import {
   suppressTextSelection,
   setDragCursor,
 } from "../lib/drag";
+import { followGrip } from "../lib/gripFollow";
 import {
   defaultPaneMinimum,
   fitLayout,
@@ -2304,6 +2305,7 @@ export function WorkspaceStage({
           aria-valuemax={100}
           aria-valuenow={sash.value}
           style={sashStyle(sash)}
+          onPointerMove={(event) => followGrip(event, sash.dir === "right")}
           onPointerDown={(event) => startResize(event, sash)}
           onDoubleClick={() => {
             // Even out the panes on both sides, opening any collapsed one.

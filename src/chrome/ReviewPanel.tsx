@@ -5,6 +5,7 @@ import {
   type GithubWorkItemComment,
 } from "../lib/githubTasks";
 import { openInAppUrl } from "../lib/inAppLinks";
+import { reviewReplyInstruction } from "../lib/mergeLine";
 import { requestAddToChat } from "../lib/quoteDraft";
 import {
   markReviewSent,
@@ -196,7 +197,13 @@ export function ReviewPanel({
               </section>
             ) : null}
             {openThreads.length > 0 ? (
-              <ThreadSection title="Pull request" threads={openThreads} />
+              <ThreadSection
+                title="Pull request"
+                threads={openThreads}
+                onReply={(thread) =>
+                  requestAddToChat(reviewReplyInstruction(thread), "plain")
+                }
+              />
             ) : null}
           </div>
         )
@@ -294,9 +301,12 @@ function CommentRow({
 function ThreadSection({
   title,
   threads,
+  onReply,
 }: {
   title: string;
   threads: GithubWorkItemComment[];
+  /** Puts the thread in the chat's message box to fix and answer. */
+  onReply?: (thread: GithubWorkItemComment) => void;
 }) {
   return (
     <section aria-label={title}>
@@ -332,6 +342,19 @@ function ThreadSection({
                     : ""}
                 </span>
               </button>
+              {onReply ? (
+                <div className="review-item-actions">
+                  <button
+                    type="button"
+                    className="review-item-send"
+                    onClick={() => onReply(thread)}
+                    title="Put this thread in the chat's message box, asking the agent to fix it and draft a reply"
+                  >
+                    <MessageSquarePlus className="size-3" strokeWidth={1.75} />
+                    Fix and reply
+                  </button>
+                </div>
+              ) : null}
             </li>
           );
         })}

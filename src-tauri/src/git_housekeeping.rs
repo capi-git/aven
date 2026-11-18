@@ -118,6 +118,15 @@ pub struct PrChecks {
     /// Pull request state, lower case: `open`, `merged` or `closed`.
     pub state: String,
     pub checks: Vec<PrCheck>,
+    /// GitHub's merge view, upper case as GitHub sends it: `MERGEABLE`,
+    /// `CONFLICTING` or `UNKNOWN` while it is still working it out.
+    pub mergeable: String,
+    /// `CLEAN`, `DIRTY`, `BLOCKED`, `BEHIND`, `UNSTABLE`, `DRAFT`, … or empty.
+    pub merge_state_status: String,
+    /// `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED` or empty.
+    pub review_decision: String,
+    pub is_draft: bool,
+    pub base_ref_name: String,
 }
 
 /// CI checks reported on a pull request. Read-only; uses the routed account.
@@ -613,7 +622,7 @@ fn pr_checks_for(root: &Path, number: i64) -> Result<PrChecks, String> {
             "view",
             &number.to_string(),
             "--json",
-            "number,url,state,statusCheckRollup",
+            "number,url,state,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,isDraft,baseRefName",
         ],
         false,
     )?;
@@ -629,6 +638,16 @@ struct PrView {
     state: String,
     #[serde(rename = "statusCheckRollup", default)]
     rollup: Option<Vec<RollupItem>>,
+    #[serde(default)]
+    mergeable: Option<String>,
+    #[serde(rename = "mergeStateStatus", default)]
+    merge_state_status: Option<String>,
+    #[serde(rename = "reviewDecision", default)]
+    review_decision: Option<String>,
+    #[serde(rename = "isDraft", default)]
+    is_draft: bool,
+    #[serde(rename = "baseRefName", default)]
+    base_ref_name: Option<String>,
 }
 
 /// A check run (GitHub Actions and apps) or a commit status (older integrations).
@@ -722,11 +741,17 @@ fn parse_pr_checks(json: &str) -> Result<PrChecks, String> {
             }
         })
         .collect();
+    let upper = |value: Option<String>| value.unwrap_or_default().trim().to_uppercase();
     Ok(PrChecks {
         number: view.number,
         url: view.url,
         state: view.state.to_lowercase(),
         checks,
+        mergeable: upper(view.mergeable),
+        merge_state_status: upper(view.merge_state_status),
+        review_decision: upper(view.review_decision),
+        is_draft: view.is_draft,
+        base_ref_name: view.base_ref_name.unwrap_or_default().trim().to_string(),
     })
 }
 
@@ -1592,6 +1617,31 @@ mod tests {
                 .unwrap();
         assert_eq!(checks.state, "merged");
         assert!(checks.checks.is_empty());
+        assert_eq!(checks.mergeable, "");
+        assert_eq!(checks.review_decision, "");
+        assert!(!checks.is_draft);
         assert!(parse_pr_checks("not json").is_err());
+    }
+
+    #[test]
+    fn reads_a_pull_request_merge_state() {
+        let checks = parse_pr_checks(
+            r#"{"number":9,"url":"u","state":"OPEN","statusCheckRollup":[],
+                "mergeable":"CONFLICTING","mergeStateStatus":"dirty",
+                "reviewDecision":"CHANGES_REQUESTED","isDraft":true,"baseRefName":" main "}"#,
+        )
+        .unwrap();
+        assert_eq!(checks.mergeable, "CONFLICTING");
+        assert_eq!(checks.merge_state_status, "DIRTY");
+        assert_eq!(checks.review_decision, "CHANGES_REQUESTED");
+        assert!(checks.is_draft);
+        assert_eq!(checks.base_ref_name, "main");
+        // GitHub sends null for a decision no rule asks for.
+        let none = parse_pr_checks(
+            r#"{"number":9,"url":"u","state":"OPEN","reviewDecision":null,"mergeable":"MERGEABLE"}"#,
+        )
+        .unwrap();
+        assert_eq!(none.review_decision, "");
+        assert_eq!(none.mergeable, "MERGEABLE");
     }
 }

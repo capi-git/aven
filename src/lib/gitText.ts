@@ -1,4 +1,5 @@
 import { limitSection, parseJsonObject, stringField } from "./jsonText";
+import { loadPrompt } from "./prompts";
 
 export type CommitMessage = {
   subject: string;
@@ -15,23 +16,22 @@ export function buildCommitMessagePrompt(input: {
   stagedSummary: string;
   stagedPatch: string;
   includeBranch?: boolean;
+  /** The instruction; Settings › Prompts' "Commit message" by default. */
+  instructions?: string;
 }): string {
   const wantsBranch = input.includeBranch === true;
+  // A custom instruction replaces only this part: the reply format and the
+  // data below are what `parseCommitMessage` relies on.
   return [
-    "You write concise git commit messages.",
+    (input.instructions ?? loadPrompt("commit-message")).trim(),
+    "",
     wantsBranch
       ? "Return a JSON object with keys: subject, body, branch."
       : "Return a JSON object with keys: subject, body.",
     "Do not call tools. Reply with JSON only.",
-    "Rules:",
-    "- subject must be imperative, <= 72 chars, and no trailing period",
-    "- body can be empty string or short bullet points",
     ...(wantsBranch
-      ? [
-          "- branch must be a short semantic git branch fragment for this change",
-        ]
+      ? ["branch must be a short semantic git branch fragment for this change."]
       : []),
-    "- capture the primary user-visible or developer-visible change",
     "",
     `Branch: ${input.branch ?? "(detached)"}`,
     "",
@@ -49,16 +49,14 @@ export function buildPrContentPrompt(input: {
   commitSummary: string;
   diffSummary: string;
   diffPatch: string;
+  /** The instruction; Settings › Prompts' "Create PR" by default. */
+  instructions?: string;
 }): string {
   return [
-    "You write source control change request content.",
+    (input.instructions ?? loadPrompt("create-pr")).trim(),
+    "",
     "Return a JSON object with keys: title, body.",
     "Do not call tools. Reply with JSON only.",
-    "Rules:",
-    "- title should be concise and specific",
-    "- body must be markdown and include headings '## Summary' and '## Testing'",
-    "- under Summary, provide short bullet points",
-    "- under Testing, include bullet points with concrete checks or 'Not run' where appropriate",
     "",
     `Base branch: ${input.baseBranch}`,
     `Head branch: ${input.headBranch}`,

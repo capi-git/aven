@@ -2,16 +2,10 @@ import { useState } from "react";
 import { useMergePath } from "../hooks/useMergePath";
 import { usePrChecks } from "../hooks/usePrChecks";
 import { errorText, logError } from "../lib/errors";
-import {
-  gitPrCreate,
-  gitPush,
-  gitSync,
-  notifyGitChanged,
-  type GitDiffIndex,
-} from "../lib/fs";
+import { notifyGitChanged } from "../lib/fs";
 import { gitPrSquashMerge } from "../lib/gitHousekeeping";
-import { generateCommitMessage, generatePrContent } from "../lib/harness";
 import { openInAppUrl } from "../lib/inAppLinks";
+import { runMergeGitStep } from "../lib/mergeActions";
 import { confirmSquashMerge } from "../lib/prMerge";
 import {
   checkDuration,
@@ -22,7 +16,6 @@ import {
 } from "../lib/mergePath";
 import type { PrCheck } from "../lib/prChecks";
 import type { HarnessId } from "../lib/session";
-import { runShip } from "../lib/shipFlow";
 import { DotSpinner } from "./DotSpinner";
 import { ArrowUp, Check, X } from "./icons";
 import "./MergePath.css";
@@ -89,41 +82,6 @@ function CheckLine({ check }: { check: PrCheck }) {
   );
 }
 
-async function runAction(
-  action: MergeAction | "pull",
-  cwd: string,
-  index: GitDiffIndex,
-  textHarness?: HarnessId,
-) {
-  if (action === "pull" || action === "publish") return gitSync(cwd);
-  if (action === "push") return gitPush(cwd);
-  if (action === "commit-push") {
-    const message = (await generateCommitMessage(cwd, textHarness)).trim();
-    if (!message) throw new Error("Couldn't write the commit message.");
-    // A branch with no upstream yet is published after the commit.
-    await runShip({
-      cwd,
-      message,
-      mode: index.upstream ? "push" : "commit",
-      scope: "all",
-      textHarness,
-      openPr: null,
-    });
-    if (!index.upstream) await gitSync(cwd);
-    return;
-  }
-  const content = await generatePrContent(cwd, textHarness);
-  if (!content) throw new Error("Couldn't prepare the pull request text.");
-  const url = await gitPrCreate(
-    cwd,
-    content.title,
-    content.body,
-    content.base,
-    content.head,
-  );
-  if (url.trim()) void openInAppUrl(url.trim());
-}
-
 /** The Checks tab: where this copy stands on its way to a merge. */
 export function MergePath({ cwd, enabled, textHarness }: Props) {
   const { index, pr, error, nextIn, loading, refresh } = useMergePath(
@@ -153,7 +111,7 @@ export function MergePath({ cwd, enabled, textHarness }: Props) {
     setFailure(null);
     try {
       if (action === "merge") await gitPrSquashMerge(cwd, openPr!.number);
-      else await runAction(action, cwd, index, textHarness);
+      else await runMergeGitStep(action, cwd, index, textHarness);
     } catch (cause) {
       logError(`Checks tab: ${action}`, cause);
       setFailure(errorText(cause));

@@ -82,7 +82,7 @@ import { BrowserMarkup } from "./BrowserMarkup";
 import "./BrowserPane.css";
 import type { Attachment } from "../lib/session";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
-import { ProjectMark } from "../chrome/ProjectMark";
+import { AgentMark } from "../chrome/AgentMark";
 import { IS_MAC, MOD } from "../lib/platform";
 import {
   usePaneHeaderMenuHosted,
@@ -152,7 +152,9 @@ function BrowserProjectMark({
       title={appearance.label}
       data-pane-grab={grab ? "" : undefined}
     >
-      <ProjectMark appearance={appearance} />
+      {/* Grey dots, as agent marks are everywhere; the project's name is its
+          tooltip. */}
+      <AgentMark state="still" className="browser-project-orb" />
     </span>
   );
 }
