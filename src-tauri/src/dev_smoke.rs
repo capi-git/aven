@@ -110,16 +110,16 @@ pub fn dev_smoke_config() -> Option<SmokeConfig> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessSample {
-    pid: i32,
-    ppid: i32,
+    pub(crate) pid: i32,
+    pub(crate) ppid: i32,
     name: String,
     /// User plus system CPU time so far.
-    cpu_ns: u64,
+    pub(crate) cpu_ns: u64,
     /// Wakeups from idle so far (what keeps a quiet app costly).
     idle_wakeups: u64,
     interrupt_wakeups: u64,
     /// Memory footprint, as Activity Monitor reports it.
-    footprint: u64,
+    pub(crate) footprint: u64,
 }
 
 /// CPU time, wakeups and memory for this app and everything it started.
@@ -137,7 +137,7 @@ pub fn dev_perf_sample() -> Result<Vec<ProcessSample>, String> {
 // libc points to the mach2 crate for the clock conversion; not worth a new
 // dependency for a debug-only tool.
 #[allow(deprecated)]
-fn sample_processes() -> Vec<ProcessSample> {
+pub(crate) fn sample_processes() -> Vec<ProcessSample> {
     use std::ffi::c_void;
     let mut timebase = libc::mach_timebase_info { numer: 0, denom: 0 };
     // SAFETY: mach_timebase_info only writes the struct it is given.
@@ -320,7 +320,7 @@ pub fn dev_perf_keep_visible(webview: Webview) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn sample_processes() -> Vec<ProcessSample> {
+pub(crate) fn sample_processes() -> Vec<ProcessSample> {
     Vec::new()
 }
 

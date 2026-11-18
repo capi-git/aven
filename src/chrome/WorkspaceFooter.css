@@ -95,3 +95,99 @@
   padding: 0 7px;
   font-size: var(--text-ui-caption);
 }
+
+/* This chat's spend and context, after a thin line. */
+.workspace-footer-chat {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+.workspace-footer-chat:empty {
+  display: none;
+}
+.workspace-footer-chat::before {
+  content: "";
+  width: 1px;
+  height: 12px;
+  margin: 0 6px 0 2px;
+  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+}
+.workspace-footer-chat:first-child::before {
+  display: none;
+}
+
+.workspace-footer-machine {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+}
+.workspace-footer-machine:empty {
+  display: none;
+}
+
+/* Quiet 24px buttons: no fill at rest, a faint one when pointed at. */
+.workspace-footer .workspace-footer-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--aven-radius-row);
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.workspace-footer .workspace-footer-quiet[data-square] {
+  width: 24px;
+  padding: 0;
+}
+.workspace-footer .workspace-footer-quiet:enabled:hover,
+.workspace-footer .workspace-footer-quiet[data-open] {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+.workspace-footer .workspace-footer-quiet[data-high] {
+  color: var(--color-content);
+}
+
+/* Open in: the app's icon, then a small arrow for the others. */
+.workspace-footer-split {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+}
+.workspace-footer .workspace-footer-split > button {
+  display: grid;
+  place-items: center;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: var(--aven-radius-row);
+  color: color-mix(in srgb, var(--color-content) 62%, transparent);
+}
+.workspace-footer .workspace-footer-split > button:enabled:hover,
+.workspace-footer-split[data-open] > .workspace-footer-split-arrow {
+  color: var(--color-content);
+  background: var(--aven-hover);
+}
+.workspace-footer .workspace-footer-split > .workspace-footer-split-arrow {
+  padding: 0 2px;
+}
+.workspace-footer-split img,
+.workspace-footer-app-blank {
+  width: 16px;
+  height: 16px;
+}
+.hover-card-menu-item .workspace-footer-app-blank {
+  width: 18px;
+  height: 18px;
+}
+.hover-card-menu-item.workspace-footer-menu-plain {
+  padding-left: 36px;
+}

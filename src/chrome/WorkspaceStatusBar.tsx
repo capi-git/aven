@@ -18,6 +18,8 @@ import { Popover } from "./Popover";
 import { useUsagePanelTheme } from "../lib/usagePanel";
 import { ActivityPanel } from "./ActivityPanel";
 import { useActivity } from "../lib/activity";
+import { useHoverCard } from "./HoverCard";
+import { ActivityPeekCard } from "./HoverPeeks";
 import {
   Check,
   ListBullet,
@@ -403,6 +405,8 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
     setMenu(null);
   }, [showingSettings]);
   const queueAnchor = useRef<HTMLButtonElement>(null);
+  // A peek at what's unread; the click still opens all of Activity.
+  const queuePeek = useHoverCard({ disabled: menu !== null });
   const panelTheme = useUsagePanelTheme(menu !== null);
   const dismiss = (
     anchor: { current: HTMLButtonElement | null },
@@ -442,10 +446,11 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
           data-tauri-drag-region="false"
           data-tour="activity"
           aria-label={`Activity: ${summary.label}${unreadActivity ? ` · ${unreadActivity} unread` : ""}`}
-          title={`Activity · ${summary.label}`}
+          title={queuePeek.open ? undefined : `Activity · ${summary.label}`}
           aria-haspopup="dialog"
           aria-expanded={menu === "queue"}
           onClick={() => setMenu(menu === "queue" ? null : "queue")}
+          {...queuePeek.triggerProps}
         >
           {/* Only Activity's state: the chat in front shows its agent in its
             tab and the message box's agent pill, not again here. */}
@@ -518,6 +523,12 @@ export const WorkspaceStatusBar = memo(function WorkspaceStatusBar({
       </div>
       {!IS_MAC ? <WindowControls /> : null}
 
+      <ActivityPeekCard
+        state={queuePeek}
+        anchor={queueAnchor}
+        entries={activity}
+        summary={summary.label}
+      />
       {menu === "queue" ? (
         <Popover
           anchor={queueAnchor}

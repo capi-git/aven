@@ -31,9 +31,13 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
-const snapshot = () => current;
+/** The card open now, for tests and for callers that peek without a hook. */
+export const openHoverCardId = () => current;
 
 export type HoverCardMode = "hover" | "pinned";
+
+/** What a card reads from a pointer event: React's or the DOM's. */
+export type HoverPointer = Pick<PointerEvent, "pointerType" | "buttons">;
 
 export type HoverCardState = {
   open: boolean;
@@ -41,8 +45,8 @@ export type HoverCardState = {
   mode: HoverCardMode;
   /** Spread on the trigger. */
   triggerProps: {
-    onPointerEnter: (event: React.PointerEvent) => void;
-    onPointerLeave: (event: React.PointerEvent) => void;
+    onPointerEnter: (event: HoverPointer) => void;
+    onPointerLeave: (event: HoverPointer) => void;
   };
   /** Spread on the card body so moving onto it keeps it open. */
   cardProps: {
@@ -66,7 +70,10 @@ export function useHoverCard({
   openDelay = HOVER_CARD_OPEN_MS,
 }: { disabled?: boolean; openDelay?: number } = {}): HoverCardState {
   const id = useId();
-  const active = useSyncExternalStore(subscribe, snapshot, snapshot) === id;
+  // Each card reads only whether it is the open one, so opening a card
+  // renders the two cards that change, not every trigger in a long list.
+  const isOpen = useCallback(() => current === id, [id]);
+  const active = useSyncExternalStore(subscribe, isOpen, isOpen);
   const [mode, setMode] = useState<HoverCardMode>("hover");
   const openTimer = useRef<number | null>(null);
   const closeTimer = useRef<number | null>(null);
@@ -111,8 +118,10 @@ export function useHoverCard({
   }, []);
 
   const onPointerEnter = useCallback(
-    (event: React.PointerEvent) => {
-      if (disabled || event.pointerType !== "mouse") return;
+    (event: HoverPointer) => {
+      // Only a mouse at rest: a button held down means a drag or a press.
+      if (disabled || event.pointerType !== "mouse" || event.buttons !== 0)
+        return;
       cancelClose();
       if (current === id || openTimer.current != null) return;
       const delay = current ? HOVER_CARD_SWITCH_MS : openDelay;
@@ -126,7 +135,7 @@ export function useHoverCard({
   );
 
   const onPointerLeave = useCallback(
-    (event: React.PointerEvent) => {
+    (event: HoverPointer) => {
       if (event.pointerType !== "mouse") return;
       scheduleClose();
     },

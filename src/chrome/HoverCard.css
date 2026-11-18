@@ -26,6 +26,9 @@
   font-weight: 600;
   line-height: 1.3;
 }
+.hover-card-title[data-size="small"] {
+  font-size: var(--text-ui-body);
+}
 .hover-card-title > :first-child {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -70,6 +73,9 @@
 .hover-card-live > :last-child {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.hover-card-live > .dot-mark {
+  flex: none;
 }
 
 .hover-card-heading {
@@ -192,7 +198,7 @@
   font-size: var(--text-ui-label);
 }
 .hover-card-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-content) 14%, transparent);
+  background: var(--aven-control-hover);
 }
 .hover-card-button:disabled {
   opacity: 0.5;
@@ -235,7 +241,7 @@
 }
 .hover-card-menu-item:hover,
 .hover-card-menu-item:focus-visible {
-  background: color-mix(in srgb, var(--color-content) 9%, transparent);
+  background: var(--aven-selected);
   outline: none;
 }
 .hover-card-menu-item img {

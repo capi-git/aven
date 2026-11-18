@@ -78,6 +78,7 @@ import {
   sessionPermissions,
 } from "./sessionPermissions";
 import { snapshotRemainder } from "./streamText";
+import { recordClaudeCost } from "../chatCost";
 import {
   questionPromptTitle,
   questionsFromUnknown,
@@ -197,6 +198,10 @@ type Live = {
   emittedReasoning: string;
   manualCompaction: boolean;
   compactionConfirmed: boolean;
+  /** Aven's chat id, for what its turns cost. */
+  chatId: string;
+  /** The running cost total this CLI process last reported. */
+  costUsd?: number;
 };
 
 type Resume = {
@@ -555,6 +560,7 @@ async function ensureLive(input: HarnessSessionInput): Promise<Live> {
   );
 
   const live: Live = {
+    chatId: input.sessionId,
     cwd: input.cwd,
     claudeSessionId,
     runtimeMode: effectiveRuntimeMode(input),
@@ -1140,6 +1146,11 @@ function handleResult(live: Live, rec: Record<string, unknown>): void {
     live.onEvent({ type: "turn.waiting", clear: ["usageLimit"] });
     return;
   }
+  live.costUsd = recordClaudeCost(
+    live.chatId,
+    rec.total_cost_usd,
+    live.costUsd,
+  );
   // A /compact result reports the summarizer call's usage, not the rebuilt
   // conversation level. The next real turn will provide the fresh reading.
   if (!live.manualCompaction) {

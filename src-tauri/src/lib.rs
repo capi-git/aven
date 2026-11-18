@@ -46,6 +46,7 @@ mod dictation;
 mod display_rate;
 mod feature_cards;
 mod floating_sidebar;
+mod footer_tools;
 mod fs;
 mod git;
 mod git_housekeeping;
@@ -619,6 +620,9 @@ pub fn run() {
             fs::copy_path,
             fs::move_path,
             fs::reveal_path,
+            footer_tools::machine_stats,
+            footer_tools::open_in_apps,
+            footer_tools::open_in_app,
             agent_files::agent_files_folder,
             agent_files::agent_file_download,
             agent_files::agent_download_open,

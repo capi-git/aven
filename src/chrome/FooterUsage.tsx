@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useProviderUsage } from "../hooks/useProviderUsage";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { OPEN_USAGE_EVENT } from "../lib/composerHelm";
-import { contextPercent, formatTokens } from "../lib/contextUsage";
 import {
   formatUsagePercent,
   idleRateLimits,
@@ -18,7 +17,6 @@ import {
 } from "../lib/usageForecast";
 import {
   closestUsageReading,
-  contextMeterTitle,
   usageMeterFill,
   usageMeterTitle,
   usageReadings,
@@ -35,21 +33,7 @@ import "./FooterUsage.css";
 export type FooterUsageProps = {
   /** Accounts that can report usage; the footer and panel show each one. */
   providers: readonly RateLimitProvider[];
-  /** The open task's reported context, if any. */
-  context?: { used: number; window?: number | null } | null;
 };
-
-function validContext(context: FooterUsageProps["context"]) {
-  if (!context || !Number.isFinite(context.used) || context.used < 0)
-    return null;
-  const window =
-    context.window != null &&
-    Number.isFinite(context.window) &&
-    context.window > 0
-      ? context.window
-      : undefined;
-  return { used: context.used, window };
-}
 
 /** Windows whose limit comes before their reset at the current pace. */
 function accountForecasts(
@@ -65,7 +49,7 @@ function accountForecasts(
 /** A fixed order, so the footer does not reshuffle as tasks change. */
 const FOOTER_ORDER: readonly RateLimitProvider[] = ["claude", "codex"];
 
-/** A small bar: the same mark for the chat's context and each account. */
+/** A small bar: each account's closest limit. */
 function UsageMeter({
   fill,
   warning = false,
@@ -103,7 +87,7 @@ function UsagePercent({ text, value }: { text: string; value?: number }) {
  * it is closest to, with every window and forecast in plain words on hover
  * and the full details on click.
  */
-export function FooterUsage({ providers, context }: FooterUsageProps) {
+export function FooterUsage({ providers }: FooterUsageProps) {
   const { limits, request } = useProviderUsage(providers);
   // Changes only when usage is checked, never while an agent streams.
   const forecasts = useUsageForecasts();
@@ -125,10 +109,10 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
   }, [open, providers, request]);
 
   const theme = useUsagePanelTheme(open);
-  const taskContext = validContext(context);
+  // This chat's context has its own button beside this one: said once.
   const snapshot = useMemo<UsagePanelSnapshot>(
     () => ({
-      context: taskContext,
+      context: null,
       costUsd: null,
       providers: providers.map(
         (provider) => limits[provider] ?? idleRateLimits(provider),
@@ -141,15 +125,7 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
       ),
       theme,
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      taskContext?.used,
-      taskContext?.window,
-      limits,
-      providers,
-      theme,
-      forecasts,
-    ],
+    [limits, providers, theme, forecasts],
   );
 
   // An account that is not installed or signed in stays out of the footer;
@@ -159,23 +135,16 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
   )
     .map((provider) => limits[provider] ?? idleRateLimits(provider))
     .filter((account) => account.status !== "unavailable");
-  const contextShare = contextPercent(taskContext ?? undefined);
-  const contextLabel = taskContext
-    ? contextShare != null
-      ? `${contextShare}%`
-      : formatTokens(taskContext.used)
-    : null;
   const refreshing = providers.some(
     (provider) => limits[provider]?.status === "fetching",
   );
-  if (!accounts.length && !contextLabel) return null;
+  if (!accounts.length) return null;
   const outlooks = new Map(
     accounts.map((account) => [
       account.provider,
       accountForecasts(forecasts.providers[account.provider], now),
     ]),
   );
-  const contextTitle = taskContext ? contextMeterTitle(taskContext) : null;
   const titles = new Map(
     accounts.map((account) => [
       account.provider,
@@ -183,7 +152,7 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
     ]),
   );
   // The same plain words as the hover text, read as sentences.
-  const label = [contextTitle, ...titles.values()]
+  const label = [...titles.values()]
     .flatMap((title) => title?.split("\n") ?? [])
     .map((line) => line.replace(/\.$/, ""))
     .join(". ");
@@ -200,19 +169,6 @@ export function FooterUsage({ providers, context }: FooterUsageProps) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        {contextLabel ? (
-          <span
-            className="footer-usage-context"
-            title={contextTitle ?? undefined}
-          >
-            <span className="footer-usage-muted">Context</span>
-            <UsageMeter fill={contextShare} />
-            <UsagePercent
-              text={contextLabel}
-              value={contextShare ?? taskContext?.used}
-            />
-          </span>
-        ) : null}
         {accounts.map((account) => {
           const closest = closestUsageReading(account);
           const warning = (outlooks.get(account.provider) ?? []).some(
