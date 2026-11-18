@@ -98,10 +98,10 @@ export function chatReferenceParts(
   for (const match of text.matchAll(CHAT_MENTION)) {
     const start = match.index! + match[1]!.length;
     let label = match[2]!;
-    let chat = resolveChatLabel(label);
+    let chat = resolveChatLabel(label, cwd);
     if (!chat) {
       label = label.replace(CHAT_TRAILING, "");
-      chat = resolveChatLabel(label);
+      chat = resolveChatLabel(label, cwd);
     }
     if (!chat) continue;
     const end = start + 1 + label.length;
