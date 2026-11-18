@@ -302,7 +302,7 @@ describe("native preview lifecycle", () => {
     ).toBeUndefined();
   });
 
-  it("names its project with the project's mark beside the address", async () => {
+  it("names its project with grey dots beside the address", async () => {
     const data = new Map([
       [
         "monocode:tab-group:labels",
@@ -326,7 +326,12 @@ describe("native preview lifecycle", () => {
     );
     expect(mark?.title).toBe("Aven");
     expect(mark?.getAttribute("aria-label")).toBe("Project Aven");
-    expect(mark?.querySelector(".project-mark svg")).not.toBeNull();
+    // Grey dots, as every agent mark: no project colour or folder.
+    expect(mark?.querySelector(".agent-mark .thinking-orb")).not.toBeNull();
+    expect(mark?.querySelector(".agent-mark")?.hasAttribute("data-tone")).toBe(
+      false,
+    );
+    expect(mark?.querySelector(".project-mark")).toBeNull();
     // The mark sits just before the address field.
     expect(
       mark?.nextElementSibling?.classList.contains("browser-address"),

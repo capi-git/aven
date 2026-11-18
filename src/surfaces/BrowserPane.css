@@ -141,6 +141,10 @@
   width: 20px;
   height: 28px;
 }
+.browser-project-mark .dot-mark.browser-project-orb {
+  width: 14px;
+  height: 14px;
+}
 .browser-address {
   width: 0;
   flex: 1 1 0;
