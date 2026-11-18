@@ -574,6 +574,10 @@ function Sash({
     .slice(0, sash.index)
     .reduce((sum, size) => sum + size, 0);
   const after = before + sash.sizes[sash.index] + sash.sizes[sash.index + 1];
+  // Ends a drag in progress, once, however it ends: the resize cursor and
+  // the selection lock never outlive it, even if the divider goes.
+  const stopDrag = useRef<((commit: boolean) => void) | null>(null);
+  useEffect(() => () => stopDrag.current?.(false), []);
 
   return (
     <div
@@ -615,6 +619,7 @@ function Sash({
           const handle = e.currentTarget;
           const parent = containerRef.current;
           if (!parent) return;
+          stopDrag.current?.(false);
           handle.setPointerCapture(e.pointerId);
           // In the viewport's pixels, as the pointer is, on either WebKit
           // (older WebKit reports a CSS-zoomed element's rects divided by
@@ -659,18 +664,27 @@ function Sash({
               onPreview(nextBoundary);
             });
           };
+          let finished = false;
           const finish = (commit: boolean) => {
+            if (finished) return;
+            finished = true;
+            if (stopDrag.current === finish) stopDrag.current = null;
             if (frame != null) {
               cancelAnimationFrame(frame);
               frame = null;
             }
-            if (handle.hasPointerCapture(e.pointerId)) {
-              handle.releasePointerCapture(e.pointerId);
-            }
             handle.removeEventListener("pointermove", move);
             handle.removeEventListener("pointerup", up);
             handle.removeEventListener("pointercancel", cancel);
+            handle.removeEventListener("lostpointercapture", cancel);
+            window.removeEventListener("blur", cancel);
             window.removeEventListener("keydown", keydown);
+            try {
+              if (handle.hasPointerCapture(e.pointerId))
+                handle.releasePointerCapture(e.pointerId);
+            } catch {
+              /* Already released. */
+            }
             restoreSelection();
             setDragCursor(null);
             if (!moved) return;
@@ -687,7 +701,12 @@ function Sash({
           handle.addEventListener("pointermove", move);
           handle.addEventListener("pointerup", up);
           handle.addEventListener("pointercancel", cancel);
+          // Capture taken away, or the window left mid-drag: no pointerup
+          // will come, so the drag ends here as a cancel.
+          handle.addEventListener("lostpointercapture", cancel);
+          window.addEventListener("blur", cancel);
           window.addEventListener("keydown", keydown);
+          stopDrag.current = finish;
         }}
         // Even out the two panes beside it.
         onDoubleClick={() => onCommit((before + after) / 2)}
