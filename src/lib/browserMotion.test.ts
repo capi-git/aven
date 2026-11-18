@@ -8,6 +8,7 @@ import {
   registerMotionPage,
   releaseMotionPages,
   releaseMotionPagesAfter,
+  releaseMotionPagesWhen,
   resetMotionPages,
   type MotionPage,
 } from "./browserMotion";
@@ -217,5 +218,45 @@ describe("browser pages in motions", () => {
     unregister();
     expect(lastMotionImage("web")).toBeUndefined();
     expect(await holdMotionPages(["web"])).toEqual([]);
+  });
+
+  it("asks for a picture at the page's own size when the motion keeps sizes", async () => {
+    const sizes: (boolean | undefined)[] = [];
+    registerMotionPage("web", {
+      capture: async () => "data:web",
+      hold: async (_src, _wanted, keepSize) => {
+        sizes.push(keepSize);
+        return true;
+      },
+      release: async () => undefined,
+    });
+    releaseMotionPages(await holdMotionPages(["web"]));
+    releaseMotionPages(
+      await holdMotionPages(["web"], [], undefined, { keepSize: true }),
+    );
+    expect(sizes).toEqual([false, true]);
+  });
+
+  it("lets pages go when their release is called back, unless a later motion took them", async () => {
+    const web = fakePage(async () => "data:web");
+    registerMotionPage("web", web.page);
+    let release!: () => void;
+    releaseMotionPagesWhen(await holdMotionPages(["web"]), (go) => {
+      release = go;
+    });
+    expect(web.log).toEqual(["hold data:web"]);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(web.log).toEqual(["hold data:web", "release"]);
+
+    let first!: () => void;
+    releaseMotionPagesWhen(await holdMotionPages(["web"]), (go) => {
+      first = go;
+    });
+    const second = await holdMotionPages(["web"]);
+    first();
+    expect(web.log.filter((line) => line === "release")).toHaveLength(1);
+    releaseMotionPages(second);
+    expect(web.log.filter((line) => line === "release")).toHaveLength(2);
   });
 });

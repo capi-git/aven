@@ -53,6 +53,7 @@ import { errorText } from "../lib/errors";
 import { resolveClaudeBinary } from "../lib/harness/child";
 import { IS_MAC } from "../lib/platform";
 import { sameProjectPath } from "../lib/recents";
+import { sidePanelOpen } from "../lib/sidePanel";
 import type { Session } from "../lib/session";
 
 /** What the speed test needs from the workspace; see `useDevSmoke`. */
@@ -653,6 +654,24 @@ export async function runDevPerf(
       }
     });
 
+    // The side panel shown and hidden from its shortcut, with time after each
+    // for its slide and the reads it starts once the slide ends.
+    const sidePanelToggles = async (measure: Measure, rounds = 16) => {
+      for (let index = 0; index < rounds; index += 1) {
+        const before = sidePanelOpen();
+        measure.mark(before ? "hide" : "show");
+        await measure.time(
+          () => pressShortcut("b", true),
+          () => sidePanelOpen() !== before,
+        );
+        await pause(400);
+      }
+    };
+
+    await scenario("side panel show and hide", (measure) =>
+      sidePanelToggles(measure),
+    );
+
     // The hover sidebar as a person opens it: the pointer rests on the
     // window's edge, the card slides out, the pointer leaves, it slides back.
     const hoverSidebarSlides = async (measure: Measure, rounds = 10) => {
@@ -923,6 +942,18 @@ export async function runDevPerf(
               await pause(150);
             }
           }
+        },
+      );
+      // Beside a web page the page, a native view, must make room for the
+      // panel: a picture of it stands in while the panel slides in.
+      await scenario(
+        "side panel show and hide beside a web page",
+        async (measure) => {
+          pressShortcut("9");
+          await pause(1_000);
+          if (!document.querySelector("[data-browser-pane]"))
+            throw new Error("No web page in front");
+          await sidePanelToggles(measure);
         },
       );
       await scenario("hover sidebar over a web page", async (measure) => {

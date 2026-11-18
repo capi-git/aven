@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   listCachedDir,
   notifyDirsChanged,
+  refreshDir,
   saveExpanded,
 } from "../lib/fileTree";
 import { notifyGitChanged, type FsEntry } from "../lib/fs";
@@ -91,8 +92,7 @@ describe("FileTree render isolation", () => {
   it("does not read directories when initially disabled", async () => {
     const folder = { ...file("src"), isDir: true };
     directories.set(cwd, [folder]);
-    notifyDirsChanged();
-    await listCachedDir(cwd);
+    await refreshDir(cwd);
     saveExpanded(cwd, new Set([cwd, folder.path]));
     props = { ...props, enabled: false };
     vi.mocked(invoke).mockClear();

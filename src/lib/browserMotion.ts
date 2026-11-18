@@ -25,9 +25,15 @@ export type MotionPage = {
   capture(): Promise<string | null>;
   /**
    * Put the picture in the page's place and hide the live page, unless the
-   * motion has stopped waiting for it (`wanted`) by then.
+   * motion has stopped waiting for it (`wanted`) by then. The picture
+   * stretches with its pane, or with `keepSize` stays the size the page is
+   * now, pinned to the pane's top left corner.
    */
-  hold(src: string, wanted: () => boolean): Promise<boolean>;
+  hold(
+    src: string,
+    wanted: () => boolean,
+    keepSize?: boolean,
+  ): Promise<boolean>;
   /** Show the live page at its final bounds, then drop the picture. */
   release(): Promise<void>;
 };
@@ -92,12 +98,16 @@ export async function refreshMotionImages(ids: readonly string[]) {
  * Hold pages still for a motion: `live` pages are captured now, `incoming`
  * pages (not showing yet) use their last image. A page a motion still holds
  * stays held for this one, on the picture it has. Resolves with the pages
- * held by the deadline; any finishing later are let go at once.
+ * held by the deadline; any finishing later are let go at once. With
+ * `keepSize` each picture keeps the page's present size instead of
+ * stretching with its pane: a panel sliding in over the pane's edge then
+ * covers part of the picture, as it would the page.
  */
 export async function holdMotionPages(
   live: readonly string[],
   incoming: readonly string[] = [],
   deadline = MOTION_CAPTURE_DEADLINE_MS,
+  { keepSize = false }: { keepSize?: boolean } = {},
 ): Promise<string[]> {
   const hold = ++lastHold;
   const held: string[] = [];
@@ -111,7 +121,7 @@ export async function holdMotionPages(
   }
   const free = (id: string) => !taken.includes(id);
   const keep = async (id: string, page: MotionPage, src: string) => {
-    const ok = await page.hold(src, () => open).catch(() => false);
+    const ok = await page.hold(src, () => open, keepSize).catch(() => false);
     if (!ok) return;
     if (!open) {
       void page.release();
@@ -154,13 +164,24 @@ export const MOTION_RELEASE_SLACK_MS = 30;
 
 /** Hand held pages back live once a motion of `ms` has run. */
 export function releaseMotionPagesAfter(ids: readonly string[], ms: number) {
+  releaseMotionPagesWhen(ids, (release) =>
+    setTimeout(release, ms + MOTION_RELEASE_SLACK_MS),
+  );
+}
+
+/**
+ * Hand held pages back live when `schedule` calls back, such as when a
+ * transition ends.
+ */
+export function releaseMotionPagesWhen(
+  ids: readonly string[],
+  schedule: (release: () => void) => void,
+) {
   if (!ids.length) return;
   const heldFor = ids.map((id) => holds.get(id));
-  setTimeout(
-    () =>
-      // One that a later motion took over is that motion's to let go.
-      releaseMotionPages(ids.filter((id, at) => holds.get(id) === heldFor[at])),
-    ms + MOTION_RELEASE_SLACK_MS,
+  schedule(() =>
+    // One that a later motion took over is that motion's to let go.
+    releaseMotionPages(ids.filter((id, at) => holds.get(id) === heldFor[at])),
   );
 }
 

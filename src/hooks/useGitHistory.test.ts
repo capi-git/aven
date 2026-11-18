@@ -89,6 +89,18 @@ describe("useGitHistory", () => {
     expect(seen.graph).toBe(before);
   });
 
+  it("reuses rows read moments ago when shown again, until Git changes", async () => {
+    const cwd = `/shared-${++sequence}`;
+    await render(cwd);
+    await render(cwd, false);
+    await render(cwd);
+    expect(mocks.history).toHaveBeenCalledOnce();
+    await render(cwd, false);
+    await act(async () => notifyGitChanged(cwd));
+    await render(cwd);
+    expect(mocks.history).toHaveBeenCalledTimes(2);
+  });
+
   it("finds HEAD by flag or by sha", () => {
     expect(
       headCommit({ commits: [commit("x")], head: "x", loaded: true })?.sha,

@@ -6,6 +6,7 @@ import {
   type GitDiffStats,
 } from "../lib/fs";
 import { projectKey } from "../lib/paths";
+import { afterSidePanelOpens } from "../lib/sidePanel";
 
 type Entry = {
   cwd: string;
@@ -20,6 +21,8 @@ type Entry = {
   /** When stats were last published; 0 means they must be reloaded. */
   loadedAt: number;
   timer: ReturnType<typeof setTimeout> | null;
+  /** A foreground read waiting for the side panel's slide to end. */
+  cancelShownRead: (() => void) | null;
 };
 
 const entries = new Map<string, Entry>();
@@ -54,6 +57,7 @@ function entryFor(cwd: string): Entry {
     epoch: 0,
     loadedAt: 0,
     timer: null,
+    cancelShownRead: null,
   };
   entries.set(cwd, entry);
   return entry;
@@ -190,17 +194,27 @@ function attach(entry: Entry, listener: () => void, foreground: boolean) {
   entry.listeners.add(listener);
   if (foreground) entry.foreground += 1;
   if (entry.inFlight || !stale(entry)) return;
-  if (foreground && entry.foreground === 1) request(entry, 0);
-  else if (first) request(entry, BACKGROUND_START_MS);
+  if (foreground && entry.foreground === 1) {
+    // Shown in the side panel, it reads once the panel has slid in.
+    entry.cancelShownRead = afterSidePanelOpens(() => {
+      entry.cancelShownRead = null;
+      if (entry.foreground > 0 && !entry.inFlight && stale(entry))
+        request(entry, 0);
+    });
+  } else if (first) request(entry, BACKGROUND_START_MS);
 }
 
 function detach(entry: Entry, listener: () => void, foreground: boolean) {
   entry.listeners.delete(listener);
   if (foreground) {
     entry.foreground -= 1;
-    // A reopened diff pane or badge must not trust stats from before it
-    // closed: changes made outside Aven are only seen by reading.
-    if (entry.foreground === 0) entry.loadedAt = 0;
+    // A diff pane or badge shown again soon trusts its stats: a Git change
+    // reported meanwhile marks them stale (`onGitChanged`), and changes
+    // made outside Aven are read once they are older than RESUME_TTL_MS.
+    if (entry.foreground === 0) {
+      entry.cancelShownRead?.();
+      entry.cancelShownRead = null;
+    }
   }
   if (entry.listeners.size > 0) return;
   entry.pending = false;
