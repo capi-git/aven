@@ -506,8 +506,9 @@ html.has-chat-background:not(.chat-background-empty-only)
 }
 
 /* The gap between two panes is the divider: nothing is drawn in it at rest.
-   Pointed at or dragged, a small grip shows in the middle of the gap, as in
-   Super Engineering. */
+   Pointed at or dragged, a small grip shows in the gap where the pointer is,
+   as in Super Engineering (--aven-grip-at, gripFollow.ts), clear of the ends.
+   Before the pointer comes, it sits in the middle. */
 .aven-pane-seam::before,
 .workspace-stage-sash::before {
   content: "";
@@ -524,14 +525,14 @@ html.has-chat-background:not(.chat-background-empty-only)
 .aven-pane-seam[data-direction="right"]::before,
 .workspace-stage-sash[data-direction="right"]::before {
   left: 50%;
-  top: 50%;
+  top: clamp(18px, var(--aven-grip-at, 50%), calc(100% - 18px));
   width: 5px;
   height: 28px;
   transform: translate(-50%, -50%);
 }
 .aven-pane-seam[data-direction="down"]::before,
 .workspace-stage-sash[data-direction="down"]::before {
-  left: 50%;
+  left: clamp(18px, var(--aven-grip-at, 50%), calc(100% - 18px));
   top: 50%;
   width: 28px;
   height: 5px;

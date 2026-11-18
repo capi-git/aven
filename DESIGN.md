@@ -42,7 +42,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 - Corners: use the `--aven-radius-*` tokens. Rows and controls are 6px, cards 10px, sheets 12px.
 - Each pane is its own card, as in Super Engineering: 10px corners, a faint edge, and 6px between it and the next pane or the project terminal. The gap is the divider; nothing is drawn in it. Settings sits in one card. There is no Home page: with nothing open, Aven opens a new chat. With a chat background the cards stay clear so the picture shows through.
 - A web page has the same corners as any other pane in its place: its lower corners take its card's inner curve.
-- A split tab has no line between its panes: each pane is its own card, 6px from the next, as two tabs side by side are. Pointed at or dragged, the gap shows a small grip in its middle, as in Super Engineering, and nothing else. Only keyboard focus draws a line on it.
+- A split tab has no line between its panes: each pane is its own card, 6px from the next, as two tabs side by side are. Pointed at or dragged, the gap shows a small grip where the pointer is along it, as in Super Engineering, and nothing else. The grip stays clear of the ends. A docked sidebar's or side panel's edge shows the same grip; a floating sidebar's edge shows only the cursor. Only keyboard focus draws a line on it.
 - Use at most one hairline per header. Rows in a list or card are split by a hairline, not by gaps and boxes.
 - Line a section heading up with the edge of its card, and a page title with the same edge.
 - Don't nest a card inside a card, or a tile inside a tile. That includes the app icon: macOS draws its one tile.
