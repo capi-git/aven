@@ -764,7 +764,7 @@ import {
   probeNotificationPermission,
   setWindowFocused,
 } from "./lib/notifications";
-import { playCue } from "./lib/sounds";
+import { playAlertSound } from "./lib/sounds";
 import { archiveFocusedSession } from "./lib/archiveShortcut";
 import {
   adjacentItemId,
@@ -3101,7 +3101,7 @@ export default function App({
         presentation.visible,
         presentation.focused,
       ).then((result) => {
-        if (result.playSound) playCue("turnFinished");
+        if (result.sound) playAlertSound(result.sound);
       });
     },
     [activityPresentation],

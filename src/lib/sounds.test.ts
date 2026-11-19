@@ -77,10 +77,8 @@ describe("sounds", () => {
   });
 
   it("plays the mapped cue when enabled", () => {
-    playCue("turnFinished");
-    expect(setVolume).toHaveBeenCalledWith(SOUNDS_VOLUME);
-    expect(play).toHaveBeenCalledWith("success");
     playCue("inboxUnseen");
+    expect(setVolume).toHaveBeenCalledWith(SOUNDS_VOLUME);
     expect(play).toHaveBeenCalledWith("bloom");
     playCue("updateAvailable");
     expect(play).toHaveBeenCalledWith("arrival");
@@ -93,7 +91,7 @@ describe("sounds", () => {
   it("is silent when muted", () => {
     saveSoundsEnabled(false);
     play.mockClear();
-    playCue("turnFinished");
+    playCue("copy");
     expect(play).not.toHaveBeenCalled();
   });
 
