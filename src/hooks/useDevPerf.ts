@@ -93,6 +93,11 @@ type PerfSettings = {
   record?: string;
   /** A second project, put in the Work workspace for the swipe scenario. */
   workProjectPath?: string;
+  /**
+   * A Git project on a branch of its own, with dozens of commits and changed
+   * files, for switching the side panel's tabs.
+   */
+  panelProjectPath?: string;
 };
 
 export type ScenarioResult = {
@@ -100,6 +105,8 @@ export type ScenarioResult = {
   wallMs: number;
   /** Input to the next painted frame, ms. */
   interactions?: Spread;
+  /** The same, by the step each input was labelled with (which tab, say). */
+  interactionsBy?: Record<string, Spread>;
   /**
    * Where that time went, for changes that land in the input's own task:
    * script (React render, commit and effects), style and layout, and the
@@ -139,6 +146,8 @@ type Measure = {
     action: () => unknown,
     until?: () => unknown,
     timeoutMs?: number,
+    /** Groups this input's time with others of the same step. */
+    label?: string,
   ) => Promise<number>;
 };
 
@@ -270,6 +279,7 @@ export async function runDevPerf(
     const frames = options.frames === false ? null : recordFrames(refreshMs);
     const longTasks = recordLongTasks();
     const latencies: number[] = [];
+    const latenciesBy = new Map<string, number[]>();
     const phases = {
       script: [] as number[],
       styleLayout: [] as number[],
@@ -295,7 +305,7 @@ export async function runDevPerf(
     try {
       await body({
         mark: (label, at) => frames?.mark(label, at),
-        time: async (action, until, timeoutMs = 5_000) => {
+        time: async (action, until, timeoutMs = 5_000, label) => {
           const begin = performance.now();
           await action();
           // React renders discrete input in a microtask; let it finish.
@@ -314,6 +324,11 @@ export async function runDevPerf(
           const painted = await nextPaint();
           const elapsed = painted - begin;
           latencies.push(elapsed);
+          if (label) {
+            const list = latenciesBy.get(label) ?? [];
+            list.push(elapsed);
+            latenciesBy.set(label, list);
+          }
           if (immediate) {
             phases.script.push(scripted - begin);
             phases.styleLayout.push(laidOut - scripted);
@@ -341,6 +356,13 @@ export async function runDevPerf(
       name,
       wallMs,
       ...(latencies.length ? { interactions: spread(latencies) } : {}),
+      ...(latenciesBy.size
+        ? {
+            interactionsBy: Object.fromEntries(
+              [...latenciesBy].map(([label, list]) => [label, spread(list)]),
+            ),
+          }
+        : {}),
       ...(phases.script.length
         ? {
             breakdown: {
@@ -1406,6 +1428,103 @@ export async function runDevPerf(
         // Right first, as the scenario above: the panes narrow, then widen.
         await dragBackAndForth(measure, edge, 1, 90);
       });
+    }
+    // The side panel's tabs clicked in turn with the test mouse, as a hand
+    // does (the pointer rests on the tab first), on a Git project with a
+    // branch of its own, dozens of commits and changed files. Every tab has
+    // been shown once before, so this is the switch people make all day:
+    // back to a tab that stayed mounted while hidden.
+    const panelTabsName = "switching side panel tabs";
+    if (settings.panelProjectPath && wanted(panelTabsName)) {
+      const panelProject = settings.panelProjectPath;
+      try {
+        const known = new Set(get().sessions.map((session) => session.id));
+        get().newProjectTask(panelProject);
+        await waitFor(
+          () =>
+            get().sessions.find(
+              (candidate) =>
+                !known.has(candidate.id) &&
+                sameProjectPath(candidate.cwd, panelProject),
+            ),
+          10_000,
+          "a chat in the Git project",
+        );
+        if (!sidePanelOpen()) {
+          pressShortcut("b", true);
+          await waitFor(() => sidePanelOpen(), 5_000, "the side panel");
+        }
+        await pause(600);
+        const panel = () =>
+          [
+            ...document.querySelectorAll<HTMLElement>(".workspace-inspector"),
+          ].find(
+            (element) =>
+              element.getClientRects().length > 0 &&
+              !element.closest("[inert]"),
+          );
+        const tabButton = (tab: string) =>
+          panel()?.querySelector<HTMLButtonElement>(
+            `[data-inspector-tab="${tab}"]`,
+          ) ?? null;
+        const shows = (tab: string) =>
+          tabButton(tab)?.getAttribute("aria-selected") === "true" &&
+          [
+            ...(panel()?.querySelector(".workspace-inspector-content")
+              ?.children ?? []),
+          ].some((child) => child.getClientRects().length > 0);
+        const click = async (tab: string, measure?: Measure) => {
+          const button = await waitFor(
+            () => tabButton(tab),
+            5_000,
+            `the ${tab} tab`,
+          );
+          await smokeMouse("move", pressPoint(button), { settle: false });
+          await pause(150);
+          const at = pressPoint(tabButton(tab) ?? button);
+          await smokeMouse("down", at, { settle: false });
+          const up = () => smokeMouse("up", at, { settle: false });
+          if (measure) {
+            measure.mark(tab);
+            await measure.time(up, () => shows(tab), 3_000, tab);
+          } else {
+            await up();
+            await waitFor(() => shows(tab), 3_000, `the ${tab} tab to show`);
+          }
+        };
+        // Show each tab once, and wait for Changes to list the project's
+        // files and commits, so every tab below is one already mounted.
+        const order = ["files", "changes", "review", "checks"];
+        for (const tab of order) {
+          await click(tab);
+          if (tab === "changes")
+            await waitFor(
+              () =>
+                (panel()?.querySelectorAll("[data-change-row]").length ?? 0) >=
+                50,
+              15_000,
+              "the changed files",
+            );
+          await pause(800);
+        }
+        await click("files");
+        await pause(800);
+        await scenario(panelTabsName, async (measure) => {
+          for (let round_ = 0; round_ < 5; round_ += 1) {
+            for (const tab of [...order.slice(1), "files"]) {
+              await click(tab, measure);
+              // Long enough for reads a tab starts once it shows.
+              await pause(500);
+            }
+          }
+        });
+      } catch (error) {
+        steps.push({
+          name: panelTabsName,
+          passed: false,
+          detail: errorText(error),
+        });
+      }
     }
     // Two workspaces, each with a project and chats: a two-finger swipe on
     // the pinned sidebar's workspace pages moves to the other, as people do
