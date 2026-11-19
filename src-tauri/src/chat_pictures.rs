@@ -519,7 +519,8 @@ mod tests {
     fn cache_keys_change_with_the_file_and_the_width() {
         let path = Path::new("/tmp/shot.png");
         let time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
-        let later = time + std::time::Duration::from_nanos(1);
+        // Windows keeps file times in 100 ns steps, so a smaller step is lost there.
+        let later = time + std::time::Duration::from_micros(1);
         let key = cache_key(path, 10, Some(time), 1600);
         assert!(key.ends_with(".img"));
         assert_eq!(key, cache_key(path, 10, Some(time), 1600));
