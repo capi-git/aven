@@ -1302,7 +1302,9 @@ export async function runDevPerf(
           // move the divider over until the chat is about 660 px wide.
           const extra = scroller.getBoundingClientRect().width - 660;
           const beside = sashBeside(scroller);
-          if (extra > 0 && beside) {
+          if (!beside)
+            throw new Error("The drop made no split beside the chat");
+          if (extra > 0) {
             const box = beside.sash.getBoundingClientRect();
             const from = { x: box.left + box.width / 2, y: box.top + 200 };
             const travel = -beside.widen * extra;
@@ -1325,7 +1327,7 @@ export async function runDevPerf(
           const column = scroller.firstElementChild!.getBoundingClientRect();
           if (column.width >= 800)
             throw new Error(
-              `The chat is ${Math.round(column.width)} px wide, not narrower than its column (pane ${Math.round(scroller.getBoundingClientRect().width)} px, window ${window.innerWidth} px, divider ${beside ? Math.round(beside.sash.getBoundingClientRect().left) : "none"}, moved ${Math.round(extra)} px)`,
+              `The chat is ${Math.round(column.width)} px wide, not narrower than its column (pane ${Math.round(scroller.getBoundingClientRect().width)} px, window ${window.innerWidth} px, divider ${Math.round(beside.sash.getBoundingClientRect().left)}, moved ${Math.round(extra)} px)`,
             );
           await waitFor(
             () =>
