@@ -15,7 +15,7 @@ Follow them in anything you add or change. When a rule and a request disagree, f
 ## Colour
 
 - Surfaces, hovers, selections, previews, borders and shadows are neutral grey. Never wash a surface with a colour.
-- Colour appears only in small marks that mean something: status words, errors, links, diff `+` and `−`, provider icons, a project's Stack, and an agent's orb.
+- Colour appears only in small marks that mean something: status words, errors, links, diff `+` and `−`, provider icons, a project's orb, and an agent's orb.
 - Use theme tokens (`--color-content`, `--aven-muted`, `--aven-line`, `--aven-hover`, `--aven-control-bg`). Don't add a new hard-coded colour.
 
 ## Text
@@ -51,7 +51,7 @@ Use the tokens in `src/index.css`. Don't add a new size.
 
 **A page** has a title, one short line under it, then sections. A section is a small muted heading above one card of rows.
 
-**A project's mark** is its Stack: three pages in its colour, the back two fainter. The pages fan out while the project is open in the sidebar, and otherwise the Stack stays still: it never sweeps or reacts, so a small dot at the row's end says an agent is running. A logo, when set, takes its place and stays as it is. A project picks only a colour and a logo, and its agents wear that colour.
+**A project's mark** is its orb: a still Thinking Orb in the project's colour (picked in Customize project), before its name in the sidebar and on its Board. While the project's row is folded and an agent works there, the orb moves, so no second sign says it. A logo, when set, takes its place and stays as it is; a project with a logo, or the Tiles sidebar, keeps the agent's small working mark at the row's end. A project picks only a colour and a logo, and its agents wear that colour.
 
 **A project list** shows each project as its name alone, in normal weight and muted grey, never bold; the open project's name is white. There is no folder and no line down the side. A logo you chose stands before the name. Its arrow waits at the row's end with New chat and ···, and shows with them on hover. Its chats sit in a little under the name. Settings › Sidebar style › Tiles adds a small tile before each name, as in Super: the project's logo, or its first letter on a tile in its colour, and keeps New chat in view. A chat is its title in muted text. It brightens when it's open, working or needs you, and its time shows on hover.
 

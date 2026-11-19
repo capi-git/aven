@@ -561,8 +561,9 @@ describe("project status in the sidebar", () => {
     expect(site.title).toBe(
       "1 agent running · 1 needs you · 2 unread · 5 files changed\n/projects/Site",
     );
-    // The Stack stays still; the running dot says an agent works.
-    expect(site.querySelector(".personal-project-running")).not.toBeNull();
+    // The project's orb moves for its agent's work; no second sign says it.
+    expect(site.querySelector(".personal-project-running")).toBeNull();
+    expect(site.querySelector(".project-mark[data-working]")).not.toBeNull();
     expect(site.querySelector(".project-mark[data-active]")).toBeNull();
     expect(site.querySelector(".personal-project-files")?.textContent).toBe(
       "+5",

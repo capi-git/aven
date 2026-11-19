@@ -54,11 +54,11 @@ async function open() {
 
 const preview = () =>
   document.body.querySelector<HTMLElement>(
-    '[role="dialog"] .project-mark .stack-mark',
+    '[role="dialog"] .project-mark[data-kind="orb"]',
   );
 
 describe("mark", () => {
-  it("shows the project's Stack beside its name, with no sigil to pick", async () => {
+  it("shows the project's orb beside its name, with no sigil to pick", async () => {
     await open();
     expect(preview()).not.toBeNull();
     expect(

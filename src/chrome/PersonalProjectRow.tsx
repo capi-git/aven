@@ -103,7 +103,10 @@ export function PersonalProjectRow({
 }: Props) {
   const labels = useProjectLabels();
   const tiles = useSetting(SETTINGS.sidebarStyle) === "tiles";
-  const appearance = useProjectAppearance(tiles ? path : null);
+  const appearance = useProjectAppearance(path);
+  // The project's orb moves for its agents' work, so the row needs no second
+  // sign; Tiles and a logo draw no orb, and keep the agent's working mark.
+  const orbShowsWork = !tiles && !appearance?.logoSrc;
   const [pinned, setPinned] = useState(loadPinnedProjects);
   // The actions button anchors its menu, so pressing it again closes the menu
   // instead of counting as an outside click that the click then reopens.
@@ -277,9 +280,11 @@ export function PersonalProjectRow({
               </span>
             </span>
           ) : (
+            // Simple style: the project's orb in its colour (or its logo),
+            // moving while an agent works there and the row is folded.
             <ProjectMark
               path={path}
-              logoOnly
+              working={!expanded && !!status?.running}
               className="personal-project-symbol"
             />
           )}
@@ -291,6 +296,7 @@ export function PersonalProjectRow({
             folded={!expanded}
             status={status}
             memoryUpdated={memoryUnseen}
+            orbShowsWork={orbShowsWork}
           />
         </button>
         <button
@@ -406,6 +412,7 @@ function ProjectRowStatus({
   folded,
   status,
   memoryUpdated = false,
+  orbShowsWork = false,
 }: {
   /** Its project: an agent at work there wears its colour. */
   path: string;
@@ -416,9 +423,11 @@ function ProjectRowStatus({
   folded: boolean;
   status?: ProjectStatus;
   memoryUpdated?: boolean;
+  /** The project's own orb moves for the work, so no second sign shows it. */
+  orbShowsWork?: boolean;
 }) {
   const { waiting, unread, files } = status ?? {};
-  const running = folded && status?.running;
+  const running = folded && !orbShowsWork && status?.running;
   if (!running && !waiting && !unread && !files && !memoryUpdated) return null;
   return (
     <span className="personal-project-status" aria-hidden>
