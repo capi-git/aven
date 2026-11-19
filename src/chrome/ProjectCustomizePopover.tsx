@@ -25,7 +25,7 @@ type Props = {
 };
 
 /**
- * Name, colour and logo for one project; its mark is its Stack in that
+ * Name, colour and logo for one project; its mark is its orb in that
  * colour, or the logo. Changes apply as they are made and reach every
  * window; Reset returns to the folder name and the automatic colour (and
  * the automatic sigil its agents still wear). Project memory opens its own

@@ -39,24 +39,16 @@ const config = { projectPath: PROJECT, binDir: "/tmp/check/bin" };
 const REACTION_MS = 1_200;
 
 type Flaws = {
-  /** The sidebar's Stack sweeps while its agent works. */
-  stackSweeps?: boolean;
-  /** The sidebar's Stack reacts as the turn ends. */
-  stackReacts?: boolean;
-  /** The sidebar's Stack stays closed when the project opens. */
-  fanStuck?: boolean;
-  /** Neither the project's row nor its chat's shows its agent working. */
+  /** The project's orb stays still while its agent works, folded. */
+  orbStill?: boolean;
+  /** The project's orb moves while the project is open. */
+  orbMovesOpen?: boolean;
+  /** The project's orb reacts as the turn ends. */
+  orbReacts?: boolean;
+  /** Neither the project's orb nor its chat's row shows its agent working. */
   noRunningDot?: boolean;
   /** Parallel work opens unfolded. */
   parallelOpen?: boolean;
-};
-
-/** A page's turn as a browser reports it. */
-const turned = (degrees: number) => {
-  if (!degrees) return "none";
-  const radians = (degrees * Math.PI) / 180;
-  const [cos, sin] = [Math.cos(radians), Math.sin(radians)];
-  return `matrix(${cos}, ${sin}, ${-sin}, ${cos}, 0, 0)`;
 };
 
 /**
@@ -127,22 +119,23 @@ function app(flaws: Flaws = {}) {
       draw();
     }, REACTION_MS);
   }
-  // The sidebar's project mark: a Stack, fanned while the project is open.
-  const stack = (working: boolean) => {
-    const fanned = expanded && !flaws.fanStuck;
-    const page = (part: string, degrees: number) =>
-      `<rect class="stack-mark-${part}" style="transform: ${turned(fanned ? degrees : 0)}; transition-duration: 0.16s"></rect>`;
+  // The sidebar's project mark: an orb, moving while its agent works and
+  // the project is folded.
+  const orb = (working: boolean) => {
+    const moving =
+      (working && !expanded && !flaws.orbStill && !flaws.noRunningDot) ||
+      (working && expanded && !!flaws.orbMovesOpen);
     const attributes = [
-      working && flaws.stackSweeps ? ' data-active="true"' : "",
-      reaction && flaws.stackReacts ? ` data-reaction="${reaction}"` : "",
+      moving ? " data-working" : "",
+      reaction && flaws.orbReacts ? ` data-reaction="${reaction}"` : "",
     ].join("");
-    return `<span class="project-mark" data-kind="stack"${attributes}><span class="stack-mark"${expanded ? " data-open" : ""}><svg class="stack-mark-art">${page("back", -14)}${page("middle", -6)}<rect class="stack-mark-front"></rect></svg></span></span>`;
+    return `<span class="project-mark" data-kind="orb"${attributes}><svg class="project-mark-orb"></svg></span>`;
   };
   function draw() {
     const working = state.sessions.some((session) => session.busy);
     document.body.innerHTML = `
       <div class="personal-project-row" data-project-path="${PROJECT}">
-        <button class="personal-project-open">${stack(working)}${working && !expanded && !flaws.noRunningDot ? '<span class="personal-project-status"><span class="personal-project-running"></span></span>' : ""}</button>
+        <button class="personal-project-open">${orb(working)}</button>
         <button class="personal-project-disclosure" aria-expanded="${expanded}"></button>
       </div>
       ${
@@ -201,20 +194,20 @@ describe("the real-app check's motion steps", () => {
     document.body.innerHTML = "";
   });
 
-  it("pass when the Stack stays still and fans and Parallel work is folded", async () => {
+  it("pass when the orb moves only while its agent works and Parallel work is folded", async () => {
     const steps = await check();
     expect(steps.map((step) => [step.name, step.passed])).toEqual([
       ["stand-in provider is the one Aven found", true],
       ["window stayed hidden until the workspace drew", true],
       ["agent turn through the normal send path", true],
       [
-        "the project's row stays still while its agent works, and folds open and closed",
+        "the project's orb moves only while its agent works, and folds open and closed",
         true,
       ],
       ["Parallel work starts folded to one line", true],
     ]);
-    expect(named(steps, "the project's row").detail).toBe(
-      "still while working; fanned and folded",
+    expect(named(steps, "the project's orb").detail).toBe(
+      "orb moved while its agent worked, rested otherwise",
     );
     expect(named(steps, "Parallel work").detail).toBe(
       "Parallel work · 1 merged",
@@ -227,22 +220,14 @@ describe("the real-app check's motion steps", () => {
     ).toBe("false");
   });
 
-  it("fail when the Stack stays closed as the project opens", async () => {
-    const mark = named(await check({ fanStuck: true }), "the project's row");
+  it("fail when the orb stays still while its agent works", async () => {
+    const mark = named(await check({ orbStill: true }), "the project's orb");
     expect(mark.passed).toBe(false);
-    expect(mark.detail).toBe(
-      "Once the project opened, the project's mark has its back page at 0.0°, expected -14° while the project is open",
-    );
+    expect(mark.detail).toContain("the sidebar to show its agent working");
   });
 
-  it("fail when the Stack sweeps while its agent works", async () => {
-    const mark = named(await check({ stackSweeps: true }), "the project's row");
-    expect(mark.passed).toBe(false);
-    expect(mark.detail).toBe("While the agent worked, the mark swept");
-  });
-
-  it("fail when the Stack reacts as the turn ends", async () => {
-    const mark = named(await check({ stackReacts: true }), "the project's row");
+  it("fail when the orb reacts as the turn ends", async () => {
+    const mark = named(await check({ orbReacts: true }), "the project's orb");
     expect(mark.passed).toBe(false);
     expect(mark.detail).toBe("The mark reacted (cheer) as the turn ended");
   });
@@ -250,7 +235,7 @@ describe("the real-app check's motion steps", () => {
   it("fail when the sidebar never says its agent is working", async () => {
     const mark = named(
       await check({ noRunningDot: true }),
-      "the project's row",
+      "the project's orb",
     );
     expect(mark.passed).toBe(false);
     expect(mark.detail).toContain("the sidebar to show its agent working");

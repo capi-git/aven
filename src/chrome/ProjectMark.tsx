@@ -1,9 +1,13 @@
 import { useState } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import type { OrbLook } from "@yogesharc/thinking-orbs";
 import { appearanceTone } from "../lib/markTones";
 import type { ProjectAppearance } from "../lib/projectAppearance";
-import { StackMark } from "./StackMark";
+import { ThinkingOrb } from "./ThinkingOrb";
 import "./ProjectMark.css";
+
+const RESTING: OrbLook = { state: "idle" };
+const WORKING: OrbLook = { state: "working" };
 
 type Props = {
   /** Project folder; resolved through the shared appearance store. */
@@ -11,28 +15,25 @@ type Props = {
   /** Already-resolved appearance, when the caller has it. */
   appearance?: ProjectAppearance | null;
   /**
-   * The project is open (expanded in the sidebar): its Stack fans out.
-   * Logos stay as they are.
+   * An agent works in the project and nothing else on screen says so: the
+   * orb moves. Logos stay as they are.
    */
-  open?: boolean;
-  /**
-   * The sidebar draws a project as its name alone: only a logo the person
-   * chose stands before it, and nothing otherwise.
-   */
+  working?: boolean;
+  /** Only a logo the person chose; nothing otherwise (Tiles draw a letter). */
   logoOnly?: boolean;
   className?: string;
 };
 
 /**
- * A project's mark: its logo when one is set, otherwise its Stack, three
- * pages in its colour. It stands for the project, never its agents (they
- * are Bot), so it never moves on its own. Renders nothing for folders
- * without a project identity.
+ * A project's mark: its logo when one is set, otherwise a Thinking Orb in
+ * the project's colour (Customize project › colour). It rests still, and
+ * moves only while `working`. Renders nothing for folders without a project
+ * identity.
  */
 export function ProjectMark({
   path,
   appearance: given,
-  open = false,
+  working = false,
   logoOnly = false,
   className = "",
 }: Props) {
@@ -46,10 +47,13 @@ export function ProjectMark({
       ? appearance.logoSrc
       : null;
   if (logoOnly && !logo) return null;
+  const tone = appearanceTone(appearance);
   return (
     <span
       className={`project-mark ${className}`}
-      data-kind={logo ? "logo" : "stack"}
+      data-kind={logo ? "logo" : "orb"}
+      data-tone={!logo && tone !== "grey" ? tone : undefined}
+      data-working={!logo && working ? "" : undefined}
       aria-hidden
     >
       {logo ? (
@@ -62,10 +66,10 @@ export function ProjectMark({
           onError={() => setFailedSrc(logo)}
         />
       ) : (
-        <StackMark
-          tone={appearanceTone(appearance)}
-          open={open}
-          className="project-mark-stack"
+        <ThinkingOrb
+          look={working ? WORKING : RESTING}
+          moving={working}
+          className="project-mark-orb"
         />
       )}
     </span>

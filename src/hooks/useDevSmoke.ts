@@ -21,8 +21,6 @@ import {
   type DevSmokeConfig,
 } from "../lib/devSmoke";
 import { animationProblem, prefersReducedMotion } from "../lib/devSmokeMotion";
-import { readStack, stackProblem } from "../lib/devSmokeStack";
-import { motionReduced } from "../lib/motion";
 import {
   launchRevealProblem,
   launchRevealSummary,
@@ -2869,16 +2867,16 @@ export async function runDevSmoke(
       },
     );
 
-  // What moves. The project's folder in the sidebar stays still while its
-  // agent works (its working screen says so, on the project's row while
-  // folded, on the chat's row while open) and when the turn ends,
-  // and is drawn open exactly while the project is open, closing when it
-  // closes (a Stack elsewhere fans the same way). The pinned sidebar is the one drawn in this window (the
-  // floating one draws in its own).
+  // What moves. The project's orb in the sidebar rests, and moves exactly
+  // while its agent works and the project is folded: open, the chat's own
+  // row says it works. It never reacts as a turn ends. A logo, or a project
+  // without a mark, keeps the agent's working screen on the folded row. The
+  // pinned sidebar is the one drawn in this window (the floating one draws
+  // in its own).
   const motion = get().motion;
   if (safe && typedTask && motion)
     await step(
-      "the project's row stays still while its agent works, and folds open and closed",
+      "the project's orb moves only while its agent works, and folds open and closed",
       async () => {
         if (!get().sidebarOpen) {
           pressShortcut("b");
@@ -2891,54 +2889,60 @@ export async function runDevSmoke(
         const row = () => sidebarProjectRow(config.projectPath);
         const mark = () =>
           row()?.querySelector<HTMLElement>(".project-mark") ?? null;
-        // A project without a logo is its name alone, with no mark.
         await waitFor(row, 10_000, "the project's row in the sidebar");
-        // macOS stops drawing a covered window, and a covered window's
-        // transitions may not run.
+        // macOS stops drawing a covered window.
         await waitFor(
           () => document.visibilityState !== "hidden",
           15_000,
           "Aven Dev's window to be visible (keep it uncovered during the check)",
         );
-        // The fan's easing follows Aven's own Reduce motion too, not only
-        // the system's.
-        const reduced = motionReduced();
         const fold = () =>
           row()?.querySelector<HTMLButtonElement>(
             ".personal-project-disclosure",
           ) ?? null;
         const isOpen = () => fold()?.getAttribute("aria-expanded") === "true";
-        // Its agent's working screen shows once: on the project's row while
-        // the project is folded, on the chat's own row while it is open.
-        const runningDot = () =>
-          ((isOpen()
-            ? document.querySelector(
-                `[data-session-card="${CSS.escape(typedTask.id)}"] .personal-task-agent .agent-mark[data-agent="working"]`,
-              )
-            : row()?.querySelector(".personal-project-running")
-          )?.getClientRects().length ?? 0) > 0;
-        const logo = mark()?.dataset.kind === "logo";
-        const markless = !mark();
+        const orb = mark()?.dataset.kind === "orb";
+        // Its agent's work shows once: on the chat's own row while the
+        // project is open; folded, by the moving orb, or by the agent's
+        // working screen beside a logo.
+        const workingShown = () =>
+          isOpen()
+            ? (document
+                .querySelector(
+                  `[data-session-card="${CSS.escape(typedTask.id)}"] .personal-task-agent .agent-mark[data-agent="working"]`,
+                )
+                ?.getClientRects().length ?? 0) > 0
+            : orb
+              ? !!mark()?.hasAttribute("data-working")
+              : (row()
+                  ?.querySelector(".personal-project-running")
+                  ?.getClientRects().length ?? 0) > 0;
         let seen: string | null = null;
-        const settle = async (open: boolean, when: string) => {
-          if (logo || markless) return;
+        const settle = async (working: boolean, when: string) => {
+          if (!orb) return;
           await waitFor(
             () => {
-              seen = stackProblem(readStack(mark()), {
-                open,
-                reducedMotion: reduced,
-              });
+              const current = mark();
+              const moving = !!current?.hasAttribute("data-working");
+              seen = !current
+                ? "is missing"
+                : current.dataset.kind !== "orb"
+                  ? `is not an orb (it is ${current.dataset.kind ?? "unmarked"})`
+                  : moving === working
+                    ? null
+                    : moving
+                      ? "moves"
+                      : "stays still";
               return seen === null;
             },
             3_000,
-            `the project's mark to settle ${when}`,
+            `the project's orb to settle ${when}`,
           ).catch(() => {
-            throw new Error(`${when}, the project's mark ${seen}`);
+            throw new Error(`${when}, the project's orb ${seen}`);
           });
         };
         const opened = isOpen();
-        await settle(opened, opened ? "With the project open" : "At rest");
-        // Fold the project the other way and back: the pages follow.
+        await settle(false, opened ? "With the project open" : "At rest");
         for (const open of [!opened, opened]) {
           fold()?.click();
           await waitFor(
@@ -2947,7 +2951,7 @@ export async function runDevSmoke(
             `the project to ${open ? "open" : "close"}`,
           );
           await settle(
-            open,
+            false,
             open ? "Once the project opened" : "Once the project closed",
           );
         }
@@ -2958,35 +2962,35 @@ export async function runDevSmoke(
         );
         try {
           await waitFor(
-            runningDot,
+            workingShown,
             5_000,
             "the sidebar to show its agent working",
           );
-          await settle(opened, "While the agent worked");
-          if (mark()?.hasAttribute("data-active"))
-            throw new Error("While the agent worked, the mark swept");
+          await settle(!opened, "While the agent worked");
         } finally {
           await reply();
         }
-        // The turn's end moves nothing on the mark, and the dot goes.
+        // The turn's end moves nothing on the mark, and the work sign goes.
         const quietUntil = Date.now() + 2_000;
         while (Date.now() < quietUntil) {
           const reaction = mark()?.dataset.reaction;
           if (reaction)
             throw new Error(`The mark reacted (${reaction}) as the turn ended`);
-          await settle(opened, "As the turn ended");
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
         await waitFor(
-          () => !runningDot(),
+          () => !workingShown(),
           5_000,
-          "its working screen to go once the turn ended",
+          "its work sign to go once the turn ended",
         );
-        if (logo) return "a logo: still, with its working screen";
-        if (markless) return "its name alone: folds, with its working screen";
-        return reduced
-          ? "still while working; fanned and folded without motion (reduced motion)"
-          : "still while working; fanned and folded";
+        await settle(false, "Once the turn ended");
+        if (!orb)
+          return mark()
+            ? "a logo: still, with its working screen"
+            : "its name alone: folds, with its working screen";
+        return opened
+          ? "orb at rest while open; the chat's row said it worked"
+          : "orb moved while its agent worked, rested otherwise";
       },
     );
 
