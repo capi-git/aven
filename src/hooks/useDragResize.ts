@@ -6,6 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { setDragCursor, suppressTextSelection } from "../lib/drag";
+import { holdTranscriptWidths } from "../lib/transcriptWidthHold";
 
 const DRAG_FRAME_DEADLINE_MS = 16;
 
@@ -103,6 +104,9 @@ export function useDragResize({
     const measuredScale = renderedWidth / startW;
     const scale =
       Number.isFinite(measuredScale) && measuredScale > 0 ? measuredScale : 1;
+    // The chats beside the panel keep their width until the drop, rather
+    // than re-wrapping every frame. Read before anything below writes.
+    const releaseChats = holdTranscriptWidths(document);
     apply(startW);
     setWidth(startW);
     handle.focus({ preventScroll: true });
@@ -159,6 +163,7 @@ export function useDragResize({
       restoreSelection();
       setDragCursor(null);
       document.documentElement.classList.remove("is-resizing");
+      releaseChats();
       setDragging(false);
       try {
         handle.releasePointerCapture(pointerId);

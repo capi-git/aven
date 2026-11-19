@@ -106,6 +106,8 @@ Popups, menus and dialogs share one dark glass (the end of `src/macos-theme.css`
 - Use the springs in `src/lib/motionTokens.ts` for things you can touch, with no bounce unless a flick caused it.
 - Honour Reduce motion.
 - Native browser pages can't be animated. For a motion, move a picture of the page instead, and hold only the pages that really move. Dragging an edge or divider keeps the page live, updating as it moves: a stretched picture looks wrong, even if a live page can drift a few points on a fast drag.
+- While an edge or divider is dragged, a chat keeps the width it had when the drag began: a narrower pane clips its right side, a wider one leaves room around it. It fits its pane once, on the drop, and stays at the end or on the line you were reading. Re-wrapping every line and rescaling every picture on each frame is what made chats stutter.
+- A picture keeps its box from its own size once it has loaded, so the text below never jumps when it loads again.
 - A dialog over a live browser page never swaps the page for a picture. The page stays live and in place under a veil as dark as the dialog's backdrop, with the dialog cut out of it, so nothing is redrawn when the dialog opens or closes. A backdrop must be plain black for the page to match it.
 - Never restyle the whole window: no rule on `html *`, and no inherited property set on `body` or `html` during an interaction.
 - No container query on anything large, such as a chat or the panes. WebKit rechecks every element under a container each time it changes size, on every frame of a drag. Use `useNarrowMark`, and keep containers to small things like a card or a toolbar.

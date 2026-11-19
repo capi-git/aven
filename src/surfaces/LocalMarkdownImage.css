@@ -1,4 +1,5 @@
 .markdown-local-image {
+  --picture-max-height: 460px;
   display: block;
   max-width: 100%;
   margin-block: 10px;
@@ -6,11 +7,35 @@
 .markdown-local-image img {
   display: block;
   max-width: 100%;
-  max-height: 460px;
+  max-height: var(--picture-max-height);
   width: auto;
   height: auto;
   object-fit: contain;
   border-radius: var(--aven-radius-lg);
+}
+/* A picture whose size is known (it loaded before) keeps its box from that
+   size alone: no larger than the file or the height limit, never wider than
+   the column, at the picture's own shape. Nothing below it moves when it
+   loads, and resizing the column never needs the file's size again. */
+.markdown-local-image[data-picture-size] img,
+.markdown-local-image[data-picture-size] .markdown-local-image-status {
+  width: min(
+    calc(var(--picture-width) * 1px),
+    calc(
+      var(--picture-max-height) * var(--picture-width) / var(--picture-height)
+    )
+  );
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: var(--picture-width) / var(--picture-height);
+}
+.markdown-local-image[data-picture-size] .markdown-local-image-status {
+  min-height: auto;
+}
+/* Its size not known yet, a loading picture keeps the room the loading
+   line had until it has a size of its own. */
+.markdown-local-image[data-picture-pending] {
+  min-height: 120px;
 }
 .markdown-local-image-open {
   display: block;
@@ -71,10 +96,10 @@
   opacity: 0.65;
 }
 .markdown-before-after .markdown-local-image {
+  --picture-max-height: 360px;
   margin-block: 0;
 }
 .markdown-before-after .markdown-local-image img {
-  max-height: 360px;
   border: 1px solid color-mix(in srgb, var(--color-content) 12%, transparent);
 }
 /* Inline pictures (pasted data, note images) open in the image viewer. */

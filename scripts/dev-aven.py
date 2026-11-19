@@ -548,6 +548,41 @@ pre{background:#f4f4f4;padding:12px;border-radius:6px;overflow:auto}</style></he
 </body></html>"""
 
 
+def write_perf_picture(path, width, height, seed):
+    """A large PNG like a screenshot: bands of colour with fine detail.
+
+    Agents attach screenshots of 2000 to 3000 pixels; drawing them small is
+    what the chat pays for, so the test's pictures are as large.
+    """
+    import struct
+    import zlib
+    row = bytearray()
+    for x in range(width):
+        row += bytes(((x * 7 + seed * 40) % 256, (x // 3 + seed * 90) % 256, (x * 13) % 256))
+    raw = bytearray()
+    stride = len(row)
+    for y in range(height):
+        shift = (y * 3 * (seed + 1)) % stride
+        raw.append(0)
+        raw += row[shift:] + row[:shift]
+
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+
+    path.write_bytes(b'\x89PNG\r\n\x1a\n'
+                     + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+                     + chunk(b'IDAT', zlib.compress(bytes(raw), 1))
+                     + chunk(b'IEND', b''))
+
+
+def write_perf_pictures(project, count=4):
+    """The pictures the stand-in's AVEN_PERF_PICTURES replies show."""
+    folder = project / 'perf-pictures'
+    folder.mkdir(exist_ok=True)
+    for number in range(1, count + 1):
+        write_perf_picture(folder / f'shot-{number}.png', 2400, 1500, number)
+
+
 @contextmanager
 def production_preview_server(child_env):
     """Serve a production build of the interface, as releases run it."""
@@ -768,6 +803,8 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None, record=Non
     # A second project, which the swipe scenario puts in the Work workspace.
     (root / 'work-project').mkdir()
     (root / 'work-project/README.md').write_text('Aven Dev speed test project in Work.\n')
+    # Large screenshots for the chat-with-pictures scenarios.
+    write_perf_pictures(root / 'project')
     finished = False
     try:
         child_env = host_scoped_environment()

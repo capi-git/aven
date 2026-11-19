@@ -56,6 +56,7 @@ import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
 import { useFileReferences } from "../hooks/useFileReferences";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { motionReduced } from "../lib/motion";
+import { pictureSize, rememberPictureSize } from "../lib/pictureSizes";
 import {
   rehypeRevealWords,
   REVEAL_OPTIONS,
@@ -590,6 +591,8 @@ function NoteAssetImage({
   const [path, setPath] = useState(() => noteImagePathCache.get(asset));
   const [display, setDisplay] = useState<{ path: string; src: string }>();
   const [failed, setFailed] = useState(false);
+  // Seen before, the picture reserves its box before it loads again.
+  const [size, setSize] = useState(() => pictureSize(asset));
 
   useEffect(() => {
     if (path) return;
@@ -634,6 +637,8 @@ function NoteAssetImage({
   const src = copy ?? (failed ? full : undefined);
   const image = (
     <img
+      width={size?.width}
+      height={size?.height}
       {...props}
       src={src}
       alt={alt ?? ""}
@@ -641,6 +646,10 @@ function NoteAssetImage({
       draggable={false}
       loading="lazy"
       onError={copy ? () => setFailed(true) : undefined}
+      onLoad={(event) => {
+        const known = rememberPictureSize(asset, event.currentTarget);
+        if (known && known !== size) setSize(known);
+      }}
     />
   );
   return src ? (

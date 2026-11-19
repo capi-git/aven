@@ -83,6 +83,7 @@ import {
   TAB_UNIT_PRECISION,
 } from "../lib/motionTokens";
 import { SpringAnimator } from "../lib/spring";
+import { holdTranscriptWidths } from "../lib/transcriptWidthHold";
 import { flushSync } from "react-dom";
 import "./WorkspaceStage.css";
 
@@ -1806,6 +1807,9 @@ export function WorkspaceStage({
     const pointerId = event.pointerId;
     handle.focus({ preventScroll: true });
     handle.setPointerCapture(pointerId);
+    // The chats in the panes keep their width until the drop, rather than
+    // re-wrapping every frame.
+    const releaseChats = holdTranscriptWidths(container);
     const restoreSelection = suppressTextSelection();
     setDragCursor(horizontal ? "col-resize" : "row-resize");
     container.dataset.resizing = "true";
@@ -1914,6 +1918,7 @@ export function WorkspaceStage({
       restoreSelection();
       setDragCursor(null);
       delete container.dataset.resizing;
+      releaseChats();
       releaseOrbs();
       dragPaneWallpaper.current = null;
       dragDraft.current = null;

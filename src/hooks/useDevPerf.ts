@@ -1199,6 +1199,214 @@ export async function runDevPerf(
         },
       );
     }
+    // A chat with large screenshots, split beside another chat so it is
+    // narrower than its 800 px column: dragging the divider or the sidebar
+    // edge must not re-wrap its text and rescale its pictures every frame.
+    const picturesDivider = "dragging a divider beside a chat with pictures";
+    const picturesSidebar =
+      "dragging the sidebar edge beside a chat with pictures";
+    const picturesTranscript = () =>
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-workspace-stage]:not([hidden]) [data-workspace-surface]:not([hidden]) [data-local-image*="perf-pictures"]',
+        ),
+      ]
+        .map((image) => image.closest<HTMLElement>(".agent-transcript"))
+        .find((scroller) => !!scroller && scroller.clientWidth > 0) ?? null;
+    /**
+     * The divider at the chat's left or right edge, and which way it moves
+     * to widen the chat (+1 right, -1 left).
+     */
+    const sashBeside = (scroller: HTMLElement) => {
+      const pane = scroller.getBoundingClientRect();
+      const gap = (element: HTMLElement) => {
+        const box = element.getBoundingClientRect();
+        const middle = box.left + box.width / 2;
+        return Math.min(
+          Math.abs(middle - pane.left),
+          Math.abs(middle - pane.right),
+        );
+      };
+      const sash = [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-workspace-stage]:not([hidden]) [role="separator"][data-direction="right"]',
+        ),
+      ]
+        .filter((element) => element.getBoundingClientRect().height > 0)
+        .sort((a, b) => gap(a) - gap(b))[0];
+      if (!sash) return null;
+      const box = sash.getBoundingClientRect();
+      const middle = box.left + box.width / 2;
+      const widen =
+        Math.abs(middle - pane.left) < Math.abs(middle - pane.right) ? -1 : 1;
+      return { sash, widen };
+    };
+    /** How far the chat with pictures sits from its end, after each drop. */
+    const offEnd: number[] = [];
+    const checkStillAtEnd = async () => {
+      await pause(300);
+      const scroller = picturesTranscript();
+      if (!scroller) throw new Error("The chat with pictures went away");
+      offEnd.push(fromEnd(scroller));
+    };
+    const fromEnd = (scroller: HTMLElement) =>
+      Math.round(
+        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+      );
+    const endCheck = (before: number) => {
+      const worst = Math.max(0, ...offEnd.splice(0));
+      if (worst > 2)
+        throw new Error(
+          `The chat left its end after a drop (${worst} px from the end, ${before} px before the drags)`,
+        );
+    };
+    if (wanted(picturesDivider) || wanted(picturesSidebar)) {
+      await scenario(
+        "set up a chat with pictures",
+        async (measure) => {
+          const id = await openChat();
+          // The other scenarios keep using the chats they made.
+          chatIds.splice(chatIds.indexOf(id), 1);
+          await turn(id, "Explain the change. AVEN_PERF_STREAM 120", 1);
+          await turn(id, "Show me. AVEN_PERF_PICTURES 1", 2);
+          await turn(id, "And after that? AVEN_PERF_PICTURES 2", 3);
+          await turn(id, "Compare the last two. AVEN_PERF_PICTURES 3,4", 4);
+          pressShortcut("1");
+          await pause(400);
+          // The chat's tab: its surface is laid out out of sight now.
+          const slot = await waitFor(
+            () => {
+              const surface = document
+                .querySelector('[data-local-image*="perf-pictures"]')
+                ?.closest<HTMLElement>("[data-workspace-surface]")
+                ?.dataset.workspaceSurface;
+              const tab = surface
+                ? document
+                    .querySelector(
+                      `.aven-tab-strip [data-surface-id="${CSS.escape(surface)}"]`,
+                    )
+                    ?.closest<HTMLElement>("[data-motion-slot]")
+                : null;
+              return tab && tab.dataset.active !== "true" ? tab : undefined;
+            },
+            5_000,
+            "the chat's tab beside the one in front",
+          );
+          await dropOnRightEdge(measure, slot);
+          const scroller = await waitFor(
+            picturesTranscript,
+            5_000,
+            "the chat with pictures beside another chat",
+          );
+          // A wide window leaves each half wider than the chat's column:
+          // move the divider over until the chat is about 660 px wide.
+          const extra = scroller.getBoundingClientRect().width - 660;
+          const beside = sashBeside(scroller);
+          if (!beside)
+            throw new Error("The drop made no split beside the chat");
+          if (extra > 0) {
+            const box = beside.sash.getBoundingClientRect();
+            const from = { x: box.left + box.width / 2, y: box.top + 200 };
+            const travel = -beside.widen * extra;
+            await smokeMouse("down", from, { settle: false });
+            for (let step = 1; step <= 20; step += 1) {
+              await smokeMouse(
+                "drag",
+                { x: from.x + (travel * step) / 20, y: from.y },
+                { settle: false },
+              );
+              await pause(refreshMs);
+            }
+            await smokeMouse(
+              "up",
+              { x: from.x + travel, y: from.y },
+              { settle: false },
+            );
+            await pause(600);
+          }
+          const column = scroller.firstElementChild!.getBoundingClientRect();
+          if (column.width >= 800)
+            throw new Error(
+              `The chat is ${Math.round(column.width)} px wide, not narrower than its column (pane ${Math.round(scroller.getBoundingClientRect().width)} px, window ${window.innerWidth} px, divider ${Math.round(beside.sash.getBoundingClientRect().left)}, moved ${Math.round(extra)} px)`,
+            );
+          await waitFor(
+            () =>
+              [...scroller.querySelectorAll("img")].filter(
+                (image) => image.complete && image.naturalWidth > 0,
+              ).length >= 2,
+            10_000,
+            "the pictures in view to load",
+          );
+          await pause(500);
+        },
+        { setup: true },
+      );
+      /**
+       * Drag `handle` a frame at a time as a hand does: out by `reach` px and
+       * most of the way back, dropping a third of the way out, one way and
+       * then the other, so each drop leaves the chat a new width.
+       */
+      const dragBackAndForth = async (
+        measure: Measure,
+        handle: HTMLElement,
+        /** The way to move first: 1 right, -1 left. */
+        first: number,
+        reach: number,
+      ) => {
+        const scroller = picturesTranscript();
+        if (!scroller) throw new Error("No chat with pictures on screen");
+        // Start at the end, as after reading the latest reply.
+        scroller.scrollTop = scroller.scrollHeight;
+        await pause(300);
+        const before = fromEnd(scroller);
+        for (let round_ = 0; round_ < 4; round_ += 1) {
+          const way = round_ % 2 === 0 ? first : -first;
+          const box = handle.getBoundingClientRect();
+          const from = { x: box.left + box.width / 2, y: box.top + 200 };
+          measure.mark("lift");
+          await smokeMouse("down", from, { settle: false });
+          await nextPaint();
+          measure.mark("motion");
+          const steps = 90;
+          for (let step = 1; step <= steps; step += 1) {
+            const along = step / steps;
+            const share =
+              along <= 0.5 ? along * 2 : 1 - (along - 0.5) * 2 * (2 / 3);
+            await smokeMouse(
+              "drag",
+              { x: from.x + way * share * reach, y: from.y },
+              { settle: false },
+            );
+            await pause(refreshMs);
+          }
+          measure.mark("drop");
+          const to = { x: from.x + (way * reach) / 3, y: from.y };
+          await measure.time(() => smokeMouse("up", to, { settle: false }));
+          await checkStillAtEnd();
+        }
+        endCheck(before);
+      };
+      await scenario(picturesDivider, async (measure) => {
+        const scroller = picturesTranscript();
+        if (!scroller) throw new Error("No chat with pictures on screen");
+        const beside = sashBeside(scroller);
+        if (!beside) throw new Error("No divider beside the chat");
+        await dragBackAndForth(measure, beside.sash, beside.widen, 120);
+      });
+      await scenario(picturesSidebar, async (measure) => {
+        if (!get().sidebarOpen) {
+          pressShortcut("b");
+          await waitFor(() => get().sidebarOpen, 5_000, "the sidebar to pin");
+          await pause(300);
+        }
+        const edge = document.querySelector<HTMLElement>(
+          '[role="separator"][aria-label="Resize sidebar"]',
+        );
+        if (!edge) throw new Error("No sidebar edge");
+        // Right first, as the scenario above: the panes narrow, then widen.
+        await dragBackAndForth(measure, edge, 1, 90);
+      });
+    }
     // Two workspaces, each with a project and chats: a two-finger swipe on
     // the pinned sidebar's workspace pages moves to the other, as people do
     // all day. Last of the timed scenarios, so the ones above run as they

@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { readDisplayImage } from "../lib/displayImage";
 import { sniffImageMime } from "../lib/filePreview";
 import { basename, readBinaryFile } from "../lib/fs";
 import { openImageGroupAt } from "../lib/imageViewer";
+import { pictureSize, rememberPictureSize } from "../lib/pictureSizes";
 import "./LocalMarkdownImage.css";
 
 /**
@@ -27,6 +34,9 @@ export function LocalMarkdownImage({
   // Set when a display copy would not draw; the original is read instead.
   const [original, setOriginal] = useState(false);
   const [state, setState] = useState<{ src?: string; error?: string }>({});
+  // Known once the picture has loaded here or anywhere before: its box is
+  // then reserved from it, so nothing below moves when it arrives.
+  const [size, setSize] = useState(() => pictureSize(path));
   const viewer = useImageViewerAvailable();
   const open =
     viewer || onOpenFile
@@ -87,6 +97,10 @@ export function LocalMarkdownImage({
       loading="lazy"
       decoding="async"
       draggable={false}
+      onLoad={(event) => {
+        const known = rememberPictureSize(path, event.currentTarget);
+        if (known && known !== size) setSize(known);
+      }}
       onError={() => {
         if (!original) setOriginal(true);
         else setState({ error: "The image could not be displayed." });
@@ -94,7 +108,21 @@ export function LocalMarkdownImage({
     />
   ) : null;
   return (
-    <span ref={host} className="markdown-local-image" data-local-image={path}>
+    <span
+      ref={host}
+      className="markdown-local-image"
+      data-local-image={path}
+      data-picture-size={size ? "" : undefined}
+      data-picture-pending={image && !size ? "" : undefined}
+      style={
+        size
+          ? ({
+              "--picture-width": size.width,
+              "--picture-height": size.height,
+            } as CSSProperties)
+          : undefined
+      }
+    >
       {image ? (
         open ? (
           <button

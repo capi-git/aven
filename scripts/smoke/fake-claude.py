@@ -97,6 +97,29 @@ def code_text(lines):
     return chunks
 
 
+# "AVEN_PERF_PICTURES <n>[,<n>...]" asks for a reply about screenshots that
+# shows each numbered picture, as agents do with real screenshots. The speed
+# test writes the large files (perf-pictures/shot-<n>.png) into the project.
+PICTURES_PATTERN = re.compile(r"AVEN_PERF_PICTURES ([\d,]+)")
+
+
+def pictures_text(numbers):
+    chunks = [
+        "I took screenshots of the page at each step so you can compare. ",
+        "The layout holds at the wide size, and the header keeps its height ",
+        "while the cards below it reflow into two columns.\n\n",
+    ]
+    for number in numbers:
+        chunks += [
+            f"Step {number}, after the change:\n\n",
+            f"![Screenshot {number}](perf-pictures/shot-{number}.png)\n\n",
+            "- The title wraps onto two lines at narrow widths.\n",
+            "- The buttons keep their order and spacing.\n\n",
+        ]
+    chunks.append("Everything else on the page is unchanged. ")
+    return chunks
+
+
 # "AVEN_SMOKE_HOLD <ms>" in a message keeps the turn running that long before
 # the reply, so the real-app check can watch what moves while an agent works.
 HOLD_PATTERN = re.compile(r"AVEN_SMOKE_HOLD (\d+)")
@@ -1000,6 +1023,9 @@ def main():
             code = CODE_PATTERN.search(text)
             if code:
                 chunks = code_text(int(code.group(1)))
+            pictures = PICTURES_PATTERN.search(text)
+            if pictures:
+                chunks = pictures_text([int(n) for n in pictures.group(1).split(",") if n])
             reply = (
                 KEEPER_REPLY if keeper
                 else WRAP_UP_REPLY if wrap_up
