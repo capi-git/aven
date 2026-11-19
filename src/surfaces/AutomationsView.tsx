@@ -93,6 +93,7 @@ type Props = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    note?: string,
   ) => void;
   onStopRun?: (sessionId: string) => void;
   /** The card's button: sends its message to the run's conversation. */

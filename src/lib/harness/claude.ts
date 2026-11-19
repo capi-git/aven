@@ -58,6 +58,9 @@ import {
   stringField,
   summarizeToolRequest,
   toClaudePermissionResult,
+  describePermissionUpdates,
+  permissionUpdatesAsSettings,
+  type ClaudePermissionUpdate,
   toolReachesWeb,
   toolKindFromName,
   toolResultsFromUserMessage,
@@ -84,14 +87,15 @@ import {
   questionsFromUnknown,
   type UserQuestionReply,
 } from "../userQuestion";
-import type {
-  ApprovalDecision,
-  CompactContextInput,
-  HarnessEvent,
-  HarnessProjectMemory,
-  HarnessSessionInput,
-  SendTurnInput,
-  SteerTurnInput,
+import {
+  approvalOutcome,
+  type ApprovalDecision,
+  type CompactContextInput,
+  type HarnessEvent,
+  type HarnessProjectMemory,
+  type HarnessSessionInput,
+  type SendTurnInput,
+  type SteerTurnInput,
 } from "./types";
 
 /**
@@ -105,6 +109,8 @@ type PendingApproval = {
   requestId: string;
   input: Record<string, unknown>;
   resolve: (decision: ApprovalOutcome) => void;
+  /** The user's reason for a denial. */
+  note?: string;
 };
 
 type PendingQuestion = {
@@ -338,11 +344,13 @@ export function respondClaudeApproval(
   sessionId: string,
   requestId: number,
   decision: ApprovalDecision,
+  note?: string,
 ): void {
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
   live?.approvals.delete(requestId);
+  if (decision === "deny" && note?.trim()) pending.note = note.trim();
   pending.resolve(decision);
 }
 
@@ -438,6 +446,7 @@ export async function forgetClaudeSession(sessionId: string): Promise<void> {
   tasksByThread.delete(sessionId);
   memoryByThread.delete(sessionId);
   launchedMemoryByThread.delete(sessionId);
+  alwaysAllowedByThread.delete(sessionId);
   await stopClaudeSession(sessionId);
 }
 
@@ -1373,7 +1382,13 @@ async function handleControlRequest(
   }
 
   const uiId = live.nextApprovalUiId++;
-  const decided = waitApproval(live, uiId, control.requestId, input);
+  const pending = waitApproval(live, uiId, control.requestId, input);
+  // A chat with its own rules (a bot) keeps them: nothing is added for good.
+  const always =
+    control.alwaysUpdates && !sessionPermissions(sessionId)
+      ? control.alwaysUpdates
+      : [];
+  const alwaysLabel = always.length ? describePermissionUpdates(always) : "";
   live.onEvent({
     type: "approval.requested",
     requestId: uiId,
@@ -1381,18 +1396,41 @@ async function handleControlRequest(
     kind: toolKindFromName(toolName),
     callId: control.toolUseId,
     preview: previewFromTool(toolName, input),
+    ...(alwaysLabel ? { always: alwaysLabel } : {}),
   });
-  const decision = await decided;
+  const { decision, note } = await pending;
   if (live.retired) return;
-  live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
+  live.onEvent({
+    type: "approval.resolved",
+    requestId: uiId,
+    decision: decision === "cancelled" ? decision : approvalOutcome(decision),
+  });
   if (decision === "cancelled") return;
+  if (decision === "allowAlways" && always.length)
+    rememberAlwaysAllowed(sessionId, always);
   await writeJson(
     sessionId,
     buildControlResponse(
       control.requestId,
-      toClaudePermissionResult(decision, input),
+      toClaudePermissionResult(decision, input, { always, note }),
     ),
   ).catch(() => undefined);
+}
+
+/**
+ * What the user allowed always, per chat. Claude forgets a session grant
+ * when its process ends, so a later launch of the chat takes them again.
+ */
+const alwaysAllowedByThread = new Map<string, ClaudePermissionUpdate[]>();
+
+function rememberAlwaysAllowed(
+  sessionId: string,
+  updates: ClaudePermissionUpdate[],
+): void {
+  alwaysAllowedByThread.set(sessionId, [
+    ...(alwaysAllowedByThread.get(sessionId) ?? []),
+    ...updates,
+  ]);
 }
 
 /** A connected MCP server asks the user for input (form fields or a page to visit). */
@@ -1472,9 +1510,14 @@ function waitApproval(
   uiId: number,
   requestId: string,
   input: Record<string, unknown>,
-): Promise<ApprovalOutcome> {
-  return new Promise((resolve) => {
-    live.approvals.set(uiId, { requestId, input, resolve });
+): Promise<{ decision: ApprovalOutcome; note?: string }> {
+  return new Promise((done) => {
+    const pending: PendingApproval = {
+      requestId,
+      input,
+      resolve: (decision) => done({ decision, note: pending.note }),
+    };
+    live.approvals.set(uiId, pending);
   });
 }
 
@@ -2222,6 +2265,19 @@ function launchOptions(
   // in the mode they were written for, whatever its picker says.
   const permissions = sessionPermissions(input.sessionId);
   if (permissions) settings.permissions = permissions.rules;
+  else {
+    // What the user allowed always in this chat, again after a relaunch.
+    const granted = permissionUpdatesAsSettings(
+      alwaysAllowedByThread.get(input.sessionId) ?? [],
+    );
+    if (granted.allow.length || granted.additionalDirectories.length)
+      settings.permissions = {
+        ...(granted.allow.length ? { allow: granted.allow } : {}),
+        ...(granted.additionalDirectories.length
+          ? { additionalDirectories: granted.additionalDirectories }
+          : {}),
+      };
+  }
   if (permissions?.sandbox) settings.sandbox = permissions.sandbox;
   // Nothing in the folder it works in may run as the user: no hooks, and
   // no project or local settings.
@@ -2257,4 +2313,5 @@ export function __claudeTestReset(): void {
   cancelledThreads.clear();
   memoryByThread.clear();
   launchedMemoryByThread.clear();
+  alwaysAllowedByThread.clear();
 }

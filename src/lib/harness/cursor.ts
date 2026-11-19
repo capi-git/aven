@@ -15,6 +15,7 @@ import {
   type StoredCursorToolCall,
 } from "./cursorStore";
 import { stopCursorTitleGeneration } from "./cursorTitle";
+import { approvalOutcome } from "./types";
 import type {
   ApprovalDecision,
   HarnessEvent,
@@ -722,7 +723,7 @@ async function handlePermission(live: Live, id: number, params: unknown) {
     preview,
   });
 
-  const decision = await decided;
+  const decision = approvalOutcome(await decided);
   live.approvals.delete(id);
   live.onEvent({ type: "approval.resolved", requestId: id, decision });
 

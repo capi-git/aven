@@ -281,6 +281,8 @@ export type Block = {
   approval?: {
     requestId: number;
     decided?: "allow" | "deny" | "cancelled";
+    /** What "Always allow" covers in this chat, when the provider offers it. */
+    always?: string;
   };
   taskList?: TaskListMeta;
   plan?: PlanBlockMeta;

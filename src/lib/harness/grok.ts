@@ -28,6 +28,7 @@ import {
   planFromExitPlan,
   sessionIdFromResult,
 } from "./grokProtocol";
+import { approvalOutcome } from "./types";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -618,7 +619,7 @@ async function handlePermission(live: Live, id: number, params: unknown) {
     preview: request.preview,
   });
 
-  const decision = await decided;
+  const decision = approvalOutcome(await decided);
   live.approvals.delete(id);
   live.onEvent({ type: "approval.resolved", requestId: id, decision });
 

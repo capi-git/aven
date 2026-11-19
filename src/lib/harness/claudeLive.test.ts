@@ -3515,3 +3515,127 @@ describe("a command that drives Aven's browser", () => {
     await turn;
   });
 });
+
+describe("Claude approvals: always allow and a note", () => {
+  const responseFor = (id: string) =>
+    parse().find(
+      (m) =>
+        (m.response as Record<string, unknown> | undefined)?.request_id === id,
+    );
+  const requested = (events: HarnessEvent[]) =>
+    events.find(
+      (event): event is Extract<HarnessEvent, { type: "approval.requested" }> =>
+        event.type === "approval.requested",
+    );
+  // `permission_suggestions` as the Claude Agent SDK types it
+  // (SDKControlPermissionRequest, sdk.d.ts 0.3.220); Claude proposes a Bash
+  // prefix rule for the folder's local settings.
+  const askBash = (requestId: string, suggestions?: unknown[]) =>
+    emit({
+      type: "control_request",
+      request_id: requestId,
+      request: {
+        subtype: "can_use_tool",
+        tool_name: "Bash",
+        tool_use_id: `tool_${requestId}`,
+        input: { command: "pnpm test --run" },
+        ...(suggestions ? { permission_suggestions: suggestions } : {}),
+      },
+    });
+  const pnpmTest = {
+    type: "addRules",
+    rules: [{ toolName: "Bash", ruleContent: "pnpm test:*" }],
+    behavior: "allow",
+    destination: "localSettings",
+  };
+
+  it("offers the suggested rule, grants it for this chat only, and keeps it on relaunch", async () => {
+    const { respondClaudeApproval } = await import("./claude");
+    const { events, turn } = await startTurn("s1");
+    askBash("bash_a", [pnpmTest]);
+    await waitFor(() => !!requested(events), "approval card");
+    const card = requested(events)!;
+    expect(card.always).toBe("pnpm test *");
+
+    respondClaudeApproval("s1", card.requestId, "allowAlways");
+    await waitFor(() => !!responseFor("bash_a"), "approval response");
+    expect(responseFor("bash_a")).toMatchObject({
+      response: {
+        response: {
+          behavior: "allow",
+          updatedInput: { command: "pnpm test --run" },
+          updatedPermissions: [
+            {
+              type: "addRules",
+              rules: [{ toolName: "Bash", ruleContent: "pnpm test:*" }],
+              behavior: "allow",
+              destination: "session",
+            },
+          ],
+        },
+      },
+    });
+    // The card shows a plain allow.
+    expect(events).toContainEqual({
+      type: "approval.resolved",
+      requestId: card.requestId,
+      decision: "allow",
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+
+    // A parked or replaced process takes the grant again at launch.
+    await stopClaudeSession("s1");
+    sent.length = 0;
+    const next = await startTurn("s1");
+    const args = spawned.at(-1)!;
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]) as {
+      permissions?: { allow?: string[] };
+    };
+    expect(settings.permissions?.allow).toEqual(["Bash(pnpm test:*)"]);
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await next.turn;
+  });
+
+  it("offers no Always without suggestions, and a plain Allow grants nothing more", async () => {
+    const { respondClaudeApproval } = await import("./claude");
+    const { events, turn } = await startTurn("s1");
+    askBash("bash_b");
+    await waitFor(() => !!requested(events), "approval card");
+    expect(requested(events)!.always).toBeUndefined();
+    respondClaudeApproval("s1", requested(events)!.requestId, "allow");
+    await waitFor(() => !!responseFor("bash_b"), "approval response");
+    const response = (
+      responseFor("bash_b")!.response as Record<string, unknown>
+    ).response as Record<string, unknown>;
+    expect(response.behavior).toBe("allow");
+    expect(response).not.toHaveProperty("updatedPermissions");
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+
+  it("puts the user's note in the denial", async () => {
+    const { respondClaudeApproval } = await import("./claude");
+    const { events, turn } = await startTurn("s1");
+    askBash("bash_c", [pnpmTest]);
+    await waitFor(() => !!requested(events), "approval card");
+    respondClaudeApproval(
+      "s1",
+      requested(events)!.requestId,
+      "deny",
+      "  Use the staging database instead.  ",
+    );
+    await waitFor(() => !!responseFor("bash_c"), "denial");
+    expect(responseFor("bash_c")).toMatchObject({
+      response: {
+        response: {
+          behavior: "deny",
+          message:
+            "User declined tool execution. The user said: Use the staging database instead.",
+        },
+      },
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
+  });
+});

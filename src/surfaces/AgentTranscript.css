@@ -218,6 +218,15 @@ html:not(.theme-light) .personal-shell .personal-user-bubble {
   font-size: var(--text-ui-label);
   font-weight: 500;
 }
+.personal-shell .personal-tool-approval > button[data-approval-note] {
+  padding-inline: 6px;
+}
+.personal-shell .personal-tool-approval > input {
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: var(--aven-radius-sm);
+  font-size: var(--text-ui-label);
+}
 .personal-shell .personal-activity-phase button:focus-visible,
 .personal-shell .personal-activity-line button:focus-visible,
 .personal-shell .personal-tool-call button:focus-visible {
@@ -317,4 +326,13 @@ html:not(.theme-light) .personal-shell .personal-user-bubble {
   .personal-activity-phase
   :is([data-streamdown="code-block"], [data-streamdown="table-wrapper"]) {
   background: color-mix(in srgb, var(--color-content) 3%, transparent);
+}
+
+/* A note for the agent is the rare answer: it shows with the card in use. */
+.personal-tool-approval > [data-approval-note] {
+  opacity: 0;
+}
+.personal-tool-approval:hover > [data-approval-note],
+.personal-tool-approval:focus-within > [data-approval-note] {
+  opacity: 1;
 }

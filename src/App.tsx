@@ -9239,10 +9239,15 @@ export default function App({
   }, [onStop]);
 
   const onApproval = useCallback(
-    (sessionId: string, requestId: number, decision: ApprovalDecision) => {
+    (
+      sessionId: string,
+      requestId: number,
+      decision: ApprovalDecision,
+      note?: string,
+    ) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session) return;
-      deliverApproval(session, requestId, decision);
+      deliverApproval(session, requestId, decision, note);
     },
     [],
   );
