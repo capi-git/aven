@@ -16,7 +16,7 @@ import {
   formatAgentType,
 } from "./preview";
 import { streamTextDelta } from "./streamText";
-import type { HarnessEvent } from "./types";
+import type { ApprovalDecision, HarnessEvent } from "./types";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 import type { McpElicitation } from "../mcpElicitation";
 import {
@@ -424,14 +424,57 @@ export type CodexApprovalKind =
 export type CodexApprovalDecisionWire =
   "accept" | "acceptForSession" | "decline" | "cancel";
 
+/**
+ * The app-server's answer to a command or file-change approval. Allowing
+ * always is `acceptForSession`, which Codex keeps for the rest of the
+ * thread; other kinds have no such decision and accept once.
+ */
 export function toCodexApprovalDecision(
-  decision: "allow" | "deny",
+  decision: ApprovalDecision,
   kind: CodexApprovalKind,
 ): CodexApprovalDecisionWire {
   if (decision === "deny") return "decline";
-  // Prefer one-shot accept; session-scoped grants can be added later.
-  void kind;
+  if (
+    decision === "allowAlways" &&
+    (kind === "command" || kind === "file-change")
+  )
+    return "acceptForSession";
   return "accept";
+}
+
+const ALWAYS_COMMAND_MAX = 48;
+
+/**
+ * What "Always allow" covers for a command or file-change request, or
+ * undefined when Codex does not offer `acceptForSession` for it. A command
+ * request lists what it accepts in `availableDecisions` (strings, or objects
+ * for amendments); without that list every decision is open.
+ */
+export function codexAlwaysLabel(
+  kind: CodexApprovalKind,
+  params: unknown,
+): string | undefined {
+  const rec = asRecord(params);
+  if (!rec) return undefined;
+  if (kind === "file-change") return "changes to these files";
+  if (kind === "permissions") return "this access";
+  if (kind !== "command") return undefined;
+  const available = rec.availableDecisions;
+  if (
+    Array.isArray(available) &&
+    !available.some((decision) => decision === "acceptForSession")
+  )
+    return undefined;
+  const command = stringField(rec, "command")?.trim();
+  if (!command) return "this command";
+  return command.length > ALWAYS_COMMAND_MAX
+    ? `${command.slice(0, ALWAYS_COMMAND_MAX - 1).trimEnd()}…`
+    : command;
+}
+
+/** A steer that tells Codex why the user declined its request. */
+export function codexDeclineNote(note: string): string {
+  return `I declined that request. ${note.trim()}`;
 }
 
 export type MappedCodexNotification = {

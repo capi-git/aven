@@ -166,6 +166,7 @@ type Props = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    note?: string,
   ) => void;
   onQuestionReply: (
     sessionId: string,
@@ -324,8 +325,8 @@ export const SessionPane = memo(function SessionPane({
       } as CSSProperties)
     : undefined;
   const approve = useCallback(
-    (requestId: number, decision: ApprovalDecision) =>
-      onApproval(session.id, requestId, decision),
+    (requestId: number, decision: ApprovalDecision, note?: string) =>
+      onApproval(session.id, requestId, decision, note),
     [onApproval, session.id],
   );
   const replyQuestion = useCallback(

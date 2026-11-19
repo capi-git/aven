@@ -29,6 +29,7 @@ export const codexAdapter: HarnessAdapter = {
   steerTurn: steerCodexTurn,
   cancelTurn: cancelCodexTurn,
   respondApproval: respondCodexApproval,
+  remembersApprovals: true,
   respondQuestion: respondCodexQuestion,
   stopSession: stopCodexSession,
   forgetSession: forgetCodexSession,

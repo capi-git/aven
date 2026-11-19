@@ -100,6 +100,7 @@ type Shared = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    note?: string,
   ) => void;
   onQuestionReply: (
     sessionId: string,

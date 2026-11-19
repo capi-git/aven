@@ -55,6 +55,7 @@ import {
   type PiExtensionUiRequest,
 } from "./piProtocol";
 import { extractAgentType } from "./preview";
+import { approvalOutcome } from "./types";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -1013,9 +1014,11 @@ async function handleExtensionUi(
     title: extensionUiTitle(request),
     kind: "other",
   });
-  const decision = await new Promise<ApprovalDecision>((resolve) => {
-    live.approvals.set(uiId, { request, resolve });
-  });
+  const decision = approvalOutcome(
+    await new Promise<ApprovalDecision>((resolve) => {
+      live.approvals.set(uiId, { request, resolve });
+    }),
+  );
   live.approvals.delete(uiId);
   live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
   await writeChild(

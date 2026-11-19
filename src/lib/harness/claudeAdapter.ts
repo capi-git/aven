@@ -30,6 +30,7 @@ export const claudeAdapter: HarnessAdapter = {
   steerTurn: steerClaudeTurn,
   cancelTurn: cancelClaudeTurn,
   respondApproval: respondClaudeApproval,
+  remembersApprovals: true,
   respondQuestion: respondClaudeQuestion,
   stopSession: stopClaudeSession,
   forgetSession: forgetClaudeSession,

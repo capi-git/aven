@@ -15,7 +15,6 @@ import {
   X,
 } from "../chrome/icons";
 import {
-  createContext,
   memo,
   useCallback,
   useContext,
@@ -48,7 +47,13 @@ import { DiscussionRelayCard } from "../chrome/DiscussionRelayCard";
 import { DiscussionWrapUpNote } from "../chrome/DiscussionWrapUpNote";
 import { NoteMiniCard } from "../chrome/NoteMiniCard";
 import { TerminalSpinner } from "../chrome/TerminalSpinner";
-import type { ApprovalDecision } from "../lib/harness";
+import {
+  ApprovalControls,
+  ApprovalWords,
+  BOT_APPROVAL,
+  PLAIN_APPROVAL,
+  type ApprovalHandler,
+} from "./ApprovalCard";
 import {
   isEditTool,
   isReadTool,
@@ -188,7 +193,7 @@ type Props = {
    * names it in place of the clock. Keeps its identity while unchanged.
    */
   holdUps?: readonly SessionHoldUp[];
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: ApprovalHandler;
   onAddToChat?: (text: string) => void;
   onSaveNote?: (text: string) => void;
   /** The chat a reply is forwarded from; omitted hides Forward. */
@@ -898,15 +903,6 @@ function AgentTranscriptComponent({
     </ApprovalWords.Provider>
   );
 }
-
-/** What a request's two buttons say: a bot asks to be allowed once. */
-type ApprovalWording = { allow: string; deny: string };
-const PLAIN_APPROVAL: ApprovalWording = { allow: "Allow", deny: "Deny" };
-const BOT_APPROVAL: ApprovalWording = {
-  allow: "Allow once",
-  deny: "Don't allow",
-};
-const ApprovalWords = createContext<ApprovalWording>(PLAIN_APPROVAL);
 
 // Keep hidden panes' local state, and catch up with current props on activation.
 export const AgentTranscript = memo(
@@ -1726,7 +1722,7 @@ const TranscriptBlock = memo(function TranscriptBlock({
   /** True when something already sits directly above this in the turn. */
   underLine?: boolean;
   cwd?: string;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: ApprovalHandler;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   onOpenPlan?: (blockId: string) => void;
@@ -2243,7 +2239,7 @@ type ActivityPhasesProps = {
   blocks: Block[];
   cwd?: string;
   done?: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: ApprovalHandler;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 };
@@ -2402,7 +2398,7 @@ function ActivityPhaseGroup({
   active: boolean;
   /** The turn still runs: a subagent can outlast the group it started in. */
   turnLive: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: ApprovalHandler;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
@@ -2639,7 +2635,7 @@ function ActivityRow({
   block: Block;
   cwd?: string;
   live?: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: ApprovalHandler;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
@@ -2835,7 +2831,7 @@ function ActivityToolRow({
   cwd?: string;
   live?: boolean;
   bare?: boolean;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: ApprovalHandler;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
 }) {
@@ -2987,7 +2983,7 @@ function ToolCall({
 }: {
   block: Block;
   cwd?: string;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
+  onApproval?: ApprovalHandler;
   onOpenFile?: (path: string) => void;
   onOpenDiff?: (path: string) => void;
   embedded?: boolean;
@@ -3227,39 +3223,6 @@ function ToolCallIcon({ state }: { state: ToolCallState }) {
     );
   }
   return null;
-}
-
-function ApprovalControls({
-  block,
-  onApproval,
-}: {
-  block: Block;
-  onApproval?: (requestId: number, decision: ApprovalDecision) => void;
-}) {
-  const approval = block.approval;
-  const words = useContext(ApprovalWords);
-  if (!approval || approval.decided) return null;
-  return (
-    <div
-      className="personal-tool-approval mt-1.5 flex gap-2"
-      data-approval-pending
-    >
-      <button
-        type="button"
-        className="rounded-md bg-content px-2.5 py-0.5 text-ui-caption hover:bg-(--aven-inverse-hover)     text-background-base"
-        onClick={() => onApproval?.(approval.requestId, "allow")}
-      >
-        {words.allow}
-      </button>
-      <button
-        type="button"
-        className="rounded-md bg-(--aven-control-bg) px-2.5 py-0.5 text-ui-caption text-content/70 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
-        onClick={() => onApproval?.(approval.requestId, "deny")}
-      >
-        {words.deny}
-      </button>
-    </div>
-  );
 }
 
 function HandoffDivider({ block }: { block: Block }) {

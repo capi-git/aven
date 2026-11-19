@@ -64,7 +64,32 @@ export type ClaudeControlRequest = {
   toolUseId?: string;
   /** Present for `elicitation`: a connected MCP server asking the user. */
   elicitation?: McpElicitation;
+  /**
+   * `permission_suggestions` on `can_use_tool`, already narrowed to what
+   * "Always allow" may grant in this chat (see `sessionPermissionUpdates`).
+   */
+  alwaysUpdates?: ClaudePermissionUpdate[];
 };
+
+/**
+ * The Claude Agent SDK's `PermissionUpdate`, as far as Aven grants it: rules
+ * that allow a tool, and folders the chat may use. `setMode` suggestions are
+ * left out, since they would change the chat's access behind its picker.
+ * Source: `@anthropic-ai/claude-agent-sdk` 0.3.220 `sdk.d.ts`
+ * (`PermissionUpdate`, `SDKControlPermissionRequest.permission_suggestions`).
+ */
+export type ClaudePermissionUpdate =
+  | {
+      type: "addRules";
+      rules: { toolName: string; ruleContent?: string }[];
+      behavior: "allow";
+      destination: "session";
+    }
+  | {
+      type: "addDirectories";
+      directories: string[];
+      destination: "session";
+    };
 
 export type ClaudeCliSettings = {
   alwaysThinkingEnabled?: boolean;
@@ -420,17 +445,153 @@ export function isClaudeInitMessage(rec: Record<string, unknown>): boolean {
   return type === "system" && (subtype === "init" || subtype === "initialized");
 }
 
+export const CLAUDE_DECLINED_MESSAGE = "User declined tool execution.";
+
+/**
+ * The answer to a `can_use_tool` request. Allowing always sends the
+ * request's own suggestions back as `updatedPermissions`, scoped to this
+ * chat's process; a denial carries the user's note when there is one.
+ */
 export function toClaudePermissionResult(
   decision: ApprovalDecision,
   input: Record<string, unknown>,
+  options: { always?: ClaudePermissionUpdate[]; note?: string } = {},
 ): Record<string, unknown> {
-  if (decision === "allow") {
-    return { behavior: "allow", updatedInput: input };
+  if (decision === "deny") {
+    const note = options.note?.trim();
+    return {
+      behavior: "deny",
+      message: note
+        ? `${CLAUDE_DECLINED_MESSAGE} The user said: ${note}`
+        : CLAUDE_DECLINED_MESSAGE,
+    };
   }
+  const always =
+    decision === "allowAlways" && options.always?.length ? options.always : [];
   return {
-    behavior: "deny",
-    message: "User declined tool execution.",
+    behavior: "allow",
+    updatedInput: input,
+    ...(always.length ? { updatedPermissions: always } : {}),
   };
+}
+
+/**
+ * The suggestions "Always allow" may grant, each scoped to the session
+ * (this chat's running process) whatever destination Claude proposed, so
+ * nothing is written to the user's or the project's settings files.
+ */
+export function sessionPermissionUpdates(
+  value: unknown,
+): ClaudePermissionUpdate[] {
+  if (!Array.isArray(value)) return [];
+  const updates: ClaudePermissionUpdate[] = [];
+  for (const item of value) {
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const type = stringField(rec, "type");
+    if (type === "addRules" && stringField(rec, "behavior") === "allow") {
+      const rules = (Array.isArray(rec.rules) ? rec.rules : []).flatMap(
+        (rule) => {
+          const r = asRecord(rule);
+          const toolName = stringField(r, "toolName")?.trim();
+          if (!toolName) return [];
+          const ruleContent = stringField(r, "ruleContent")?.trim();
+          return [{ toolName, ...(ruleContent ? { ruleContent } : {}) }];
+        },
+      );
+      if (rules.length)
+        updates.push({
+          type: "addRules",
+          rules,
+          behavior: "allow",
+          destination: "session",
+        });
+    } else if (type === "addDirectories") {
+      const directories = (
+        Array.isArray(rec.directories) ? rec.directories : []
+      ).filter(
+        (dir): dir is string => typeof dir === "string" && dir.trim() !== "",
+      );
+      if (directories.length)
+        updates.push({
+          type: "addDirectories",
+          directories,
+          destination: "session",
+        });
+    }
+  }
+  return updates;
+}
+
+const ALWAYS_LABEL_MAX = 48;
+
+/** What "Always allow" covers, in a few words: `pnpm test *`, `example.com`. */
+export function describePermissionUpdates(
+  updates: ClaudePermissionUpdate[],
+): string {
+  const parts = updates.flatMap((update) =>
+    update.type === "addRules"
+      ? update.rules.map(describeRule)
+      : update.directories.map((dir) => `files in ${folderName(dir)}`),
+  );
+  const label = [...new Set(parts)].join(", ");
+  return label.length > ALWAYS_LABEL_MAX
+    ? `${label.slice(0, ALWAYS_LABEL_MAX - 1).trimEnd()}…`
+    : label;
+}
+
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+
+function describeRule(rule: { toolName: string; ruleContent?: string }) {
+  const { toolName, ruleContent: content } = rule;
+  if (toolName === "Bash" || toolName === "PowerShell") {
+    // Claude's prefix rule `npm test:*` reads as `npm test *`.
+    return content ? content.replace(/:\*$/, " *") : "all commands";
+  }
+  if (toolName === "WebFetch")
+    return content ? content.replace(/^domain:/, "") : "web pages";
+  if (toolName === "WebSearch") return "web searches";
+  if (EDIT_TOOLS.has(toolName))
+    return content ? `edits in ${shortPath(content)}` : "all edits";
+  if (toolName === "Read")
+    return content ? `reading ${shortPath(content)}` : "reading files";
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  const name = mcp ? `${mcp[1]} ${mcp[2]}` : toolName;
+  return content ? `${name} ${content}` : name;
+}
+
+function shortPath(path: string): string {
+  return path.replace(/^\/\//, "/");
+}
+
+function folderName(dir: string): string {
+  const trimmed = dir.replace(/\/+$/, "");
+  return trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
+}
+
+/**
+ * The same grants as settings a later launch of the chat takes, since a
+ * session grant ends with the process (Aven parks idle chats).
+ */
+export function permissionUpdatesAsSettings(
+  updates: ClaudePermissionUpdate[],
+): {
+  allow: string[];
+  additionalDirectories: string[];
+} {
+  const allow: string[] = [];
+  const additionalDirectories: string[] = [];
+  for (const update of updates) {
+    if (update.type === "addRules")
+      for (const rule of update.rules)
+        allow.push(
+          rule.ruleContent
+            ? `${rule.toolName}(${rule.ruleContent})`
+            : rule.toolName,
+        );
+    else additionalDirectories.push(...update.directories);
+  }
+  return { allow, additionalDirectories };
 }
 
 export function parseControlRequest(
@@ -455,10 +616,17 @@ export function parseControlRequest(
     subtype === "elicitation"
       ? elicitationFromControl(nested ?? rec)
       : undefined;
+  const alwaysUpdates =
+    subtype === "can_use_tool"
+      ? sessionPermissionUpdates(
+          nested?.permission_suggestions ?? rec.permission_suggestions,
+        )
+      : [];
   return {
     requestId,
     subtype,
     ...(elicitation ? { elicitation } : {}),
+    ...(alwaysUpdates.length ? { alwaysUpdates } : {}),
     toolName: stringField(nested, "tool_name") ?? stringField(rec, "tool_name"),
     input,
     toolUseId:

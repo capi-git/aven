@@ -46,6 +46,7 @@ import {
 } from "./preview";
 import { subagentActivityFor } from "../subagentRuns";
 import { streamTextDelta } from "./streamText";
+import { approvalOutcome } from "./types";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -850,9 +851,11 @@ async function waitApproval(
   uiId: number,
   id: string,
 ): Promise<void> {
-  const decision = await new Promise<ApprovalDecision>((resolve) => {
-    live.approvals.set(uiId, { id, resolve });
-  });
+  const decision = approvalOutcome(
+    await new Promise<ApprovalDecision>((resolve) => {
+      live.approvals.set(uiId, { id, resolve });
+    }),
+  );
   live.approvals.delete(uiId);
   live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
   await live.client

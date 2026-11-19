@@ -928,7 +928,7 @@ function attachApproval(
               ...(preview ? { preview } : {}),
             }
           : prev.tool,
-      approval: { requestId: event.requestId },
+      approval: approvalMeta(event),
     };
     return { ...session, blocks };
   }
@@ -946,8 +946,17 @@ function attachApproval(
       kind: event.kind,
       ...(preview ? { preview } : {}),
     },
-    approval: { requestId: event.requestId },
+    approval: approvalMeta(event),
   });
+}
+
+function approvalMeta(
+  event: Extract<HarnessEvent, { type: "approval.requested" }>,
+): NonNullable<Block["approval"]> {
+  return {
+    requestId: event.requestId,
+    ...(event.always ? { always: event.always } : {}),
+  };
 }
 
 function findToolForApproval(
