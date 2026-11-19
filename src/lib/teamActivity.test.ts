@@ -459,7 +459,7 @@ describe("a member's own turn", () => {
     expect(result).toEqual({
       added: true,
       bannerSent: false,
-      playSound: false,
+      sound: null,
     });
     expect(invoke).not.toHaveBeenCalledWith(
       "show_notification",

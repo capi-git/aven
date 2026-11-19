@@ -6,8 +6,13 @@
 //! a delegate turns a click into a jump back to the session. Linux uses the
 //! freedesktop notification bus, which has no permission model.
 
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
+
+use crate::fs::expand_home;
 
 /// Emitted to every window when the user clicks a notification. Payload is
 /// the session id; the window that owns that session handles it.
@@ -42,9 +47,9 @@ pub async fn request_notification_permission() -> Permission {
     platform::request_permission().await
 }
 
-/// Resolves only once the platform reports the banner as scheduled: the
-/// frontend skips its own turn-finished cue on success, so returning early
-/// would silence a turn that never got a notification.
+/// Resolves only once the platform reports the banner as scheduled. With
+/// `sound` false the banner is silent: the frontend plays the alert's chosen
+/// sound itself, so a banner never adds a second one.
 #[tauri::command]
 pub async fn show_notification(
     app: AppHandle,
@@ -55,6 +60,141 @@ pub async fn show_notification(
     sound: bool,
 ) -> Result<(), String> {
     platform::show(&app, &session_id, &title, &subtitle, &body, sound).await
+}
+
+/// Alert sounds a person picked are small: a chime, not a song.
+const MAX_ALERT_SOUND_BYTES: u64 = 1024 * 1024;
+const ALERT_SOUND_EXTENSIONS: [&str; 6] = ["aiff", "aif", "wav", "mp3", "m4a", "caf"];
+const ALERT_EVENTS: [&str; 3] = ["needsYou", "finished", "failed"];
+
+fn alert_sound_extension(source: &Path) -> Result<String, String> {
+    let ext = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ALERT_SOUND_EXTENSIONS.contains(&ext.as_str()) {
+        Ok(ext)
+    } else {
+        Err("Choose an AIFF, WAV, MP3, M4A or CAF sound.".into())
+    }
+}
+
+/// Copies `source` into `dir` as this event's sound and removes the event's
+/// earlier copies. Each copy has a new name, so the web view never plays a
+/// cached older sound.
+fn save_alert_sound_into(dir: &Path, event: &str, source: &Path) -> Result<PathBuf, String> {
+    if !ALERT_EVENTS.contains(&event) {
+        return Err(format!("Unknown alert: {event}"));
+    }
+    let meta = std::fs::metadata(source).map_err(|e| format!("{}: {e}", source.display()))?;
+    if !meta.is_file() {
+        return Err("Not a file".into());
+    }
+    if meta.len() > MAX_ALERT_SOUND_BYTES {
+        return Err("Choose a sound under 1 MB.".into());
+    }
+    let ext = alert_sound_extension(source)?;
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let dest = dir.join(format!("{event}-{stamp}.{ext}"));
+    let temp = dir.join(format!(".{event}-upload"));
+    // Copy first so choosing the sound already saved stays safe.
+    std::fs::copy(source, &temp).map_err(|e| format!("{}: {e}", temp.display()))?;
+    let prefix = format!("{event}-");
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name();
+        if name.to_str().is_some_and(|name| name.starts_with(&prefix)) {
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+    }
+    std::fs::rename(&temp, &dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    Ok(dest)
+}
+
+/// Copies a chosen alert sound into the app's data folder (served by the
+/// asset protocol), so moving or deleting the original never breaks it.
+#[tauri::command]
+pub async fn save_alert_sound(
+    app: AppHandle,
+    event: String,
+    source_path: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("sounds");
+        save_alert_sound_into(&dir, &event, &expand_home(&source_path))
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod alert_sound_tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("aven-alert-sound-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn accepts_only_sound_files() {
+        assert_eq!(
+            alert_sound_extension(Path::new("a/Ping.AIFF")).unwrap(),
+            "aiff"
+        );
+        assert_eq!(alert_sound_extension(Path::new("b.m4a")).unwrap(), "m4a");
+        assert!(alert_sound_extension(Path::new("c.png")).is_err());
+        assert!(alert_sound_extension(Path::new("noext")).is_err());
+    }
+
+    #[test]
+    fn copies_and_replaces_the_events_earlier_sound() {
+        let root = scratch("copy");
+        let source = root.join("ping.wav");
+        std::fs::write(&source, b"RIFF").unwrap();
+        let dir = root.join("sounds");
+        let first = save_alert_sound_into(&dir, "needsYou", &source).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let second = save_alert_sound_into(&dir, "needsYou", &source).unwrap();
+        let other = save_alert_sound_into(&dir, "finished", &source).unwrap();
+        assert_ne!(first, second);
+        assert!(!first.exists());
+        assert_eq!(std::fs::read(&second).unwrap(), b"RIFF");
+        assert!(other.exists());
+        // The original stays where it was.
+        assert!(source.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refuses_large_files_and_unknown_alerts() {
+        let root = scratch("refuse");
+        let big = root.join("big.mp3");
+        std::fs::write(&big, vec![0u8; (MAX_ALERT_SOUND_BYTES + 1) as usize]).unwrap();
+        let dir = root.join("sounds");
+        assert!(save_alert_sound_into(&dir, "finished", &big).is_err());
+        let small = root.join("small.mp3");
+        std::fs::write(&small, b"ID3").unwrap();
+        assert!(save_alert_sound_into(&dir, "stopped", &small).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
 
 /// Opens the app's page in the OS notification settings, where the user can

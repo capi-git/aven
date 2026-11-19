@@ -569,6 +569,7 @@ pub fn run() {
             notifications::notification_permission,
             notifications::request_notification_permission,
             notifications::show_notification,
+            notifications::save_alert_sound,
             notifications::open_notification_settings,
             fs::list_dir,
             personal_project::personal_project_info,
