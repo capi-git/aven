@@ -40,6 +40,7 @@ import {
   type ComposerTurnOptions,
 } from "../lib/session";
 import { innerSashBoundary } from "../lib/paneFit";
+import { holdTranscriptWidths } from "../lib/transcriptWidthHold";
 import { FilePane } from "./FilePane";
 import { SessionPane } from "./SessionPane";
 
@@ -627,6 +628,8 @@ function Sash({
             width: box.width * toViewport,
             height: box.height * toViewport,
           };
+          // The chats in the split keep their width until the drop.
+          const releaseChats = holdTranscriptWidths(parent);
           const restoreSelection = suppressTextSelection();
           setDragCursor(row ? "col-resize" : "row-resize");
           const origin = row
@@ -682,6 +685,7 @@ function Sash({
             }
             restoreSelection();
             setDragCursor(null);
+            releaseChats();
             if (!moved) return;
             if (commit) onCommit(nextBoundary);
             else onCancel();
