@@ -1339,16 +1339,27 @@ export async function runDevPerf(
         },
         { setup: true },
       );
-      // A divider dragged left and right, a frame at a time as a hand does.
-      await scenario(picturesDivider, async (measure) => {
+      /**
+       * Drag `handle` a frame at a time as a hand does: out by `reach` px and
+       * most of the way back, dropping a third of the way out, one way and
+       * then the other, so each drop leaves the chat a new width.
+       */
+      const dragBackAndForth = async (
+        measure: Measure,
+        handle: HTMLElement,
+        /** The way to move first: 1 right, -1 left. */
+        first: number,
+        reach: number,
+      ) => {
         const scroller = picturesTranscript();
         if (!scroller) throw new Error("No chat with pictures on screen");
+        // Start at the end, as after reading the latest reply.
+        scroller.scrollTop = scroller.scrollHeight;
+        await pause(300);
         const before = fromEnd(scroller);
-        const beside = sashBeside(scroller);
-        if (!beside) throw new Error("No divider beside the chat");
-        const { sash, widen } = beside;
-        for (let round_ = 0; round_ < 3; round_ += 1) {
-          const box = sash.getBoundingClientRect();
+        for (let round_ = 0; round_ < 4; round_ += 1) {
+          const way = round_ % 2 === 0 ? first : -first;
+          const box = handle.getBoundingClientRect();
           const from = { x: box.left + box.width / 2, y: box.top + 200 };
           measure.mark("lift");
           await smokeMouse("down", from, { settle: false });
@@ -1356,28 +1367,42 @@ export async function runDevPerf(
           measure.mark("motion");
           const steps = 90;
           for (let step = 1; step <= steps; step += 1) {
-            // Out by 120 px, widening the chat, and back again.
-            const share = 1 - Math.abs((step / steps) * 2 - 1);
+            const along = step / steps;
+            const share =
+              along <= 0.5 ? along * 2 : 1 - (along - 0.5) * 2 * (2 / 3);
             await smokeMouse(
               "drag",
-              { x: from.x + widen * share * 120, y: from.y },
+              { x: from.x + way * share * reach, y: from.y },
               { settle: false },
             );
             await pause(refreshMs);
           }
           measure.mark("drop");
-          await measure.time(() => smokeMouse("up", from, { settle: false }));
+          const to = { x: from.x + (way * reach) / 3, y: from.y };
+          await measure.time(() => smokeMouse("up", to, { settle: false }));
           await checkStillAtEnd();
         }
         endCheck(before);
-      });
-      await scenario(picturesSidebar, async (measure) => {
+      };
+      await scenario(picturesDivider, async (measure) => {
         const scroller = picturesTranscript();
         if (!scroller) throw new Error("No chat with pictures on screen");
-        const before = fromEnd(scroller);
-        await dragSidebarEdge(measure);
-        await checkStillAtEnd();
-        endCheck(before);
+        const beside = sashBeside(scroller);
+        if (!beside) throw new Error("No divider beside the chat");
+        await dragBackAndForth(measure, beside.sash, beside.widen, 120);
+      });
+      await scenario(picturesSidebar, async (measure) => {
+        if (!get().sidebarOpen) {
+          pressShortcut("b");
+          await waitFor(() => get().sidebarOpen, 5_000, "the sidebar to pin");
+          await pause(300);
+        }
+        const edge = document.querySelector<HTMLElement>(
+          '[role="separator"][aria-label="Resize sidebar"]',
+        );
+        if (!edge) throw new Error("No sidebar edge");
+        // Right first, as the scenario above: the panes narrow, then widen.
+        await dragBackAndForth(measure, edge, 1, 90);
       });
     }
     // Two workspaces, each with a project and chats: a two-finger swipe on
