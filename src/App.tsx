@@ -13068,6 +13068,7 @@ export default function App({
                 notices={hiddenApprovalToasts}
                 onFocusSession={onOpenApprovalSession}
                 onApproval={onApproval}
+                onAnswer={onQuestionReply}
               />
               <AgentPageNotices
                 notices={agentPageNotices}

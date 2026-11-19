@@ -2,6 +2,55 @@ import { leafIds, type WorkspaceTab } from "./layout";
 import type { Block, Session } from "./session";
 import { toolCallLabel } from "../surfaces/transcriptActivity";
 import { requestsAreUsers, type LeadDecided } from "./teamAttention";
+import {
+  isOtherOption,
+  optionIsRecommended,
+  type UserQuestion,
+  type UserQuestionOption,
+  type UserQuestionPrompt,
+  type UserQuestionReply,
+} from "./userQuestion";
+
+/** Most answers a notice offers before it asks you to open the chat. */
+export const TOAST_ANSWER_LIMIT = 4;
+
+export type ToastAnswers = {
+  question: UserQuestion;
+  /** The suggested option first. */
+  options: UserQuestionOption[];
+};
+
+/**
+ * Answers a notice can offer itself: one single-choice question with a few
+ * fixed options. Anything else (several questions, multi-select, previews to
+ * compare, only a typed answer) opens the chat instead.
+ */
+export function toastAnswers(
+  prompt: UserQuestionPrompt | undefined,
+): ToastAnswers | null {
+  if (!prompt || prompt.questions.length !== 1) return null;
+  const question = prompt.questions[0];
+  if (question.multiSelect) return null;
+  const options = question.options.filter((option) => !isOtherOption(option));
+  if (options.length === 0 || options.length > TOAST_ANSWER_LIMIT) return null;
+  if (options.some((option) => option.preview)) return null;
+  const suggested = options.filter(optionIsRecommended);
+  return {
+    question,
+    options: [
+      ...suggested,
+      ...options.filter((option) => !suggested.includes(option)),
+    ],
+  };
+}
+
+/** The reply a notice sends for one picked option. */
+export function toastAnswerReply(
+  question: UserQuestion,
+  option: UserQuestionOption,
+): UserQuestionReply {
+  return { kind: "answered", answers: { [question.id]: [option.id] } };
+}
 
 export type PendingApprovalNotice = {
   sessionId: string;

@@ -4,8 +4,13 @@ export const CUSTOM_OPTION_ID = "__custom__";
 
 export type UserQuestionOption = {
   id: string;
+  /** The provider's own label. Replies send it back unchanged. */
   label: string;
   description?: string;
+  /** The provider marked this option as its suggestion. */
+  recommended?: boolean;
+  /** A mockup or code sample to show while the option is highlighted. */
+  preview?: string;
 };
 
 export type UserQuestion = {
@@ -146,6 +151,57 @@ export function questionReplyText(
     .join("\n");
 }
 
+// "(Recommended)", "[recommended]" anywhere, or a trailing "- Recommended".
+const RECOMMENDED_BRACKETED = /\s*[([]\s*recommended\s*[)\]]\s*/i;
+const RECOMMENDED_TRAILING = /(?:\s+[-–—]|\s*:)\s*recommended\s*$/i;
+
+/** True when the provider marked the option, by field or in its label. */
+export function optionIsRecommended(option: UserQuestionOption): boolean {
+  if (option.recommended != null) return option.recommended;
+  return (
+    RECOMMENDED_BRACKETED.test(option.label) ||
+    RECOMMENDED_TRAILING.test(option.label)
+  );
+}
+
+/**
+ * The label to show: the provider's label without its recommended marker.
+ * Never use it in a reply; providers match the original `label`.
+ */
+export function optionDisplayLabel(option: UserQuestionOption): string {
+  const clean = option.label
+    .replace(RECOMMENDED_BRACKETED, " ")
+    .replace(RECOMMENDED_TRAILING, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return clean || option.label;
+}
+
+/** The first suggested option, ignoring Other. */
+export function recommendedOption(
+  question: UserQuestion,
+): UserQuestionOption | undefined {
+  return question.options.find(
+    (option) => optionIsRecommended(option) && !isOtherOption(option),
+  );
+}
+
+/**
+ * Answers to start a card with: a single-choice question's suggestion is
+ * already chosen, so Enter accepts it.
+ */
+export function suggestedAnswers(
+  questions: readonly UserQuestion[],
+): Record<string, string[]> {
+  const answers: Record<string, string[]> = {};
+  for (const question of questions) {
+    if (question.multiSelect) continue;
+    const option = recommendedOption(question);
+    if (option) answers[question.id] = [option.id];
+  }
+  return answers;
+}
+
 export function isCustomSelection(
   question: UserQuestion,
   optionId: string,
@@ -209,6 +265,11 @@ function optionsFromUnknown(value: unknown): UserQuestionOption[] {
     if (!label) return [];
     const description =
       stringField(rec, "description") ?? stringField(rec, "detail");
+    const preview = previewField(rec.preview);
+    const recommended =
+      rec.recommended === true ||
+      RECOMMENDED_BRACKETED.test(label) ||
+      RECOMMENDED_TRAILING.test(label);
     return [
       {
         id: uniqueId(
@@ -220,9 +281,17 @@ function optionsFromUnknown(value: unknown): UserQuestionOption[] {
         ),
         label,
         ...(description ? { description } : {}),
+        ...(recommended ? { recommended } : {}),
+        ...(preview ? { preview } : {}),
       },
     ];
   });
+}
+
+/** Keeps a preview's leading spaces: ASCII mockups line up on them. */
+function previewField(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  return value.replace(/^(?:[ \t]*\r?\n)+/, "").trimEnd();
 }
 
 function customAllowed(
