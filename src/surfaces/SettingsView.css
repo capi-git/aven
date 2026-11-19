@@ -154,13 +154,14 @@
   border-left: 1px solid var(--settings-line);
   margin-left: 2px;
 }
-.settings-alert-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 22px;
+/* An alert's preview: a square button the height of its sound picker. */
+/* Pickers share one width so the preview buttons line up. */
+.settings-sound-picker .settings-select {
+  min-width: 112px;
 }
-.settings-alert-options label {
-  justify-content: space-between;
+.settings-sound-play {
+  width: 28px;
+  padding: 0;
 }
 .settings-reset {
   display: flex;

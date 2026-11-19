@@ -36,6 +36,7 @@ import { useTeamOf } from "../hooks/useTeamRuns";
 import { chatMayOfferMemoryKeeper } from "../lib/memoryKeeperOffer";
 import { teamIsOpen, teamRole } from "../lib/teamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
+import { activeUsageHold } from "../lib/messageQueue";
 import { sessionHoldUps, type SessionHoldUp } from "../lib/sessionHoldUp";
 import { equalChromeData } from "../hooks/useChromeProps";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -77,23 +78,13 @@ import {
   type QuoteRequest,
 } from "../lib/quoteDraft";
 import { createNote, noteTitle } from "../lib/notes";
-import {
-  GRID_ARCADE_ENABLED_DEFAULT,
-  loadGridArcadeEnabled,
-  loadNotesEnabled,
-  SETTINGS,
-  subscribeGridArcadeEnabled,
-  subscribeNotesEnabled,
-} from "../lib/settings";
-import { useSetting } from "../hooks/useSetting";
-import { useMotionReduced } from "../hooks/useMotionReduced";
+import { loadNotesEnabled, subscribeNotesEnabled } from "../lib/settings";
 import { getModelSnapshot, resolveModel, subscribeModels } from "../lib/models";
 import { sessionModelIdentity, sessionPaneLabel } from "../lib/sessionLabels";
 import { isInFlightSession } from "../lib/inFlight";
 import { raceLaneFor } from "../lib/race";
 import { isAstraModel } from "../lib/astraWelcome";
 import { AstraWelcome } from "./AstraWelcome";
-import { NewChatInk } from "./NewChatInk";
 import { projectKey } from "../lib/paths";
 import { memoryProjectFor } from "../lib/projectMemory";
 import {
@@ -176,6 +167,7 @@ type Props = {
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    note?: string,
   ) => void;
   onQuestionReply: (
     sessionId: string,
@@ -334,8 +326,8 @@ export const SessionPane = memo(function SessionPane({
       } as CSSProperties)
     : undefined;
   const approve = useCallback(
-    (requestId: number, decision: ApprovalDecision) =>
-      onApproval(session.id, requestId, decision),
+    (requestId: number, decision: ApprovalDecision, note?: string) =>
+      onApproval(session.id, requestId, decision, note),
     [onApproval, session.id],
   );
   const replyQuestion = useCallback(
@@ -452,24 +444,6 @@ export const SessionPane = memo(function SessionPane({
   const showDeckProjectPicker = isEmpty && !looksLikeProject(session.cwd);
   const dockComposer =
     !isEmpty || inSplit || !!session.inboxAsk || !!botProject;
-  const newChatInk = useSetting(SETTINGS.newChatInk);
-  const gamesInEmptyChats = useSyncExternalStore(
-    subscribeGridArcadeEnabled,
-    loadGridArcadeEnabled,
-    () => GRID_ARCADE_ENABLED_DEFAULT,
-  );
-  const motionReduced = useMotionReduced();
-  // A plain new chat only: a chosen background or the games take its place,
-  // and the ink lives only in motion.
-  const inkActive =
-    isEmpty &&
-    newChatInk &&
-    !session.inboxAsk &&
-    !botProject &&
-    !projectBackground &&
-    !globalBackgroundPath &&
-    !gamesInEmptyChats &&
-    !motionReduced;
   const draftRef = useRef<{
     sessionId: string;
     text: string | undefined;
@@ -565,6 +539,8 @@ export const SessionPane = memo(function SessionPane({
     [onRace, sessionId],
   );
   const stop = useCallback(() => onStop(sessionId), [onStop, sessionId]);
+  // A usage limit with a reset to come holds what is sent until then.
+  const queueSendsAt = activeUsageHold(session)?.resetsAt;
   const compactContext = useCallback(
     () => onCompactContext(sessionId),
     [onCompactContext, sessionId],
@@ -770,6 +746,7 @@ export const SessionPane = memo(function SessionPane({
       onCompactContext={compactContext}
       queuedMessages={session.queuedMessages}
       queueStatus={session.queueStatus}
+      queueSendsAt={queueSendsAt}
       onDeleteQueuedMessage={deleteQueuedMessage}
       onEditQueuedMessage={editQueuedMessage}
       onQueuedMessageEditingChange={changeQueuedMessageEditing}
@@ -831,11 +808,6 @@ export const SessionPane = memo(function SessionPane({
       ) : null}
       {projectBot ? <BotChatHeader path={projectBot} working={busy} /> : null}
       <div ref={transcriptScope} className="relative min-h-0 flex-1">
-        <NewChatInk
-          host={transcriptScope}
-          active={inkActive}
-          visible={visible}
-        />
         {isEmpty ? (
           botProject ? (
             <div className="scrollbar-none h-full min-h-0 overflow-y-auto">

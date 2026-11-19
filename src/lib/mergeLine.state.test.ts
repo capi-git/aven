@@ -185,7 +185,7 @@ describe("mergeLineState", () => {
           }),
         ),
       ),
-    ).toEqual(["Checks failing", "danger", "agent", "fix-checks", "Fix"]);
+    ).toEqual(["1 check failing", "danger", "agent", "fix-checks", "Fix"]);
     expect(
       summary(
         mergeLineState(

@@ -62,14 +62,15 @@ const props: WorkspaceInspectorProps = {
 };
 
 describe("WorkspaceInspector preload", () => {
-  it("loads a closed panel's tab once startup settles, without mounting it", async () => {
+  it("loads a closed panel's tab, then the others, once startup settles, without mounting them", async () => {
     await act(async () =>
       root.render(createElement(WorkspaceInspector, props)),
     );
     expect(mocks.loadFiles).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTimeAsync(5_000));
     expect(mocks.loadFiles).toHaveBeenCalledOnce();
-    expect(mocks.loadChanges).not.toHaveBeenCalled();
+    // The other tabs load after it, so a first click on one never waits.
+    expect(mocks.loadChanges).toHaveBeenCalledOnce();
     expect(mocks.mountFiles).not.toHaveBeenCalled();
     // Opened now, the tab draws at once rather than its loading line.
     await act(async () =>

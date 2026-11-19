@@ -335,11 +335,15 @@
   flex-shrink: 0;
   width: 16px;
   height: 16px;
+}
+/* A project that never picked a colour: its orb in the sidebar's muted
+   grey. A picked colour (ProjectMark.css) shows as it is. */
+.personal-shell .personal-navigation .personal-project-symbol:not([data-tone]) {
   color: var(--personal-muted);
 }
 /* What is happening in the project: quiet marks at the row's end. The
-   project's mark stays still (its Stack fans only while the project is
-   open), so a running agent is the small dot. */
+   project's orb moves while an agent works there; a logo or a tile keeps
+   the agent's small working mark here instead. */
 .personal-shell .personal-navigation .personal-project-status {
   display: inline-flex;
   flex-shrink: 0;

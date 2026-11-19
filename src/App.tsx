@@ -107,7 +107,6 @@ import {
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { SidePanelOpen } from "./chrome/SidePanelOpen";
-import type { WorkspaceInspectorTab } from "./chrome/WorkspaceInspector";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useProjectStatus } from "./hooks/useProjectStatus";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
@@ -134,6 +133,7 @@ import {
 } from "./hooks/useScheduledAgents";
 import { useUnreadAutomationRuns } from "./hooks/useUnreadAutomationRuns";
 import { useInboxReviewCount } from "./hooks/useAutomationChats";
+import { useUsageHoldRelease } from "./hooks/useUsageHoldRelease";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
 import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
 import { useChatConnectionsSettings } from "./hooks/useChatConnections";
@@ -185,7 +185,9 @@ import {
 } from "./lib/workspaceIntents";
 import { setWorkspaceSurfaceDrag } from "./lib/workspaceSurfaceDrag";
 import {
+  hasMotionPages,
   holdMotionPages,
+  holdMotionPagesForSwitch,
   refreshMotionImages,
   panesMoved,
   releaseMotionPages,
@@ -195,7 +197,9 @@ import {
 import {
   afterSidePanelOpens,
   setSidePanelOpen,
+  setSidePanelTab,
   sidePanelOpen,
+  sidePanelTab,
 } from "./lib/sidePanel";
 import {
   addStripPane,
@@ -764,7 +768,7 @@ import {
   probeNotificationPermission,
   setWindowFocused,
 } from "./lib/notifications";
-import { playCue } from "./lib/sounds";
+import { playAlertSound } from "./lib/sounds";
 import { archiveFocusedSession } from "./lib/archiveShortcut";
 import {
   adjacentItemId,
@@ -2274,22 +2278,22 @@ export default function App({
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
-  // The side panel's tab and width. Whether it is open is kept apart
-  // (sidePanel.ts), so showing or hiding it redraws only it and its toggles.
-  const [inspector, setInspector] = useState(() => {
-    const { tab, width } = loadPersonalInspector();
-    return { tab, width };
-  });
-  const onInspectorTab = useCallback((tab: WorkspaceInspectorTab) => {
-    setInspector((previous) =>
-      previous.tab === tab ? previous : { ...previous, tab },
-    );
-  }, []);
+  // The side panel's width. Whether it is open and its tab are kept apart
+  // (sidePanel.ts), so a toggle or tab click redraws only the panel.
+  const [inspector, setInspector] = useState(() => ({
+    width: loadPersonalInspector().width,
+  }));
+  const onInspectorTab = setSidePanelTab;
   const onInspectorWidth = useCallback((width: number) => {
     setInspector((previous) => ({ ...previous, width }));
   }, []);
   useEffect(() => {
-    savePersonalInspector({ ...inspector, open: sidePanelOpen() });
+    savePersonalInspector({
+      ...loadPersonalInspector(),
+      width: inspector.width,
+      open: sidePanelOpen(),
+      tab: sidePanelTab(),
+    });
   }, [inspector]);
   const [filesSearchOpen, setFilesSearchOpen] = useState(false);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
@@ -2406,8 +2410,6 @@ export default function App({
         ?.focus(),
     );
   }, [showSidePanel]);
-  const inspectorRef = useRef(inspector);
-  inspectorRef.current = inspector;
   // The tour may open the side panel on Changes to point at it, and puts it
   // back as it was when it moves on. Nothing else is opened for it.
   const tourPrepare = useMemo<TourPrepare>(
@@ -2415,7 +2417,7 @@ export default function App({
       changes: () => {
         const before = {
           open: sidePanelOpen(),
-          tab: inspectorRef.current.tab,
+          tab: sidePanelTab(),
         };
         if (before.open && before.tab === "changes") return;
         onInspectorTab("changes");
@@ -3101,7 +3103,7 @@ export default function App({
         presentation.visible,
         presentation.focused,
       ).then((result) => {
-        if (result.playSound) playCue("turnFinished");
+        if (result.sound) playAlertSound(result.sound);
       });
     },
     [activityPresentation],
@@ -6489,11 +6491,28 @@ export default function App({
       setBranchAnchor(null);
       setFilePickerOpen(false);
       closeUtilityViews();
-      restoreProfileWorkspace(
-        id,
-        profilesRef.current.selectProfile,
-        onSelectProject,
-      );
+      const switchNow = () =>
+        restoreProfileWorkspace(
+          id,
+          profilesRef.current.selectProfile,
+          onSelectProject,
+        );
+      // A web page is a native view the workspace's redraw cannot move with:
+      // the old workspace's page would linger a frame over the new one, and
+      // the new one's show a frame late. Pictures stand in for every page
+      // through the switch, and the live pages come back once it is drawn.
+      if (
+        motionReduced() ||
+        id === profilesRef.current.activeProfileId ||
+        !hasMotionPages()
+      ) {
+        switchNow();
+        return;
+      }
+      void holdMotionPagesForSwitch().then((held) => {
+        flushSync(switchNow);
+        releaseMotionPagesAfter(held, 0);
+      });
     },
     [onSelectProject, setFilePickerOpen, closeUtilityViews],
   );
@@ -8499,6 +8518,9 @@ export default function App({
     [onSubmit],
   );
 
+  // A usage limit's reset lets its chat's queued messages send.
+  useUsageHoldRelease(sessions, setSessions);
+
   useEffect(() => {
     const timers: number[] = [];
     const scheduled = new Set<string>();
@@ -9239,10 +9261,15 @@ export default function App({
   }, [onStop]);
 
   const onApproval = useCallback(
-    (sessionId: string, requestId: number, decision: ApprovalDecision) => {
+    (
+      sessionId: string,
+      requestId: number,
+      decision: ApprovalDecision,
+      note?: string,
+    ) => {
       const session = sessionsRef.current.find((s) => s.id === sessionId);
       if (!session) return;
-      deliverApproval(session, requestId, decision);
+      deliverApproval(session, requestId, decision, note);
     },
     [],
   );
@@ -12785,8 +12812,6 @@ export default function App({
                       onWidthChange={onInspectorWidth}
                       cwd={sidebarCwd}
                       gitCwd={gitCwd}
-                      tab={inspector.tab}
-                      onTabChange={onInspectorTab}
                       onClose={onCloseInspector}
                       onOpenFile={onOpenFile}
                       onOpenTerminal={onOpenTerminal}
@@ -13043,6 +13068,7 @@ export default function App({
                 notices={hiddenApprovalToasts}
                 onFocusSession={onOpenApprovalSession}
                 onApproval={onApproval}
+                onAnswer={onQuestionReply}
               />
               <AgentPageNotices
                 notices={agentPageNotices}

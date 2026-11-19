@@ -98,6 +98,11 @@ export type HarnessEvent =
       kind?: string;
       callId?: string;
       preview?: ToolPreview;
+      /**
+       * What "Always allow" covers in this chat, in a few words ("pnpm test
+       * *"). Absent when the provider can't remember the choice.
+       */
+      always?: string;
     }
   | {
       type: "approval.resolved";
@@ -167,7 +172,17 @@ export type HarnessEvent =
   | { type: "turn.selfStarted" }
   | { type: "turn.selfEnded" };
 
-export type ApprovalDecision = "allow" | "deny";
+/**
+ * The user's answer to an approval card. `allowAlways` also allows what the
+ * request's `always` names for the rest of the chat; only a provider that
+ * offered it receives it (the registry turns it into `allow` elsewhere).
+ */
+export type ApprovalDecision = "allow" | "allowAlways" | "deny";
+
+/** The card's state once answered: allowing always is still an allow. */
+export function approvalOutcome(decision: ApprovalDecision): "allow" | "deny" {
+  return decision === "deny" ? "deny" : "allow";
+}
 
 /** The project's memory as an agent receives it (see `projectMemory.ts`). */
 export type HarnessProjectMemory = {

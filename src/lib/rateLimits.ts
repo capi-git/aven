@@ -519,3 +519,24 @@ function numberField(rec: Record<string, unknown>, key: string): number | null {
   }
   return null;
 }
+
+/**
+ * When a reached limit lets requests through again, from a usage reading:
+ * the latest reset among its full windows still to come (every full window
+ * must reset). Undefined when no window is full, or none says when.
+ */
+export function exhaustedResetAt(
+  limits: ProviderRateLimits | null | undefined,
+  now: number,
+): number | undefined {
+  if (!limits) return undefined;
+  let latest: number | undefined;
+  for (const window of [limits.session, limits.weekly, limits.monthly]) {
+    if (!window || window.usedPercent < 100 || window.resetsAt == null)
+      continue;
+    if (window.resetsAt <= now) continue;
+    if (latest === undefined || window.resetsAt > latest)
+      latest = window.resetsAt;
+  }
+  return latest;
+}

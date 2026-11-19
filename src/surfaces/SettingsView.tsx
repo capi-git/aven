@@ -236,6 +236,7 @@ import {
 } from "../lib/updater";
 import { SkillsSettings } from "./SkillsSettings";
 import { PromptsPage } from "./SettingsPrompts";
+import { AlertSoundRows } from "./AlertSoundRows";
 import { AccentColorSetting } from "./AccentColorSetting";
 import { ProviderConnections } from "./ProviderConnections";
 import { ProviderSetup } from "./ProviderSetup";
@@ -658,7 +659,6 @@ function PreferencesPage({
         />
       </Row>
       {/* The games take the ink's place, so its switch shows only without them. */}
-      {gridArcadeEnabled ? null : <NewChatInkRow />}
     </SettingsGroup>
   );
 
@@ -696,30 +696,11 @@ function PreferencesPage({
           onChange={onSoundsEnabled}
         />
       </Row>
-      <Row {...SETTINGS.activityAlerts.row}>
-        <div className="settings-alert-options">
-          {(
-            [
-              ["needsInput", "Needs you"],
-              ["failures", "Failures"],
-              ["finished", "Finished / stopped"],
-              ["sound", "Sound"],
-            ] as const
-          ).map(([key, label]) => (
-            <label
-              key={key}
-              className="flex items-center gap-2 text-ui-caption text-content/65"
-            >
-              {label}
-              <Toggle
-                label={`Activity: ${label}`}
-                on={notificationPreferences[key]}
-                onChange={(value) => onNotificationPreference(key, value)}
-              />
-            </label>
-          ))}
-        </div>
-      </Row>
+      <AlertSoundRows
+        preferences={notificationPreferences}
+        onPreference={onNotificationPreference}
+        soundsEnabled={soundsEnabled}
+      />
     </SettingsGroup>
   );
 
@@ -1426,19 +1407,6 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </SecondaryButton>
       </div>
     </>
-  );
-}
-
-function NewChatInkRow() {
-  const on = useSetting(SETTINGS.newChatInk);
-  return (
-    <Row {...SETTINGS.newChatInk.row}>
-      <Toggle
-        label={SETTINGS.newChatInk.label}
-        on={on}
-        onChange={SETTINGS.newChatInk.save}
-      />
-    </Row>
   );
 }
 

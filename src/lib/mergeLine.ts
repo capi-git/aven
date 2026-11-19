@@ -143,7 +143,7 @@ export function mergeLineState(
   const failing = checks.checks.filter((check) => check.state === "fail");
   if (failing.length > 0)
     return {
-      status: "Checks failing",
+      status: `${plural(failing.length, "check")} failing`,
       tone: "danger",
       action: agent("fix-checks", "Fix"),
     };
@@ -186,6 +186,15 @@ export function mergeLineState(
     action: agent("investigate-blocker", "Investigate"),
   };
 }
+
+/** What the button says while the chat's agent does what it was asked. */
+export const MERGE_LINE_WORKING_LABEL: Record<MergeLineAgentAction, string> = {
+  "commit-push": "Pushing",
+  "resolve-conflicts": "Resolving",
+  "fix-checks": "Fixing",
+  "fix-review": "Fixing",
+  "investigate-blocker": "Investigating",
+};
 
 const AGENT_PROMPT: Record<MergeLineAgentAction, PromptId> = {
   "commit-push": "commit-push",

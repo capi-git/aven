@@ -1,5 +1,5 @@
 import { ask } from "@tauri-apps/plugin-dialog";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useMergeLine } from "../hooks/useMergeLine";
 import { errorText, logError } from "../lib/errors";
 import { notifyGitChanged } from "../lib/fs";
@@ -8,9 +8,11 @@ import { githubWorkItemThread } from "../lib/githubTasks";
 import { openInAppUrl } from "../lib/inAppLinks";
 import { runMergeGitStep } from "../lib/mergeActions";
 import {
+  MERGE_LINE_WORKING_LABEL,
   mergeLineInstruction,
   mergeLineState,
   type MergeLineAction,
+  type MergeLineAgentAction,
 } from "../lib/mergeLine";
 import type { HarnessId } from "../lib/session";
 import { DotSpinner } from "./DotSpinner";
@@ -57,6 +59,21 @@ const BUSY_LABEL: Partial<Record<string, string>> = {
 };
 
 /**
+ * The step a copy's agent was asked to do from the line, and the state it
+ * was asked in. Kept per copy so a chat opened again still shows "Fixing".
+ */
+type Asked = { id: MergeLineAgentAction; key: string; started: boolean };
+const asked = new Map<string, Asked>();
+
+/** For tests: forget every step the line asked an agent to do. */
+export function clearMergeLineAsked() {
+  asked.clear();
+}
+
+/** An agent that never starts on what it was sent has not taken it on. */
+const START_WAIT_MS = 15_000;
+
+/**
  * One line under the message box: where the chat's branch stands on its way
  * to a merge, and the one next step. Hidden when nothing applies.
  */
@@ -82,6 +99,37 @@ export const MergeLine = memo(function MergeLine({
     ? `${state.tone}|${state.action?.id ?? ""}|${pr?.number ?? ""}|${pr?.state ?? ""}`
     : "";
   const failureText = failure?.key === stateKey ? failure.text : null;
+  const [askedStep, setAsked] = useState<Asked | null>(
+    () => asked.get(cwd) ?? null,
+  );
+  const remember = (next: Asked | null) => {
+    if (next) asked.set(cwd, next);
+    else asked.delete(cwd);
+    setAsked(next);
+  };
+  useEffect(() => setAsked(asked.get(cwd) ?? null), [cwd]);
+  // The agent took the step on, then finished it: the line shows what is
+  // true now. One that never starts drops it after a short wait.
+  useEffect(() => {
+    if (!askedStep) return;
+    if (busy && !askedStep.started) {
+      const next = { ...askedStep, started: true };
+      asked.set(cwd, next);
+      setAsked(next);
+      return;
+    }
+    if (!busy && askedStep.started) {
+      asked.delete(cwd);
+      setAsked(null);
+      return;
+    }
+    if (busy || askedStep.started) return;
+    const timer = window.setTimeout(() => {
+      asked.delete(cwd);
+      setAsked(null);
+    }, START_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [askedStep, busy, cwd]);
   if (!enabled) return null;
   // Local Git already says the line applies: hold its height while GitHub is
   // read, so the message box above never jumps.
@@ -107,6 +155,7 @@ export const MergeLine = memo(function MergeLine({
           });
         setRunning(null);
       }
+      remember({ id: action.id, key: stateKey, started: false });
       onSendToAgent(
         mergeLineInstruction(action.id, {
           index,
@@ -145,8 +194,15 @@ export const MergeLine = memo(function MergeLine({
   };
 
   const action = state.action;
+  // The agent is doing what the line asked, and the branch has not moved on.
+  const working =
+    action?.kind === "agent" &&
+    askedStep?.id === action.id &&
+    askedStep.key === stateKey
+      ? MERGE_LINE_WORKING_LABEL[action.id]
+      : null;
   // While the agent works, sending it more would only queue behind it.
-  const showAction = action && !(action.kind === "agent" && busy);
+  const showAction = action && !working && !(action.kind === "agent" && busy);
   return (
     <div className="merge-line" data-merge-line data-tone={state.tone}>
       <div className="merge-line-status">
@@ -176,6 +232,16 @@ export const MergeLine = memo(function MergeLine({
           </button>
         ) : null}
       </div>
+      {working ? (
+        <span
+          className="merge-line-working"
+          data-merge-working={action?.id}
+          role="status"
+        >
+          <DotSpinner size={12} />
+          {working}
+        </span>
+      ) : null}
       {showAction && action ? (
         <button
           type="button"

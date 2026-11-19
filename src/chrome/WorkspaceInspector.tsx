@@ -1,4 +1,5 @@
 import {
+  Activity,
   memo,
   Suspense,
   useEffect,
@@ -68,8 +69,9 @@ type FilesProps = Pick<
   onSearch: () => void;
 };
 
-// Both the tree and its Git subscription load only when Files is visible.
-// Search and Changes each replace it rather than leaving hidden trees mounted.
+// Both the tree and its Git subscription load only once Files is first shown.
+// A tab shown before stays mounted but hidden (React's Activity), so going
+// back to it draws the last view at once; hidden, its effects are paused.
 const InspectorFiles = retryableLazy(async () => {
   const [{ FileTree }, { useGitFileStatuses }] = await Promise.all([
     import("./FileTree"),
@@ -131,7 +133,17 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
   // (preloadLazyViews): not with startup, so the first chat opens as fast.
   const tabRef = useRef(props.tab);
   tabRef.current = props.tab;
-  useEffect(() => whenIdle(() => void preloadInspectorTab(tabRef.current)), []);
+  // The other tabs' code loads after it, so a first click on one never waits
+  // for a download.
+  useEffect(
+    () =>
+      whenIdle(() => {
+        void preloadInspectorTab(tabRef.current).then(() =>
+          Promise.all(TABS.map((tab) => preloadInspectorTab(tab))),
+        );
+      }),
+    [],
+  );
   // How many files wait in Changes, shown on its tab while there are any.
   const diffStats = useProjectDiffStats(props.gitCwd || props.cwd, active);
   const changedFiles = diffStats?.files ?? 0;
@@ -146,6 +158,10 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
     (comment) => !comment.sentAt,
   ).length;
   const lastVisible = useRef<WorkspaceInspectorProps | null>(null);
+  const visited = useRef<{ root: string; tabs: Set<WorkspaceInspectorTab> }>({
+    root: "",
+    tabs: new Set(),
+  });
   if (active) lastVisible.current = props;
   // Keep the warmed view and scroll position, as the left sidebar does. Hidden
   // project/tab changes must not mount a new tree or start background work.
@@ -153,6 +169,11 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
   props = lastVisible.current;
 
   const root = props.gitCwd || props.cwd;
+  // Tabs shown in this project, kept mounted (hidden) for a quick return.
+  if (visited.current.root !== root) {
+    visited.current = { root, tabs: new Set() };
+  }
+  visited.current.tabs.add(props.tab);
   const hasProject = !!root && root !== "~";
   const scriptsProject = props.cwd && props.cwd !== "~" ? props.cwd : root;
   const onTabKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -178,6 +199,55 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
     if (props.onOpenFilesSearch) props.onOpenFilesSearch();
     else props.onFilesSearchOpenChange(true);
   };
+
+  const renderTab = (tab: WorkspaceInspectorTab, enabled: boolean) =>
+    tab === "changes" ? (
+      <InspectorChanges
+        cwd={root}
+        enabled={enabled}
+        textHarness={props.textHarness}
+        selectedPath={props.selectedDiffPath}
+        selectedKind={props.selectedDiffKind}
+        selectedSha={props.selectedCommitSha}
+        projectCwd={props.cwd}
+        onOpenFile={props.onOpenDiff}
+        onOpenAllChanges={props.onOpenAllChanges}
+        onOpenCommit={props.onOpenCommit}
+        onOpenBranchPicker={props.onOpenBranchPicker}
+        sessionId={props.sessionId}
+      />
+    ) : tab === "review" ? (
+      <InspectorReview
+        cwd={root}
+        enabled={enabled}
+        onOpenDiff={props.onOpenDiff}
+        onOpenAllChanges={props.onOpenAllChanges}
+      />
+    ) : tab === "checks" ? (
+      <InspectorChecks
+        cwd={root}
+        enabled={enabled}
+        textHarness={props.textHarness}
+      />
+    ) : props.filesSearchOpen ? (
+      <InspectorSearch
+        cwd={root}
+        enabled={enabled}
+        focusToken={props.searchFocusToken || 1}
+        onOpenFile={props.onOpenFile}
+        onClose={() => props.onFilesSearchOpenChange(false)}
+      />
+    ) : (
+      <InspectorFiles
+        cwd={root}
+        enabled={enabled}
+        onOpenFile={props.onOpenFile}
+        onOpenTerminal={props.onOpenTerminal}
+        onFileMoved={props.onFileMoved}
+        onFileDeleted={props.onFileDeleted}
+        onSearch={openSearch}
+      />
+    );
 
   return (
     <section
@@ -252,71 +322,34 @@ export const WorkspaceInspector = memo(function WorkspaceInspector(
             Open a project to browse files and changes.
           </p>
         ) : (
-          <SurfaceBoundary
-            key={`${root}:${props.tab}:${props.filesSearchOpen && props.tab === "files" ? "search" : "default"}`}
-            label={props.tab}
-          >
-            <Suspense
-              fallback={
-                <p className="workspace-inspector-placeholder" role="status">
-                  Loading {props.tab}…
-                </p>
-              }
+          TABS.filter((tab) => visited.current.tabs.has(tab)).map((tab) => (
+            <Activity
+              key={`${root}:${tab}`}
+              mode={tab === props.tab ? "visible" : "hidden"}
             >
-              {props.tab === "changes" ? (
-                <InspectorChanges
-                  key={root}
-                  cwd={root}
-                  enabled={active}
-                  textHarness={props.textHarness}
-                  selectedPath={props.selectedDiffPath}
-                  selectedKind={props.selectedDiffKind}
-                  selectedSha={props.selectedCommitSha}
-                  projectCwd={props.cwd}
-                  onOpenFile={props.onOpenDiff}
-                  onOpenAllChanges={props.onOpenAllChanges}
-                  onOpenCommit={props.onOpenCommit}
-                  onOpenBranchPicker={props.onOpenBranchPicker}
-                  sessionId={props.sessionId}
-                />
-              ) : props.tab === "review" ? (
-                <InspectorReview
-                  key={root}
-                  cwd={root}
-                  enabled={active}
-                  onOpenDiff={props.onOpenDiff}
-                  onOpenAllChanges={props.onOpenAllChanges}
-                />
-              ) : props.tab === "checks" ? (
-                <InspectorChecks
-                  key={root}
-                  cwd={root}
-                  enabled={active}
-                  textHarness={props.textHarness}
-                />
-              ) : props.filesSearchOpen ? (
-                <InspectorSearch
-                  key={root}
-                  cwd={root}
-                  enabled={active}
-                  focusToken={props.searchFocusToken || 1}
-                  onOpenFile={props.onOpenFile}
-                  onClose={() => props.onFilesSearchOpenChange(false)}
-                />
-              ) : (
-                <InspectorFiles
-                  key={root}
-                  cwd={root}
-                  enabled={active}
-                  onOpenFile={props.onOpenFile}
-                  onOpenTerminal={props.onOpenTerminal}
-                  onFileMoved={props.onFileMoved}
-                  onFileDeleted={props.onFileDeleted}
-                  onSearch={openSearch}
-                />
-              )}
-            </Suspense>
-          </SurfaceBoundary>
+              <SurfaceBoundary
+                key={
+                  tab === "files" && props.filesSearchOpen
+                    ? "search"
+                    : "default"
+                }
+                label={tab}
+              >
+                <Suspense
+                  fallback={
+                    <p
+                      className="workspace-inspector-placeholder"
+                      role="status"
+                    >
+                      Loading {tab}…
+                    </p>
+                  }
+                >
+                  {renderTab(tab, active && tab === props.tab)}
+                </Suspense>
+              </SurfaceBoundary>
+            </Activity>
+          ))
         )}
       </div>
       {hasProject ? (

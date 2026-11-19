@@ -29,6 +29,7 @@ mod browser_sleep;
 mod browser_snapshot;
 mod browser_upload;
 mod chat_background;
+mod chat_pictures;
 mod checkpoint;
 mod codex_storage;
 mod control;
@@ -568,6 +569,7 @@ pub fn run() {
             notifications::notification_permission,
             notifications::request_notification_permission,
             notifications::show_notification,
+            notifications::save_alert_sound,
             notifications::open_notification_settings,
             fs::list_dir,
             personal_project::personal_project_info,
@@ -631,6 +633,7 @@ pub fn run() {
             fs::inspect_paths,
             fs::read_file_base64,
             fs::read_binary_file,
+            chat_pictures::read_display_image,
             fs::write_attachment,
             fs::read_text_file,
             fs::write_text_file,

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { displayAppData } from "./paths";
 import { HARNESS_TITLE, sessionDisplayTitle, type Session } from "./session";
-import { loadSoundsEnabled } from "./sounds";
+import { alertSoundFor, loadSoundsEnabled, type AlertEvent } from "./sounds";
 import {
   recordActivity,
   type ActivityOutcome,
@@ -297,14 +297,32 @@ function clip(text: string): string {
     : paragraph;
 }
 
+/**
+ * Which sound an outcome may make. A team waiting on you asks for you, so
+ * it sounds like any other request. A stopped turn makes none.
+ */
+export function alertEventFor(event: SessionActivityEvent): AlertEvent | null {
+  if (event.team?.need) return "needsYou";
+  if (event.outcome === "approval" || event.outcome === "question")
+    return "needsYou";
+  if (event.outcome === "failed") return "failed";
+  if (event.outcome === "completed") return "finished";
+  return null;
+}
+
 /** Local history never depends on notification permission or delivery success. */
 export async function publishSessionActivity(
   session: Session,
   event: SessionActivityEvent,
   sessionVisible: boolean,
   presentationFocused = windowFocused,
-): Promise<{ added: boolean; bannerSent: boolean; playSound: boolean }> {
-  const quietResult = { added: false, bannerSent: false, playSound: false };
+): Promise<{
+  added: boolean;
+  bannerSent: boolean;
+  /** The alert whose chosen sound Aven plays itself; banners stay silent. */
+  sound: AlertEvent | null;
+}> {
+  const quietResult = { added: false, bannerSent: false, sound: null };
   if (session.inboxAsk) return quietResult;
   const text = notificationText(session, event.outcome);
   const body = event.summary ? clip(event.summary) : text.body;
@@ -312,6 +330,7 @@ export async function publishSessionActivity(
     .reverse()
     .find((block) => block.role === "user" && block.turnModel)?.turnModel;
   const member = event.team?.member === true;
+  const looking = presentationFocused && sessionVisible;
   const recorded = recordActivity(
     {
       id: event.id,
@@ -325,8 +344,9 @@ export async function publishSessionActivity(
       createdAt: event.occurredAt,
       ...(event.team ? { team: event.team } : {}),
     },
-    member || (presentationFocused && sessionVisible),
+    member || looking,
   );
+  // Only a new entry sounds, so a repeat or a replay of a request is silent.
   if (!recorded.added || member)
     return { ...quietResult, added: recorded.added };
   const prefs = loadNotificationPreferences();
@@ -335,12 +355,17 @@ export async function publishSessionActivity(
   const interrupts = event.team?.need
     ? !prefs.quiet && prefs.needsInput
     : activityInterruptionsEnabled(event.outcome, prefs);
-  // Only successful completion has a success cue. Failure/stop never reuse it.
-  const playSound =
-    event.outcome === "completed" &&
+  const alert = alertEventFor(event);
+  // A request on screen in a focused window is already in front of you; the
+  // end of a turn keeps its cue there, as it always has.
+  const sound =
     interrupts &&
-    prefs.sound &&
-    loadSoundsEnabled();
+    alert &&
+    !(alert === "needsYou" && looking) &&
+    loadSoundsEnabled() &&
+    alertSoundFor(alert) !== "none"
+      ? alert
+      : null;
   if (
     !interrupts ||
     !shouldNotify({
@@ -350,7 +375,7 @@ export async function publishSessionActivity(
       sessionVisible,
     })
   ) {
-    return { added: true, bannerSent: false, playSound };
+    return { added: true, bannerSent: false, sound };
   }
   try {
     await invoke("show_notification", {
@@ -359,10 +384,11 @@ export async function publishSessionActivity(
       subtitle: text.subtitle,
       // The banner is shown, not kept: the saved entry above keeps the text.
       body: displayAppData(body),
-      sound: prefs.sound && loadSoundsEnabled(),
+      // Aven plays the chosen sound itself, so the banner never adds a second.
+      sound: false,
     });
-    return { added: true, bannerSent: true, playSound: false };
+    return { added: true, bannerSent: true, sound };
   } catch {
-    return { added: true, bannerSent: false, playSound };
+    return { added: true, bannerSent: false, sound };
   }
 }

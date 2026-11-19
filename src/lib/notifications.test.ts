@@ -20,7 +20,10 @@ import { getActivitySnapshot } from "./activity";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue("granted"),
 }));
-vi.mock("./sounds", () => ({ loadSoundsEnabled: () => true }));
+vi.mock("./sounds", async (original) => ({
+  ...(await original<typeof import("./sounds")>()),
+  loadSoundsEnabled: () => true,
+}));
 
 const KEY = "monocode.notifications";
 
@@ -235,7 +238,11 @@ describe("Activity delivery policy", () => {
       { id: "turn-completed", outcome: "completed" },
       false,
     );
-    expect(result).toEqual({ added: true, bannerSent: false, playSound: true });
+    expect(result).toEqual({
+      added: true,
+      bannerSent: false,
+      sound: "finished",
+    });
     expect(getActivitySnapshot()[0]).toMatchObject({
       outcome: "completed",
       readAt: null,
@@ -254,7 +261,7 @@ describe("Activity delivery policy", () => {
     ] as const) {
       expect(
         await publishSessionActivity(chat(), { id: outcome, outcome }, false),
-      ).toEqual({ added: true, bannerSent: false, playSound: false });
+      ).toEqual({ added: true, bannerSent: false, sound: null });
     }
     expect(getActivitySnapshot()).toHaveLength(5);
     expect(invoke).not.toHaveBeenCalled();
@@ -273,7 +280,8 @@ describe("Activity delivery policy", () => {
       { id: "stop", outcome: "stopped" },
       false,
     );
-    expect(result.playSound).toBe(false);
+    // A stop is silent; a failure has its own sound, off by default.
+    expect(result.sound).toBeNull();
     expect(getActivitySnapshot().map((entry) => entry.summary)).not.toContain(
       "Old successful reply",
     );

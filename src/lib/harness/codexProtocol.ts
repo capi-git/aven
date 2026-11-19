@@ -16,7 +16,7 @@ import {
   formatAgentType,
 } from "./preview";
 import { streamTextDelta } from "./streamText";
-import type { HarnessEvent } from "./types";
+import type { ApprovalDecision, HarnessEvent } from "./types";
 import { AVEN_BROWSER_HOST_POLICY } from "./browserHostPolicy";
 import type { McpElicitation } from "../mcpElicitation";
 import {
@@ -424,14 +424,57 @@ export type CodexApprovalKind =
 export type CodexApprovalDecisionWire =
   "accept" | "acceptForSession" | "decline" | "cancel";
 
+/**
+ * The app-server's answer to a command or file-change approval. Allowing
+ * always is `acceptForSession`, which Codex keeps for the rest of the
+ * thread; other kinds have no such decision and accept once.
+ */
 export function toCodexApprovalDecision(
-  decision: "allow" | "deny",
+  decision: ApprovalDecision,
   kind: CodexApprovalKind,
 ): CodexApprovalDecisionWire {
   if (decision === "deny") return "decline";
-  // Prefer one-shot accept; session-scoped grants can be added later.
-  void kind;
+  if (
+    decision === "allowAlways" &&
+    (kind === "command" || kind === "file-change")
+  )
+    return "acceptForSession";
   return "accept";
+}
+
+const ALWAYS_COMMAND_MAX = 48;
+
+/**
+ * What "Always allow" covers for a command or file-change request, or
+ * undefined when Codex does not offer `acceptForSession` for it. A command
+ * request lists what it accepts in `availableDecisions` (strings, or objects
+ * for amendments); without that list every decision is open.
+ */
+export function codexAlwaysLabel(
+  kind: CodexApprovalKind,
+  params: unknown,
+): string | undefined {
+  const rec = asRecord(params);
+  if (!rec) return undefined;
+  if (kind === "file-change") return "changes to these files";
+  if (kind === "permissions") return "this access";
+  if (kind !== "command") return undefined;
+  const available = rec.availableDecisions;
+  if (
+    Array.isArray(available) &&
+    !available.some((decision) => decision === "acceptForSession")
+  )
+    return undefined;
+  const command = stringField(rec, "command")?.trim();
+  if (!command) return "this command";
+  return command.length > ALWAYS_COMMAND_MAX
+    ? `${command.slice(0, ALWAYS_COMMAND_MAX - 1).trimEnd()}…`
+    : command;
+}
+
+/** A steer that tells Codex why the user declined its request. */
+export function codexDeclineNote(note: string): string {
+  return `I declined that request. ${note.trim()}`;
 }
 
 export type MappedCodexNotification = {
@@ -442,6 +485,11 @@ export type MappedCodexNotification = {
     error?: string;
   };
   activeTurnId?: string | null;
+  /**
+   * The account's usage as `account/rateLimits/updated` pushed it, raw (see
+   * `parseCodexRateLimits`), for the latest reading of the limit.
+   */
+  rateLimits?: unknown;
 };
 
 /**
@@ -566,18 +614,33 @@ export function mapCodexNotification(
       stringField(rec, "message") ??
       "Codex error";
     const willRetry = rec.willRetry === true;
+    const usageLimit = codexUsageLimit(message, errorObj, Date.now());
     if (willRetry) {
       return {
         events: [
           { type: "status", text: message },
           {
             type: "turn.waiting",
-            set: { retry: codexRetry(message, errorObj) },
+            set: {
+              retry: codexRetry(message, errorObj),
+              ...(usageLimit ? { usageLimit } : {}),
+            },
           },
         ],
       };
     }
-    return { events: [{ type: "session.error", message }] };
+    return {
+      events: [
+        ...(usageLimit
+          ? [{ type: "turn.waiting" as const, set: { usageLimit } }]
+          : []),
+        { type: "session.error", message },
+      ],
+    };
+  }
+
+  if (method === "account/rateLimits/updated") {
+    return { events: [], rateLimits: rec };
   }
 
   if (method === "configWarning" || method === "warning") {
@@ -623,6 +686,101 @@ function codexRetry(
     ...(reason ? { reason } : {}),
   };
 }
+
+/**
+ * The usage limit, when a Codex error names it. App-server sends a
+ * `TurnError` (`message`, `codexErrorInfo`, `additionalDetails`) on the
+ * `error` notification and on a failed `turn/completed`; a reached limit is
+ * `codexErrorInfo: "usageLimitExceeded"`. The reset time is taken from the
+ * error when it carries one (`resetsAt`/`resets_at` on the error or on the
+ * info object, in seconds or ms), else from the message: Codex writes
+ * "Try again at 3:40 PM." (or "at Nov 20th, 2026 3:40 PM.") today, and
+ * "try again in 2 hours 5 minutes" in older builds. Otherwise the limit is
+ * reached with no time (the harness fills it from its latest reading).
+ */
+export function codexUsageLimit(
+  message: string,
+  error: Record<string, unknown> | null,
+  now: number,
+): { resetsAt?: number } | null {
+  const info = error?.codexErrorInfo;
+  const infoRecord = asRecord(info);
+  const kind = (
+    typeof info === "string" ? info : (Object.keys(infoRecord ?? {})[0] ?? "")
+  ).toLowerCase();
+  const limited =
+    /usagelimit/.test(kind) ||
+    (!kind && /\b(hit|reached) your usage limit\b/i.test(message));
+  if (!limited) return null;
+  const detail = asRecord(infoRecord?.[Object.keys(infoRecord ?? {})[0] ?? ""]);
+  const stamp = [error, detail, infoRecord]
+    .map((rec) => rec?.resetsAt ?? rec?.resets_at)
+    .find((value) => value !== undefined);
+  const fromPayload =
+    typeof stamp === "number" && stamp > 0
+      ? stamp > 10_000_000_000
+        ? stamp
+        : stamp * 1000
+      : typeof stamp === "string" && !Number.isNaN(Date.parse(stamp))
+        ? Date.parse(stamp)
+        : undefined;
+  const resetsAt = fromPayload ?? retryTimeFromMessage(message, now);
+  return resetsAt !== undefined && resetsAt > now ? { resetsAt } : {};
+}
+
+const DURATION_UNIT_MS: Record<string, number> = {
+  d: 86_400_000,
+  h: 3_600_000,
+  m: 60_000,
+  s: 1_000,
+};
+
+/** "try again in 2 hours 5 minutes" or "Try again at 3:40 PM.", in epoch ms. */
+function retryTimeFromMessage(
+  message: string,
+  now: number,
+): number | undefined {
+  const within = message.match(/try again in ([^.]+)/i)?.[1];
+  if (within) {
+    let total = 0;
+    for (const [, amount, unit] of within.matchAll(
+      /(\d+)\s*(d(?:ays?)?|h(?:ours?|rs?)?|m(?:in(?:ute)?s?)?|s(?:ec(?:ond)?s?)?)\b/gi,
+    ))
+      total += Number(amount) * DURATION_UNIT_MS[unit[0].toLowerCase()];
+    return total > 0 ? now + total : undefined;
+  }
+  const at = message.match(
+    /try again at (?:([A-Z][a-z]{2}) (\d{1,2})(?:st|nd|rd|th)?, (\d{4}) )?(\d{1,2}):(\d{2})\s*([AP]M)/i,
+  );
+  if (!at) return undefined;
+  const [, monthName, day, year, hourText, minute, half] = at;
+  const hour = (Number(hourText) % 12) + (half.toUpperCase() === "PM" ? 12 : 0);
+  const date = new Date(now);
+  if (monthName) {
+    const month = MONTHS.indexOf(monthName.toLowerCase());
+    if (month < 0) return undefined;
+    date.setFullYear(Number(year), month, Number(day));
+  }
+  date.setHours(hour, Number(minute), 0, 0);
+  // A time of day already gone today is tomorrow's.
+  if (!monthName && date.getTime() <= now) date.setDate(date.getDate() + 1);
+  return date.getTime();
+}
+
+const MONTHS = [
+  "jan",
+  "feb",
+  "mar",
+  "apr",
+  "may",
+  "jun",
+  "jul",
+  "aug",
+  "sep",
+  "oct",
+  "nov",
+  "dec",
+];
 
 /** Codex thread items Aven already renders elsewhere or that are internal metadata. */
 const SILENT_ITEM_TYPES = new Set([
@@ -676,6 +834,11 @@ function mapTurnTerminal(
     { type: "message.completed" },
     { type: "reasoning.completed" },
   ];
+  const usageLimit =
+    status === "failed"
+      ? codexUsageLimit(error ?? "", errorObj, Date.now())
+      : null;
+  if (usageLimit) events.push({ type: "turn.waiting", set: { usageLimit } });
   if (status === "failed" && error) {
     events.push({ type: "session.error", message: error });
   }

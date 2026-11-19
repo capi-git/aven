@@ -107,7 +107,14 @@ export async function holdMotionPages(
   live: readonly string[],
   incoming: readonly string[] = [],
   deadline = MOTION_CAPTURE_DEADLINE_MS,
-  { keepSize = false }: { keepSize?: boolean } = {},
+  {
+    keepSize = false,
+    lastWhenHidden = false,
+  }: {
+    keepSize?: boolean;
+    /** A `live` page that is not showing uses its last picture. */
+    lastWhenHidden?: boolean;
+  } = {},
 ): Promise<string[]> {
   const hold = ++lastHold;
   const held: string[] = [];
@@ -135,7 +142,9 @@ export async function holdMotionPages(
     ...[...new Set(live)].filter(free).map(async (id) => {
       const page = pages.get(id);
       if (!page) return;
-      const src = await page.capture().catch(() => null);
+      const src =
+        (await page.capture().catch(() => null)) ??
+        (lastWhenHidden ? (images.get(id) ?? null) : null);
       if (src && open) await keep(id, page, src);
     }),
     ...[...new Set(incoming)]
@@ -157,6 +166,27 @@ export async function holdMotionPages(
   clearTimeout(timer);
   open = false;
   return [...held];
+}
+
+/**
+ * Hold every page a whole-view switch (another workspace) can show or
+ * hide: each page showing now as a picture taken now, and each page not
+ * showing as its last picture, when there is one. The switch then draws
+ * with pictures standing in for pages, and each live page comes back at its
+ * final place once released, instead of an old page lingering over the new
+ * view or a new page showing a frame late.
+ */
+export function holdMotionPagesForSwitch(
+  deadline = MOTION_CAPTURE_DEADLINE_MS,
+): Promise<string[]> {
+  return holdMotionPages([...pages.keys()], [], deadline, {
+    lastWhenHidden: true,
+  });
+}
+
+/** Whether any page is offered for motions (a switch has nothing to hold). */
+export function hasMotionPages(): boolean {
+  return pages.size > 0;
 }
 
 /** Held pages go back live this long after their motion should end. */

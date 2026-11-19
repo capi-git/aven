@@ -36,9 +36,17 @@ import {
   parseCodexElicitation,
   stringField,
   toCodexApprovalDecision,
+  codexAlwaysLabel,
+  codexDeclineNote,
   type CodexApprovalKind,
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
+import {
+  exhaustedResetAt,
+  loadSavedRateLimits,
+  parseCodexRateLimits,
+  type ProviderRateLimits,
+} from "../rateLimits";
 import { assertCodexStorage } from "./codexStorage";
 import {
   elicitationPrompt,
@@ -82,6 +90,7 @@ function keyGuardPaths(sessionId: string): readonly string[] {
 function keyGuardChat(sessionId: string): boolean {
   return keyGuardPaths(sessionId).length > 0;
 }
+import { approvalOutcome } from "./types";
 import type {
   ApprovalDecision,
   CompactContextInput,
@@ -96,6 +105,8 @@ type PendingApproval = {
   rpcId: JsonRpcId;
   kind: CodexApprovalKind;
   resolve: (decision: ApprovalDecision) => void;
+  /** The user's reason for a denial, steered to the turn after it. */
+  note?: string;
   /** Codex already settled the request; it must not receive a late reply. */
   settled?: boolean;
 };
@@ -283,10 +294,12 @@ export function respondCodexApproval(
   sessionId: string,
   requestId: number,
   decision: ApprovalDecision,
+  note?: string,
 ): void {
   const live = liveByThread.get(sessionId);
   const pending = live?.approvals.get(requestId);
   if (!pending) return;
+  if (decision === "deny" && note?.trim()) pending.note = note.trim();
   pending.resolve(decision);
 }
 
@@ -648,7 +661,7 @@ async function startLive(input: HarnessSessionInput): Promise<Live> {
       onRequest: (id, method, params) => {
         const live = liveRef.current;
         if (!live || liveByThread.get(input.sessionId) !== live) return;
-        void handleServerRequest(live, id, method, params);
+        void handleServerRequest(live, id, method, params, input.sessionId);
       },
     },
     { includeJsonrpc: false, label: "codex" },
@@ -1110,6 +1123,8 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     }
   }
   const mapped = mapCodexNotification(method, params);
+  if (mapped.rateLimits !== undefined)
+    latestCodexLimits = parseCodexRateLimits(mapped.rateLimits);
   const snapshot = method === "item/completed";
   const item = asRecord(record?.item);
   if (snapshot && !live.muteUpdates) enqueueAsyncQuestions(live, record, item);
@@ -1147,7 +1162,9 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     live.onEvent(
       event.type === "message.completed" && itemKey
         ? { ...event, key: itemKey }
-        : event,
+        : event.type === "turn.waiting"
+          ? withCodexReset(event)
+          : event,
     );
   }
   if (live.muteUpdates) return;
@@ -1175,6 +1192,26 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     finishActiveTurn(live, [], terminalError);
   }
   if (startsTurn) consumeEarlyTerminal(live);
+}
+
+/** The account's usage as Codex last pushed it to any chat this run. */
+let latestCodexLimits: ProviderRateLimits | null = null;
+
+/**
+ * A reached usage limit whose error gave no reset time takes it from the
+ * latest reading: the one Codex pushed this run, else the one Aven saved.
+ */
+function withCodexReset(
+  event: Extract<HarnessEvent, { type: "turn.waiting" }>,
+): Extract<HarnessEvent, { type: "turn.waiting" }> {
+  const limit = event.set?.usageLimit;
+  if (!limit || limit.resetsAt !== undefined) return event;
+  const now = Date.now();
+  const resetsAt =
+    exhaustedResetAt(latestCodexLimits, now) ??
+    exhaustedResetAt(loadSavedRateLimits().codex, now);
+  if (resetsAt === undefined) return event;
+  return { ...event, set: { ...event.set, usageLimit: { resetsAt } } };
 }
 
 function publishAgentUpdate(live: Live, event: AgentUpdate): void {
@@ -1325,6 +1362,7 @@ async function handleServerRequest(
   id: JsonRpcId,
   method: string,
   params: unknown,
+  sessionId: string,
 ): Promise<void> {
   if (method === "item/tool/requestUserInput") {
     await handleUserInputRequest(live, id, params);
@@ -1381,21 +1419,27 @@ async function handleServerRequest(
       return;
     }
     if (live.runtimeMode === "supervised") {
-      live.onEvent(mapped.event);
-      const decision = await waitApproval(live, uiId, id, mapped.kind);
+      live.onEvent(withAlways(mapped, params, sessionId));
+      const { decision, note } = await waitApproval(
+        live,
+        uiId,
+        id,
+        mapped.kind,
+      );
       live.onEvent({
         type: "approval.resolved",
         requestId: uiId,
-        decision,
+        decision: approvalOutcome(decision),
       });
-      if (decision === "allow") {
+      if (decision !== "deny") {
         const rec = asRecord(params);
         await live.rpc.respond(id, {
-          scope: "turn",
+          scope: decision === "allowAlways" ? "session" : "turn",
           permissions: rec?.permissions ?? {},
         });
       } else {
         await live.rpc.respond(id, { permissions: {} });
+        if (note) await steerDeclineNote(live, note);
       }
       return;
     }
@@ -1416,16 +1460,53 @@ async function handleServerRequest(
     return;
   }
 
-  live.onEvent(mapped.event);
-  const decision = await waitApproval(live, uiId, id, mapped.kind);
+  live.onEvent(withAlways(mapped, params, sessionId));
+  const { decision, note } = await waitApproval(live, uiId, id, mapped.kind);
   live.onEvent({
     type: "approval.resolved",
     requestId: uiId,
-    decision,
+    decision: approvalOutcome(decision),
   });
   await live.rpc.respond(id, {
     decision: toCodexApprovalDecision(decision, mapped.kind),
   });
+  if (decision === "deny" && note) await steerDeclineNote(live, note);
+}
+
+/**
+ * The approval card, with "Always allow" when Codex can keep the choice for
+ * this chat. A chat with its own rules (a bot) keeps them.
+ */
+function withAlways(
+  mapped: NonNullable<ReturnType<typeof mapApprovalRequest>>,
+  params: unknown,
+  sessionId: string,
+): Extract<HarnessEvent, { type: "approval.requested" }> {
+  const always = sessionPermissions(sessionId)
+    ? undefined
+    : codexAlwaysLabel(mapped.kind, params);
+  return always ? { ...mapped.event, always } : mapped.event;
+}
+
+/**
+ * Codex has no reason field on a declined request, so the user's note
+ * reaches the running turn as a steer. Best effort: once the turn is over
+ * there is nothing to steer, and the note is dropped quietly.
+ */
+async function steerDeclineNote(live: Live, note: string): Promise<void> {
+  if (live.cancelled || live.retired) return;
+  const turnId = live.activeTurnId;
+  if (!turnId) return;
+  await live.rpc
+    .request(
+      "turn/steer",
+      buildTurnSteerParams({
+        threadId: live.threadId,
+        expectedTurnId: turnId,
+        prompt: codexDeclineNote(note),
+      }),
+    )
+    .catch(() => undefined);
 }
 
 async function handleUserInputRequest(
@@ -1483,10 +1564,12 @@ async function handleElicitationRequest(
     const uiId = live.nextApprovalUiId++;
     live.onEvent(codexToolApprovalEvent(request, uiId));
     let pending: PendingApproval | undefined;
-    const decision = await new Promise<ApprovalDecision>((resolve) => {
-      pending = { rpcId: id, kind: "mcp-tool", resolve };
-      live.approvals.set(uiId, pending);
-    }).finally(() => live.approvals.delete(uiId));
+    const decision = approvalOutcome(
+      await new Promise<ApprovalDecision>((resolve) => {
+        pending = { rpcId: id, kind: "mcp-tool", resolve };
+        live.approvals.set(uiId, pending);
+      }).finally(() => live.approvals.delete(uiId)),
+    );
     live.onEvent({ type: "approval.resolved", requestId: uiId, decision });
     if (pending?.settled) return;
     await respond(decision === "allow" ? "accept" : "decline");
@@ -1718,9 +1801,19 @@ function waitApproval(
   uiId: number,
   rpcId: JsonRpcId,
   kind: CodexApprovalKind,
-): Promise<ApprovalDecision> {
-  return new Promise<ApprovalDecision>((resolve) => {
-    live.approvals.set(uiId, { rpcId, kind, resolve });
+): Promise<{ decision: ApprovalDecision; note?: string }> {
+  return new Promise<{ decision: ApprovalDecision; note?: string }>((done) => {
+    const pending: PendingApproval = {
+      rpcId,
+      kind,
+      resolve: (decision) =>
+        done({
+          decision,
+          // Codex settled it itself: no note follows a denial nobody made.
+          note: pending.settled ? undefined : pending.note,
+        }),
+    };
+    live.approvals.set(uiId, pending);
   }).finally(() => {
     live.approvals.delete(uiId);
   });

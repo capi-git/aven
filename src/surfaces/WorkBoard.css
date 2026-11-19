@@ -49,10 +49,19 @@
 }
 
 .work-board-today {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 2px 0 0;
   color: var(--aven-muted);
   font-size: var(--text-ui-label);
   font-variant-numeric: tabular-nums;
+}
+
+.work-board-orb {
+  width: 12px;
+  height: 12px;
+  flex: none;
 }
 
 .work-board-columns {

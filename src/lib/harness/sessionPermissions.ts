@@ -14,6 +14,8 @@ export type ClaudePermissionRules = {
   allow?: string[];
   ask?: string[];
   deny?: string[];
+  /** Folders the chat may use besides its own (Claude Code's setting). */
+  additionalDirectories?: string[];
 };
 
 /**

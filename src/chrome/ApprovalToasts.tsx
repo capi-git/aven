@@ -1,8 +1,17 @@
 import { CircleAlert } from "./icons";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ApprovalDecision } from "../lib/harness";
-import type { PendingApprovalNotice } from "../lib/approvalToast";
+import {
+  toastAnswerReply,
+  toastAnswers,
+  type PendingApprovalNotice,
+} from "../lib/approvalToast";
+import {
+  optionDisplayLabel,
+  optionIsRecommended,
+  type UserQuestionReply,
+} from "../lib/userQuestion";
 import { LAYER } from "../lib/layers";
 import { displayAppData } from "../lib/paths";
 import {
@@ -11,6 +20,7 @@ import {
   type Session,
 } from "../lib/session";
 import { HarnessIcon } from "./HarnessIcon";
+import { QUESTION_REPLY_TIMEOUT_MS } from "./QuestionForm";
 
 type Notice = PendingApprovalNotice & { session: Session };
 
@@ -24,6 +34,12 @@ type Props = {
     requestId: number,
     decision: ApprovalDecision,
   ) => void;
+  /** Answers a simple question from the notice, as its card would. */
+  onAnswer?: (
+    sessionId: string,
+    requestId: number,
+    reply: UserQuestionReply,
+  ) => void;
 };
 
 export function ApprovalToasts({
@@ -31,6 +47,7 @@ export function ApprovalToasts({
   extra,
   onFocusSession,
   onApproval,
+  onAnswer,
 }: Props) {
   if (notices.length === 0 && !extra) return null;
 
@@ -46,6 +63,7 @@ export function ApprovalToasts({
           notice={notice}
           onFocusSession={onFocusSession}
           onApproval={onApproval}
+          onAnswer={onAnswer}
         />
       ))}
       {extra}
@@ -58,12 +76,34 @@ function ApprovalToastCard({
   notice,
   onFocusSession,
   onApproval,
+  onAnswer,
 }: {
   notice: Notice;
   onFocusSession: (sessionId: string) => void;
   onApproval: Props["onApproval"];
+  onAnswer?: Props["onAnswer"];
 }) {
-  const { session, label, requestId } = notice;
+  const { session, requestId } = notice;
+  const pending =
+    notice.kind === "question" &&
+    session.pendingQuestion?.requestId === requestId
+      ? session.pendingQuestion
+      : undefined;
+  const quick = onAnswer ? toastAnswers(pending) : null;
+  // Hold after a pick until the question closes or the agent says no.
+  const [picked, setPicked] = useState<string | null>(null);
+  const error = pending?.error;
+  useEffect(() => {
+    if (error) setPicked(null);
+  }, [error]);
+  // Never a dead notice: without the question closing, give the answers back.
+  useEffect(() => {
+    if (picked == null) return;
+    const timer = setTimeout(() => setPicked(null), QUESTION_REPLY_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [picked]);
+  const busy = picked != null || !!pending?.submitting;
+  const label = quick ? quick.question.prompt : notice.label;
   const title = sessionDisplayTitle(session.title, session.harness);
   const harness = HARNESS_TITLE[session.harness];
 
@@ -95,7 +135,41 @@ function ApprovalToastCard({
         </span>
         <span className="text-ui-caption text-content/40">{harness}</span>
       </button>
-      {notice.kind === "question" ? null : (
+      {quick ? (
+        <div
+          className="flex flex-wrap gap-2 border-t border-content/10 px-3.5 py-2.5"
+          role="group"
+          aria-label="Answers"
+        >
+          {quick.options.map((option, index) => {
+            const suggested = index === 0 && optionIsRecommended(option);
+            return (
+              <button
+                key={option.id}
+                type="button"
+                disabled={busy}
+                title={option.description}
+                className={`min-w-0 max-w-full flex-1 basis-[calc(50%-4px)] truncate rounded-md px-2.5 py-1 text-ui-caption font-medium disabled:opacity-40 ${
+                  suggested
+                    ? "bg-content font-semibold text-background-base hover:bg-(--aven-inverse-hover)"
+                    : "bg-(--aven-control-bg) text-content/70 hover:bg-(--aven-control-hover) active:bg-(--aven-control-pressed)"
+                }`}
+                onClick={() => {
+                  if (busy) return;
+                  setPicked(option.id);
+                  onAnswer?.(
+                    session.id,
+                    requestId,
+                    toastAnswerReply(quick.question, option),
+                  );
+                }}
+              >
+                {picked === option.id ? "Sending…" : optionDisplayLabel(option)}
+              </button>
+            );
+          })}
+        </div>
+      ) : notice.kind === "question" ? null : (
         <div className="flex gap-2 border-t border-content/10 px-3.5 py-2.5">
           <button
             type="button"

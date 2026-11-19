@@ -150,6 +150,7 @@ export function WorkBoard({
       columns={shown.columns}
       olderShipped={shown.olderShipped}
       today={loading ? "Loading…" : boardTodayText(shown.today)}
+      working={!loading && shown.today.inProgress > 0}
       outside={shown.outside}
       empty={shown.empty}
       error={board.error}
@@ -173,6 +174,7 @@ export const WorkBoardView = memo(function WorkBoardView({
   columns,
   olderShipped,
   today,
+  working = false,
   outside = NO_OUTSIDE,
   empty = false,
   error,
@@ -185,6 +187,8 @@ export const WorkBoardView = memo(function WorkBoardView({
   columns: Readonly<Record<BoardColumnId, BoardCard[]>>;
   olderShipped: number;
   today: string;
+  /** Something is being built: the heading's orb runs. */
+  working?: boolean;
   outside?: readonly OutsideWork[];
   /** No cards at all yet: Ideas invites the first. */
   empty?: boolean;
@@ -326,7 +330,7 @@ export const WorkBoardView = memo(function WorkBoardView({
       aria-busy={loading || undefined}
       aria-label={`${projectDisplayName(project, labels)} board`}
     >
-      <WorkBoardHeading project={project} line={today} />
+      <WorkBoardHeading project={project} line={today} working={working} />
       {error ? (
         <p className="work-board-error" role="alert">
           {error}

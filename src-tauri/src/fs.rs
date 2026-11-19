@@ -545,7 +545,7 @@ pub async fn read_binary_file(path: String) -> Result<tauri::ipc::Response, Stri
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-fn read_binary_file_sync(path: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn read_binary_file_sync(path: &str) -> Result<Vec<u8>, String> {
     let path = expand_home(path);
     let meta = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     if !meta.is_file() {

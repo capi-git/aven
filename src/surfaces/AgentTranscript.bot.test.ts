@@ -178,13 +178,15 @@ it("while a bot works, shows one line of what it is doing, and asks to be allowe
   );
   const buttons = [
     ...container.querySelectorAll<HTMLButtonElement>(
-      "[data-approval-pending] button",
+      "[data-approval-pending] button:not([data-approval-note])",
     ),
   ];
   expect(buttons.map((button) => button.textContent)).toEqual([
     "Allow once",
     "Don't allow",
   ]);
+  // A bot's own rules stay: no "Always allow" without the provider's offer.
+  expect(container.querySelector("[data-approval-always]")).toBeNull();
   await act(async () => buttons[1]!.click());
   expect(onApproval).toHaveBeenCalledWith(7, "deny");
 });

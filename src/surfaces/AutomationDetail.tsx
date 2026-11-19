@@ -370,6 +370,7 @@ export function AutomationRunView({
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    note?: string,
   ) => void;
   onStop?: (sessionId: string) => void;
   onReviewAction?: (run: ScheduledRun) => unknown;
@@ -478,8 +479,8 @@ export function AutomationRunView({
             pendingQuestion={!!session.pendingQuestion}
             onApproval={
               onApproval
-                ? (requestId, decision) =>
-                    onApproval(session.id, requestId, decision)
+                ? (requestId, decision, note) =>
+                    onApproval(session.id, requestId, decision, note)
                 : undefined
             }
           />

@@ -62,11 +62,18 @@ export type HarnessAdapter = {
   compactContext?(input: CompactContextInput): Promise<void>;
   steerTurn(input: SteerTurnInput): Promise<void>;
   cancelTurn(sessionId: string): Promise<void>;
+  /** `note` is the user's reason for a denial, for the agent to read. */
   respondApproval(
     sessionId: string,
     requestId: number,
     decision: ApprovalDecision,
+    note?: string,
   ): void;
+  /**
+   * The adapter takes `allowAlways` (it offers `always` on its approvals).
+   * Others receive a plain `allow` instead.
+   */
+  remembersApprovals?: boolean;
   /**
    * True when the agent was still waiting on this question and took the
    * reply; false when nothing waits on it any more.
@@ -533,8 +540,16 @@ export function respondHarnessApproval(
   sessionId: string,
   requestId: number,
   decision: ApprovalDecision,
+  note?: string,
 ): void {
-  getHarness(harness)?.respondApproval(sessionId, requestId, decision);
+  const adapter = getHarness(harness);
+  if (!adapter) return;
+  const given =
+    decision === "allowAlways" && !adapter.remembersApprovals
+      ? "allow"
+      : decision;
+  const reason = given === "deny" ? note?.trim() || undefined : undefined;
+  adapter.respondApproval(sessionId, requestId, given, reason);
 }
 
 /** True when the agent was still waiting on this question and took the reply. */

@@ -45,9 +45,10 @@ export function deliverApproval(
   session: ReplyTarget,
   requestId: number,
   decision: ApprovalDecision,
+  note?: string,
 ): void {
   for (const harness of replyHarnesses(session))
-    respondHarnessApproval(harness, session.id, requestId, decision);
+    respondHarnessApproval(harness, session.id, requestId, decision, note);
 }
 
 export type QuestionReplyOutcome =

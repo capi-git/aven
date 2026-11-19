@@ -1,4 +1,4 @@
-/* A project's logo, or its Stack. */
+/* A project's logo, or its orb in the project's colour. */
 .project-mark {
   display: inline-grid;
   place-items: center;
@@ -12,9 +12,38 @@
   border-radius: 3px;
   object-fit: cover;
 }
-.project-mark > .stack-mark {
+.project-mark > .project-mark-orb {
   width: 100%;
   height: 100%;
+}
+/* The orb draws in currentColor: the project's colour from Customize
+   project, or the quiet grey of a project that never picked one. */
+.project-mark[data-kind="orb"]:not([data-tone]) {
+  color: color-mix(in srgb, var(--color-content) 55%, transparent);
+}
+.project-mark[data-tone="blue"] {
+  color: var(--aven-mark-blue);
+}
+.project-mark[data-tone="red"] {
+  color: var(--aven-mark-red);
+}
+.project-mark[data-tone="yellow"] {
+  color: var(--aven-mark-yellow);
+}
+.project-mark[data-tone="green"] {
+  color: var(--aven-mark-green);
+}
+.project-mark[data-tone="pink"] {
+  color: var(--aven-mark-pink);
+}
+.project-mark[data-tone="purple"] {
+  color: var(--aven-mark-purple);
+}
+.project-mark[data-tone="teal"] {
+  color: var(--aven-mark-teal);
+}
+.project-mark[data-tone="orange"] {
+  color: var(--aven-mark-orange);
 }
 .project-mark.project-mark-large {
   width: 20px;

@@ -51,7 +51,13 @@ export type HelmRun = {
 export const HelmRunContext = createContext<HelmRun | null>(null);
 
 /** A fix the error bubble offers in one click. */
-export type HelmFix = { label: string; run: () => void; detail?: string };
+export type HelmFix = {
+  label: string;
+  run: () => void;
+  detail?: string;
+  /** A choice that stays on until pressed again ("Continue at 3:40 PM"). */
+  pressed?: boolean;
+};
 
 /** What the bubble says now; null when it says nothing. */
 export type HelmSay =
@@ -413,6 +419,20 @@ export function HelmBubble({
     run && run.session.liveAgents?.length ? (
       <AgentsButton session={run.session} />
     ) : null;
+  const fixButtons = fixes.map((fix) => (
+    <button
+      key={fix.label}
+      type="button"
+      className="helm-say-button"
+      title={fix.detail}
+      onClick={fix.run}
+      aria-pressed={fix.pressed}
+      data-helm-fix
+    >
+      {fix.pressed ? <Check className="helm-say-check" aria-hidden /> : null}
+      {fix.label}
+    </button>
+  ));
   if (say.kind === "queued")
     return (
       <div className="helm-say" data-helm-say="queued" role="status">
@@ -421,6 +441,7 @@ export function HelmBubble({
         </span>
         <span className="helm-say-quiet">{say.detail}</span>
         {agents}
+        {fixButtons}
       </div>
     );
   if (say.kind === "done")
@@ -451,18 +472,7 @@ export function HelmBubble({
         <span className="helm-say-quiet">{say.detail}</span>
       ) : null}
       {agents}
-      {fixes.map((fix) => (
-        <button
-          key={fix.label}
-          type="button"
-          className="helm-say-button"
-          title={fix.detail}
-          onClick={fix.run}
-          data-helm-fix
-        >
-          {fix.label}
-        </button>
-      ))}
+      {fixButtons}
       <button
         type="button"
         className="helm-say-close"

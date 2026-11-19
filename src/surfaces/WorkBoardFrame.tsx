@@ -1,26 +1,44 @@
+import { AgentMark } from "../chrome/AgentMark";
 import { ProjectMark } from "../chrome/ProjectMark";
+import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import {
   projectDisplayName,
   useProjectLabels,
 } from "../hooks/useProjectLabels";
+import { appearanceTone } from "../lib/markTones";
 import { BOARD_COLUMNS } from "../lib/workBoard";
 import "./WorkBoard.css";
 
-/** The board's title: its project's mark and name, and one line under it. */
+/**
+ * The board's title: its project's mark and name, and one line under it.
+ * An orb in the project's colour leads the line; it runs while something
+ * is being built and rests otherwise.
+ */
 export function WorkBoardHeading({
   project,
   line,
+  working = false,
 }: {
   project: string;
   line: string;
+  working?: boolean;
 }) {
   const labels = useProjectLabels();
+  const appearance = useProjectAppearance(project);
+  const tone = appearance ? appearanceTone(appearance) : null;
   return (
     <header className="work-board-header">
       <ProjectMark path={project} className="work-board-mark" />
       <div className="work-board-heading">
         <h1>{projectDisplayName(project, labels)}</h1>
-        <p className="work-board-today">{line}</p>
+        <p className="work-board-today">
+          <AgentMark
+            tone={tone}
+            state={working ? "working" : "still"}
+            className="work-board-orb"
+          />
+          <span>{line}</span>
+        </p>
       </div>
     </header>
   );

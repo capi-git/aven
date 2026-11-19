@@ -11,12 +11,14 @@ const mocks = vi.hoisted(() => ({
     pr: null as GitPr | null,
   },
   refresh: vi.fn(),
+  checks: null as unknown,
 }));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn() }));
 vi.mock("../lib/gitHousekeeping", () => ({ gitPrSquashMerge: vi.fn() }));
 vi.mock("../lib/prChecks", () => ({
-  gitPrChecks: () => new Promise(() => {}),
+  gitPrChecks: () =>
+    mocks.checks ? Promise.resolve(mocks.checks) : new Promise(() => {}),
 }));
 vi.mock("../lib/githubTasks", () => ({
   githubWorkItemThread: () => new Promise(() => {}),
@@ -36,6 +38,7 @@ vi.mock("./DotSpinner", () => ({ DotSpinner: () => null }));
 
 const { MergeLine } = await import("./MergeLine");
 const { clearMergeLineMemory } = await import("../hooks/useMergeLine");
+const { clearMergeLineAsked } = await import("./MergeLine");
 
 let root: Root;
 let host: HTMLDivElement;
@@ -57,6 +60,8 @@ const branch = (overrides: Partial<GitDiffIndex> = {}): GitDiffIndex => ({
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   clearMergeLineMemory();
+  clearMergeLineAsked();
+  mocks.checks = null;
   mocks.state = { index: null, localIndex: null, pr: null };
   host = document.createElement("div");
   document.body.append(host);
@@ -118,4 +123,61 @@ it("shows the copy's last line at once when opened again, without acting on it",
   // Another copy has nothing remembered.
   await render("/other");
   expect(host.querySelector(".merge-line")).toBeNull();
+});
+
+it("shows Fixing while the agent fixes failing checks, then the step again", async () => {
+  mocks.state.index = branch();
+  mocks.state.pr = {
+    number: 449,
+    url: "https://github.com/o/r/pull/449",
+    title: "x",
+    state: "open",
+  } as GitPr;
+  mocks.checks = {
+    number: 449,
+    url: "",
+    state: "open",
+    checks: [{ name: "lint", state: "fail", url: "" }],
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "UNSTABLE",
+  };
+  const send = vi.fn();
+  const show = (busy: boolean) =>
+    act(async () =>
+      root.render(
+        createElement(MergeLine, {
+          cwd: "/copy",
+          enabled: true,
+          busy,
+          onSendToAgent: send,
+        }),
+      ),
+    );
+  await show(false);
+  expect(host.querySelector(".merge-line-word")?.textContent).toBe(
+    "1 check failing",
+  );
+  const fix = host.querySelector<HTMLButtonElement>(
+    '[data-merge-action="fix-checks"]',
+  );
+  await act(async () => fix?.click());
+  expect(send).toHaveBeenCalledTimes(1);
+  const working = () =>
+    host.querySelector(".merge-line-working")?.textContent ?? null;
+  // Before the agent starts, and while it works: no second Fix.
+  expect(working()).toBe("Fixing");
+  expect(host.querySelector("[data-merge-action]")).toBeNull();
+  await show(true);
+  expect(working()).toBe("Fixing");
+
+  // A chat opened again on the copy still shows it.
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await show(true);
+  expect(working()).toBe("Fixing");
+
+  // Done, and still failing: the step comes back.
+  await show(false);
+  expect(working()).toBeNull();
+  expect(host.querySelector('[data-merge-action="fix-checks"]')).not.toBeNull();
 });

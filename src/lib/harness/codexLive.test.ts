@@ -2303,3 +2303,145 @@ describe("Codex connection prompts", () => {
     await turn;
   });
 });
+
+describe("Codex approvals: always allow and a note", () => {
+  beforeEach(() => {
+    sent.length = 0;
+    __codexTestReset();
+  });
+
+  const card = (events: HarnessEvent[]) =>
+    events.find(
+      (event): event is Extract<HarnessEvent, { type: "approval.requested" }> =>
+        event.type === "approval.requested",
+    );
+
+  it("answers acceptForSession when the command may be allowed always", async () => {
+    const { respondCodexApproval } = await import("./codex");
+    const { events, turn } = await startTurn("codex-always");
+    onLine!(
+      JSON.stringify({
+        id: 401,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: "thr_1",
+          turnId: "turn_1",
+          itemId: "cmd_1",
+          command: "pnpm test",
+          availableDecisions: [
+            "accept",
+            "acceptForSession",
+            "decline",
+            "cancel",
+          ],
+        },
+      }),
+    );
+    await waitFor(() => !!card(events), "approval card");
+    expect(card(events)!.always).toBe("pnpm test");
+    respondCodexApproval(
+      "codex-always",
+      card(events)!.requestId,
+      "allowAlways",
+    );
+    await waitFor(() => parse().some((m) => m.id === 401), "approval response");
+    expect(parse().find((m) => m.id === 401)?.result).toEqual({
+      decision: "acceptForSession",
+    });
+    expect(events).toContainEqual({
+      type: "approval.resolved",
+      requestId: card(events)!.requestId,
+      decision: "allow",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("offers no Always when Codex leaves acceptForSession out", async () => {
+    const { respondCodexApproval } = await import("./codex");
+    const { events, turn } = await startTurn("codex-once");
+    onLine!(
+      JSON.stringify({
+        id: 402,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          itemId: "cmd_2",
+          command: "rm -rf build",
+          availableDecisions: ["accept", "decline", "cancel"],
+        },
+      }),
+    );
+    await waitFor(() => !!card(events), "approval card");
+    expect(card(events)!.always).toBeUndefined();
+    respondCodexApproval("codex-once", card(events)!.requestId, "allow");
+    await waitFor(() => parse().some((m) => m.id === 402), "approval response");
+    expect(parse().find((m) => m.id === 402)?.result).toEqual({
+      decision: "accept",
+    });
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("declines, then steers the user's note to the running turn", async () => {
+    const { respondCodexApproval } = await import("./codex");
+    const { events, turn } = await startTurn("codex-note");
+    onLine!(
+      JSON.stringify({
+        id: 403,
+        method: "item/fileChange/requestApproval",
+        params: { threadId: "thr_1", turnId: "turn_1", itemId: "patch_1" },
+      }),
+    );
+    await waitFor(() => !!card(events), "approval card");
+    expect(card(events)!.always).toBe("changes to these files");
+    respondCodexApproval(
+      "codex-note",
+      card(events)!.requestId,
+      "deny",
+      "Keep the old file; add a new one.",
+    );
+    await waitFor(
+      () => parse().some((m) => m.method === "turn/steer"),
+      "note steer",
+    );
+    expect(parse().find((m) => m.id === 403)?.result).toEqual({
+      decision: "decline",
+    });
+    const steer = parse().find((m) => m.method === "turn/steer")!;
+    expect(steer.params).toMatchObject({
+      threadId: "thr_1",
+      expectedTurnId: "turn_1",
+      input: [
+        {
+          type: "text",
+          text: "I declined that request. Keep the old file; add a new one.",
+        },
+      ],
+    });
+    reply(steer.id as number, {});
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+
+  it("declines without a steer when there is no note", async () => {
+    const { respondCodexApproval } = await import("./codex");
+    const { events, turn } = await startTurn("codex-plain-deny");
+    onLine!(
+      JSON.stringify({
+        id: 404,
+        method: "item/commandExecution/requestApproval",
+        params: { itemId: "cmd_4", command: "git push" },
+      }),
+    );
+    await waitFor(() => !!card(events), "approval card");
+    respondCodexApproval("codex-plain-deny", card(events)!.requestId, "deny");
+    await waitFor(() => parse().some((m) => m.id === 404), "deny response");
+    expect(parse().find((m) => m.id === 404)?.result).toEqual({
+      decision: "decline",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(parse().some((m) => m.method === "turn/steer")).toBe(false);
+    notify("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    await turn;
+  });
+});

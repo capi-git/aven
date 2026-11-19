@@ -75,40 +75,38 @@ async function draw(props: Parameters<typeof ProjectMark>[0]) {
   await act(async () => root.render(createElement(ProjectMark, props)));
 }
 
-const stack = () => container.querySelector<HTMLElement>(".stack-mark")!;
+const mark = () => container.querySelector<HTMLElement>(".project-mark")!;
 const kind = () =>
   container.querySelector<HTMLElement>(".project-mark")?.dataset.kind;
 
 describe("project marks", () => {
-  it("draws the project as its Stack, in the project's colour", async () => {
+  it("draws the project as an orb, in the project's colour", async () => {
     await draw({ appearance: appearance({ colorIndex: 7 }) });
-    expect(kind()).toBe("stack");
-    expect(container.querySelectorAll(".stack-mark rect")).toHaveLength(3);
-    expect(stack().dataset.tone).toBe("teal");
+    expect(kind()).toBe("orb");
+    expect(container.querySelector(".project-mark-orb")).not.toBeNull();
+    expect(mark().dataset.tone).toBe("teal");
     // No dots: the sigil the project saved stays saved, for its agents.
     expect(container.querySelector(".dot-mark")).toBeNull();
     await draw({ appearance: appearance({ automaticColorIndex: 3 }) });
-    expect(stack().dataset.tone).toBe("yellow");
+    expect(mark().dataset.tone).toBe("yellow");
     await draw({
       appearance: appearance({ colorIndex: 0, automaticColorIndex: 3 }),
     });
-    expect(stack().hasAttribute("data-tone")).toBe(false);
+    expect(mark().hasAttribute("data-tone")).toBe(false);
     // Never an inline colour: the theme's tokens draw it.
-    expect(container.querySelector("[style]")).toBeNull();
+    expect(mark().hasAttribute("style")).toBe(false);
     expect(container.querySelector("[fill='#e06c75']")).toBeNull();
   });
 
-  it("fans while the project is open, and stays still otherwise", async () => {
+  it("moves only while an agent works there", async () => {
     await draw({ appearance: appearance() });
-    expect(stack().hasAttribute("data-open")).toBe(false);
-    await draw({ appearance: appearance(), open: true });
-    expect(stack().hasAttribute("data-open")).toBe(true);
-    // A turn's end moves nothing: reactions are the agent's Bot's.
+    expect(mark().hasAttribute("data-working")).toBe(false);
+    await draw({ appearance: appearance(), working: true });
+    expect(mark().hasAttribute("data-working")).toBe(true);
+    // A turn's end moves nothing: reactions are the agent's own mark's.
     await draw({ appearance: appearance() });
     await act(async () => void recordActivity(turn("t1")));
-    expect(
-      container.querySelector(".project-mark")?.hasAttribute("data-reaction"),
-    ).toBe(false);
+    expect(mark().hasAttribute("data-reaction")).toBe(false);
     // Nothing watched, so nothing was claimed for another window to miss.
     expect(storage.has(REACTION_CLAIMS_KEY)).toBe(false);
   });
@@ -116,7 +114,7 @@ describe("project marks", () => {
   it("draws only a chosen logo in the sidebar, and nothing otherwise", async () => {
     await draw({ appearance: appearance({ colorIndex: 7 }), logoOnly: true });
     expect(container.querySelector(".project-mark")).toBeNull();
-    expect(container.querySelector(".stack-mark")).toBeNull();
+    expect(container.querySelector(".project-mark-orb")).toBeNull();
     // A logo the person chose still stands before the name.
     await draw({
       appearance: appearance({ logoSrc: "asset://logo.png" }),
@@ -125,24 +123,25 @@ describe("project marks", () => {
     expect(kind()).toBe("logo");
   });
 
-  it("keeps a logo as it is, open or not", async () => {
+  it("keeps a logo as it is, working or not", async () => {
     await draw({
       appearance: appearance({ logoSrc: "asset://logo.png" }),
-      open: true,
+      working: true,
     });
     expect(kind()).toBe("logo");
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
       "asset://logo.png",
     );
-    expect(container.querySelector(".stack-mark")).toBeNull();
+    expect(container.querySelector(".project-mark-orb")).toBeNull();
+    expect(mark().hasAttribute("data-working")).toBe(false);
   });
 
-  it("falls back to the Stack when the logo file is gone", async () => {
+  it("falls back to the orb when the logo file is gone", async () => {
     await draw({ appearance: appearance({ logoSrc: "asset://gone.png" }) });
     await act(async () => {
       container.querySelector("img")!.dispatchEvent(new Event("error"));
     });
-    expect(kind()).toBe("stack");
+    expect(kind()).toBe("orb");
   });
 
   it("renders nothing for a folder that isn't a project", async () => {

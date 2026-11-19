@@ -6,10 +6,13 @@ import {
   endSidePanelOpen,
   resetSidePanelForTest,
   setSidePanelOpen,
+  setSidePanelTab,
   SIDE_PANEL_SLIDE_MS,
   sidePanelOpen,
   sidePanelOpening,
   subscribeSidePanelOpen,
+  subscribeSidePanelTab,
+  sidePanelTab,
 } from "./sidePanel";
 
 let stored: Map<string, string>;
@@ -88,5 +91,31 @@ describe("side panel slide", () => {
     expect(css).toContain(
       `--personal-panel-duration: ${SIDE_PANEL_SLIDE_MS}ms;`,
     );
+  });
+});
+
+describe("side panel tab", () => {
+  it("starts as saved, tells readers at once and saves after the click", () => {
+    stored.set(
+      "monocode.personal.inspector",
+      JSON.stringify({ open: true, tab: "review", width: 300 }),
+    );
+    expect(sidePanelTab()).toBe("review");
+    const listener = vi.fn();
+    const stop = subscribeSidePanelTab(listener);
+    setSidePanelTab("checks");
+    setSidePanelTab("checks");
+    expect(listener).toHaveBeenCalledOnce();
+    expect(sidePanelTab()).toBe("checks");
+    expect(JSON.parse(stored.get("monocode.personal.inspector")!).tab).toBe(
+      "review",
+    );
+    vi.runAllTimers();
+    expect(JSON.parse(stored.get("monocode.personal.inspector")!)).toEqual({
+      open: true,
+      tab: "checks",
+      width: 300,
+    });
+    stop();
   });
 });

@@ -548,6 +548,84 @@ pre{background:#f4f4f4;padding:12px;border-radius:6px;overflow:auto}</style></he
 </body></html>"""
 
 
+def write_perf_picture(path, width, height, seed):
+    """A large PNG like a screenshot: bands of colour with fine detail.
+
+    Agents attach screenshots of 2000 to 3000 pixels; drawing them small is
+    what the chat pays for, so the test's pictures are as large.
+    """
+    import struct
+    import zlib
+    row = bytearray()
+    for x in range(width):
+        row += bytes(((x * 7 + seed * 40) % 256, (x // 3 + seed * 90) % 256, (x * 13) % 256))
+    raw = bytearray()
+    stride = len(row)
+    for y in range(height):
+        shift = (y * 3 * (seed + 1)) % stride
+        raw.append(0)
+        raw += row[shift:] + row[:shift]
+
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+
+    path.write_bytes(b'\x89PNG\r\n\x1a\n'
+                     + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
+                     + chunk(b'IDAT', zlib.compress(bytes(raw), 1))
+                     + chunk(b'IEND', b''))
+
+
+def write_perf_pictures(project, count=4):
+    """The pictures the stand-in's AVEN_PERF_PICTURES replies show."""
+    folder = project / 'perf-pictures'
+    folder.mkdir(exist_ok=True)
+    for number in range(1, count + 1):
+        write_perf_picture(folder / f'shot-{number}.png', 2400, 1500, number)
+
+
+def write_perf_git_project(project, commits=36, changed=60):
+    """A Git project for switching the side panel's tabs, as real work looks.
+
+    It is on a branch of its own with no remote (so no pull request), has
+    dozens of commits, and has `changed` files waiting: half of them tracked
+    files edited, half new. Git runs without the developer's configuration.
+    """
+    project.mkdir()
+    env = {**os.environ, 'GIT_CONFIG_GLOBAL': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1',
+           'GIT_AUTHOR_NAME': 'Aven check', 'GIT_AUTHOR_EMAIL': 'check@aven.invalid',
+           'GIT_COMMITTER_NAME': 'Aven check', 'GIT_COMMITTER_EMAIL': 'check@aven.invalid'}
+
+    def git(*args):
+        subprocess.run(['git', *args], cwd=project, env=env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+
+    def source(path, version):
+        lines = [f'// {path.name}, version {version}']
+        lines += [f'export const value{line} = {line * version};' for line in range(40)]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('\n'.join(lines) + '\n')
+
+    folders = ['src', 'src/views', 'src/lib', 'tests', 'docs']
+    tracked = [project / folders[index % len(folders)] / f'module-{index}.ts' for index in range(changed // 2)]
+    (project / 'README.md').write_text('Aven Dev speed test Git project.\n')
+    git('init', '-q', '-b', 'main')
+    for number in range(commits):
+        # Each commit touches a few files, so history and blame look real.
+        for path in tracked[number % len(tracked)::max(1, commits // 3)][:3] or tracked[:1]:
+            source(path, number + 1)
+        if number == 0:
+            for path in tracked:
+                source(path, 1)
+        git('add', '-A')
+        git('commit', '-q', '-m', f'Step {number + 1} of the speed test project')
+        if number == commits // 2:
+            git('checkout', '-q', '-b', 'perf/side-panel')
+    for index, path in enumerate(tracked):
+        source(path, 1000 + index)
+    for index in range(changed - len(tracked)):
+        source(project / folders[index % len(folders)] / f'new-{index}.ts', 1)
+
+
 @contextmanager
 def production_preview_server(child_env):
     """Serve a production build of the interface, as releases run it."""
@@ -768,11 +846,16 @@ def perf(keep=False, compare=None, only=None, sample=None, idle=None, record=Non
     # A second project, which the swipe scenario puts in the Work workspace.
     (root / 'work-project').mkdir()
     (root / 'work-project/README.md').write_text('Aven Dev speed test project in Work.\n')
+    # Large screenshots for the chat-with-pictures scenarios.
+    write_perf_pictures(root / 'project')
+    # A Git project with work waiting, for switching the side panel's tabs.
+    write_perf_git_project(root / 'panel-project')
     finished = False
     try:
         child_env = host_scoped_environment()
         with production_preview_server(child_env), static_page_server(root / 'site') as page_url:
-            settings = {'pageUrl': page_url, 'workProjectPath': str(root / 'work-project')}
+            settings = {'pageUrl': page_url, 'workProjectPath': str(root / 'work-project'),
+                        'panelProjectPath': str(root / 'panel-project')}
             if only:
                 settings['only'] = [part.strip() for part in only.split(',') if part.strip()]
             if sample:
@@ -970,6 +1053,10 @@ def report_perf(root, launched_at, compare):
               f'{cell(proc.get("footprintMB"), old_proc.get("footprintMB")):12}'
               + (f'  (window hidden {item["hiddenMs"] / 1000:.0f} s: timings unreliable)' if item.get('hiddenMs', 0) > 250 else '')
               + (f'  ERROR: {item["error"]}' if item.get('error') else ''))
+    for item in report.get('scenarios', []):
+        for label, inter in (item.get('interactionsBy') or {}).items():
+            print(f'  {item["name"][:30]}, {label}: input→frame p50/p95/max '
+                  f'{inter["p50"]}/{inter["p95"]}/{inter["max"]} ms over {inter["n"]}')
     print_page_popups(report.get('scenarios', []))
     print_over_limits(report.get('scenarios', []))
     print_motion(report.get('motion') or [])

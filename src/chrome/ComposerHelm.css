@@ -221,6 +221,15 @@
 .helm-say-button:hover {
   background: var(--aven-fill-secondary, var(--aven-fill));
 }
+/* A choice left on ("Continue at 3:40 PM") shows a plain check, no colour. */
+.helm-say-button[aria-pressed="true"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.helm-say-button .helm-say-check {
+  color: currentColor;
+}
 .helm-say-close {
   display: grid;
   place-items: center;

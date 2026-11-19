@@ -180,21 +180,6 @@ export const SETTINGS = {
     rowDescription:
       "Show small games to play in empty chats. Turn off for a quieter workspace.",
   }),
-  newChatInk: defineSetting({
-    ...defineStoredSetting<boolean>({
-      key: "aven.newChatInk",
-      ...storedBoolean(true, true),
-      changeEvent: "aven:new-chat-ink-change",
-      storageChanges: true,
-    }),
-    section: "general",
-    label: "Ink in new chats",
-    description: "Let the pointer stir soft ink in a new chat.",
-    keywords:
-      "background animation smoke halftone pointer mouse cursor empty chat welcome",
-    rowDescription:
-      "Moving the pointer over a new chat stirs soft ink. Hold to gather it.",
-  }),
   notesEnabled: defineSetting({
     ...defineStoredSetting<boolean>({
       key: "monocode.notesEnabled",
@@ -276,9 +261,9 @@ export const SETTINGS = {
     section: "notifications",
     label: "Sounds",
     description: "Control sound cues for agents and workspace actions.",
-    keywords: "audio mute volume",
+    keywords: "audio mute volume alert sounds",
     rowDescription:
-      "Play short cues when an agent finishes, and for inbox items, updates, and interactions.",
+      "Play alert sounds, and short cues for inbox items, updates and switches.",
   }),
   notifications: defineSetting({
     section: "notifications",
@@ -288,14 +273,29 @@ export const SETTINGS = {
     rowDescription:
       "Send macOS notifications when an agent needs you while you are elsewhere. Activity keeps a local history even when these are off.",
   }),
-  activityAlerts: defineSetting({
+  alertNeedsYou: defineSetting({
     section: "notifications",
-    label: "Activity alerts",
+    label: "Needs you",
     description:
-      "Choose alerts for when an agent needs you, fails, or finishes.",
-    keywords: "approvals errors stopped attention sound",
-    rowDescription:
-      "Choose which outcomes can interrupt you. Every outcome still appears in Activity.",
+      "Alert and sound when an agent asks for approval or a question.",
+    keywords:
+      "needs input approvals questions attention alerts sound chime custom file choose audio",
+    rowDescription: "An approval or a question, while you are elsewhere.",
+  }),
+  alertFinished: defineSetting({
+    section: "notifications",
+    label: "Finished",
+    description: "Alert and sound when an agent finishes.",
+    keywords:
+      "done completed stopped turn end alerts sound chime custom file choose audio",
+    rowDescription: "When a turn ends. A stopped turn stays silent.",
+  }),
+  alertFailed: defineSetting({
+    section: "notifications",
+    label: "Failed",
+    description: "Alert and sound when an agent can't finish.",
+    keywords: "failures errors alerts sound chime custom file choose audio",
+    rowDescription: "When a turn can't finish.",
   }),
   quietMode: defineSetting({
     section: "notifications",

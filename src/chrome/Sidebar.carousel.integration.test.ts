@@ -239,7 +239,10 @@ beforeEach(async () => {
       constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
         this.emit = () => callback([{ isIntersecting: true }]);
       }
-      observe() {
+      observe(target: Element) {
+        // Orbs (project marks) watch themselves to pause off screen; only
+        // the pages' load-more sentinels count here.
+        if (target.tagName.toLowerCase() === "svg") return;
         loadMoreCallbacks.add(this.emit);
       }
       unobserve() {

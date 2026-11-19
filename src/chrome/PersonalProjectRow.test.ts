@@ -109,16 +109,18 @@ it("still opens the context menu at the pointer", async () => {
   expect(frame?.style.top).toBe("50px");
 });
 
-it("shows the project as its name alone, with its arrow at the row's end", async () => {
+it("shows the project's orb before its name, with its arrow at the row's end", async () => {
   await render();
-  // No folder and no Stack: only a logo the person chose stands before it.
-  expect(host.querySelector(".project-mark")).toBeNull();
-  // A saved colour stays for its agents' marks; the row stays grey.
+  // The project's mark is its orb, in its automatic colour until one is
+  // picked.
+  const mark = () => host.querySelector<HTMLElement>(".project-mark");
+  expect(mark()?.dataset.kind).toBe("orb");
+  // A picked colour shows on the orb, from the theme's tokens, never inline.
   await act(async () => saveTabGroupColor(projectKey(PATH), 4));
-  expect(host.querySelector("[data-tone]")).toBeNull();
+  expect(mark()?.dataset.tone).toBeTruthy();
   expect(host.innerHTML).not.toContain(TAB_GROUP_COLORS[4]);
   await render(undefined, true);
-  expect(host.querySelector(".project-mark")).toBeNull();
+  expect(mark()?.dataset.kind).toBe("orb");
   // The arrow follows the name and waits with the other actions; no line
   // runs down the side of the chats.
   const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
@@ -126,26 +128,27 @@ it("shows the project as its name alone, with its arrow at the row's end", async
   expect(css).not.toContain(".personal-project-tasks::before");
 });
 
-it("says an agent runs with its little working screen beside the name", async () => {
+it("says an agent runs by moving the project's orb while the row is folded", async () => {
   await render({ running: 1, waiting: 0, unread: 0 });
-  expect(host.querySelector(".dot-mark-lit")).toBeNull();
-  expect(host.querySelector(".personal-project-running")).not.toBeNull();
-  // An agent's screen, working, beside the project's name.
-  const agent = host.querySelector<HTMLElement>(
-    ".personal-project-running .agent-mark",
-  )!;
-  expect(agent.dataset.agent).toBe("working");
-  // The stylesheet shows it beside any mark, not only a logo.
+  const mark = () => host.querySelector<HTMLElement>(".project-mark")!;
+  expect(mark().hasAttribute("data-working")).toBe(true);
+  // The orb says it once: no second working sign beside the name.
+  expect(host.querySelector(".personal-project-running")).toBeNull();
+  // Open, the agent's own row says it works: the project's orb rests.
+  await render({ running: 1, waiting: 0, unread: 0 }, true);
+  expect(mark().hasAttribute("data-working")).toBe(false);
+  await render({ running: 0, waiting: 0, unread: 0 });
+  expect(mark().hasAttribute("data-working")).toBe(false);
+  // A logo or Tiles draw no orb and keep the agent's working mark, beside
+  // any mark.
   const css = readFileSync("src/chrome/PersonalNavigation.css", "utf8");
   expect(css).toMatch(
     /\.personal-navigation \.personal-project-running \{\s*display: inline-block;/,
   );
   expect(css).not.toContain('.project-mark[data-kind="logo"]');
-  await render({ running: 0, waiting: 0, unread: 0 });
-  expect(host.querySelector(".personal-project-running")).toBeNull();
 });
 
-it("shows a logo instead of the Stack when one is set, open or not", async () => {
+it("shows a logo instead of the orb when one is set, open or not", async () => {
   saveTabGroupLogo(projectKey(PATH), "/logos/aven.png");
   await render({ running: 1, waiting: 0, unread: 0 }, true);
   const mark = host.querySelector(".project-mark")!;
