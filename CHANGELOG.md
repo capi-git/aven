@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.1.193] - 2026-11-18
+## [0.1.193] - 2026-11-19
 
 ### Added
 
@@ -13,6 +13,7 @@
 
 ### Changed
 
+- **A project's mark is an orb in its colour,** in the sidebar, on its Board and wherever the project is named. Pick the colour in Customize project. The orb moves while an agent works in a folded project.
 - **A split's panes are named tabs joined by a short line,** with no box around them. Drag a pane's mark to move that pane alone; hold Option to move the whole split.
 - **No grip on dividers.** Pointing at or dragging a divider between panes, or the sidebar and side panel edges, changes only the pointer. Keyboard focus still shows a line.
 - **The side panel opens smoothly.** Web pages no longer tear while it slides open, its first open no longer shows "Loading files…", and it reads Git and GitHub only after the slide.
@@ -20,7 +21,11 @@
 
 ### Fixed
 
-- **The merge line uses less power.** It reads GitHub once a minute in place of every 15 seconds, it keeps its place while it loads so the message box does not jump, and an old error goes away when the branch moves on.
+- **Web pages no longer tear when you switch workspaces.** Pictures stand in for pages during the switch, and the live pages come back in place.
+- **Chats stay smooth while you drag a divider or the sidebar edge.** The chat keeps its width during the drag and fits once when you let go, and it stays at its end afterwards.
+- **Large pictures in chats draw faster and use less memory.** Chats show a smaller copy; the image viewer still opens the full picture.
+- **Switching side panel tabs redraws only the panel.**
+- **The merge line uses less power.** Every chat on one project shares one GitHub read, once a minute, only for changes in its own project and not while Aven is hidden. It keeps its place while it loads so the message box does not jump, an old error goes away when the branch moves on, and failing checks show with a fix for the agent.
 - **Smaller fixes:** New chat stays in its place in the Tiles sidebar, Forward remembers the chosen chat, @chat names stay with their own chat, orbs hold still with Reduce motion, a divider drag never leaves a stuck pointer, and each project's settings page keeps its own text.
 
 ## [0.1.192] - 2026-11-18
