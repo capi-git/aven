@@ -658,7 +658,6 @@ function PreferencesPage({
         />
       </Row>
       {/* The games take the ink's place, so its switch shows only without them. */}
-      {gridArcadeEnabled ? null : <NewChatInkRow />}
     </SettingsGroup>
   );
 
@@ -1426,19 +1425,6 @@ function AppearancePage({ appearance }: { appearance: AppearanceSettings }) {
         </SecondaryButton>
       </div>
     </>
-  );
-}
-
-function NewChatInkRow() {
-  const on = useSetting(SETTINGS.newChatInk);
-  return (
-    <Row {...SETTINGS.newChatInk.row}>
-      <Toggle
-        label={SETTINGS.newChatInk.label}
-        on={on}
-        onChange={SETTINGS.newChatInk.save}
-      />
-    </Row>
   );
 }
 
