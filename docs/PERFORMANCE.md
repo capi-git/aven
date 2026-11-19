@@ -164,3 +164,26 @@ Measured on October 17 with `npm run perf:app -- --perf-only "switching chat tab
 | Chat and browser        | 33, 32 → 34, 32         | 34, 33 → 35, 35 | 56.7, 65.5 → 56.3, 65.1 |
 
 Medians and CPU are within run-to-run noise. The work compared also contains everything else on `next`, which renders App more often while switching (101 → 121 React commits over the run); the motion code adds no React state, so that, and the remaining 1–2 ms at p95, were not attributed to motion. Idle wakeups during these active scenarios varied between runs of the same build (10–20 per second on main, 16–32 here) as they did before. Source checks: the frontend suite and type check pass, lint stays at 152 warnings, and tests cover reduced motion starting nothing and zeroing every token, a sent message being in the transcript in the same render, a switch with unchanged rows reading no layout, FLIP keeping React's order and focus, and switches showing panes at once.
+
+## Chats during drags, November 19, 2026
+
+A chat narrower than its 800 px column re-wrapped all of its text and rescaled every picture (screenshots are often 2000–3000 px) on each frame of a divider or sidebar drag, and the heights that changed moved everything below. Now each chat column on screen in the panes being resized keeps its width from the drag's start (`src/lib/transcriptWidthHold.ts`: one style read for all columns, then the writes; nothing per frame). The pane clips the column, or leaves room around it, and the column fits once on the drop. Pictures that have loaded before keep their box from their natural size (`src/lib/pictureSizes.ts`), so a picture drawn again does not move the text below it when it loads.
+
+Measured with the speed test's new scenarios (`npm run perf:app -- --perf-only "with pictures"`): a chat with four 2400 × 1500 screenshots, split beside another chat at about 660 px, its divider or the sidebar edge dragged 120 or 90 px and most of the way back, four drops at new widths. Alternating runs of main and this work on a 120 Hz display (7 ms frames); runs with the window off screen were thrown away.
+
+| Divider beside the chat        | main (4 runs) | width held (3 runs) | and picture boxes (4 runs) |
+| ------------------------------ | ------------- | ------------------- | -------------------------- |
+| Frames over one interval       | 46–62 of ~940 | 8–18 of ~870        | 0–17 of ~940               |
+| Frame p95 (ms)                 | 11            | 9                   | 8–10                       |
+| Forced layout in the scenario  | 84–144 ms     | 48–54 ms            | 41–68 ms                   |
+| Interface CPU                  | 90–102%       | 61–63%              | 53–66%                     |
+| Drop, input to frame p50 (max) | 5–15 (18) ms  | 17–22 (30) ms       | 18–24 (25) ms              |
+| Still at the end after drops   | 1 of 4 runs   | every run           | every run                  |
+
+The drop pays for the one re-wrap the drag no longer pays on every frame; it stays under 33 ms. On main, the chat lost its place at the end after a divider drop in three of four runs (138 px up): a stage divider does not mark the window as resizing, so a re-wrap's clamped scroll could read as the reader scrolling. With the width held, the content does not change during the drag, and the drop is one resize the transcript already handles.
+
+The sidebar edge improved less: interface CPU 99–106% on main against 78–95%, with frames over one interval in the same range (46–129 against 49–145 of ~990). That drag also lays out the sidebar's own rows and the tab strip every frame.
+
+Tried and left out: `content-visibility: auto` on finished turns, with remembered sizes. Two alternating runs measured the divider drop at 23 and 21 ms against 24 ms without it, within noise, because the held width already removes the per-frame layout of turns off screen. It would also leave turns off screen at their old height after a drop at a new width, the scroll-range shift that removed it in September.
+
+Not measured: frames from outside the app (`--perf-record` captured no frames in this session) and a real mouse in Aven Dev.
