@@ -41,6 +41,12 @@ import {
   type CodexApprovalKind,
 } from "./codexProtocol";
 import { JsonRpcClient, type JsonRpcId } from "./jsonRpc";
+import {
+  exhaustedResetAt,
+  loadSavedRateLimits,
+  parseCodexRateLimits,
+  type ProviderRateLimits,
+} from "../rateLimits";
 import { assertCodexStorage } from "./codexStorage";
 import {
   elicitationPrompt,
@@ -1117,6 +1123,8 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     }
   }
   const mapped = mapCodexNotification(method, params);
+  if (mapped.rateLimits !== undefined)
+    latestCodexLimits = parseCodexRateLimits(mapped.rateLimits);
   const snapshot = method === "item/completed";
   const item = asRecord(record?.item);
   if (snapshot && !live.muteUpdates) enqueueAsyncQuestions(live, record, item);
@@ -1154,7 +1162,9 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     live.onEvent(
       event.type === "message.completed" && itemKey
         ? { ...event, key: itemKey }
-        : event,
+        : event.type === "turn.waiting"
+          ? withCodexReset(event)
+          : event,
     );
   }
   if (live.muteUpdates) return;
@@ -1182,6 +1192,26 @@ function handleNotification(live: Live, method: string, params: unknown): void {
     finishActiveTurn(live, [], terminalError);
   }
   if (startsTurn) consumeEarlyTerminal(live);
+}
+
+/** The account's usage as Codex last pushed it to any chat this run. */
+let latestCodexLimits: ProviderRateLimits | null = null;
+
+/**
+ * A reached usage limit whose error gave no reset time takes it from the
+ * latest reading: the one Codex pushed this run, else the one Aven saved.
+ */
+function withCodexReset(
+  event: Extract<HarnessEvent, { type: "turn.waiting" }>,
+): Extract<HarnessEvent, { type: "turn.waiting" }> {
+  const limit = event.set?.usageLimit;
+  if (!limit || limit.resetsAt !== undefined) return event;
+  const now = Date.now();
+  const resetsAt =
+    exhaustedResetAt(latestCodexLimits, now) ??
+    exhaustedResetAt(loadSavedRateLimits().codex, now);
+  if (resetsAt === undefined) return event;
+  return { ...event, set: { ...event.set, usageLimit: { resetsAt } } };
 }
 
 function publishAgentUpdate(live: Live, event: AgentUpdate): void {

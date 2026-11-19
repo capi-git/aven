@@ -133,6 +133,7 @@ import {
 } from "./hooks/useScheduledAgents";
 import { useUnreadAutomationRuns } from "./hooks/useUnreadAutomationRuns";
 import { useInboxReviewCount } from "./hooks/useAutomationChats";
+import { useUsageHoldRelease } from "./hooks/useUsageHoldRelease";
 import { useAgentKeepAwake } from "./hooks/useAgentKeepAwake";
 import { useTurnShotTidy } from "./hooks/useTurnShotTidy";
 import { useChatConnectionsSettings } from "./hooks/useChatConnections";
@@ -8516,6 +8517,9 @@ export default function App({
     },
     [onSubmit],
   );
+
+  // A usage limit's reset lets its chat's queued messages send.
+  useUsageHoldRelease(sessions, setSessions);
 
   useEffect(() => {
     const timers: number[] = [];

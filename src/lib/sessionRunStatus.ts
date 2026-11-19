@@ -8,7 +8,13 @@ import {
 } from "./harness/preview";
 import { sessionIsWaitingForInput, type Block, type Session } from "./session";
 import { sessionDoing } from "./sessionDoing";
-import { holdUpAt, sessionHoldUps, type SessionHoldUp } from "./sessionHoldUp";
+import { activeUsageHold } from "./messageQueue";
+import {
+  clockTime,
+  holdUpAt,
+  sessionHoldUps,
+  type SessionHoldUp,
+} from "./sessionHoldUp";
 import { isBlockingQuestion } from "./userQuestion";
 import {
   activeSessionAgents,
@@ -37,6 +43,16 @@ export type SessionRunStatus = {
   durationMs?: number;
   canStop: boolean;
   recovery?: "claude-login";
+  /**
+   * The usage limit holds the chat (a turn it cut off, or messages waiting
+   * for its reset): when it resets, and whether "Continue at" can be offered
+   * and is on.
+   */
+  usageLimit?: {
+    resetsAt?: number;
+    canContinue: boolean;
+    continueAtReset: boolean;
+  };
 };
 
 function validTime(value: number | undefined): value is number {
@@ -239,10 +255,24 @@ export function sessionRunStatus(
     };
   }
   const queued = session.queuedMessages?.length ?? 0;
+  const held = activeUsageHold(session, now);
   if (queued > 0) {
     const count = `${queued} ${queued === 1 ? "message" : "messages"}`;
     const editingHead =
       session.editingQueuedMessageId === session.queuedMessages?.[0].id;
+    if (held && session.queueStatus !== "paused")
+      return {
+        kind: "queued",
+        label: "Queued",
+        detail: `Sends at ${clockTime(held.resetsAt, now)}`,
+        wakeAt: held.resetsAt,
+        usageLimit: {
+          resetsAt: held.resetsAt,
+          canContinue: false,
+          continueAtReset: false,
+        },
+        canStop: false,
+      };
     return {
       kind: "queued",
       label: session.queueStatus === "paused" ? "Queue paused" : "Queued",
@@ -290,6 +320,16 @@ export function sessionRunStatus(
         detail: "Ready for your next message",
       },
     } as const;
+    const limit = limitOutcome(session, outcome.outcome, now);
+    if (limit)
+      return {
+        ...limit,
+        ...(startedAt !== undefined ? { startedAt } : {}),
+        ...(validTime(turn?.block.durationMs)
+          ? { durationMs: turn.block.durationMs }
+          : {}),
+        canStop: false,
+      };
     const state = terminal[outcome.outcome as keyof typeof terminal];
     const failedAgents =
       session.liveAgents?.filter((agent) => agent.status === "failed").length ??
@@ -334,6 +374,56 @@ export function sessionRunStatus(
         canStop: false,
       }
     : null;
+}
+
+/**
+ * A turn the usage limit cut off, in place of a plain failure: when the
+ * limit resets ("Usage limit · resets 3:40 PM"), that it reached it when the
+ * provider gave no time, or that it has reset.
+ */
+function limitOutcome(
+  session: Session,
+  outcome: string,
+  now: number,
+):
+  | Pick<
+      SessionRunStatus,
+      "kind" | "label" | "detail" | "wakeAt" | "usageLimit"
+    >
+  | undefined {
+  const hold = session.usageHold;
+  if (
+    !hold?.cutOff ||
+    hold.harness !== session.harness ||
+    (outcome !== "failed" && outcome !== "completed")
+  )
+    return undefined;
+  if (hold.reset || (hold.resetsAt !== undefined && now >= hold.resetsAt))
+    return {
+      kind: "finished",
+      label: "Usage limit has reset",
+      detail: "Ready for your next message",
+    };
+  if (hold.resetsAt === undefined)
+    return {
+      kind: "failed",
+      label: "Usage limit reached",
+      detail: "Send again once it resets",
+      usageLimit: { canContinue: false, continueAtReset: false },
+    };
+  return {
+    kind: "failed",
+    label: `Usage limit · resets ${clockTime(hold.resetsAt, now)}`,
+    detail: hold.continueAtReset
+      ? "Aven continues the reply then"
+      : "Messages you send wait until then",
+    wakeAt: hold.resetsAt,
+    usageLimit: {
+      resetsAt: hold.resetsAt,
+      canContinue: true,
+      continueAtReset: !!hold.continueAtReset,
+    },
+  };
 }
 
 /**

@@ -25,16 +25,20 @@ describe("Codex retries", () => {
   });
 
   it.each([
-    ["serverOverloaded", "busy"],
-    ["usageLimitExceeded", "rate-limit"],
-    ["internalServerError", "server"],
-  ])("names a %s retry", (codexErrorInfo, reason) => {
+    ["serverOverloaded", "busy", undefined],
+    // A reached usage limit holds the chat too (codexProtocol.usageLimit.test).
+    ["usageLimitExceeded", "rate-limit", {}],
+    ["internalServerError", "server", undefined],
+  ])("names a %s retry", (codexErrorInfo, reason, usageLimit) => {
     expect(
       mapCodexNotification("error", {
         error: { message: "Retrying", codexErrorInfo },
         willRetry: true,
       }).events[1],
-    ).toEqual({ type: "turn.waiting", set: { retry: { reason } } });
+    ).toEqual({
+      type: "turn.waiting",
+      set: { retry: { reason }, ...(usageLimit ? { usageLimit } : {}) },
+    });
   });
 
   it("leaves a failure that will not be retried as an error", () => {

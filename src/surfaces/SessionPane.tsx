@@ -36,6 +36,7 @@ import { useTeamOf } from "../hooks/useTeamRuns";
 import { chatMayOfferMemoryKeeper } from "../lib/memoryKeeperOffer";
 import { teamIsOpen, teamRole } from "../lib/teamRuns";
 import { sessionWithManagedAgents } from "../lib/sessionAgents";
+import { activeUsageHold } from "../lib/messageQueue";
 import { sessionHoldUps, type SessionHoldUp } from "../lib/sessionHoldUp";
 import { equalChromeData } from "../hooks/useChromeProps";
 import { OrchestrationWorkers } from "../chrome/OrchestrationActions";
@@ -538,6 +539,8 @@ export const SessionPane = memo(function SessionPane({
     [onRace, sessionId],
   );
   const stop = useCallback(() => onStop(sessionId), [onStop, sessionId]);
+  // A usage limit with a reset to come holds what is sent until then.
+  const queueSendsAt = activeUsageHold(session)?.resetsAt;
   const compactContext = useCallback(
     () => onCompactContext(sessionId),
     [onCompactContext, sessionId],
@@ -743,6 +746,7 @@ export const SessionPane = memo(function SessionPane({
       onCompactContext={compactContext}
       queuedMessages={session.queuedMessages}
       queueStatus={session.queueStatus}
+      queueSendsAt={queueSendsAt}
       onDeleteQueuedMessage={deleteQueuedMessage}
       onEditQueuedMessage={editQueuedMessage}
       onQueuedMessageEditingChange={changeQueuedMessageEditing}

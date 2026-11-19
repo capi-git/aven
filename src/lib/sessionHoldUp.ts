@@ -326,7 +326,7 @@ function hoursAndMinutes(minutes: number): string {
 }
 
 /** "3:40 PM" today, "Oct 26, 3:40 PM" on another day. */
-function clockTime(at: number, now: number): string {
+export function clockTime(at: number, now: number): string {
   const date = new Date(at);
   const sameDay = date.toDateString() === new Date(now).toDateString();
   return date.toLocaleString(

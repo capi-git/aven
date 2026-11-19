@@ -14,6 +14,7 @@ import {
   type RefObject,
 } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
+import { requestContinueAtReset } from "../hooks/useUsageHoldRelease";
 import { useUsageForecasts } from "../hooks/useUsageForecasts";
 import { useWidthChoice } from "../hooks/useNarrow";
 import { appName } from "../lib/agentNames";
@@ -63,6 +64,7 @@ import {
   type RuntimeMode,
 } from "../lib/session";
 import type { Skill } from "../lib/skills";
+import { clockTime } from "../lib/sessionHoldUp";
 import { usageAlternatives } from "../lib/usageAlternatives";
 import { forecastSentence } from "../lib/usageForecast";
 import { markUsageWarningSeen } from "../lib/usageHistory";
@@ -316,23 +318,33 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
 
   // What the bubble says, and the mark shows.
   const run = useHelmRun();
-  const { say: runSay, dismiss } = useHelmSay(run, busy);
+  const { say: runSay, status: runStatus, dismiss } = useHelmSay(run, busy);
   const forecasts = useUsageForecasts();
   const usageWarning = showAgent ? agent.usageWarning : null;
   const currentModel = agent.current;
+  const limit = showAgent ? runStatus?.usageLimit : undefined;
+  // Another provider or a lighter model with room: offered near the limit
+  // and once it is reached.
+  const alternatives = useMemo(
+    () =>
+      usageWarning?.unseen || limit
+        ? usageAlternatives({
+            harness,
+            current: currentModel,
+            forecasts,
+            now: Date.now(),
+            isAvailable: isHarnessAvailable,
+            catalog: pickerModelsFor,
+            preferred: preferredModelId,
+            title: (id) => HARNESS_TITLE[id],
+          })
+        : [],
+    [usageWarning?.unseen, limit, harness, currentModel, forecasts],
+  );
   const usageSay = useMemo<{ say: HelmSay; fixes: HelmFix[] } | null>(() => {
     if (!usageWarning?.unseen) return null;
     const now = Date.now();
-    const options = usageAlternatives({
-      harness,
-      current: currentModel,
-      forecasts,
-      now,
-      isAvailable: isHarnessAvailable,
-      catalog: pickerModelsFor,
-      preferred: preferredModelId,
-      title: (id) => HARNESS_TITLE[id],
-    });
+    const options = alternatives;
     return {
       say: {
         kind: "error",
@@ -351,14 +363,38 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         },
       })),
     };
-  }, [usageWarning, harness, currentModel, forecasts, onModelChange]);
+  }, [usageWarning, alternatives, onModelChange]);
 
   const openUsage = useCallback(
     () => window.dispatchEvent(new Event(OPEN_USAGE_EVENT)),
     [],
   );
+  const sessionId = run?.session.id;
+  // The usage limit: a way round it, and "Continue at" for a turn it cut off.
+  const limitFixes = useMemo<HelmFix[] | null>(() => {
+    if (!limit || !sessionId) return null;
+    const fixes: HelmFix[] = alternatives.slice(0, 1).map((option) => ({
+      label: option.label,
+      detail: option.detail,
+      run: () => onModelChange(option.harness, option.model),
+    }));
+    if (limit.canContinue && limit.resetsAt !== undefined) {
+      const on = limit.continueAtReset;
+      fixes.push({
+        label: `Continue at ${clockTime(limit.resetsAt, Date.now())}`,
+        detail: on
+          ? "Aven sends “Continue where you left off.” when the limit resets. Click to cancel."
+          : "Send “Continue where you left off.” when the limit resets",
+        pressed: on,
+        run: () => requestContinueAtReset(sessionId, !on),
+      });
+    }
+    return fixes;
+  }, [limit, sessionId, alternatives, onModelChange]);
   const runFixes = useMemo<HelmFix[]>(() => {
+    if (runSay?.kind === "queued") return limitFixes ?? [];
     if (runSay?.kind !== "error") return [];
+    if (limitFixes?.length) return limitFixes;
     if (runSay.recovery === "claude-login" && run?.onOpenTerminal) {
       const { onOpenTerminal, session } = run;
       return [
@@ -381,7 +417,7 @@ export const ComposerHelm = memo(function ComposerHelm(props: Props) {
         run: openUsage,
       });
     return fixes;
-  }, [runSay, run, showAgent, harness, openUsage, dismiss]);
+  }, [runSay, run, showAgent, harness, openUsage, dismiss, limitFixes]);
 
   const say = runSay ?? usageSay?.say ?? null;
   const fixes = runSay ? runFixes : (usageSay?.fixes ?? []);

@@ -94,7 +94,11 @@ export function applyHarnessEvent(
     case "agents.cleared":
       return { ...session, liveAgents: undefined };
     case "turn.waiting":
-      return updateTurnWait(session, event.set, event.clear);
+      return updateUsageHold(
+        updateTurnWait(session, event.set, event.clear),
+        event.set,
+        event.clear,
+      );
     case "turn.selfStarted":
       return session.busy ? session : resumeTurn(session);
     case "turn.selfEnded":
@@ -286,6 +290,46 @@ function updateTurnWait(
     ...session,
     waitingOn: Object.keys(next).length ? next : undefined,
   };
+}
+
+/** Two reset times this close are the same reset. */
+const SAME_RESET_MS = 60_000;
+
+/**
+ * The chat-level hold follows the provider's word on its usage limit: a
+ * reached limit holds the chat, and a limit that no longer holds lets it go. Unlike the turn's
+ * wait, the agent's own output does not end it.
+ */
+function updateUsageHold(
+  session: Session,
+  set: TurnWait | undefined,
+  clear: readonly (keyof TurnWait)[] = [],
+): Session {
+  const current = session.usageHold;
+  if (set?.usageLimit) {
+    const { resetsAt } = set.usageLimit;
+    // The same limit reported again (an error and then the failed turn, a
+    // time read from words a moment later) keeps the hold as it is.
+    if (
+      current?.harness === session.harness &&
+      (resetsAt === undefined ||
+        (current.resetsAt !== undefined &&
+          Math.abs(current.resetsAt - resetsAt) < SAME_RESET_MS))
+    )
+      return session;
+    return {
+      ...session,
+      usageHold: {
+        harness: session.harness,
+        ...(resetsAt !== undefined ? { resetsAt } : {}),
+      },
+    };
+  }
+  if (clear.includes("usageLimit") && current) {
+    const { usageHold: _cleared, ...rest } = session;
+    return rest;
+  }
+  return session;
 }
 
 function sameTurnWait(a: TurnWait | undefined, b: TurnWait): boolean {
@@ -550,6 +594,8 @@ export function appendUser(
       ...session,
       busy: true,
       waitingOn: undefined,
+      // A new turn asks again; if the limit still holds, the provider says.
+      usageHold: undefined,
       ...(session.liveAgents
         ? {
             liveAgents: session.liveAgents.filter(
@@ -617,8 +663,13 @@ export function appendSteerUser(
 
 export function stopStreaming(session: Session): Session {
   const settled = settlePendingApprovals(session);
+  const hold = settled.usageHold;
   return {
     ...settled,
+    // A turn that ends while its limit holds was cut off by it.
+    ...(hold && settled.busy && !hold.cutOff
+      ? { usageHold: { ...hold, cutOff: true } }
+      : {}),
     busy: false,
     waitingOn: undefined,
     pendingQuestion: undefined,

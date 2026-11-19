@@ -253,6 +253,11 @@ type Props = {
   busy?: boolean;
   queuedMessages?: QueuedMessage[];
   queueStatus?: MessageQueueStatus;
+  /**
+   * The usage limit holds what is sent until then (epoch ms), so a new
+   * message is queued. The helm's bubble says when it sends.
+   */
+  queueSendsAt?: number;
   hotkeys?: boolean;
   onFocus: () => void;
   onCwdChange: (cwd: string) => void;
@@ -624,6 +629,7 @@ function ComposerComponent({
   busy = false,
   queuedMessages = [],
   queueStatus,
+  queueSendsAt,
   onFocus,
   onCwdChange,
   onBranchChange,
@@ -835,7 +841,14 @@ function ComposerComponent({
     !discussActive;
   const focusField = useCallback(() => ref.current?.focus(), []);
   const queueSubmission = shouldEnqueueSubmission(
-    { harness, busy: Boolean(busy), queuedMessages },
+    {
+      harness,
+      busy: Boolean(busy),
+      queuedMessages,
+      ...(queueSendsAt !== undefined
+        ? { usageHold: { harness, resetsAt: queueSendsAt } }
+        : {}),
+    },
     planSelected || orchestrationSelected || draftPlanning || draftOrchestrating
       ? "queue"
       : followUpBehavior,
