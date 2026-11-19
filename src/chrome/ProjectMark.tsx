@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useProjectAppearance } from "../hooks/useProjectAppearance";
 import { appearanceTone } from "../lib/markTones";
 import type { ProjectAppearance } from "../lib/projectAppearance";
-import { StackMark } from "./StackMark";
+import { AgentMark } from "./AgentMark";
 import "./ProjectMark.css";
 
 type Props = {
@@ -11,8 +11,8 @@ type Props = {
   /** Already-resolved appearance, when the caller has it. */
   appearance?: ProjectAppearance | null;
   /**
-   * The project is open (expanded in the sidebar): its Stack fans out.
-   * Logos stay as they are.
+   * The project is open (expanded in the sidebar). Kept for callers; the
+   * mark looks the same either way.
    */
   open?: boolean;
   /**
@@ -24,21 +24,19 @@ type Props = {
 };
 
 /**
- * A project's mark: its logo when one is set, otherwise its Stack, three
- * pages in its colour. It stands for the project, never its agents (they
- * are Bot), so it never moves on its own. Renders nothing for folders
+ * A project's mark: its logo when one is set, otherwise a still orb in its
+ * colour. It stands for the project, so it never moves on its own. Renders nothing for folders
  * without a project identity.
  */
 export function ProjectMark({
   path,
   appearance: given,
-  open = false,
   logoOnly = false,
   className = "",
 }: Props) {
   const resolved = useProjectAppearance(given === undefined ? path : null);
   const appearance = given === undefined ? resolved : given;
-  // A logo file deleted outside Aven falls back to the Stack.
+  // A logo file deleted outside Aven falls back to the orb.
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   if (!appearance) return null;
   const logo =
@@ -49,7 +47,7 @@ export function ProjectMark({
   return (
     <span
       className={`project-mark ${className}`}
-      data-kind={logo ? "logo" : "stack"}
+      data-kind={logo ? "logo" : "orb"}
       aria-hidden
     >
       {logo ? (
@@ -62,10 +60,9 @@ export function ProjectMark({
           onError={() => setFailedSrc(logo)}
         />
       ) : (
-        <StackMark
+        <AgentMark
           tone={appearanceTone(appearance)}
-          open={open}
-          className="project-mark-stack"
+          className="project-mark-orb"
         />
       )}
     </span>

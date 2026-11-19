@@ -11,7 +11,7 @@ import { projectKey } from "../lib/paths";
 import { projectToneAt } from "../lib/projectAppearance";
 import { requestOpenChat } from "../lib/shipRequest";
 import { resolveTabGroupLogo } from "../lib/tabGroups";
-import { StackMark } from "./StackMark";
+import { AgentMark } from "./AgentMark";
 
 type Props = {
   card: NoteCardMeta & { body?: string };
@@ -58,7 +58,7 @@ export function NoteMiniCard({ card, onDismiss, embedded = false }: Props) {
                 imageClassName="size-3.5"
               />
             ) : (
-              <StackMark
+              <AgentMark
                 tone={projectToneAt(card.sourceCwd!)}
                 className="size-[15px] shrink-0"
               />

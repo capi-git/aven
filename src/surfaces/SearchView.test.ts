@@ -256,9 +256,9 @@ it("marks a project hit with the project's own logo, not its folder path", async
     );
     expect(sources.some((src) => src.includes("/logos/gamma.png"))).toBe(true);
     expect(sources.some((src) => src.includes("/Developer/gam"))).toBe(false);
-    // A project without a logo shows its Stack.
+    // A project without a logo shows its orb.
     expect(
-      container.querySelector('.project-mark[data-kind="stack"]'),
+      container.querySelector('.project-mark[data-kind="orb"]'),
     ).not.toBeNull();
   } finally {
     await act(async () => root.unmount());

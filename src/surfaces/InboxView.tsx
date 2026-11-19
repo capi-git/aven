@@ -32,7 +32,7 @@ import {
 import { InboxFiltersMenu } from "../chrome/InboxFiltersMenu";
 import { InboxProviderMark } from "../chrome/InboxProviderMark";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
-import { StackMark } from "../chrome/StackMark";
+import { AgentMark } from "../chrome/AgentMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -767,7 +767,7 @@ function InboxCard({
               imageClassName="size-3.5"
             />
           ) : (
-            <StackMark
+            <AgentMark
               tone={projectToneAt(item.projectPath)}
               className="size-[15px] shrink-0"
             />

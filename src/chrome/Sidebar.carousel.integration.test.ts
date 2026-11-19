@@ -239,7 +239,9 @@ beforeEach(async () => {
       constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
         this.emit = () => callback([{ isIntersecting: true }]);
       }
-      observe() {
+      observe(target: Element) {
+        // Orbs watch whether they are on screen; only the list's end loads.
+        if (target.closest(".agent-mark")) return;
         loadMoreCallbacks.add(this.emit);
       }
       unobserve() {

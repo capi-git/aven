@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useMarkdownMode } from "../chrome/MarkdownModeToggle";
 import { ProjectLogoIcon } from "../chrome/ProjectLogoIcon";
-import { StackMark } from "../chrome/StackMark";
+import { AgentMark } from "../chrome/AgentMark";
 import { OverlayNav } from "../chrome/TitleBar";
 import { WindowControls } from "../chrome/WindowControls";
 import { useDragResize } from "../hooks/useDragResize";
@@ -359,7 +359,7 @@ function NoteProjectMark({ cwd, logos }: { cwd: string } & ProjectMarks) {
           imageClassName="size-3.5"
         />
       ) : (
-        <StackMark tone={projectToneAt(cwd)} className="size-[15px] shrink-0" />
+        <AgentMark tone={projectToneAt(cwd)} className="size-[15px] shrink-0" />
       )}
       <span className="min-w-0 truncate">{project}</span>
     </span>

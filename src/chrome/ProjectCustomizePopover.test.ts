@@ -54,11 +54,11 @@ async function open() {
 
 const preview = () =>
   document.body.querySelector<HTMLElement>(
-    '[role="dialog"] .project-mark .stack-mark',
+    '[role="dialog"] .project-mark .agent-mark',
   );
 
 describe("mark", () => {
-  it("shows the project's Stack beside its name, with no sigil to pick", async () => {
+  it("shows the project's orb beside its name, with no sigil to pick", async () => {
     await open();
     expect(preview()).not.toBeNull();
     expect(
@@ -98,7 +98,7 @@ describe("colour", () => {
       tabGroupColor("app"),
     );
     expect(checked()).toEqual([MARK_TONES[automatic].label]);
-    // The Stack is drawn in it (Grey has no tone of its own).
+    // The orb is drawn in it (Grey has no tone of its own).
     const tone = MARK_TONES[automatic].tone;
     expect(preview()!.dataset.tone).toBe(tone === "grey" ? undefined : tone);
   });
