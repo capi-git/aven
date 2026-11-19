@@ -180,21 +180,6 @@ export const SETTINGS = {
     rowDescription:
       "Show small games to play in empty chats. Turn off for a quieter workspace.",
   }),
-  newChatInk: defineSetting({
-    ...defineStoredSetting<boolean>({
-      key: "aven.newChatInk",
-      ...storedBoolean(true, true),
-      changeEvent: "aven:new-chat-ink-change",
-      storageChanges: true,
-    }),
-    section: "general",
-    label: "Ink in new chats",
-    description: "Let the pointer stir soft ink in a new chat.",
-    keywords:
-      "background animation smoke halftone pointer mouse cursor empty chat welcome",
-    rowDescription:
-      "Moving the pointer over a new chat stirs soft ink. Hold to gather it.",
-  }),
   notesEnabled: defineSetting({
     ...defineStoredSetting<boolean>({
       key: "monocode.notesEnabled",

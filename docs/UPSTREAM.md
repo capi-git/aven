@@ -2,7 +2,7 @@
 
 Aven is maintained independently. Its version numbers do not imply feature parity with MonoCode, and its updater uses Aven releases only. Compatible upstream changes are reviewed and adapted with their attribution intact.
 
-## New-chat ink — 6 November 2026
+## New-chat ink — 6 November 2026 (removed 19 November 2026 at the owner's request)
 
 Ported MonoCode's empty-session canvas from its native app (`crates/monocode-gpui/src/ink_field.rs` and the ordered dither in `visuals/dither.rs`, MonoCode main `5a31951`; added upstream in dbec0c5) as `src/lib/inkField.ts`. The simulation (trails, the held vortex and its burst, ripples, the curl, advection and fade) and the 3px Bayer halftone follow upstream's numbers. Aven draws it in the interface's text colour instead of the spinner's slate, peach and pink, without the held orb's coloured bloom, on one canvas with a pixel per cell, and only while something moves. Like upstream it is off with a chat background or Reduce motion; the games replace it when they are on. Credited in NOTICE.
 
