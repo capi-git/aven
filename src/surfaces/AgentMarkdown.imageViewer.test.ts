@@ -114,6 +114,47 @@ describe("pictures in a chat reply", () => {
     });
   });
 
+  it("draws display copies but opens the full pictures", async () => {
+    unregister = registerImageViewerHost();
+    const copy = new Uint8Array([...png, 1]);
+    core.invoke.mockImplementation(async (command: string) => {
+      if (command === "notes_image_path") return NOTE_FILE;
+      if (command === "read_display_image") return copy.buffer;
+      throw new Error(`unexpected ${command}`);
+    });
+    await render(`![Diagram](${NOTE})\n\n![](shots/after.png)`);
+    expect(core.invoke).toHaveBeenCalledWith("read_display_image", {
+      path: NOTE_FILE,
+      maxWidth: 1600,
+    });
+    expect(core.invoke).toHaveBeenCalledWith("read_display_image", {
+      path: `${CWD}/shots/after.png`,
+      maxWidth: 1600,
+    });
+    expect(fs.readBinaryFile).not.toHaveBeenCalled();
+    const note = host.querySelector<HTMLImageElement>("[data-note-image]")!;
+    expect(note.getAttribute("src")).toBe("blob:shot");
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".markdown-image-open")!.click(),
+    );
+    expect(imageViewerSnapshot()?.items).toEqual([
+      { name: "Diagram", src: `asset://localhost${NOTE_FILE}` },
+      { name: "after.png", path: `${CWD}/shots/after.png` },
+    ]);
+  });
+
+  it("draws a note's full file when its copy will not draw", async () => {
+    await render(`![Diagram](${NOTE})`);
+    const note = host.querySelector<HTMLImageElement>("[data-note-image]")!;
+    expect(note.getAttribute("src")).toBe("blob:shot");
+    await act(async () => {
+      note.dispatchEvent(new Event("error"));
+    });
+    expect(host.querySelector("[data-note-image]")?.getAttribute("src")).toBe(
+      `asset://localhost${NOTE_FILE}`,
+    );
+  });
+
   it("keeps opening the file, and leaves a note's picture plain, without a viewer", async () => {
     await render(`![Diagram](${NOTE})\n\n![](shots/after.png)`);
     expect(host.querySelector("[data-note-image]")).not.toBeNull();

@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
+import { readDisplayImage } from "../lib/displayImage";
 import { sniffImageMime } from "../lib/filePreview";
 import { basename, readBinaryFile } from "../lib/fs";
 import { openImageGroupAt } from "../lib/imageViewer";
 import "./LocalMarkdownImage.css";
 
 /**
- * Reads visible image files through the existing bounded binary reader. A
- * click shows the picture in the image viewer, with the other pictures in
- * the same reply; without a viewer it opens the file.
+ * Reads visible image files as a smaller display copy (the original when it
+ * is small or a copy fails). A click shows the full picture in the image
+ * viewer, with the other pictures in the same reply; without a viewer it
+ * opens the file.
  */
 export function LocalMarkdownImage({
   path,
@@ -22,6 +24,8 @@ export function LocalMarkdownImage({
   const host = useRef<HTMLSpanElement>(null);
   const [visible, setVisible] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Set when a display copy would not draw; the original is read instead.
+  const [original, setOriginal] = useState(false);
   const [state, setState] = useState<{ src?: string; error?: string }>({});
   const viewer = useImageViewerAvailable();
   const open =
@@ -55,7 +59,7 @@ export function LocalMarkdownImage({
     let cancelled = false;
     let created: string | undefined;
     setState({});
-    void readBinaryFile(path)
+    void (original ? readBinaryFile(path) : readDisplayImage(path))
       .then((bytes) => {
         if (cancelled) return;
         const mime = sniffImageMime(bytes);
@@ -73,7 +77,7 @@ export function LocalMarkdownImage({
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [path, visible, attempt]);
+  }, [path, visible, attempt, original]);
 
   const label = alt || basename(path);
   const image = state.src ? (
@@ -83,7 +87,10 @@ export function LocalMarkdownImage({
       loading="lazy"
       decoding="async"
       draggable={false}
-      onError={() => setState({ error: "The image could not be displayed." })}
+      onError={() => {
+        if (!original) setOriginal(true);
+        else setState({ error: "The image could not be displayed." });
+      }}
     />
   ) : null;
   return (

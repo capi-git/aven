@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "./icons";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { attachmentPreviewSrc } from "../lib/attachments";
+import {
+  ATTACHMENT_THUMB_WIDTH,
+  INLINE_COPY_MIN_BYTES,
+  inlineDisplayCopy,
+  readDisplayImage,
+} from "../lib/displayImage";
 import { sniffImageMime } from "../lib/filePreview";
 import { readBinaryFile } from "../lib/fs";
 import {
@@ -31,9 +37,30 @@ export function AttachmentChip({ attachment, group, onRemove }: Props) {
     path: string;
     src: string;
   }>();
+  // The chip draws a small copy; the viewer and Open use the original.
+  const [inlineCopy, setInlineCopy] = useState<{ src: string; url: string }>();
+  const [original, setOriginal] = useState(false);
   const path = attachment.path;
   const imagePath =
     attachment.kind === "image" && !directPreview ? path : undefined;
+  const largeInline =
+    attachment.kind === "image" &&
+    !!directPreview &&
+    attachment.size >= INLINE_COPY_MIN_BYTES;
+  const copyKey = `${attachment.id}:${attachment.size}`;
+
+  useEffect(() => {
+    if (!largeInline || !directPreview) return;
+    let cancelled = false;
+    void inlineDisplayCopy(copyKey, directPreview, ATTACHMENT_THUMB_WIDTH).then(
+      (url) => {
+        if (!cancelled && url) setInlineCopy({ src: directPreview, url });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [largeInline, directPreview, copyKey]);
 
   useEffect(() => {
     if (!imagePath || visible) return;
@@ -58,7 +85,11 @@ export function AttachmentChip({ attachment, group, onRemove }: Props) {
     if (!imagePath || !visible) return;
     let cancelled = false;
     let created: string | undefined;
-    void readBinaryFile(imagePath)
+    void (
+      original
+        ? readBinaryFile(imagePath)
+        : readDisplayImage(imagePath, ATTACHMENT_THUMB_WIDTH)
+    )
       .then((bytes) => {
         if (cancelled) return;
         const mime = sniffImageMime(bytes);
@@ -73,10 +104,14 @@ export function AttachmentChip({ attachment, group, onRemove }: Props) {
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [imagePath, visible]);
+  }, [imagePath, visible, original]);
 
+  const inlinePreview =
+    !original && inlineCopy?.src === directPreview
+      ? inlineCopy?.url
+      : directPreview;
   const preview =
-    directPreview ??
+    inlinePreview ??
     (savedPreview?.path === imagePath ? savedPreview?.src : undefined);
   const image = attachment.kind === "image" && preview;
   const viewer = useImageViewerAvailable();
@@ -92,6 +127,7 @@ export function AttachmentChip({ attachment, group, onRemove }: Props) {
       src={preview}
       alt=""
       className="size-9 shrink-0 rounded-lg object-cover"
+      onError={original ? undefined : () => setOriginal(true)}
     />
   ) : (
     <>
