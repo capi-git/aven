@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   forgetMotionImage,
+  hasMotionPages,
   holdMotionPages,
+  holdMotionPagesForSwitch,
   lastMotionImage,
   panesMoved,
   refreshMotionImages,
@@ -258,5 +260,29 @@ describe("browser pages in motions", () => {
     expect(web.log.filter((line) => line === "release")).toHaveLength(1);
     releaseMotionPages(second);
     expect(web.log.filter((line) => line === "release")).toHaveLength(2);
+  });
+
+  it("holds every page through a workspace switch: shown ones fresh, hidden ones as last seen", async () => {
+    expect(hasMotionPages()).toBe(false);
+    const shown = fakePage(async () => "data:shown");
+    const seen = fakePage(async () => "data:seen-before");
+    registerMotionPage("seen", seen.page);
+    // Seen once while showing, then hidden (its workspace left the screen).
+    await refreshMotionImages(["seen"]);
+    seen.page.capture = async () => null;
+    const never = fakePage(async () => null);
+    registerMotionPage("shown", shown.page);
+    registerMotionPage("never", never.page);
+    expect(hasMotionPages()).toBe(true);
+    const held = await holdMotionPagesForSwitch();
+    expect([...held].sort()).toEqual(["seen", "shown"]);
+    expect(shown.log).toEqual(["hold data:shown"]);
+    expect(seen.log).toEqual(["hold data:seen-before"]);
+    // Never seen: no picture to stand in, so it stays live.
+    expect(never.log).toEqual([]);
+    releaseMotionPages(held);
+    await vi.runAllTimersAsync();
+    expect(shown.log.at(-1)).toBe("release");
+    expect(seen.log.at(-1)).toBe("release");
   });
 });
