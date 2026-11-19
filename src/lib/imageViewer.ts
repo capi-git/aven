@@ -294,6 +294,7 @@ export function dataUrlBytes(src: string): number | undefined {
 /**
  * Pictures in rendered Markdown that the viewer can open: a local image file
  * (`data-local-image` holds its path) or an inline one (`data-viewer-image`,
+ * with the full picture in `data-viewer-src` when a smaller copy is drawn, else
  * drawn by the `img` inside it).
  */
 const VIEWER_IMAGES = "[data-local-image], [data-viewer-image]";
@@ -306,7 +307,12 @@ function itemFromElement(element: Element): ImageViewerItem | null {
     element instanceof HTMLImageElement
       ? element
       : element.querySelector("img");
-  const src = path ? undefined : image?.getAttribute("src") || undefined;
+  // A chat may draw a smaller copy; the viewer shows the full picture.
+  const src = path
+    ? undefined
+    : element.getAttribute("data-viewer-src") ||
+      image?.getAttribute("src") ||
+      undefined;
   if (!path && !src) return null;
   const caption = element
     .closest("figure")

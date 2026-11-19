@@ -274,6 +274,15 @@ describe("pictures in one reply", () => {
     expect(imageGroupSummary(group.items, group.index)).toBe("2 of 3");
   });
 
+  it("opens the full picture when the reply draws a smaller copy", () => {
+    const root = reply(
+      `<button data-viewer-image="" data-viewer-name="Note" data-viewer-src="asset://localhost/full.png"><img src="blob:copy"></button>`,
+    );
+    expect(collectImageGroup(root.querySelector("img")!).items).toEqual([
+      { name: "Note", src: "asset://localhost/full.png" },
+    ]);
+  });
+
   it("opens a picture outside any reply on its own", () => {
     const loose = document.createElement("span");
     loose.setAttribute("data-local-image", "/w/loose.png");

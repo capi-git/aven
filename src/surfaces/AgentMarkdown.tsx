@@ -64,7 +64,15 @@ import {
 } from "../lib/wordReveal";
 import { useRewrapAnchor } from "../hooks/useRewrapAnchor";
 import { copyText } from "../lib/clipboard";
-import { openImageGroupAt } from "../lib/imageViewer";
+import {
+  CHAT_IMAGE_WIDTH,
+  INLINE_COPY_MIN_BYTES,
+  inlineDisplayCopy,
+  inlineImageKey,
+  readDisplayImage,
+} from "../lib/displayImage";
+import { sniffImageMime } from "../lib/filePreview";
+import { dataUrlBytes, openImageGroupAt } from "../lib/imageViewer";
 import { INBOX_MEDIA_PREFIXES, isInboxMediaUrl } from "../lib/inboxMedia";
 import { isNoteImagePath } from "../lib/noteImages";
 import { InboxMedia } from "./InboxMedia";
@@ -571,30 +579,59 @@ function CodeCopyButton({ code }: { code: string }) {
 
 type MarkdownImageProps = ComponentProps<"img"> & { node?: unknown };
 
-const noteImageSrcCache = new Map<string, string>();
+/** Note asset → its file on disk, so a remount skips the lookup. */
+const noteImagePathCache = new Map<string, string>();
 
 function NoteAssetImage({
   asset,
   alt,
   ...props
 }: Omit<MarkdownImageProps, "src" | "node"> & { asset: string }) {
-  const [src, setSrc] = useState(() => noteImageSrcCache.get(asset));
+  const [path, setPath] = useState(() => noteImagePathCache.get(asset));
+  const [display, setDisplay] = useState<{ path: string; src: string }>();
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (src) return;
+    if (path) return;
     let cancelled = false;
     void invoke<string>("notes_image_path", { asset })
-      .then((path) => {
-        const next = convertFileSrc(path);
-        noteImageSrcCache.set(asset, next);
-        if (!cancelled) setSrc(next);
+      .then((next) => {
+        noteImagePathCache.set(asset, next);
+        if (!cancelled) setPath(next);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [asset, src]);
+  }, [asset, path]);
 
+  // The note draws a display copy; the viewer opens the full file.
+  useEffect(() => {
+    if (!path || failed) return;
+    let cancelled = false;
+    let created: string | undefined;
+    void readDisplayImage(path, CHAT_IMAGE_WIDTH)
+      .then((bytes) => {
+        if (cancelled) return;
+        const mime = sniffImageMime(bytes);
+        // SVG and other kinds the copy reader cannot name draw from the file.
+        if (!mime) return setFailed(true);
+        created = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        setDisplay({ path, src: created });
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [path, failed]);
+
+  const full = path ? convertFileSrc(path) : undefined;
+  const copy = !failed && display?.path === path ? display?.src : undefined;
+  // Nothing is drawn until the copy is ready, unless copies failed.
+  const src = copy ?? (failed ? full : undefined);
   const image = (
     <img
       {...props}
@@ -603,9 +640,53 @@ function NoteAssetImage({
       data-note-image={asset}
       draggable={false}
       loading="lazy"
+      onError={copy ? () => setFailed(true) : undefined}
     />
   );
-  return src ? <ViewableImage name={alt}>{image}</ViewableImage> : image;
+  return src ? (
+    <ViewableImage name={alt} fullSrc={full}>
+      {image}
+    </ViewableImage>
+  ) : (
+    image
+  );
+}
+
+/**
+ * A large inline (`data:`) picture draws a smaller copy made in the page,
+ * once; the viewer still opens the inline original.
+ */
+function InlineDataImage({
+  src,
+  alt,
+  ...props
+}: Omit<MarkdownImageProps, "node"> & { src: string }) {
+  const [copy, setCopy] = useState<{ src: string; url: string }>();
+  const [failed, setFailed] = useState(false);
+  const large = (dataUrlBytes(src) ?? 0) >= INLINE_COPY_MIN_BYTES;
+
+  useEffect(() => {
+    if (!large) return;
+    let cancelled = false;
+    void inlineDisplayCopy(inlineImageKey(src), src).then((url) => {
+      if (!cancelled && url) setCopy({ src, url });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [src, large]);
+
+  const drawn = !failed && copy?.src === src ? copy.url : src;
+  return (
+    <ViewableImage name={alt} fullSrc={src}>
+      <img
+        {...props}
+        src={drawn}
+        alt={alt ?? ""}
+        onError={drawn !== src ? () => setFailed(true) : undefined}
+      />
+    </ViewableImage>
+  );
 }
 
 /**
@@ -614,9 +695,12 @@ function NoteAssetImage({
  */
 function ViewableImage({
   name,
+  fullSrc,
   children,
 }: {
   name?: string;
+  /** The full picture for the viewer, when the page draws a smaller copy. */
+  fullSrc?: string;
   children: ReactNode;
 }) {
   const viewer = useImageViewerAvailable();
@@ -628,6 +712,7 @@ function ViewableImage({
       className="markdown-image-open"
       data-viewer-image=""
       data-viewer-name={name?.trim() || undefined}
+      data-viewer-src={fullSrc}
       title={`Open ${label}`}
       aria-label={`Open ${label}`}
       onClick={(event) => {
@@ -649,11 +734,7 @@ function MarkdownImage({
   const { cwd, onOpenFile } = useContext(FileOpenContext);
   const url = typeof src === "string" ? src.trim() : "";
   if (url.startsWith("data:image/")) {
-    return (
-      <ViewableImage name={alt}>
-        <img {...props} src={url} alt={alt ?? ""} />
-      </ViewableImage>
-    );
+    return <InlineDataImage {...props} src={url} alt={alt} />;
   }
   if (isNoteImagePath(url)) {
     return <NoteAssetImage {...props} asset={url} alt={alt} />;
