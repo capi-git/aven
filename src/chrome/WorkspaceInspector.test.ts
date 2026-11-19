@@ -263,9 +263,15 @@ describe("WorkspaceInspector lifecycle", () => {
       onOpenCommit: props.onOpenCommit,
     });
     await render({ tab: "files" });
+    // Hidden, not removed: its effects stop, its last view waits for a return.
     expect(mocks.unmountChanges).toHaveBeenCalledOnce();
-    expect(container.querySelector('[data-content="changes"]')).toBeNull();
+    const hiddenChanges = container.querySelector<HTMLElement>(
+      '[data-content="changes"]',
+    );
+    expect(hiddenChanges?.style.display).toBe("none");
     await render({ tab: "changes" });
+    expect(hiddenChanges?.isConnected).toBe(true);
+    expect(hiddenChanges?.style.display).toBe("");
     await render({ active: false });
     expect(mocks.unmountChanges).toHaveBeenCalledTimes(1);
     expect(mocks.changes).toHaveBeenLastCalledWith(

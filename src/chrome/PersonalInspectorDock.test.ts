@@ -53,8 +53,6 @@ async function render(workspaceVisible = true) {
         width: 280,
         onWidthChange: vi.fn(),
         cwd: "/p",
-        tab: "files",
-        onTabChange: vi.fn(),
         onOpenFile: vi.fn(),
         onOpenDiff: vi.fn(),
         onOpenAllChanges: vi.fn(),

@@ -94,3 +94,20 @@ html.theme-light .merge-line {
 .merge-line-action[data-tone="success"]:hover:enabled {
   background: color-mix(in srgb, var(--merge-line-ok) 16%, transparent);
 }
+
+/* The agent is doing what the line asked: a quiet grey pill with an orb,
+   in the action's place. Not a button. */
+.merge-line-working {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--aven-radius-capsule);
+  background: var(--aven-control-bg);
+  font-size: var(--text-ui-label);
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--aven-muted);
+}

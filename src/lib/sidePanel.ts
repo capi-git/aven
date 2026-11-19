@@ -1,6 +1,7 @@
 import {
   loadPersonalInspector,
   savePersonalInspector,
+  type PersonalInspector,
 } from "./personalWorkspace";
 
 /**
@@ -34,6 +35,37 @@ export function subscribeSidePanelOpen(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
+  };
+}
+
+export type SidePanelTab = PersonalInspector["tab"];
+
+/**
+ * The side panel's tab. Kept here for the same reason as its open state: a
+ * tab click re-renders the panel alone, not the whole app.
+ */
+let tab: SidePanelTab | null = null;
+const tabListeners = new Set<() => void>();
+
+export function sidePanelTab(): SidePanelTab {
+  return (tab ??= loadPersonalInspector().tab);
+}
+
+export function setSidePanelTab(next: SidePanelTab) {
+  if (sidePanelTab() === next) return;
+  tab = next;
+  for (const listener of [...tabListeners]) listener();
+  // Saved after the click's frame, so the write never delays the new tab.
+  setTimeout(() => {
+    if (tab !== next) return;
+    savePersonalInspector({ ...loadPersonalInspector(), tab: next });
+  }, 0);
+}
+
+export function subscribeSidePanelTab(listener: () => void): () => void {
+  tabListeners.add(listener);
+  return () => {
+    tabListeners.delete(listener);
   };
 }
 
@@ -109,4 +141,6 @@ export function resetSidePanelForTest() {
   opening = null;
   open = null;
   listeners.clear();
+  tab = null;
+  tabListeners.clear();
 }

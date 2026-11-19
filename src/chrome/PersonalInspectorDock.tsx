@@ -7,14 +7,19 @@ import {
 } from "react";
 import { useDragResize } from "../hooks/useDragResize";
 import { useSidePanelOpen } from "../hooks/useSidePanelOpen";
+import { useSidePanelTab } from "../hooks/useSidePanelTab";
 import { motionReduced } from "../lib/motion";
-import { beginSidePanelOpen, endSidePanelOpen } from "../lib/sidePanel";
+import {
+  beginSidePanelOpen,
+  endSidePanelOpen,
+  setSidePanelTab,
+} from "../lib/sidePanel";
 import {
   WorkspaceInspector,
   type WorkspaceInspectorProps,
 } from "./WorkspaceInspector";
 
-type Props = Omit<WorkspaceInspectorProps, "active"> & {
+type Props = Omit<WorkspaceInspectorProps, "active" | "tab" | "onTabChange"> & {
   /** The workspace is on screen; the panel shows while it is and is open. */
   workspaceVisible: boolean;
   width: number;
@@ -28,7 +33,13 @@ export function PersonalInspectorDock({
 }: Props) {
   const open = useSidePanelOpen();
   const active = workspaceVisible && open;
-  const props: WorkspaceInspectorProps = { ...rest, active };
+  const tab = useSidePanelTab();
+  const props: WorkspaceInspectorProps = {
+    ...rest,
+    active,
+    tab,
+    onTabChange: setSidePanelTab,
+  };
   const shown = useRef(active);
   useLayoutEffect(() => {
     const opened = active && !shown.current;

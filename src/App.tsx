@@ -107,7 +107,6 @@ import {
 } from "react";
 import { PersonalInspectorDock } from "./chrome/PersonalInspectorDock";
 import { SidePanelOpen } from "./chrome/SidePanelOpen";
-import type { WorkspaceInspectorTab } from "./chrome/WorkspaceInspector";
 import { useNativeFloatingSidebar } from "./hooks/useNativeFloatingSidebar";
 import { useProjectStatus } from "./hooks/useProjectStatus";
 import { useSidebarVisibility } from "./hooks/useSidebarVisibility";
@@ -197,7 +196,9 @@ import {
 import {
   afterSidePanelOpens,
   setSidePanelOpen,
+  setSidePanelTab,
   sidePanelOpen,
+  sidePanelTab,
 } from "./lib/sidePanel";
 import {
   addStripPane,
@@ -2276,22 +2277,22 @@ export default function App({
   const tabCloseScope = "project" as const;
   const currentProjectDock = findProjectTerminal(projectTerminals, projectCwd);
   const dockVisible = !!currentProjectDock?.open;
-  // The side panel's tab and width. Whether it is open is kept apart
-  // (sidePanel.ts), so showing or hiding it redraws only it and its toggles.
-  const [inspector, setInspector] = useState(() => {
-    const { tab, width } = loadPersonalInspector();
-    return { tab, width };
-  });
-  const onInspectorTab = useCallback((tab: WorkspaceInspectorTab) => {
-    setInspector((previous) =>
-      previous.tab === tab ? previous : { ...previous, tab },
-    );
-  }, []);
+  // The side panel's width. Whether it is open and its tab are kept apart
+  // (sidePanel.ts), so a toggle or tab click redraws only the panel.
+  const [inspector, setInspector] = useState(() => ({
+    width: loadPersonalInspector().width,
+  }));
+  const onInspectorTab = setSidePanelTab;
   const onInspectorWidth = useCallback((width: number) => {
     setInspector((previous) => ({ ...previous, width }));
   }, []);
   useEffect(() => {
-    savePersonalInspector({ ...inspector, open: sidePanelOpen() });
+    savePersonalInspector({
+      ...loadPersonalInspector(),
+      width: inspector.width,
+      open: sidePanelOpen(),
+      tab: sidePanelTab(),
+    });
   }, [inspector]);
   const [filesSearchOpen, setFilesSearchOpen] = useState(false);
   const [searchFocusToken, setSearchFocusToken] = useState(0);
@@ -2408,8 +2409,6 @@ export default function App({
         ?.focus(),
     );
   }, [showSidePanel]);
-  const inspectorRef = useRef(inspector);
-  inspectorRef.current = inspector;
   // The tour may open the side panel on Changes to point at it, and puts it
   // back as it was when it moves on. Nothing else is opened for it.
   const tourPrepare = useMemo<TourPrepare>(
@@ -2417,7 +2416,7 @@ export default function App({
       changes: () => {
         const before = {
           open: sidePanelOpen(),
-          tab: inspectorRef.current.tab,
+          tab: sidePanelTab(),
         };
         if (before.open && before.tab === "changes") return;
         onInspectorTab("changes");
@@ -12804,8 +12803,6 @@ export default function App({
                       onWidthChange={onInspectorWidth}
                       cwd={sidebarCwd}
                       gitCwd={gitCwd}
-                      tab={inspector.tab}
-                      onTabChange={onInspectorTab}
                       onClose={onCloseInspector}
                       onOpenFile={onOpenFile}
                       onOpenTerminal={onOpenTerminal}
