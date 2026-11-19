@@ -246,6 +246,25 @@ export type TurnWait = {
   helpers?: number;
 };
 
+/**
+ * The chat's provider reported its usage limit. Unlike `TurnWait` it
+ * outlives the turn: queued messages wait for `resetsAt`, then send (see
+ * `releaseUsageHold`). A hold with no reset time holds nothing back. In
+ * memory only.
+ */
+export type UsageHold = {
+  /** The provider whose limit it is; another provider is not held. */
+  harness: HarnessId;
+  /** When the limit resets (epoch ms), if the provider said. */
+  resetsAt?: number;
+  /** The turn ended while the limit held it, so its work was cut off. */
+  cutOff?: boolean;
+  /** Send a short "continue" at reset when nothing else is queued. */
+  continueAtReset?: boolean;
+  /** The reset has passed; kept only to say so after a cut-off turn. */
+  reset?: boolean;
+};
+
 export type Block = {
   /** Provider item identity while streaming; distinct adjacent items stay separate. */
   messageKey?: string;
@@ -353,6 +372,8 @@ export type Session = {
   busy?: boolean;
   /** What the running turn waits on besides its own output. In memory only. */
   waitingOn?: TurnWait;
+  /** The usage limit holds this chat's messages back. In memory only. */
+  usageHold?: UsageHold;
   /** Follow-ups waiting for the current turn; restored paused from durable history. */
   queuedMessages?: QueuedMessage[];
   /** Paused after user stops current turn; resuming waits for continued turn. */
