@@ -2128,7 +2128,37 @@ fn github_pr_head_filter(repo: &str, branch: &str) -> Option<String> {
     Some(format!("{owner}:{branch}"))
 }
 
+/// How long a copy's GitHub repository name is reused without asking `gh`.
+const GITHUB_REPO_TTL: Duration = Duration::from_secs(600);
+
+/// Each copy's remote URLs when its repository name was read, the name, and when.
+type GithubRepoCache = HashMap<PathBuf, (String, String, Instant)>;
+
+/// The GitHub repository a copy belongs to (`owner/name`). The name only
+/// changes with the copy's remotes, yet every pull request, check and work
+/// item read needs it, and each `gh repo view` is a network call: keep each
+/// copy's answer, keyed by its remote URLs, for GITHUB_REPO_TTL.
 fn git_github_repo_for(root: &Path) -> Result<String, String> {
+    static REPOS: Mutex<Option<GithubRepoCache>> = Mutex::new(None);
+    let remotes =
+        git_stdout(root, &["config", "--get-regexp", r"^remote\..*\.url$"]).unwrap_or_default();
+    if let Ok(mut repos) = REPOS.lock() {
+        if let Some((seen, repo, at)) = repos.get_or_insert_with(HashMap::new).get(root) {
+            if *seen == remotes && at.elapsed() < GITHUB_REPO_TTL {
+                return Ok(repo.clone());
+            }
+        }
+    }
+    let repo = git_github_repo_lookup(root)?;
+    if let Ok(mut repos) = REPOS.lock() {
+        repos
+            .get_or_insert_with(HashMap::new)
+            .insert(root.to_path_buf(), (remotes, repo.clone(), Instant::now()));
+    }
+    Ok(repo)
+}
+
+fn git_github_repo_lookup(root: &Path) -> Result<String, String> {
     let json = gh_checked(root, &["repo", "view", "--json", "nameWithOwner"])?;
     #[derive(Deserialize)]
     struct View {

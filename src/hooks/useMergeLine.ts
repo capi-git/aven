@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { logError } from "../lib/errors";
 import { githubWorkItemThread } from "../lib/githubTasks";
-import { gitPrChecks, type PrChecks } from "../lib/prChecks";
+import type { PrChecks } from "../lib/prChecks";
+import { sharedPrChecks } from "../lib/sharedGitReads";
 import { mergeLineState, type MergeLineDetails } from "../lib/mergeLine";
 import { useMergePath, type MergePathState } from "./useMergePath";
 
@@ -98,7 +99,7 @@ export function useMergeLine(cwd: string, enabled: boolean): MergeLineData {
     void (async () => {
       let checks: PrChecks | null = null;
       try {
-        checks = await gitPrChecks(cwd, number);
+        checks = await sharedPrChecks(cwd, number, force);
       } catch (cause) {
         logError("merge line: pull request", cause);
         return;

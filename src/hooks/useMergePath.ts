@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText, logError } from "../lib/errors";
 import {
-  gitDiffIndex,
-  gitPrStatus,
-  subscribeGitChanged,
+  gitChangeAffects,
+  subscribeGitChangedPath,
   type GitDiffIndex,
   type GitPr,
 } from "../lib/fs";
 import { MERGE_PATH_REFRESH_S } from "../lib/mergePath";
+import { sharedDiffIndex, sharedPrStatus } from "../lib/sharedGitReads";
 
 export type MergePathState = {
   index: GitDiffIndex | null;
@@ -30,6 +30,11 @@ export type MergePathState = {
  * by default) while `enabled` and the window is visible. A hidden window
  * pauses the countdown. Without `countdown`, `nextIn` stays null, so a caller
  * that shows no "Refreshing in" does not draw again every second.
+ *
+ * Reads are shared per copy (`sharedGitReads`): every chat on one copy and
+ * the Checks tab make one read between them. Only a Git change in this copy
+ * reads again at once, and not while the window is hidden: it reads when the
+ * window shows again.
  */
 export function useMergePath(
   cwd: string,
@@ -46,6 +51,7 @@ export function useMergePath(
   const [loading, setLoading] = useState(false);
   const [nextIn, setNextIn] = useState<number | null>(null);
   const [nonce, setNonce] = useState(0);
+  const freshNext = useRef(false);
   const cwdRef = useRef(cwd);
   cwdRef.current = cwd;
 
@@ -63,14 +69,18 @@ export function useMergePath(
     }
     let cancelled = false;
     let inFlight = false;
+    let changedWhileHidden = false;
     let left = refreshS;
-    const load = async () => {
+    // A refresh the caller asked for reads afresh; mounting may share a read.
+    const firstFresh = freshNext.current;
+    freshNext.current = false;
+    const load = async (fresh = false) => {
       if (cancelled || inFlight) return;
       inFlight = true;
       setLoading(true);
       setNextIn(null);
       try {
-        const indexRead = gitDiffIndex(cwd);
+        const indexRead = sharedDiffIndex(cwd, fresh);
         // Local Git answers long before GitHub: say what it shows at once,
         // once, so a line that applies can hold its place.
         void indexRead.then(
@@ -83,7 +93,7 @@ export function useMergePath(
         const [nextIndex, nextPr] = await Promise.all([
           indexRead,
           // No remote means no pull request to look for.
-          gitPrStatus(cwd).catch((cause) => {
+          sharedPrStatus(cwd, fresh).catch((cause) => {
             logError("pull request status", cause);
             return null;
           }),
@@ -112,11 +122,19 @@ export function useMergePath(
     }, 1000);
     const onVisibility = () => {
       if (document.hidden) setNextIn(null);
-      else void load();
+      else {
+        const fresh = changedWhileHidden;
+        changedWhileHidden = false;
+        void load(fresh);
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
-    const unsubscribe = subscribeGitChanged(() => void load());
-    void load();
+    const unsubscribe = subscribeGitChangedPath((path) => {
+      if (!gitChangeAffects(path, cwd)) return;
+      if (document.hidden) changedWhileHidden = true;
+      else void load(true);
+    });
+    void load(firstFresh);
     return () => {
       cancelled = true;
       window.clearInterval(tick);
@@ -125,6 +143,9 @@ export function useMergePath(
     };
   }, [cwd, enabled, nonce, refreshS, countdown]);
 
-  const refresh = useCallback(() => setNonce((value) => value + 1), []);
+  const refresh = useCallback(() => {
+    freshNext.current = true;
+    setNonce((value) => value + 1);
+  }, []);
   return { index, localIndex, pr, error, loading, nextIn, refresh };
 }
