@@ -120,6 +120,23 @@ const button = (label: string) =>
   )!;
 
 async function askTwoQuestions() {
+  return ask([
+    {
+      question: "Which part should I start with?",
+      header: "Scope",
+      multiSelect: false,
+      options: [{ label: "Parser" }, { label: "Renderer" }],
+    },
+    {
+      question: "What should I fix?",
+      header: "Fixes",
+      multiSelect: true,
+      options: [{ label: "Significant bugs" }, { label: "Style nits" }],
+    },
+  ]);
+}
+
+async function ask(questions: unknown[]) {
   const turn = sendClaudeTurn({
     sessionId: "s1",
     cwd: "/repo",
@@ -150,22 +167,7 @@ async function askTwoQuestions() {
       subtype: "can_use_tool",
       tool_name: "AskUserQuestion",
       tool_use_id: "tool_ask_1",
-      input: {
-        questions: [
-          {
-            question: "Which part should I start with?",
-            header: "Scope",
-            multiSelect: false,
-            options: [{ label: "Parser" }, { label: "Renderer" }],
-          },
-          {
-            question: "What should I fix?",
-            header: "Fixes",
-            multiSelect: true,
-            options: [{ label: "Significant bugs" }, { label: "Style nits" }],
-          },
-        ],
-      },
+      input: { questions },
     },
   });
   await waitFor(() => !!session.pendingQuestion, "question card");
@@ -253,5 +255,55 @@ describe("Answering Claude Code's two-question card", () => {
     });
     render();
     expect(container.querySelector("[data-question-form]")).toBeNull();
+  });
+});
+
+describe("Answering Claude Code's suggested option", () => {
+  it("shows the clean label but sends Claude its original label", async () => {
+    const { turn } = await ask([
+      {
+        question: "Which parser should I use?",
+        header: "Parser",
+        multiSelect: false,
+        options: [
+          { label: "Hand-written" },
+          {
+            label: "Generated (Recommended)",
+            preview: "grammar.peg\n  rule = a / b",
+          },
+        ],
+      },
+    ]);
+    const suggested = button("Generated");
+    expect(suggested.textContent).not.toContain("(Recommended)");
+    expect(suggested.textContent).toContain("Recommended");
+    expect(suggested.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      container.querySelector("[data-question-preview]")?.textContent,
+    ).toBe("grammar.peg\n  rule = a / b");
+    act(() => suggested.focus());
+    act(() => {
+      suggested.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await waitFor(() => !!responseFor("ask_1"), "Claude's answer");
+    expect(responseFor("ask_1")).toMatchObject({
+      response: {
+        response: {
+          updatedInput: {
+            answers: {
+              "Which parser should I use?": "Generated (Recommended)",
+            },
+          },
+        },
+      },
+    });
+    emit({ type: "result", subtype: "success", session_id: "sess_1" });
+    await turn;
   });
 });
