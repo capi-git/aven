@@ -1299,8 +1299,8 @@ export async function runDevPerf(
             "the chat with pictures beside another chat",
           );
           // A wide window leaves each half wider than the chat's column:
-          // move the divider over until the chat is about 600 px wide.
-          const extra = scroller.getBoundingClientRect().width - 600;
+          // move the divider over until the chat is about 660 px wide.
+          const extra = scroller.getBoundingClientRect().width - 660;
           const beside = sashBeside(scroller);
           if (extra > 0 && beside) {
             const box = beside.sash.getBoundingClientRect();
