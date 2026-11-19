@@ -185,7 +185,9 @@ import {
 } from "./lib/workspaceIntents";
 import { setWorkspaceSurfaceDrag } from "./lib/workspaceSurfaceDrag";
 import {
+  hasMotionPages,
   holdMotionPages,
+  holdMotionPagesForSwitch,
   refreshMotionImages,
   panesMoved,
   releaseMotionPages,
@@ -6489,11 +6491,28 @@ export default function App({
       setBranchAnchor(null);
       setFilePickerOpen(false);
       closeUtilityViews();
-      restoreProfileWorkspace(
-        id,
-        profilesRef.current.selectProfile,
-        onSelectProject,
-      );
+      const switchNow = () =>
+        restoreProfileWorkspace(
+          id,
+          profilesRef.current.selectProfile,
+          onSelectProject,
+        );
+      // A web page is a native view the workspace's redraw cannot move with:
+      // the old workspace's page would linger a frame over the new one, and
+      // the new one's show a frame late. Pictures stand in for every page
+      // through the switch, and the live pages come back once it is drawn.
+      if (
+        motionReduced() ||
+        id === profilesRef.current.activeProfileId ||
+        !hasMotionPages()
+      ) {
+        switchNow();
+        return;
+      }
+      void holdMotionPagesForSwitch().then((held) => {
+        flushSync(switchNow);
+        releaseMotionPagesAfter(held, 0);
+      });
     },
     [onSelectProject, setFilePickerOpen, closeUtilityViews],
   );
