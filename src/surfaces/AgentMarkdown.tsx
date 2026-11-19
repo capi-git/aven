@@ -56,6 +56,7 @@ import { useFileLinkMenu } from "../hooks/useFileLinkMenu";
 import { useFileReferences } from "../hooks/useFileReferences";
 import { useImageViewerAvailable } from "../hooks/useImageViewer";
 import { motionReduced } from "../lib/motion";
+import { pictureSize, rememberPictureSize } from "../lib/pictureSizes";
 import {
   rehypeRevealWords,
   REVEAL_OPTIONS,
@@ -579,6 +580,8 @@ function NoteAssetImage({
   ...props
 }: Omit<MarkdownImageProps, "src" | "node"> & { asset: string }) {
   const [src, setSrc] = useState(() => noteImageSrcCache.get(asset));
+  // Seen before, the picture reserves its box before it loads again.
+  const [size, setSize] = useState(() => pictureSize(asset));
 
   useEffect(() => {
     if (src) return;
@@ -597,12 +600,18 @@ function NoteAssetImage({
 
   const image = (
     <img
+      width={size?.width}
+      height={size?.height}
       {...props}
       src={src}
       alt={alt ?? ""}
       data-note-image={asset}
       draggable={false}
       loading="lazy"
+      onLoad={(event) => {
+        const known = rememberPictureSize(asset, event.currentTarget);
+        if (known && known !== size) setSize(known);
+      }}
     />
   );
   return src ? <ViewableImage name={alt}>{image}</ViewableImage> : image;
